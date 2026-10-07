@@ -88,6 +88,34 @@ Avoid `down --volumes`: the named volume holds the sidecar's Tailscale identity.
 The deployment never touches unrelated containers, networks, images, the host
 Tailscale daemon, or the host's Serve configuration. It needs no reboot.
 
+## Re-rendering markdown after a renderer upgrade
+
+Markdown is rendered at ingest, so a deploy that bumps `RENDERER_VERSION` only
+affects new content. Older documents keep their previous rendition (which is
+fine to serve) until you run the `rerender` subcommand once after the deploy.
+It takes the data-directory lock, so stop the writer while it runs; writes from
+agents fail during that window, which is usually a minute or two. Run it from
+the repository root on agent-1:
+
+```bash
+sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml stop writer'
+sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml run --rm --no-deps writer node dist/main.js rerender --all --dry-run'
+sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml run --rm --no-deps writer node dist/main.js rerender --all'
+sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml up -d --no-deps writer'
+curl -fsS https://waypoint.tail7aca06.ts.net/healthz
+```
+
+Each run prints a JSON summary (`sources`, `current`, `queued`, `remaining`,
+`missing`, `failed`). The work is queued locally; the writer's committer
+uploads each new rendition and inserts its rows when the writer starts again,
+and the reader switches to the newest version once the rows are pushed.
+`--collection <id or public id>` limits the scope and `--limit <n>` caps a run;
+both are safe to repeat, because sources that already have a current-version
+rendition are skipped. A source blob missing from the local cache is fetched
+from R2. `--renderer markdown --version <n>` is accepted as a guard and fails if
+the image renders a different version. `docker compose run` reuses the writer
+service's env file, data volume and user, so no secrets are loaded in your shell.
+
 ## Public reader Workers
 
 The reader job runs on the same self-hosted runner after the writer job succeeds. It checks out the same commit, installs the frozen lockfile, builds the reader, then deploys dev before prod. No reader credentials enter GitHub Actions secrets. The runner reads mode-600 `~/.config/waypoint/cloudflare.env` for `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `reader-dev.env` or `reader-prod.env` for the seven reader values listed in [provisioning](../docs/provisioning.md#part-2-cloud-reader). The deploy script writes them to a mode-600 temporary JSON file for `wrangler secret bulk`, then deletes it immediately after upload.

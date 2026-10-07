@@ -49,7 +49,7 @@ Exactly one writer process owns a data directory. Within that process:
    - Apply `remove`, then `files`.
    - Resolve the head path: the explicit one, or the parent's if it still exists, or the inferred one. Otherwise return `head_path_missing` or `head_path_ambiguous`.
 6. **Skip no-op writes.** If the manifest and head path equal the parent's, return the parent with `unchanged: true` and create nothing.
-7. **Render.** Every markdown file gets a rendition at the current renderer version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows.
+7. **Render.** Every markdown file gets a rendition at the current renderer version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows. (Older blobs get a new version's rendition from `waypoint-writer rerender`, through the same queue tables; see [Other queued work](#other-queued-work).)
 8. **Queue.** In one `queue.db` transaction, insert:
    - the `pending_revisions` row
    - its `pending_renditions` rows
@@ -123,6 +123,7 @@ These are idempotent and **never give up**:
 - **Collection snapshots** (`pending_snapshots`): written whenever the title, metadata, or tombstone of a *committed* collection changes. Those changes themselves are written directly to `waypoint.db`, because there is nothing to upload first. The `pending_snapshots` row is written **before** the `waypoint.db` change, so a crash can only cause a harmless extra snapshot, never a lost one. Deleting an already-deleted collection keeps the original `deleted_at`.
 - **Bucket deletes** (`pending_r2_deletes`). For example, dropping a revision from the queue deletes its DR manifest, if one was already written. That way a restore from the bucket can't bring the revision back.
 - **Purges** (`pending_purges`); see [Purge](#purge).
+- **Standalone renditions** (`pending_renditions` rows with no pending revision, queued by `waypoint-writer rerender`). Each pass, before the other work, the committer takes every queued rendition whose source blob has a `blobs` row: it uploads the output if it is in `pending_blobs`, inserts the output's `blobs` row and the `renditions` row in one `waypoint.db` transaction (`INSERT OR IGNORE`; an existing row for the same key stands), deletes the queue rows, and triggers a push. Renditions whose source is only in a pending revision are left for that revision's commit. A queued rendition whose source is no longer stored or referenced, or whose output blob is missing locally, is dropped with a log line; running `rerender` again recreates it. A bucket error pauses this step for the usual 5–10 minute retry delay. Dropping a queued revision or purging a collection prunes queue rows nothing pending references, which includes rendition rows not yet committed; `rerender` is idempotent, so run it again if that happens.
 
 ### Retry policy
 
@@ -210,7 +211,7 @@ On startup and before every push, the writer compares three values: `WAYPOINT_EN
 |---|---|
 | A writer machine | Start a writer on any tailnet machine with an empty data directory. Turso Sync bootstraps `waypoint.db` from the cloud. The local blob store refills lazily from the bucket as files are read. |
 | Committed but unpushed rows (disk lost during a cloud DB outage) | `waypoint-writer restore --merge` replays DR manifests and snapshots from the bucket that are missing from the cloud DB. |
-| The cloud DB | Create a new Turso Sync DB and run `waypoint-writer restore --from-bucket`. It replays every `collections/*.json` and `manifests/*.json`. A manifest is ignored if its collection snapshot is missing or its parent's manifest is missing (this applies down the chain). Restore is the only time Waypoint lists the bucket. |
+| The cloud DB | Create a new Turso Sync DB and run `waypoint-writer restore --from-bucket`. It replays every `collections/*.json` and `manifests/*.json`. A manifest is ignored if its collection snapshot is missing or its parent's manifest is missing (this applies down the chain). Restore is the only time Waypoint lists the bucket. Manifests hold the renditions made at ingest, not ones added later by `rerender`, so run `waypoint-writer rerender --all` after a restore. |
 | The bucket | Not recoverable. This is the durability floor. If that ever matters, add R2 replication or a second bucket. |
 
 Phase 1 builds restore and **tests** it; it doesn't stay theoretical.

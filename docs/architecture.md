@@ -112,7 +112,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 
 ## Renditions
 
-- **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request.
+- **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request. After a renderer version bump, `waypoint-writer rerender` gives existing markdown a rendition at the new version (see [Re-rendering](#re-rendering-after-a-version-bump)).
 - **Self-contained.** CSS is inlined, and syntax highlighting is done at render time, also inlined. As a result a rendition displays correctly with no internet access on the tailnet, and the reader only has to stream it.
 - **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`. Both the writer and the reader serve that path as static files, with no token.
 - **No CDNs.** Renditions never reference external CDNs.
@@ -122,4 +122,30 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
   - Rendering runs in a worker thread with a fixed stack size, so it never blocks the writer's event loop.
 - **Version policy.** Any change to renderer dependencies, CSS, language set, template, or options bumps `RENDERER_VERSION`. A golden-output hash test enforces this.
 - **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
+- **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
+
+### The reading template (renderer version 2, "Folio")
+
+The template follows the Folio design spec (section 8). The CSS is inlined in every rendition.
+- **Typography:** the system sans stack at 17px/1.65 (16.5px under 600px) with a 68ch measure, warm paper and ink colours matching the viewer, light and dark via `prefers-color-scheme`. No webfonts.
+- **Headings** keep their deterministic slug `id`s and get a hover anchor: `<a class="anchor" href="#id" aria-hidden="true" tabindex="-1">#</a>` as the first child. The rendition `<title>` and the contents block use the heading text without it.
+- **Contents:** when a document has 4 or more `h2`s (excluding the footnotes label), a `<details class="toc" open>` "Contents" list of them goes after the first `h1` (or after the front matter when there is no `h1`). The frame script collapses it on screens up to 600px wide; without JS it stays open.
+- **GitHub alerts:** a Markdown blockquote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` (any case), with content after it, becomes `<div class="markdown-alert markdown-alert-<kind>">` with a `p.markdown-alert-title`. Blockquotes written as raw HTML are left alone.
+- **Tables** are wrapped in `<div class="table-wrap" tabindex="0" role="region" aria-label="Table">`, which scrolls horizontally with CSS-only scroll shadows and on wide screens breaks out of the measure, up to `min(100vw − 64px, 1120px)`. Only the outermost table of a nested set is wrapped.
+- **Code blocks** keep Shiki's dual-theme highlighting; fenced blocks with a simple language label get `data-lang`, shown as a small label.
+- **Images** alone in a paragraph (optionally inside a link) become `<figure class="image">`, centred with a hairline border. Inline images stay inline.
+- **Frame reporter.** One inline script (about 330 bytes, identical in every rendition) tells the embedding shell which document is showing. The public reader needs it because its sandboxed iframe has an opaque origin the shell cannot read. On load and on `hashchange` it calls `parent.postMessage({ type: "waypoint:location", href: location.pathname + location.hash }, "*")`, and does nothing when the rendition is the top-level page. The payload is only the path and fragment: no origin, query string, referrer, cookies, or document content. The path is the frame's own URL, which the shell set and already knows; on the reader it carries the revision capability, never the share token, and the target is `"*"` only because the rendition cannot know its parent's origin. Shells must check `event.source === frame.contentWindow` and ignore anything else. On the writer it is redundant with the same-origin URL sync, and harmless.
+- **Print:** no measure limit, no anchors or contents block, and tables and code avoid page breaks.
+
+Fallback documents (oversized, too deeply nested, or failed renders) use the same template and script.
+
+### Re-rendering after a version bump
+
+`waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>]` renders current-version renditions for markdown blobs that lack one. It also accepts `--renderer markdown --version <n>` and refuses a version other than the one it was built with. Operating it: [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
+- **Scope:** the markdown files of committed revisions and of pending (not failed) revisions, in all collections or one (by ID or public ID), including trashed collections, excluding collections being purged. Each distinct source blob is rendered once.
+- **Queue path.** Outputs go into the local blob store with `pending_blobs` and `pending_renditions` rows, exactly as at ingest. The committer then commits each queued rendition whose source blob is committed: it uploads the output, inserts its `blobs` and `renditions` rows (blob before row), clears the queue rows, and pushes. A rendition whose source is still only in a pending revision commits with that revision. See [write-path-and-sync.md](write-path-and-sync.md#other-queued-work).
+- **Missing sources.** A writer bootstrapped from the cloud fetches blobs lazily, so `rerender` downloads a source that is missing locally from the bucket, like the viewer does.
+- **Idempotent and resumable.** Sources that already have a current-version rendition, committed or queued, are skipped. `--limit` caps the renditions generated per run; running again continues. The JSON summary reports `sources`, `current`, `queued`, `remaining`, and the `missing` and `failed` source hashes.
+- **Runs with the server stopped.** It takes the data-directory lock like `serve` and `restore`, so it refuses to run while the writer is up. The writer's committer uploads the queued work on its next start.
+- **Not in DR manifests.** A revision's manifest is written once, at commit, so renditions added later are not in it. A restore from the bucket brings back the renditions recorded at ingest; run `rerender` again afterwards.
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.

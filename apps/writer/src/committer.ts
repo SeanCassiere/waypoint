@@ -79,7 +79,9 @@ export type CommitterStep =
   | "gc_after_rows"
   | "gc_after_bucket_delete"
   | "delete_after_reference_snapshot"
-  | "purge_mid_gc";
+  | "purge_mid_gc"
+  | "rendition_after_blob_upload"
+  | "rendition_after_rows";
 
 export class WriterCommitter implements Committer {
   private running = false;
@@ -91,6 +93,7 @@ export class WriterCommitter implements Committer {
   private abortController = new AbortController();
   accountError: string | null = null;
   lastUploadAt: number | null = null;
+  private renditionsRetryAt: number | null = null;
   constructor(
     readonly waypoint: Db,
     readonly queue: Db,
@@ -206,12 +209,16 @@ export class WriterCommitter implements Committer {
         passFailed = true;
         console.error(`Committer scheduling failed: ${reason(error)}`);
       }
-      if (!this.stopping && (this.accountError || passFailed || next?.at != null)) {
+      const nextAt =
+        next?.at != null && this.renditionsRetryAt !== null
+          ? Math.min(next.at, this.renditionsRetryAt)
+          : (next?.at ?? this.renditionsRetryAt);
+      if (!this.stopping && (this.accountError || passFailed || nextAt != null)) {
         const wait = this.accountError
           ? 300_000
           : passFailed
             ? 5_000
-            : Math.max(1, next!.at! - this.now());
+            : Math.max(1, nextAt! - this.now());
         this.timer = setTimeout(() => {
           if (this.accountError) this.accountError = null;
           this.wake();
@@ -654,7 +661,149 @@ export class WriterCommitter implements Committer {
     );
     this.rerun = true;
   }
+  /**
+   * Renditions queued without a revision (`waypoint-writer rerender`) whose source blob is
+   * already committed. Blob before row: the output is uploaded and gets its `blobs` row in the
+   * same transaction as the `renditions` row, or before it. Renditions whose source is still
+   * only in a pending revision are left for that revision's commit.
+   */
+  private async commitRenditions(): Promise<void> {
+    if (this.renditionsRetryAt !== null && this.renditionsRetryAt > this.now()) return;
+    this.renditionsRetryAt = null;
+    let pendingSources: Set<string> | undefined;
+    for (const rendition of await this.queue.all<Rendition>(
+      "SELECT * FROM pending_renditions ORDER BY source_hash,renderer,renderer_version",
+    )) {
+      if (this.stopping || this.accountError) return;
+      const key = [rendition.source_hash, rendition.renderer, rendition.renderer_version] as const;
+      if (!(await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.source_hash]))) {
+        pendingSources ??= await this.pendingSources();
+        if (!pendingSources.has(rendition.source_hash))
+          await this.dropRendition(rendition, "source blob is no longer stored");
+        continue;
+      }
+      try {
+        const pending = await this.queue.get<{ size: number }>(
+          "SELECT size FROM pending_blobs WHERE hash=?",
+          [rendition.output_hash],
+        );
+        let uploaded: number | undefined;
+        if (pending) {
+          let size: number;
+          try {
+            size = (await stat(this.blobs.path(rendition.output_hash))).size;
+          } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+              await this.dropRendition(rendition, "output blob missing locally");
+              continue;
+            }
+            throw error;
+          }
+          if (size !== pending.size) {
+            await this.dropRendition(rendition, "output blob size changed");
+            continue;
+          }
+          await this.bucket.putIfAbsent(
+            blobKey(rendition.output_hash),
+            () => createReadStream(this.blobs.path(rendition.output_hash)),
+            {
+              contentType: "application/octet-stream",
+              contentLength: size,
+              checksumSHA256: Buffer.from(rendition.output_hash.slice(7), "hex").toString("base64"),
+              signal: this.abortController.signal,
+            },
+          );
+          uploaded = size;
+          this.lastUploadAt = this.now();
+          await this.step("rendition_after_blob_upload");
+        }
+        if (this.stopping) return;
+        const committed = await this.waypoint.transaction(async (tx) => {
+          if (uploaded !== undefined)
+            await tx.run("INSERT OR IGNORE INTO blobs (hash,size,uploaded_at) VALUES (?,?,?)", [
+              rendition.output_hash,
+              uploaded,
+              this.now(),
+            ]);
+          if (!(await tx.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.source_hash])))
+            return false;
+          if (!(await tx.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.output_hash])))
+            throw new CommitValidationError(`Referenced blob has no row: ${rendition.output_hash}`);
+          // Insert-only: if another writer already stored this key, its row stands.
+          await tx.run(
+            "INSERT OR IGNORE INTO renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+            [...key, rendition.output_hash, rendition.output_mime, rendition.created_at],
+          );
+          return true;
+        });
+        if (!committed) {
+          if (uploaded !== undefined)
+            await this.queue.run(
+              "INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
+              [blobKey(rendition.output_hash), this.now()],
+            );
+          continue;
+        }
+        await this.step("rendition_after_rows");
+        await this.queue.transaction(async (tx) => {
+          await tx.run(
+            "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=? AND output_hash=?",
+            [...key, rendition.output_hash],
+          );
+          if (await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.output_hash]))
+            await tx.run("DELETE FROM pending_blobs WHERE hash=?", [rendition.output_hash]);
+        });
+        this.sync.triggerPush();
+      } catch (error) {
+        if (error instanceof SimulatedCrash) throw error;
+        if (error instanceof BucketError && error.kind === "account") {
+          this.accountError = error.message;
+          this.notify();
+          return;
+        }
+        if (this.stopping) return;
+        console.error(`Rendition commit failed: ${reason(error)}`);
+        this.renditionsRetryAt = this.now() + this.delay();
+        return;
+      }
+    }
+  }
+  private async pendingSources(): Promise<Set<string>> {
+    const sources = new Set<string>();
+    for (const item of await this.queue.all<{ manifest_json: string }>(
+      "SELECT manifest_json FROM pending_revisions",
+    ))
+      for (const file of Object.values(parseManifest(item.manifest_json).files))
+        sources.add(file.hash);
+    return sources;
+  }
+  private async dropRendition(rendition: Rendition, why: string): Promise<void> {
+    console.error(
+      `Dropping queued rendition of ${rendition.source_hash} (${rendition.renderer} v${rendition.renderer_version}): ${why}`,
+    );
+    const sources = await this.pendingSources();
+    await this.queue.transaction(async (tx) => {
+      await tx.run(
+        "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=? AND output_hash=?",
+        [
+          rendition.source_hash,
+          rendition.renderer,
+          rendition.renderer_version,
+          rendition.output_hash,
+        ],
+      );
+      if (
+        !sources.has(rendition.output_hash) &&
+        !(await tx.get("SELECT 1 FROM pending_renditions WHERE output_hash=?", [
+          rendition.output_hash,
+        ]))
+      )
+        await tx.run("DELETE FROM pending_blobs WHERE hash=?", [rendition.output_hash]);
+    });
+  }
   private async processOther(): Promise<void> {
+    await this.commitRenditions();
+    if (this.stopping || this.accountError) return;
     for (const row of await this.queue.all<{
       collection_id: string;
       requested_at: number;

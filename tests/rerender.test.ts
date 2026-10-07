@@ -1,0 +1,458 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { BlobStore } from "../apps/writer/src/blob-store.js";
+import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.js";
+import { blobKey, SimulatedCrash, WriterCommitter } from "../apps/writer/src/committer.js";
+import type { Config } from "../apps/writer/src/config.js";
+import { openDatabases, type Db, type SyncClient } from "../apps/writer/src/db.js";
+import { IngestService, type Renderer } from "../apps/writer/src/ingest.js";
+import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
+import { ReadModel } from "../apps/writer/src/read-model.js";
+import { writerRenderer } from "../apps/writer/src/renderer.js";
+import { parseRerenderArgs, rerender } from "../apps/writer/src/rerender.js";
+import { SyncLoop } from "../apps/writer/src/sync-loop.js";
+
+class FakeRenderer implements Renderer {
+  readonly rendererName = "markdown";
+  calls = 0;
+  constructor(readonly rendererVersion: number) {}
+  render(source: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    if (mime !== "text/markdown") return Promise.resolve(null);
+    this.calls++;
+    const text = new TextDecoder().decode(source);
+    return Promise.resolve({
+      bytes: new TextEncoder().encode(`<v${this.rendererVersion}>${text}`),
+      mime: "text/html",
+    });
+  }
+}
+
+let dir: string;
+let waypoint: Db;
+let queue: Db;
+let sync: SyncClient;
+let blobs: BlobStore;
+let bucket: MemoryBucket;
+let reads: ReadModel;
+let ingest: IngestService;
+let committer: WriterCommitter;
+let clock: number;
+let steps: ((step: string) => Promise<void> | void) | undefined;
+
+async function put(text: string): Promise<string> {
+  return (await blobs.put(Readable.from([text]))).hash;
+}
+async function commitAll(): Promise<void> {
+  committer.wake();
+  await committer.drain();
+}
+async function count(db: Db, sql: string, args: (string | number)[] = []): Promise<number> {
+  return (await db.get<{ n: number }>(sql, args))?.n ?? 0;
+}
+function newCommitter(): WriterCommitter {
+  return new WriterCommitter(
+    waypoint,
+    queue,
+    blobs,
+    bucket,
+    new SyncLoop(queue, sync, () => clock, waypoint),
+    ingest,
+    () => clock,
+    () => 0,
+    72,
+    async (step) => steps?.(step),
+  );
+}
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "waypoint-rerender-"));
+  const config: Config = {
+    environment: "dev",
+    dataDir: dir,
+    baseUrl: "http://localhost:7410",
+    port: 7410,
+    queueGiveUpHours: 72,
+    maxBlobBytes: 1_000_000,
+    sync: false,
+  };
+  const opened = await openDatabases(config);
+  waypoint = opened.waypoint;
+  queue = opened.queue;
+  sync = opened.syncClient;
+  await migrate(waypoint, waypointMigrations);
+  await migrate(queue, queueMigrations);
+  blobs = new BlobStore(dir, 1_000_000);
+  bucket = new MemoryBucket();
+  reads = new ReadModel(waypoint, queue, config.baseUrl);
+  clock = Date.now();
+  steps = undefined;
+  // Content ingested by an older writer: version 1 renditions only.
+  ingest = new IngestService(waypoint, queue, blobs, reads, sync, undefined, new FakeRenderer(1));
+  committer = newCommitter();
+});
+afterEach(async () => {
+  committer.stop();
+  await committer.drain();
+  await waypoint.close();
+  await queue.close();
+  await rm(dir, { recursive: true, force: true });
+});
+
+async function seed(): Promise<{
+  alpha: string;
+  beta: string;
+  readme: string;
+  notes: string;
+  shared: string;
+  image: string;
+}> {
+  const readme = await put("# Readme");
+  const notes = await put("# Notes");
+  const shared = await put("# Shared");
+  const image = await put("not markdown");
+  const alpha = await ingest.create({
+    title: "Alpha",
+    files: [
+      { path: "README.md", hash: readme },
+      { path: "notes.md", hash: notes },
+      { path: "copy.md", hash: shared },
+      { path: "plot.png", hash: image },
+    ],
+  });
+  const beta = await ingest.create({
+    title: "Beta",
+    files: [{ path: "index.md", hash: shared }],
+  });
+  await commitAll();
+  expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_revisions")).toBe(0);
+  expect(await count(waypoint, "SELECT COUNT(*) AS n FROM renditions")).toBe(3);
+  return {
+    alpha: alpha.collection_id,
+    beta: beta.collection_id,
+    readme,
+    notes,
+    shared,
+    image,
+  };
+}
+
+describe("rerender", () => {
+  it("parses its flags and rejects ambiguous or mismatched ones", () => {
+    const renderer = { rendererName: "markdown", rendererVersion: 2 };
+    expect(parseRerenderArgs(["--all"], renderer)).toEqual({ dryRun: false });
+    expect(
+      parseRerenderArgs(
+        [
+          "--collection",
+          "col_x",
+          "--dry-run",
+          "--limit",
+          "5",
+          "--renderer",
+          "markdown",
+          "--version",
+          "2",
+        ],
+        renderer,
+      ),
+    ).toEqual({ collection: "col_x", dryRun: true, limit: 5 });
+    const invalid: Array<[string[], string]> = [
+      [[], "exactly one of --all or --collection"],
+      [["--all", "--collection", "col_x"], "exactly one of --all or --collection"],
+      [["--collection"], "--collection needs a value"],
+      [["--all", "--limit", "0"], "--limit must be a positive integer"],
+      [["--all", "--limit", "1.5"], "--limit must be a positive integer"],
+      [["--all", "--version", "1"], "This writer renders version 2"],
+      [["--all", "--renderer", "asciidoc"], "only the markdown renderer"],
+      [["--all", "--force"], "Unknown option --force"],
+    ];
+    for (const [args, message] of invalid)
+      expect(() => parseRerenderArgs(args, renderer)).toThrow(message);
+  });
+
+  it("reports what it would do on a dry run without writing anything", async () => {
+    const { image } = await seed();
+    const v2 = new FakeRenderer(2);
+    const summary = await rerender(waypoint, queue, blobs, v2, { dryRun: true, limit: 2 });
+    expect(summary).toMatchObject({
+      renderer: "markdown",
+      renderer_version: 2,
+      collection: null,
+      dry_run: true,
+      sources: 3,
+      current: 0,
+      queued: 2,
+      remaining: 1,
+      missing: [],
+      failed: [],
+    });
+    expect(v2.calls).toBe(0);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs")).toBe(0);
+    expect(summary.missing).not.toContain(image);
+  });
+
+  it("queues one current-version rendition per markdown source, idempotently", async () => {
+    const { readme, notes, shared, image } = await seed();
+    const v2 = new FakeRenderer(2);
+    const first = await rerender(waypoint, queue, blobs, v2, { dryRun: false });
+    expect(first).toMatchObject({ sources: 3, current: 0, queued: 3, remaining: 0 });
+    expect(v2.calls).toBe(3);
+    const rows = await queue.all<{
+      source_hash: string;
+      renderer: string;
+      renderer_version: number;
+      output_hash: string;
+      output_mime: string;
+    }>(
+      "SELECT source_hash,renderer,renderer_version,output_hash,output_mime FROM pending_renditions ORDER BY source_hash",
+    );
+    expect(rows.map((row) => row.source_hash)).toEqual([readme, notes, shared].toSorted());
+    expect(rows.every((row) => row.renderer === "markdown" && row.renderer_version === 2)).toBe(
+      true,
+    );
+    expect(rows.some((row) => row.source_hash === image)).toBe(false);
+    for (const row of rows) {
+      expect(row.output_mime).toBe("text/html");
+      expect(await blobs.has(row.output_hash)).toBe(true);
+      expect(
+        await queue.get("SELECT size FROM pending_blobs WHERE hash=?", [row.output_hash]),
+      ).toBeTruthy();
+    }
+    // The writer serves queued renditions straight away, newest version first.
+    const queued = await reads.rendition(readme);
+    expect(queued?.hash).toBe(rows.find((row) => row.source_hash === readme)?.output_hash);
+
+    const again = await rerender(waypoint, queue, blobs, v2, { dryRun: false });
+    expect(again).toMatchObject({ sources: 3, current: 3, queued: 0, remaining: 0 });
+    expect(v2.calls).toBe(3);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(3);
+  });
+
+  it("resumes across --limit runs and scopes to one collection", async () => {
+    const { alpha, beta, shared } = await seed();
+    const v2 = new FakeRenderer(2);
+    const publicId = (await waypoint.get<{ public_id: string }>(
+      "SELECT public_id FROM collections WHERE id=?",
+      [beta],
+    ))!.public_id;
+    const scoped = await rerender(waypoint, queue, blobs, v2, {
+      dryRun: false,
+      collection: publicId,
+    });
+    expect(scoped).toMatchObject({ collection: beta, sources: 1, queued: 1 });
+    expect(
+      (await queue.all<{ source_hash: string }>("SELECT source_hash FROM pending_renditions")).map(
+        (row) => row.source_hash,
+      ),
+    ).toEqual([shared]);
+    const step = await rerender(waypoint, queue, blobs, v2, {
+      dryRun: false,
+      collection: alpha,
+      limit: 1,
+    });
+    expect(step).toMatchObject({ sources: 3, current: 1, queued: 1, remaining: 1 });
+    const rest = await rerender(waypoint, queue, blobs, v2, { dryRun: false, collection: alpha });
+    expect(rest).toMatchObject({ current: 2, queued: 1, remaining: 0 });
+    await expect(
+      rerender(waypoint, queue, blobs, v2, { dryRun: false, collection: "col_missing" }),
+    ).rejects.toThrow("Collection not found");
+  });
+
+  it("includes sources of pending revisions and skips collections being purged", async () => {
+    const { alpha } = await seed();
+    const draft = await put("# Draft");
+    const pending = await ingest.add(alpha, { files: [{ path: "draft.md", hash: draft }] });
+    expect(pending.sync_state).toBe("pending");
+    const summary = await rerender(waypoint, queue, blobs, new FakeRenderer(2), {
+      dryRun: true,
+      collection: alpha,
+    });
+    expect(summary.sources).toBe(4);
+    const beta = (await waypoint.get<{ id: string }>(
+      "SELECT id FROM collections WHERE title='Beta'",
+    ))!.id;
+    await queue.run("INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)", [
+      beta,
+      clock,
+    ]);
+    const purging = await rerender(waypoint, queue, blobs, new FakeRenderer(2), {
+      dryRun: true,
+      collection: beta,
+    });
+    expect(purging.sources).toBe(0);
+  });
+
+  it("fetches sources missing from the local store and reports ones it cannot get", async () => {
+    const { readme, notes } = await seed();
+    await blobs.delete(readme);
+    await blobs.delete(notes);
+    bucket.objects.delete(blobKey(notes));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const summary = await rerender(
+      waypoint,
+      queue,
+      blobs,
+      new FakeRenderer(2),
+      { dryRun: false },
+      bucket,
+    );
+    spy.mockRestore();
+    expect(summary.missing).toEqual([notes]);
+    expect(summary).toMatchObject({ queued: 2, remaining: 1 });
+    expect(await blobs.has(readme)).toBe(true);
+    const offline = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    expect(offline.missing).toEqual([notes]);
+  });
+
+  it("commits queued renditions through the committer, blob before row", async () => {
+    const { readme, notes, shared } = await seed();
+    await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    const outputs = await queue.all<{ source_hash: string; output_hash: string }>(
+      "SELECT source_hash,output_hash FROM pending_renditions",
+    );
+    const seen: string[] = [];
+    steps = async (step) => {
+      if (step !== "rendition_after_blob_upload") return;
+      seen.push(step);
+      // At upload time the object exists and no row references it yet.
+      const uploaded = outputs.filter((item) => bucket.objects.has(blobKey(item.output_hash)));
+      const rows = await count(
+        waypoint,
+        "SELECT COUNT(*) AS n FROM renditions WHERE renderer_version=2",
+      );
+      expect(rows).toBe(uploaded.length - 1);
+    };
+    await commitAll();
+    expect(seen).toHaveLength(3);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    for (const { source_hash, output_hash } of outputs) {
+      expect(bucket.objects.has(blobKey(output_hash))).toBe(true);
+      expect(await waypoint.get("SELECT size FROM blobs WHERE hash=?", [output_hash])).toBeTruthy();
+      expect(
+        await queue.get("SELECT 1 FROM pending_blobs WHERE hash=?", [output_hash]),
+      ).toBeFalsy();
+      expect(
+        await waypoint.get(
+          "SELECT output_hash FROM renditions WHERE source_hash=? AND renderer='markdown' AND renderer_version=2",
+          [source_hash],
+        ),
+      ).toEqual({ output_hash });
+      // Both versions exist; readers pick the newest.
+      expect(
+        await count(waypoint, "SELECT COUNT(*) AS n FROM renditions WHERE source_hash=?", [
+          source_hash,
+        ]),
+      ).toBe(2);
+      expect((await reads.rendition(source_hash))?.hash).toBe(output_hash);
+      expect(
+        await waypoint.get<{ output_hash: string }>(
+          "SELECT output_hash FROM renditions WHERE source_hash=? AND renderer='markdown' ORDER BY renderer_version DESC LIMIT 1",
+          [source_hash],
+        ),
+      ).toEqual({ output_hash });
+    }
+    expect([readme, notes, shared].toSorted()).toEqual(
+      outputs.map((item) => item.source_hash).toSorted(),
+    );
+    const done = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    expect(done).toMatchObject({ current: 3, queued: 0 });
+  });
+
+  it("retries after bucket failures and a crash between upload and rows", async () => {
+    await seed();
+    await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false, limit: 1 });
+    const [queued] = await queue.all<{ output_hash: string }>(
+      "SELECT output_hash FROM pending_renditions",
+    );
+    bucket.fail = new BucketError("unavailable", "transient", 503);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await commitAll();
+    spy.mockRestore();
+    expect(
+      await count(waypoint, "SELECT COUNT(*) AS n FROM renditions WHERE renderer_version=2"),
+    ).toBe(0);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(1);
+
+    delete bucket.fail;
+    committer.stop();
+    committer = newCommitter();
+    steps = (step) => {
+      if (step === "rendition_after_blob_upload") throw new SimulatedCrash(step);
+    };
+    await expect(
+      (async () => {
+        committer.wake();
+        await committer.drain();
+      })(),
+    ).rejects.toThrow(SimulatedCrash);
+    expect(bucket.objects.has(blobKey(queued!.output_hash))).toBe(true);
+    expect(
+      await count(waypoint, "SELECT COUNT(*) AS n FROM renditions WHERE renderer_version=2"),
+    ).toBe(0);
+
+    steps = undefined;
+    committer = newCommitter();
+    await commitAll();
+    expect(
+      await count(waypoint, "SELECT COUNT(*) AS n FROM renditions WHERE renderer_version=2"),
+    ).toBe(1);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs")).toBe(0);
+  });
+
+  it("drops queued renditions whose source is gone and whose output went missing", async () => {
+    const { readme } = await seed();
+    await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    const rows = await queue.all<{ source_hash: string; output_hash: string }>(
+      "SELECT source_hash,output_hash FROM pending_renditions ORDER BY source_hash",
+    );
+    const lost = rows.find((row) => row.source_hash !== readme)!;
+    await blobs.delete(lost.output_hash);
+    const orphan = await put("# Orphan");
+    const orphanOutput = await put("<v2># Orphan");
+    await queue.run("INSERT INTO pending_blobs (hash,size) VALUES (?,?)", [orphanOutput, 12]);
+    await queue.run(
+      "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+      [orphan, "markdown", 2, orphanOutput, "text/html", clock],
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await commitAll();
+    spy.mockRestore();
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs")).toBe(0);
+    expect(
+      await count(waypoint, "SELECT COUNT(*) AS n FROM renditions WHERE renderer_version=2"),
+    ).toBe(rows.length - 1);
+    expect(bucket.objects.has(blobKey(orphanOutput))).toBe(false);
+    // Running rerender again recreates what was dropped.
+    const again = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    expect(again.queued).toBe(1);
+  });
+
+  it("renders with the real writer renderer at the current version", async () => {
+    const { alpha, readme, notes, shared } = await seed();
+    const summary = await rerender(waypoint, queue, blobs, writerRenderer, {
+      dryRun: false,
+      collection: alpha,
+      limit: 1,
+    });
+    expect(summary).toMatchObject({
+      renderer_version: writerRenderer.rendererVersion,
+      queued: 1,
+      remaining: 2,
+    });
+    const row = await queue.get<{ source_hash: string; output_hash: string }>(
+      "SELECT source_hash,output_hash FROM pending_renditions",
+    );
+    if (!row) throw new Error("Missing queued rendition");
+    expect([readme, notes, shared]).toContain(row.source_hash);
+    const html = await readFile(blobs.path(row.output_hash), "utf8");
+    expect(html).toContain('"waypoint:location"');
+  });
+});
