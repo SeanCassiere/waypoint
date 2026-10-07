@@ -71,6 +71,8 @@ The writer trusts any client on the tailnet, but defends against *websites* atta
 - JSON endpoints require `Content-Type: application/json` (415 otherwise).
 - Mutating requests from another origin are rejected with 403. The check is `Sec-Fetch-Site: cross-site`/`same-site`, or an `Origin` header that doesn't match the writer.
 - Requests without browser headers (MCP, curl) pass.
+- Viewer HTML pages send `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, so another site can't frame them and trick a click on Revoke or Share. `/raw` (framed by the viewer itself) and the JSON API don't.
+- GETs have no side effects but can be triggered cross-site (`<img src=…>`), so costly ones are bounded: diffs and Changes-page Markdown run under time budgets in a worker thread (D47).
 
 ## Code that runs on agent machines
 

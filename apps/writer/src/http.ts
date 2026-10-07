@@ -305,6 +305,16 @@ export function createApp(s: HttpServices): Hono {
         throw new WaypointError("forbidden", "Cross-origin write rejected");
     }
     await next();
+    // Viewer pages can't be framed by other sites (clickjacking their buttons). /raw is framed
+    // by the viewer itself and the API isn't HTML, so both are left alone.
+    if (
+      !c.req.path.startsWith("/raw/") &&
+      !c.req.path.startsWith("/api/") &&
+      c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")
+    ) {
+      c.res.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+      c.res.headers.set("X-Frame-Options", "SAMEORIGIN");
+    }
   });
   app.use("/api/*", async (c, next) => {
     const length = Number(c.req.header("content-length") ?? 0);

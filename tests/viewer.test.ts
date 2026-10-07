@@ -452,6 +452,13 @@ describe("viewer routes", () => {
 });
 
 async function queryCount(path: string): Promise<number> {
+  // Let background committer passes finish so their queries aren't attributed to the page
+  // being measured (as in share-writer.test.ts).
+  const { committer } = services.ingest;
+  if (committer instanceof WriterCommitter) {
+    await committer.drain();
+    await committer.drain();
+  }
   const spies = [
     vi.spyOn(queue, "all"),
     vi.spyOn(queue, "get"),
@@ -530,6 +537,38 @@ describe("Folio shell", () => {
       display_numbers: [2, 3],
     });
     expect((await app.request("/api/queue/rev_missing/descendants")).status).toBe(404);
+  });
+  it("forbids cross-site framing of viewer pages but not of raw content or the API", async () => {
+    const latest = new URL(first.latest_url).pathname;
+    const pinned = new URL(second.url).pathname;
+    const rpub = pinned.split("/r/")[1]?.split("/")[0] ?? "";
+    for (const path of [
+      "/",
+      "/status",
+      "/trash",
+      "/links",
+      latest,
+      `${pinned}changes`,
+      `${latest}?as=public`,
+      "/c/doesnotexist/",
+    ]) {
+      const response = await app.request(path);
+      expect(response.headers.get("content-type"), path).toMatch(/^text\/html/);
+      expect(response.headers.get("content-security-policy"), path).toBe("frame-ancestors 'self'");
+      expect(response.headers.get("x-frame-options"), path).toBe("SAMEORIGIN");
+    }
+    const mcp = await app.request("/mcp", { headers: { accept: "text/html" } });
+    expect(mcp.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    // The shell frames /raw from the same origin; raw content keeps its own headers.
+    const shell = await (await app.request(latest)).text();
+    expect(shell).toContain(`src="/raw/r/${rpub}/index.md`);
+    const raw = await app.request(`/raw/r/${rpub}/notes/b.md`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("x-frame-options")).toBeNull();
+    expect(raw.headers.get("content-security-policy") ?? "").not.toContain("frame-ancestors");
+    const api = await app.request("/api/collections");
+    expect(api.headers.get("x-frame-options")).toBeNull();
+    expect((await app.request("/healthz")).headers.get("x-frame-options")).toBeNull();
   });
   it("keeps Status and Trash query counts constant", async () => {
     await seedPendingCollection("Gone", Date.now() + 500, true);
