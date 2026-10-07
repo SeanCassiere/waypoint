@@ -35,6 +35,7 @@ import {
   type CompareFile,
   type FileDiff,
 } from "./compare.js";
+import { compression } from "./compression.js";
 import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
@@ -179,6 +180,7 @@ const diffWorkers = new DiffWorkers();
 
 export function createApp(s: HttpServices): Hono {
   const app = new Hono();
+  app.use("*", compression());
   const revisionEvents = s.reads.revisionEvents;
   let waiters = 0;
   /** Agents long-polling for a new revision (B5). In memory only; cleared on restart. */

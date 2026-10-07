@@ -38,6 +38,7 @@
 - Runs a single **committer** worker, which moves queued writes into durable cloud state.
 - Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead. See [Data-directory lock](#data-directory-lock).
 - Reuses prepared statements. See [Prepared statements and native memory](#prepared-statements-and-native-memory).
+- Compresses text responses (viewer HTML, CSS, JS, JSON, text files and renditions over 1 KB) with Brotli, or gzip for clients without it. Images and other binaries, range responses and the MCP downloads under `/mcp/` are sent as they are. A compressed response's ETag is weak (`W/"…"`), which revalidation accepts, and every candidate carries `Vary: Accept-Encoding`. Compressed bodies of immutable responses are cached (about 16 MB).
 - Multiple writers are possible. Each has its own data directory, and they converge through the cloud DB.
 
 #### Data-directory lock
