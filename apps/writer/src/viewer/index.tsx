@@ -2,6 +2,7 @@
 import { Hono } from "hono";
 
 import type { HttpServices } from "../http.js";
+import { sharingEnabled } from "../shares.js";
 import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.js";
 import { getChrome } from "./chrome.js";
 import { collectionPage, notFound } from "./pages/collection.js";
@@ -36,7 +37,7 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
     );
   app.get("/", (c) => recentPage(s, c));
   app.get("/trash", (c) =>
-    trashPage(s, c, s.publicBaseUrl ? (ids) => trashLinks(s, ids) : undefined),
+    trashPage(s, c, sharingEnabled(s) ? (ids) => trashLinks(s, ids) : undefined),
   );
   app.get("/links", (c) => linksPage(s, c));
   app.get("/status", (c) => statusPage(s, c, extras));

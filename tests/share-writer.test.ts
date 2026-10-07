@@ -530,7 +530,7 @@ describe("writer share links", () => {
   });
 });
 
-describe("deterministic share-link tokens (D49)", () => {
+describe("deterministic share-link tokens (D50)", () => {
   const base = "https://waypoint-dev.pingstash.com";
   const links = z.object({
     share_links: z.array(z.object({ id: z.string(), url: z.string().nullable() })),
@@ -656,7 +656,7 @@ describe("deterministic share-link tokens (D49)", () => {
   });
 });
 
-/** Inserts a link the way writers did before D49: a random token's hash. */
+/** Inserts a link the way writers did before D50: a random token's hash. */
 async function legacyLink(): Promise<string> {
   const id = newId("shl");
   await waypoint.run(
@@ -737,8 +737,9 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(await get(latest)).toMatchObject({ public_sees: { display_number: 2 } });
     expect((await live.request(`/api/share-links/${pinned}/revoke`, json({}))).status).toBe(200);
     expect(await get(pinned)).toMatchObject({ state: "revoking", public_sees: null });
+    // Pushed and past the reader's 5 s cache (SETTLE_MS is 10 s): revoked.
     await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [
-      Date.now() - 120_000,
+      Date.now() - 11_000,
       pinned,
     ]);
     expect(await get(pinned)).toMatchObject({ state: "revoked" });
@@ -867,7 +868,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
     expect(html).toContain('class="chip public hide-sm"');
     expect(html).toContain("follows latest");
-    expect(html).toContain("Revoke all 2…");
+    expect(html).toContain("Revoke all 2 links…");
     expect(html).toContain('aria-selected="true"');
     expect(html).toMatch(/id="tab-links"[^>]*aria-selected="true"/);
     const recent = await (await app.request("/")).text();
@@ -972,5 +973,90 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const links = await (await app.request("/links")).text();
     expect(links).toContain("Shared 7");
     expect(links).toContain("Second");
+  });
+});
+
+async function viewerHtml(path: string, client = app): Promise<string> {
+  return (await client.request(path)).text();
+}
+describe("owner feedback 1: copyable links, calm Links tab, History state", () => {
+  it("offers Copy URL and Open on active links, and explains links whose URL is gone", async () => {
+    const response = await create({ label: "Priya" });
+    const created = await jsonBody(response.clone());
+    const url = String(created.url);
+    const id = await createdId(response);
+    const legacy = await legacyLink();
+    const tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    const card = (linkId: string) =>
+      tab.slice(tab.indexOf(`data-link="${linkId}"`)).split("</details>")[0];
+    const fresh = card(id);
+    expect(fresh).toContain(`data-text="${url}"`);
+    expect(fresh).toContain("Copy URL");
+    expect(fresh).toMatch(new RegExp(`href="${url.replace(/[.?/]/g, "\\$&")}"[^>]*data-open-url`));
+    const old = card(legacy);
+    expect(old).toContain("URL not recoverable (created before links became copyable)");
+    expect(old).not.toContain("Copy URL");
+    // The same on /links.
+    const linksHtml = await viewerHtml("/links");
+    expect(linksHtml).toContain(`data-text="${url}"`);
+    expect(linksHtml).toContain("URL not recoverable");
+    expect(tab).not.toContain("token_hash");
+  });
+  it("keeps the Links tab calm: one primary action, Revoke all only for two or more", async () => {
+    const one = await createdId(await create({ label: "one" }));
+    let tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    expect(tab).toContain("New public link");
+    expect(tab).toMatch(/class="txtbtn"[^>]*>Preview as public ↗/);
+    expect(tab).not.toContain("Revoke all");
+    // Revoke… is a quiet text action, not a red button.
+    expect(tab).toContain('<summary class="txtbtn danger">Revoke…</summary>');
+    expect(tab).not.toContain('<summary class="btn sm danger">');
+    await create({ label: "two" });
+    tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    expect(tab).toMatch(/class="txtbtn danger"[^>]*data-action="revoke-all"/);
+    expect(tab).toContain("Revoke all 2 links…");
+    expect(await viewerHtml("/links")).toContain("Revoke all 2 active links…");
+    // A revocation reads Revoked at once, with a note while the reader catches up.
+    expect((await app.request(`/api/share-links/${one}/revoke`, json({}))).status).toBe(200);
+    tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    const card = tab.slice(tab.indexOf(`data-link="${one}"`));
+    expect(card).toMatch(/data-link-state="revoking">Revoked</);
+    expect(card).toContain("Public access stops within seconds.");
+    expect(tab).not.toContain("Revoking");
+  });
+  it("treats a missing token key as sharing not configured", async () => {
+    await create({ label: "made with a key" });
+    const keyless = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    });
+    const shell = await viewerHtml(`/c/${collectionPublicId}/?panel=links`, keyless);
+    expect(shell).not.toContain('commandfor="share"');
+    expect(shell).not.toContain('id="tab-links"');
+    expect(shell).not.toContain('id="share"');
+    const links = await viewerHtml("/links", keyless);
+    expect(links).toContain("configured on this writer, so link URLs can");
+    expect(links).not.toContain("Copy URL");
+    expect(links).not.toContain("URL not recoverable");
+    expect((await keyless.request(`/api/collections/${collectionId}/share-links`)).status).toBe(
+      409,
+    );
+  });
+  it("keeps the History tab when picking a revision", async () => {
+    const shell = await viewerHtml(`/c/${collectionPublicId}/?panel=history`);
+    const history = shell.slice(shell.indexOf('id="tp-history"'));
+    expect(history).toMatch(/href="[^"]*\/r\/[^"]*\?fallback=head&amp;panel=history"/);
+    expect(shell).toMatch(/id="tab-history"[^>]*aria-selected="true"/);
+    // Stepping keeps it: the revision page renders History selected.
+    const pinned = await viewerHtml(
+      `/c/${collectionPublicId}/r/${revisionPublicId}/index.txt?panel=history`,
+    );
+    expect(pinned).toMatch(/id="tab-history"[^>]*aria-selected="true"/);
+    expect(pinned).toMatch(/id="tp-history"[^>]*>/);
+    expect(pinned).not.toMatch(/id="tp-history"[^>]*hidden/);
   });
 });

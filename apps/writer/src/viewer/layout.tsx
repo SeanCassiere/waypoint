@@ -42,6 +42,7 @@ export function Layout(props: {
         />
         <KeysDialog />
         <ConfirmDialog />
+        <div class="pop-scrim" aria-hidden="true" />
         <div class="toast" role="status" aria-live="polite" data-toast popover="manual" />
         <script src={clientAsset.url} defer />
         {pageScript ? <script src={pagesAsset.url} defer /> : null}
@@ -97,28 +98,30 @@ export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
         ⋯
       </button>
       <div id="home-more" class="menu" popover="auto" role="menu" aria-label="More">
-        <a class="mi" role="menuitem" href="/links">
-          <span aria-hidden="true">◍</span>
-          <span>Public links</span>
-        </a>
-        <a class="mi" role="menuitem" href="/mcp">
-          <span aria-hidden="true">⚯</span>
-          <span>Connect an agent</span>
-        </a>
-        <a class="mi" role="menuitem" href="/status">
-          <span aria-hidden="true">◉</span>
-          <span>Status</span>
-          <kbd>g s</kbd>
-        </a>
-        <a class="mi show-sm" role="menuitem" href="/trash">
-          <span aria-hidden="true">⌫</span>
-          <span>Trash</span>
-        </a>
-        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-          <span aria-hidden="true">?</span>
-          <span>Keyboard shortcuts</span>
-          <kbd>?</kbd>
-        </button>
+        <div class="mbox">
+          <a class="mi" role="menuitem" href="/links">
+            <span aria-hidden="true">◍</span>
+            <span>Public links</span>
+          </a>
+          <a class="mi" role="menuitem" href="/mcp">
+            <span aria-hidden="true">⚯</span>
+            <span>Connect an agent</span>
+          </a>
+          <a class="mi" role="menuitem" href="/status">
+            <span aria-hidden="true">◉</span>
+            <span>Status</span>
+            <kbd>g s</kbd>
+          </a>
+          <a class="mi show-sm" role="menuitem" href="/trash">
+            <span aria-hidden="true">⌫</span>
+            <span>Trash</span>
+          </a>
+          <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
+            <span aria-hidden="true">?</span>
+            <span>Keyboard shortcuts</span>
+            <kbd>?</kbd>
+          </button>
+        </div>
       </div>
     </header>
   );

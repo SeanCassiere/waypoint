@@ -13,7 +13,7 @@ export interface ShareLink {
   /**
    * Lifecycle as the public experiences it (B3): "activating" until the writer pushes the
    * link to the cloud, "revoking" until a revocation has been pushed and the reader's
-   * lookup cache (about 60 s) has expired.
+   * lookup cache (about 5 s) has expired.
    */
   state: "activating" | "active" | "expired" | "revoking" | "revoked";
   /** Display number of the pinned revision, or null for a link that follows latest. */

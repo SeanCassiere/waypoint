@@ -50,7 +50,7 @@ const OPEN_FOLDERS_LIMIT = 200;
 
 const shellCss = `.skip{position:absolute;left:12px;top:-60px;z-index:60;padding:8px 12px;border-radius:8px;background:var(--ink);color:var(--paper);text-decoration:none;font-weight:600}.skip:focus{top:8px}
 html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
-.pwrap{flex:none;position:relative;z-index:5;border-bottom:1px solid var(--rule);background:var(--paper);view-transition-name:letterhead}
+.pwrap{flex:none;position:relative;z-index:5;border-bottom:1px solid var(--rule);background:var(--paper)}
 .lh{display:flex;align-items:center;gap:14px;max-width:1120px;margin:0 auto;padding:12px 20px}
 .lh .ttl{min-width:0;flex:1}
 .lh h1{margin:0;font:650 15px/1.3 var(--sans);letter-spacing:-.005em;overflow-wrap:anywhere}
@@ -90,10 +90,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--pap
 .dl h2{margin:0 0 4px;font:650 18px var(--mono);overflow-wrap:anywhere}
 .dl p{margin:0 0 16px;color:var(--muted)}
 .btn{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-weight:500;box-shadow:var(--sh-1)}
-@view-transition{navigation:auto}
-::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:160ms}
 @media(max-width:600px){.ro{display:none}.lh{padding:10px 14px}.ptabs2,.pfiles{padding:0 10px}.ptabs2 a,.pfiles>details>summary{min-height:44px;display:flex;align-items:center}.dl{padding:20px;margin-top:6dvh}}
-@media(prefers-reduced-motion:reduce){@view-transition{navigation:none}::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none}}
 @media(forced-colors:active){.ptabs2 a[aria-current],.pfiles>details>summary{border-bottom-color:CanvasText}.snap{border-color:CanvasText}.tree a[aria-current]{outline:2px solid CanvasText}}
 @media print{.pwrap,.skip{display:none}html,body{height:auto;overflow:visible}.pframe{height:100vh}}
 `;

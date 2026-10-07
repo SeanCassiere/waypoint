@@ -28,3 +28,21 @@ export async function copyText(text: string, what: string): Promise<void> {
     else window.prompt(`Copy the ${what}:`, text);
   }
 }
+
+const restore = new WeakMap<HTMLElement, { timer: ReturnType<typeof setTimeout>; nodes: Node[] }>();
+/** The copy → "Copied" confirmation on the button that copied (a CSS state transition). */
+export function showCopied(button: HTMLElement, ms = 1600): void {
+  const previous = restore.get(button);
+  if (previous) clearTimeout(previous.timer);
+  const nodes = previous?.nodes ?? [...button.childNodes];
+  button.dataset.copied = "";
+  button.replaceChildren("✓ Copied");
+  restore.set(button, {
+    nodes,
+    timer: setTimeout(() => {
+      restore.delete(button);
+      delete button.dataset.copied;
+      button.replaceChildren(...nodes);
+    }, ms),
+  });
+}

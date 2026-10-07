@@ -3,7 +3,13 @@ import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
-import { linkPage, LINKS_PAGE, type LinkFilter, type ShareView } from "../../shares.js";
+import {
+  linkPage,
+  LINKS_PAGE,
+  sharingEnabled,
+  type LinkFilter,
+  type ShareView,
+} from "../../shares.js";
 import { shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import { Globe, Spinner, Time } from "../components.js";
@@ -31,13 +37,8 @@ export function StateChip(props: { link: ShareView }) {
         Activating
       </span>
     );
-  if (state === "revoking")
-    return (
-      <span class="chip" data-link-state="revoking">
-        <Spinner />
-        Revoking
-      </span>
-    );
+  // A revocation is final the moment the writer records it; the reader catches up within
+  // seconds, which the card notes ("revoking" in the API).
   return (
     <span class="chip" data-link-state={state}>
       {state === "expired" ? "Expired" : "Revoked"}
@@ -56,11 +57,50 @@ export function showsText(link: ShareView, newest: number | null): string {
   return `Latest · now #${sees}`;
 }
 
+/** Shown while a revocation propagates to the public reader. */
+export const STOPS_SOON = "Public access stops within seconds.";
+/** A link minted before deterministic tokens: only its hash exists, so its URL is gone. */
+export const NOT_RECOVERABLE =
+  "URL not recoverable (created before links became copyable). Create a new link to get a copyable URL.";
+
+/** Copy URL (the card's primary action) and Open, or why the URL can't be shown. */
+export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
+  const { url } = props.link;
+  // Without sharing configured, no URL can be derived for any link.
+  if (props.sharing === false) return null;
+  if (!url)
+    return (
+      <p class="note" data-url-missing>
+        {NOT_RECOVERABLE}
+      </p>
+    );
+  return (
+    <>
+      <button
+        type="button"
+        class="btn sm"
+        data-action="copy-text"
+        data-text={url}
+        data-label="public link"
+        data-copy-url
+        title={url}
+      >
+        <span aria-hidden="true">⧉</span>
+        Copy URL
+      </button>
+      <a class="btn sm ghost" href={url} target="_blank" rel="noopener noreferrer" data-open-url>
+        Open ↗
+      </a>
+    </>
+  );
+}
+
 function LinkCard(props: { link: ShareView; now: number; newest: number | null }) {
   const { link, now } = props;
-  const soon = isLive(link) && link.expires_at !== null && link.expires_at - now < DAY;
+  const live = isLive(link);
+  const soon = live && link.expires_at !== null && link.expires_at - now < DAY;
   return (
-    <div class={`lnk${isLive(link) ? "" : " dead"}`} data-link={link.id}>
+    <div class={`lnk${live ? "" : " dead"}`} data-link={link.id}>
       <div class="h">
         <b>{link.label ?? "(no label)"}</b>
         <StateChip link={link} />
@@ -77,7 +117,6 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
             <dt>Revoked</dt>
             <dd>
               <Time at={link.revoked_at} fmt="ago" now={now} />
-              {link.state === "revoking" ? " · stops working within 60 s" : ""}
             </dd>
           </>
         ) : link.state === "expired" && link.expires_at !== null ? (
@@ -99,21 +138,28 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
             </dd>
           </>
         )}
-        {link.collection.deleted && isLive(link) ? (
+        {link.collection.deleted && live ? (
           <>
             <dt>Now</dt>
             <dd>Inactive while the collection is in Trash</dd>
           </>
         ) : null}
       </dl>
-      {isLive(link) ? (
+      {link.state === "revoking" ? (
+        <p class="note" data-stops>
+          {STOPS_SOON}
+        </p>
+      ) : null}
+      {live ? (
         <div class="row">
+          <LinkUrlActions link={link} />
+          <span class="grow" />
           {soon ? (
             <details class="act">
-              <summary class="btn sm">Extend…</summary>
+              <summary class="txtbtn">Extend…</summary>
               <div class="pop neutral" role="group" aria-label="Extend this link">
                 <span>
-                  Keep this link working longer. The new expiry reaches viewers within a minute.
+                  Keep this link working longer. The new expiry reaches viewers within seconds.
                 </span>
                 <span class="row">
                   <button type="button" class="btn sm" data-action="close-details">
@@ -144,11 +190,11 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
             </details>
           ) : null}
           <details class="act">
-            <summary class="btn sm danger">Revoke…</summary>
+            <summary class="txtbtn danger">Revoke…</summary>
             <div class="pop" role="group" aria-label="Confirm revoke">
               <span>
-                <b>Revoke this link?</b> People using it lose access within about a minute. You
-                can't undo this.
+                <b>Revoke this link?</b> People using it lose access within seconds. You can't undo
+                this.
               </span>
               <span class="row">
                 <button type="button" class="btn sm" data-action="close-details">
@@ -171,7 +217,11 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
   );
 }
 
-/** The collection panel's Links tab (spec §4.17). */
+/**
+ * The collection panel's Links tab (spec §4.17, reworked from owner feedback): one primary
+ * action, a quiet secondary row, calm cards with Copy URL first, and "Revoke all" demoted to
+ * a text action under the cards when there's more than one link to revoke.
+ */
 export function LinksPanel(props: {
   ctx: CollectionContext;
   links: ShareView[];
@@ -184,34 +234,31 @@ export function LinksPanel(props: {
   return (
     <>
       <div class="lnk-acts">
-        <button
-          type="button"
-          class="btn public wide center"
-          commandfor="share"
-          command="show-modal"
-        >
+        <button type="button" class="btn public center" commandfor="share" command="show-modal">
           <Globe />
           New public link
         </button>
-        <a class="btn ghost sm center" href={props.previewHref} target="_blank" rel="noopener">
+        <a class="txtbtn" href={props.previewHref} target="_blank" rel="noopener">
           Preview as public ↗
         </a>
-        {live.length ? (
-          <button
-            type="button"
-            class="btn sm danger center"
-            data-action="revoke-all"
-            data-collection-id={ctx.collection.id}
-            data-count={String(live.length)}
-          >
-            Revoke all {live.length}…
-          </button>
-        ) : null}
       </div>
       {live.map((link) => (
         <LinkCard link={link} now={ctx.chrome.now} newest={newest} />
       ))}
       {!live.length ? <p class="legend">No active links. Create one with Share.</p> : null}
+      {live.length >= 2 ? (
+        <div class="lnk-foot">
+          <button
+            type="button"
+            class="txtbtn danger"
+            data-action="revoke-all"
+            data-collection-id={ctx.collection.id}
+            data-count={String(live.length)}
+          >
+            Revoke all {live.length} links…
+          </button>
+        </div>
+      ) : null}
       {dead.length ? (
         <details class="inactive">
           <summary>Show {dead.length} inactive</summary>
@@ -463,10 +510,9 @@ export function ShareDialog(props: {
         <div class="band">
           <Globe />
           <div>
-            <h2 id="share-created-title">Copy your link now</h2>
+            <h2 id="share-created-title">Link created</h2>
             <p>
-              Waypoint keeps only a fingerprint of it, so this is the only time you'll see the full
-              link.
+              Anyone who has it can read this. You can copy it again any time from the Links tab.
             </p>
           </div>
         </div>
@@ -483,8 +529,8 @@ export function ShareDialog(props: {
               Activating
             </span>
             <span role="status" data-share-state-text>
-              Works for viewers in about a minute, after the writer pushes it to the cloud. This
-              updates by itself.
+              Works for viewers within seconds, once the writer pushes it to the cloud. This updates
+              by itself.
             </span>
           </div>
           <dl class="kv flat">
@@ -495,20 +541,13 @@ export function ShareDialog(props: {
             <dt>Expires</dt>
             <dd data-share-expires />
           </dl>
-          <div class="pop neutral" role="alert" data-share-uncopied hidden>
-            <span>You haven't copied the link. Close anyway? It can't be shown again.</span>
-            <span class="row">
-              <button type="button" class="btn sm" data-share-back>
-                Go back
-              </button>
-              <button type="button" class="btn sm danger" data-share-force>
-                Close
-              </button>
-            </span>
-          </div>
         </div>
         <div class="ft">
-          <span class="grow" />
+          <span class="grow">
+            <a href="#" target="_blank" rel="noopener noreferrer" data-share-open>
+              Open ↗
+            </a>
+          </span>
           <button type="button" class="btn primary" data-share-done>
             Done
           </button>
@@ -530,6 +569,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
     getChrome(s, now),
   ]);
   const inactive = counts.expired + counts.revoked;
+  const sharing = sharingEnabled(s);
   return noStore(
     c.html(
       <Layout title="Public links" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="links">
@@ -541,8 +581,13 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
               </h1>
               <p>
                 Everything readable outside your tailnet right now. Revoking takes effect within
-                about a minute.
+                seconds.
               </p>
+              {sharing ? null : (
+                <p class="note">
+                  Sharing isn't configured on this writer, so link URLs can't be shown.
+                </p>
+              )}
             </div>
           </div>
           <div class="filters">
@@ -554,22 +599,11 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                 </a>
               ))}
             </nav>
-            <span class="grow" />
-            {filter === "active" && counts.active ? (
-              <button
-                type="button"
-                class="btn sm danger"
-                data-action="revoke-all"
-                data-count={String(counts.active)}
-              >
-                Revoke all {counts.active} active…
-              </button>
-            ) : null}
           </div>
           <div class="rows">
             {shown.length ? (
               shown.map((link) => (
-                <div class={`r${isLive(link) ? "" : " dead"}`}>
+                <div class={`r${isLive(link) ? "" : " dead"}`} data-link={link.id}>
                   <span class="t">
                     {link.collection.public_id && !link.collection.deleted ? (
                       <a href={`/c/${link.collection.public_id}/?panel=links`}>
@@ -581,17 +615,18 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     · {link.label ?? "(no label)"}
                   </span>
                   {isLive(link) ? (
-                    <span class="acts">
+                    <div class="acts">
+                      <LinkUrlActions link={link} sharing={sharing} />
                       <button
                         type="button"
-                        class="btn sm danger"
+                        class="txtbtn danger"
                         data-action="revoke-link"
                         data-id={link.id}
                         data-confirm="true"
                       >
                         Revoke…
                       </button>
-                    </span>
+                    </div>
                   ) : null}
                   <span class="s">
                     <span class={`chip xs${link.revision_id ? "" : " public"}`}>
@@ -603,9 +638,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                         <Spinner /> Activating
                       </span>
                     ) : link.state === "revoking" ? (
-                      <span class="state pending">
-                        <Spinner /> Revoking
-                      </span>
+                      <span data-stops>{STOPS_SOON}</span>
                     ) : null}
                     {link.collection.deleted ? <span>inactive while in Trash</span> : null}
                     {isLive(link) ? (
@@ -639,6 +672,18 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
               </div>
             )}
           </div>
+          {filter === "active" && counts.active >= 2 ? (
+            <div class="lnk-foot">
+              <button
+                type="button"
+                class="txtbtn danger"
+                data-action="revoke-all"
+                data-count={String(counts.active)}
+              >
+                Revoke all {counts.active} active links…
+              </button>
+            </div>
+          ) : null}
           {next ? (
             <p class="legend" data-more>
               <a href={`/links?${new URLSearchParams({ state: filter, after: next }).toString()}`}>

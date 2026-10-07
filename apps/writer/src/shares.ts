@@ -60,8 +60,12 @@ export type ShareRow = Pick<
   "id" | "collection_id" | "revision_id" | "label" | "expires_at" | "revoked_at" | "created_at"
 >;
 export const SHARE_COLUMNS = "id,collection_id,revision_id,label,expires_at,revoked_at,created_at";
-/** The reader caches link lookups for up to 30 s and the writer pushes about once a minute. */
-export const SETTLE_MS = 60_000;
+/**
+ * How long a revocation stays "revoking" once the writer has pushed it: the reader caches a
+ * live link for at most 5 s (denials aren't cached), and the writer pushes right after a
+ * revoke, so 10 s covers the cache with a margin.
+ */
+export const SETTLE_MS = 10_000;
 export interface ShareCollection {
   id: string;
   public_id: string;

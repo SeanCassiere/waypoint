@@ -118,84 +118,86 @@ export function HealthPopover(props: { health: Health; now: number; host: string
           : "";
   return (
     <div id="health-pop" class="pop2" popover="auto" role="dialog" aria-label="Writer status">
-      <div class="big">
-        <span class={`d ${dot}`} aria-hidden="true" />
-        {healthSummary(health)}
-      </div>
-      <dl class="kv">
-        {health.blockedReason ? (
-          <>
-            <dt>Reason</dt>
-            <dd class="mono">{health.blockedReason}</dd>
-          </>
-        ) : null}
-        {health.failed.length ? (
-          <>
-            <dt>Failed</dt>
-            <dd>
-              {health.failed.slice(0, 3).map((item, index) => (
-                <>
-                  {index ? ", " : ""}
-                  <a href={revisionHref(item)}>
-                    {item.collection_title ?? "Untitled"} #{item.display_number ?? "?"}
-                  </a>
-                </>
-              ))}
-              {health.failed.length > 3 ? ` +${health.failed.length - 3} more` : ""}
-            </dd>
-          </>
-        ) : null}
-        {health.pending.length ? (
-          <>
-            <dt>Uploading</dt>
-            <dd>
-              {plural(health.pending.length, "revision")}
-              {health.oldestPendingAt !== null ? (
-                <>
-                  {" · oldest "}
-                  <Time at={health.oldestPendingAt} fmt="ago" now={now} />
-                </>
-              ) : null}
-            </dd>
-          </>
-        ) : null}
-        <dt>Last cloud sync</dt>
-        <dd>
-          {!health.syncEnabled ? (
-            "off"
-          ) : health.cloudLastOkAt === null ? (
-            "not yet"
-          ) : (
-            <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
-          )}
-        </dd>
-        {health.cloudError ? (
-          <>
-            <dt>Last error</dt>
-            <dd class="mono">{health.cloudError}</dd>
-          </>
-        ) : null}
-        <dt>Writer</dt>
-        <dd class="mono">
-          {props.host} · {health.environment}
-        </dd>
-      </dl>
-      <div class="acts">
-        <a class="btn sm" href="/status">
-          Open Status
-        </a>
-        {health.failed.length ? (
-          <button
-            type="button"
-            class="btn sm"
-            popovertarget="health-pop"
-            popovertargetaction="hide"
-            data-action="retry"
-            data-ids={health.failed.map((item) => item.id).join(",")}
-          >
-            Retry failed
-          </button>
-        ) : null}
+      <div class="mbox">
+        <div class="big">
+          <span class={`d ${dot}`} aria-hidden="true" />
+          {healthSummary(health)}
+        </div>
+        <dl class="kv">
+          {health.blockedReason ? (
+            <>
+              <dt>Reason</dt>
+              <dd class="mono">{health.blockedReason}</dd>
+            </>
+          ) : null}
+          {health.failed.length ? (
+            <>
+              <dt>Failed</dt>
+              <dd>
+                {health.failed.slice(0, 3).map((item, index) => (
+                  <>
+                    {index ? ", " : ""}
+                    <a href={revisionHref(item)}>
+                      {item.collection_title ?? "Untitled"} #{item.display_number ?? "?"}
+                    </a>
+                  </>
+                ))}
+                {health.failed.length > 3 ? ` +${health.failed.length - 3} more` : ""}
+              </dd>
+            </>
+          ) : null}
+          {health.pending.length ? (
+            <>
+              <dt>Uploading</dt>
+              <dd>
+                {plural(health.pending.length, "revision")}
+                {health.oldestPendingAt !== null ? (
+                  <>
+                    {" · oldest "}
+                    <Time at={health.oldestPendingAt} fmt="ago" now={now} />
+                  </>
+                ) : null}
+              </dd>
+            </>
+          ) : null}
+          <dt>Last cloud sync</dt>
+          <dd>
+            {!health.syncEnabled ? (
+              "off"
+            ) : health.cloudLastOkAt === null ? (
+              "not yet"
+            ) : (
+              <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
+            )}
+          </dd>
+          {health.cloudError ? (
+            <>
+              <dt>Last error</dt>
+              <dd class="mono">{health.cloudError}</dd>
+            </>
+          ) : null}
+          <dt>Writer</dt>
+          <dd class="mono">
+            {props.host} · {health.environment}
+          </dd>
+        </dl>
+        <div class="acts">
+          <a class="btn sm" href="/status">
+            Open Status
+          </a>
+          {health.failed.length ? (
+            <button
+              type="button"
+              class="btn sm"
+              popovertarget="health-pop"
+              popovertargetaction="hide"
+              data-action="retry"
+              data-ids={health.failed.map((item) => item.id).join(",")}
+            >
+              Retry failed
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -330,7 +332,10 @@ export function Timeline(props: {
   compact?: boolean;
   changesHref?: ((row: TimelineRow, base: TimelineRow) => string) | undefined;
   byId: ReadonlyMap<string, TimelineRow>;
+  /** Shell state the revision links keep (for example "panel=history"). */
+  query?: string | undefined;
 }) {
+  const search = [props.path ? "fallback=head" : "", props.query ?? ""].filter(Boolean).join("&");
   return (
     <div class="tl">
       {props.rows.map((row, index) => {
@@ -338,7 +343,7 @@ export function Timeline(props: {
         const parent = row.parent_revision_id ? props.byId.get(row.parent_revision_id) : undefined;
         const fork = parent && below && parent.id !== below.id;
         const current = row.id === props.currentId;
-        const href = `${shellPath(props.pub, row.public_id, props.path, true)}${props.path ? "?fallback=head" : ""}`;
+        const href = `${shellPath(props.pub, row.public_id, props.path, true)}${search ? `?${search}` : ""}`;
         const state = row.sync_state;
         // The current revision gets "Changes from #K" whatever its state (spec §4.10).
         const changes =

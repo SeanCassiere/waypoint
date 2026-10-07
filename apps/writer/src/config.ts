@@ -10,7 +10,7 @@ export interface Config {
   dataDir: string;
   baseUrl: string;
   publicBaseUrl?: string;
-  /** WAYPOINT_SHARE_TOKEN_KEY: derives share-link tokens (D49). Sharing needs it too. */
+  /** WAYPOINT_SHARE_TOKEN_KEY: derives share-link tokens (D50). Sharing needs it too. */
   shareTokenKey?: Uint8Array;
   port: number;
   queueGiveUpHours: number;

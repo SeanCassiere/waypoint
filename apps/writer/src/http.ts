@@ -871,7 +871,7 @@ export function createApp(s: HttpServices): Hono {
     if (!view) throw new WaypointError("not_found", "Share link not found");
     return c.json({ share_link: withoutCollection(view) });
   });
-  // The link's public URL, recomputed from its ID (D49). Links created before deterministic
+  // The link's public URL, recomputed from its ID (D50). Links created before deterministic
   // tokens have no recoverable URL.
   app.get("/api/share-links/:id/url", async (c) => {
     requireSharing(s);

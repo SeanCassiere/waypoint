@@ -65,10 +65,8 @@ describe("public shell", () => {
     expect(markup(html)).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
     expect(html).toContain(`<style>${publicShellCss}</style>`);
     expect(html).toContain(`<script>${publicShellScript}</script>`);
-    expect(publicShellCss).toContain("@view-transition{navigation:auto}");
-    expect(publicShellCss).toMatch(
-      /@media\(prefers-reduced-motion:reduce\)\{@view-transition\{navigation:none\}/,
-    );
+    // Page navigation is never animated (owner feedback 1).
+    expect(publicShellCss).not.toMatch(/view-transition/);
   });
   it("uses tabs up to 8 files with the head first, and a tree above", () => {
     const tabs = renderPublicShell({

@@ -676,26 +676,90 @@ a.chip.public:hover {
   font-size: 12.5px;
   border-top: 1px solid var(--failed-line);
 }
-/* popovers & menus */
+/* popovers & menus
+   Every menu and popover is a native popover="auto" (light dismiss, Esc, top layer). The
+   popover element is an invisible positioning shell placed with CSS anchor positioning; its
+   one child, .mbox, is the visible box, so an anchored container query can give each
+   placement its own transform-origin and the box grows out of the trigger. */
 [popover] {
   margin: 0;
   inset: auto;
   color: var(--ink);
 }
-/* Native popovers placed with CSS anchor positioning: a popover opened through popovertarget
-   uses its invoker as the implicit anchor, and flips when it would overflow. */
 .pop2,
 .menu {
+  position: fixed;
+  z-index: 40;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  container-type: anchored;
   position-area: bottom span-left;
-  position-try-fallbacks:
-    flip-block,
-    flip-inline,
-    flip-block flip-inline;
+  position-try-fallbacks: --above-left, --below-right, --above-right;
   margin-block: 6px;
+  width: min(400px, calc(100vw - 24px));
+}
+.pop2 {
+  width: min(340px, calc(100vw - 24px));
 }
 .rmenu {
   position-area: bottom span-right;
+  position-try-fallbacks: --above-right, --below-left, --above-left;
 }
+/* Named placements: "below-left" sits below the trigger and extends to its left (aligned to
+   the trigger's right edge), so it grows from its top-right corner. */
+@position-try --below-left {
+  position-area: bottom span-left;
+}
+@position-try --below-right {
+  position-area: bottom span-right;
+}
+@position-try --above-left {
+  position-area: top span-left;
+}
+@position-try --above-right {
+  position-area: top span-right;
+}
+.mbox {
+  background: var(--dlg);
+  border: 1px solid var(--rule-2);
+  border-radius: 12px;
+  box-shadow: var(--sh-2);
+  padding: 6px;
+  max-height: calc(100dvh - 120px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  transform-origin: var(--origin, top right);
+}
+.rmenu > .mbox {
+  transform-origin: var(--origin, top left);
+}
+.pop2 > .mbox {
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+@container anchored(fallback: --below-left) {
+  [popover] > .mbox {
+    transform-origin: top right;
+  }
+}
+@container anchored(fallback: --below-right) {
+  [popover] > .mbox {
+    transform-origin: top left;
+  }
+}
+@container anchored(fallback: --above-left) {
+  [popover] > .mbox {
+    transform-origin: bottom right;
+  }
+}
+@container anchored(fallback: --above-right) {
+  [popover] > .mbox {
+    transform-origin: bottom left;
+  }
+}
+/* Without anchor positioning, menus sit under the bar's edge; script sets --origin. */
 @supports not (position-area: bottom) {
   .pop2,
   .menu {
@@ -704,16 +768,6 @@ a.chip.public:hover {
   .rmenu {
     inset: calc(var(--bar-h) + 6px) auto auto 12px;
   }
-}
-.pop2 {
-  position: fixed;
-  z-index: 40;
-  background: var(--dlg);
-  border: 1px solid var(--rule-2);
-  border-radius: 14px;
-  box-shadow: var(--sh-2);
-  padding: 14px 16px;
-  width: min(340px, calc(100vw - 24px));
 }
 .pop2 .big {
   display: flex;
@@ -742,18 +796,6 @@ a.chip.public:hover {
   gap: 8px;
   margin-top: 12px;
   flex-wrap: wrap;
-}
-.menu {
-  position: fixed;
-  z-index: 40;
-  background: var(--dlg);
-  border: 1px solid var(--rule-2);
-  border-radius: 12px;
-  box-shadow: var(--sh-2);
-  padding: 6px;
-  width: min(400px, calc(100vw - 24px));
-  max-height: calc(100dvh - 120px);
-  overflow: auto;
 }
 .menu .mi {
   display: grid;
@@ -1252,14 +1294,59 @@ body:has(#rev-menu:popover-open) .revbtn .caret {
   color: var(--muted);
 }
 /* links */
+/* Links tab: one primary action, then a quiet secondary row. */
 .lnk-acts {
-  padding: 4px 4px 10px;
+  padding: 4px 4px 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 4px;
+  justify-items: start;
 }
-.lnk-acts .wide {
-  grid-column: 1/-1;
+.lnk-acts .btn {
+  width: 100%;
+}
+.lnk-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 4px 10px;
+}
+/* A text button: quiet secondary and danger actions (Preview, Revoke…, Revoke all). */
+.txtbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.txtbtn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.txtbtn.danger {
+  color: var(--failed);
+}
+.txtbtn.danger:hover {
+  background: var(--failed-bg);
+  color: var(--failed);
+}
+summary.txtbtn {
+  list-style: none;
+}
+summary.txtbtn::-webkit-details-marker {
+  display: none;
+}
+.note {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 .lnk {
   border: 1px solid var(--rule);
@@ -1300,6 +1387,13 @@ body:has(#rev-menu:popover-open) .revbtn .caret {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+.lnk .row .grow {
+  flex: 1;
+}
+.lnk .row .note {
+  margin: 0;
+  flex-basis: 100%;
 }
 .lnk.dead {
   background: none;
@@ -1654,9 +1748,13 @@ details.sees > summary h3 {
   font-size: 14px;
   flex: none;
 }
-.tok button.done {
+.tok button[data-copied] {
   background: var(--ok);
   color: #fff;
+}
+.btn[data-copied] {
+  color: var(--ok);
+  border-color: var(--ok);
 }
 .once {
   display: flex;
@@ -2374,8 +2472,15 @@ h2.sec .n {
 .r .acts {
   display: flex;
   gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   grid-row: 1/span 3;
   grid-column: 2;
+}
+.r .acts .note {
+  margin: 0;
+  max-width: 260px;
 }
 .r .aside {
   grid-column: 2;
@@ -2758,6 +2863,13 @@ h2.sec .n {
   /* Actions follow the details they act on (Revoke… below the link's facts). */
   .r .acts {
     order: 99;
+    justify-content: flex-start;
+  }
+  .r .acts .note {
+    max-width: none;
+  }
+  .txtbtn {
+    min-height: 40px;
   }
   .imgpair {
     grid-template-columns: 1fr;
@@ -2786,39 +2898,126 @@ h2.sec .n {
     display: none;
   }
 }
-/* Motion (spec §3.3): opacity and transform only, 120-200 ms, and none under reduced motion.
-   Popovers and dialogs animate open and closed with @starting-style and allow-discrete. */
+/* Phones: menus and popovers are bottom sheets over a scrim. Tapping the scrim
+   light-dismisses them. */
+@media (max-width: 760px) {
+  .pop2,
+  .menu,
+  .rmenu {
+    position-area: none;
+    position-try-fallbacks: none;
+    inset: auto 0 0 0;
+    width: min(100%, 560px);
+    max-width: none;
+    margin: 0 auto;
+  }
+  [popover] > .mbox {
+    border-radius: 16px 16px 0 0;
+    border-bottom-width: 0;
+    max-height: 82dvh;
+    padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 32px rgba(27, 26, 23, 0.16);
+    transform-origin: bottom center;
+  }
+  .pop2 > .mbox {
+    padding: 8px 18px calc(16px + env(safe-area-inset-bottom));
+  }
+  /* A grabber says "sheet"; it's decorative (Esc, the scrim and the trigger close it). */
+  [popover] > .mbox::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--rule-2);
+    margin: 2px auto 8px;
+  }
+  /* A popover's ::backdrop never takes pointer events, so a tap on it would also act on
+     whatever is underneath (a link, the document). This scrim takes the tap instead: the
+     tap still lands outside the popover, so it light-dismisses. */
+  body:has(:is(.menu, .pop2):popover-open) .pop-scrim {
+    display: block;
+    opacity: 1;
+  }
+  /* The tap that closes a sheet light-dismisses it on pointerup, before its click: script
+     keeps the fading scrim a moment longer so that click lands here, not on a link or the
+     document beneath. */
+  .pop-scrim.linger {
+    display: block;
+  }
+  .menu .mi {
+    min-height: 44px;
+  }
+}
+.pop-scrim {
+  display: none;
+  opacity: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--scrim);
+}
+/* Motion (owner feedback): only popovers, dialogs and the panel sheet open and close, and
+   controls show state changes (hover, pressed, toggled, Copied). Pages, navigation and
+   document content never animate. CSS transitions with @starting-style, at most 150 ms,
+   and none under reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .panel {
-    transition: transform 160ms ease-out;
+    transition: transform 150ms cubic-bezier(0.2, 0, 0, 1);
   }
   .menu,
   .pop2 {
     transition:
-      opacity 120ms ease-out,
-      transform 120ms ease-out,
       overlay 120ms allow-discrete,
       display 120ms allow-discrete;
   }
-  .menu:not(:popover-open),
-  .pop2:not(:popover-open) {
+  [popover] > .mbox {
+    transition:
+      opacity 120ms ease-out,
+      transform 120ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  :is(.menu, .pop2):not(:popover-open) > .mbox {
     opacity: 0;
-    transform: scale(0.98);
+    transform: scale(0.94);
   }
   @starting-style {
-    .menu:popover-open,
-    .pop2:popover-open {
+    :is(.menu, .pop2):popover-open > .mbox {
       opacity: 0;
-      transform: scale(0.98);
+      transform: scale(0.94);
+    }
+  }
+  .pop-scrim {
+    transition: opacity 150ms ease-out;
+  }
+  @starting-style {
+    body:has(:is(.menu, .pop2):popover-open) .pop-scrim {
+      opacity: 0;
+    }
+  }
+  @media (max-width: 760px) {
+    [popover] > .mbox {
+      transition:
+        opacity 150ms ease-out,
+        transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    }
+    :is(.menu, .pop2):not(:popover-open) > .mbox {
+      opacity: 1;
+      transform: translateY(100%);
+    }
+    @starting-style {
+      :is(.menu, .pop2):popover-open > .mbox {
+        opacity: 1;
+        transform: translateY(100%);
+      }
     }
   }
   dialog.dlg,
   dialog.lbx {
     transition:
-      opacity 160ms ease-out,
-      transform 160ms ease-out,
-      overlay 160ms allow-discrete,
-      display 160ms allow-discrete;
+      opacity 150ms ease-out,
+      transform 150ms ease-out,
+      overlay 150ms allow-discrete,
+      display 150ms allow-discrete;
   }
   dialog.dlg:not([open]),
   dialog.lbx:not([open]) {
@@ -2834,9 +3033,9 @@ h2.sec .n {
   }
   dialog::backdrop {
     transition:
-      opacity 160ms ease-out,
-      overlay 160ms allow-discrete,
-      display 160ms allow-discrete;
+      opacity 150ms ease-out,
+      overlay 150ms allow-discrete,
+      display 150ms allow-discrete;
   }
   dialog:not([open])::backdrop {
     opacity: 0;
@@ -2846,62 +3045,29 @@ h2.sec .n {
       opacity: 0;
     }
   }
-  /* Cross-document view transitions: a calm crossfade between pages; persistent chrome keeps
-     its place and shared elements (collection titles, the revision pill) morph. */
-  @view-transition {
-    navigation: auto;
+  /* Control states. */
+  .btn,
+  .iconbtn,
+  .revbtn,
+  .health,
+  .txtbtn,
+  .menu .mi,
+  .tabbar button,
+  .tok button {
+    transition:
+      background-color 120ms ease-out,
+      border-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out,
+      scale 80ms ease-out;
   }
-  ::view-transition-group(*) {
-    animation-duration: 200ms;
-    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  .btn:active:not([disabled]),
+  .iconbtn:active,
+  .revbtn:active {
+    scale: 0.97;
   }
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-duration: 180ms;
-  }
-  /* A collection title morphing from its Recent row into the header: quick and decelerating,
-     so it doesn't streak across the panel's tab strip. */
-  ::view-transition-group(*.col-title) {
-    animation-duration: 160ms;
-    animation-timing-function: ease-out;
-  }
-}
-.bar {
-  view-transition-name: topbar;
-}
-.panel {
-  view-transition-name: side-panel;
-}
-.tabbar {
-  view-transition-name: tabbar;
-}
-.revbtn {
-  view-transition-name: rev-pill;
-}
-.item .tt,
-.crumbs h1 {
-  view-transition-class: col-title;
-}
-/* Transitions must never delay interaction: clicks pass through the transition overlay. */
-::view-transition {
-  pointer-events: none;
-}
-/* Agent documents are never animated: the frame swaps instantly. */
-.frame {
-  view-transition-name: doc-frame;
-}
-::view-transition-old(doc-frame) {
-  display: none;
-}
-::view-transition-group(doc-frame),
-::view-transition-new(doc-frame) {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
+  .revbtn .caret {
+    transition: rotate 120ms ease-out;
   }
 }
 @media (prefers-reduced-motion: reduce) {

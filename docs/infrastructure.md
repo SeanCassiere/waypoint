@@ -57,7 +57,8 @@ The configuration lives in an env file on the writer machine, never committed. O
 WAYPOINT_ENV=prod                         # dev | prod
 WAYPOINT_DATA_DIR=~/.local/share/waypoint/prod
 WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net
-WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com  # optional; enables share-link API
+WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com  # optional; sharing needs this and the key below
+WAYPOINT_SHARE_TOKEN_KEY=...             # 32 random bytes, base64url; derives share tokens (D50)
 WAYPOINT_PORT=7410
 WAYPOINT_QUEUE_GIVE_UP_HOURS=72
 WAYPOINT_MAX_BLOB_MB=50
