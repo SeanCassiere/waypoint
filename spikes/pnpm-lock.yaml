@@ -1,0 +1,139 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@tursodatabase/database':
+        specifier: 0.8.2
+        version: 0.8.2
+      '@tursodatabase/serverless':
+        specifier: 1.4.1
+        version: 1.4.1
+      '@tursodatabase/sync':
+        specifier: 0.8.2
+        version: 0.8.2
+
+packages:
+
+  '@tursodatabase/database-common@0.8.2':
+    resolution: {integrity: sha512-1G0n/ZDhQELm/lu/tOHUmJZsLBxSK2k8OVXqS/WPJD70wTaFjaWY8C4UBe/AjfOzkhE3qbiUUMRv4Fbt5cDnew==}
+
+  '@tursodatabase/database-darwin-arm64@0.8.2':
+    resolution: {integrity: sha512-evoB0K+ldrau0t3wZx/FgAGlM7/ummGY7UqkYnV8StfVnqR2P0/tpr3GEouANJWQfP1j59DtjUhlTfESp4L31Q==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@tursodatabase/database-linux-arm64-gnu@0.8.2':
+    resolution: {integrity: sha512-NYvjn1PbRZixPujIknGoax+aT0+XD+j0XrzcBdUjHXbJR/XlncgbHLxDiUMrRJ+86E2y4txAmYlJrARAr2MUPA==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/database-linux-x64-gnu@0.8.2':
+    resolution: {integrity: sha512-RvTJyljkTepDgMgURipKh2k/LW7dQRT/d7KbGYnYlyxil4JMXH6OYE2pzMYG1V+HJRqgJvpjxV+5FIky9LJeQg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/database-win32-x64-msvc@0.8.2':
+    resolution: {integrity: sha512-/wsPLULURwCL7I2BJPYYHjOd9HssKN62oatXh4rnfVCWiD4bncGlNcZXE5Q2lGqdZUcVBEKIfBlEShOR8acaTg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@tursodatabase/database@0.8.2':
+    resolution: {integrity: sha512-iz7uj5uM/pkOyKFYNW6Y4LnbzKntv74TpsVqOKNck9Jl4uyynnZodoxw72d4Hd41xfIuANzQa+0Pf9RRwGOVfQ==}
+
+  '@tursodatabase/serverless@0.2.4':
+    resolution: {integrity: sha512-kqf3FINvTGx8N1iH/4e1Dkbr/om5q9qitshzvljtQXwZFQIsVP/mDE76mGg9U2dg/ElOZKFKtT1VXDgd39Dr1w==}
+
+  '@tursodatabase/serverless@1.4.1':
+    resolution: {integrity: sha512-kcbGx0zb0Js4WnIrIF4AlsK3gzryRdTyUQev/9UbxtcH/iyk7u0Rk+l7dWdPC/5Ymu1WlbSyn4oUb02eNbn6Mw==}
+
+  '@tursodatabase/sync-common@0.8.2':
+    resolution: {integrity: sha512-XtEeTKOqGJHuyGWnH+2dGraRh37OkdNC9rdtlZf8iLHO/b1m+tS/mNl9pkd0O08ek/rEzk5AXbAlAovYR7pSnA==}
+
+  '@tursodatabase/sync-darwin-arm64@0.8.2':
+    resolution: {integrity: sha512-A+D3uhKAfjnzY2cuwjjek58naVvbDeDugVPUqLFoUHU+rqtdjz9j7ekWIJ5jxJDvP+6XaF3GkDqJjgwGViP9zg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@tursodatabase/sync-linux-arm64-gnu@0.8.2':
+    resolution: {integrity: sha512-LnN8yn3g2kQdLaFxFnRvyu+lXyVSHh/jJaUUrP7BjjT5qWoz++64etCw4K6UO0BY2AOVjBaj0JAfwkhAlB2JjA==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/sync-linux-x64-gnu@0.8.2':
+    resolution: {integrity: sha512-cFKkrIcVuOH/mpysYuJ76C6hW7oivdi+DvzmC6uAf7ak8PcWviPFeTcKrN9OzFme6rnrM1pQpEBsqUUZRVyCXw==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/sync-win32-x64-msvc@0.8.2':
+    resolution: {integrity: sha512-xZ6xnNtcX+mBvZRk6ECieushGdI5pkM3+RfGhGORPcasQvppDiPqAY7/lsHDtcGstLODopYUM2QDhezcep9BEA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@tursodatabase/sync@0.8.2':
+    resolution: {integrity: sha512-cQSJVUqvP0YgfZuHL1DLmBT3obpjtlDr7Zk1MptnurZv9cPBAtWZ/Qy8tUSQWNT1KRECOg5w5rRGsFcP8vV+4A==}
+
+snapshots:
+
+  '@tursodatabase/database-common@0.8.2': {}
+
+  '@tursodatabase/database-darwin-arm64@0.8.2':
+    optional: true
+
+  '@tursodatabase/database-linux-arm64-gnu@0.8.2':
+    optional: true
+
+  '@tursodatabase/database-linux-x64-gnu@0.8.2':
+    optional: true
+
+  '@tursodatabase/database-win32-x64-msvc@0.8.2':
+    optional: true
+
+  '@tursodatabase/database@0.8.2':
+    dependencies:
+      '@tursodatabase/database-common': 0.8.2
+    optionalDependencies:
+      '@tursodatabase/database-darwin-arm64': 0.8.2
+      '@tursodatabase/database-linux-arm64-gnu': 0.8.2
+      '@tursodatabase/database-linux-x64-gnu': 0.8.2
+      '@tursodatabase/database-win32-x64-msvc': 0.8.2
+
+  '@tursodatabase/serverless@0.2.4': {}
+
+  '@tursodatabase/serverless@1.4.1': {}
+
+  '@tursodatabase/sync-common@0.8.2':
+    dependencies:
+      '@tursodatabase/database-common': 0.8.2
+      '@tursodatabase/serverless': 0.2.4
+
+  '@tursodatabase/sync-darwin-arm64@0.8.2':
+    optional: true
+
+  '@tursodatabase/sync-linux-arm64-gnu@0.8.2':
+    optional: true
+
+  '@tursodatabase/sync-linux-x64-gnu@0.8.2':
+    optional: true
+
+  '@tursodatabase/sync-win32-x64-msvc@0.8.2':
+    optional: true
+
+  '@tursodatabase/sync@0.8.2':
+    dependencies:
+      '@tursodatabase/database-common': 0.8.2
+      '@tursodatabase/sync-common': 0.8.2
+    optionalDependencies:
+      '@tursodatabase/sync-darwin-arm64': 0.8.2
+      '@tursodatabase/sync-linux-arm64-gnu': 0.8.2
+      '@tursodatabase/sync-linux-x64-gnu': 0.8.2
+      '@tursodatabase/sync-win32-x64-msvc': 0.8.2

@@ -2,12 +2,19 @@
 
 ## Phase 0: setup and spikes (before writing product code)
 
+> **Results, 2026-10-07:** S1, S2 (Linux), S3, and S4 are done. See [`spikes/RESULTS.md`](../spikes/RESULTS.md). Still unverified:
+> - Turso Sync on macOS arm64
+> - a read-only Turso token with the serverless client
+> - the serverless client inside the Workers runtime
+> - whether R2 bills for 412 responses
+> - undelete races between writers
+
 Each spike is a short, throwaway experiment whose result goes back into these docs.
 
 | Spike | Question | Affects |
 |---|---|---|
 | **S1: Turso Sync multi-writer** | With two local replicas, using `tursodb --sync-server`: <ul><li>Is last-push-wins decided per row or per column?</li><li>What happens when a pushed insert violates a `UNIQUE` index on the other side?</li><li>Do deletes (purge, undelete) propagate correctly?</li><li>Do identical inserts from two writers merge cleanly?</li><li>Do pulls apply rows in an order that satisfies foreign keys, and does the sync layer respect `PRAGMA foreign_keys`?</li><li>Purge races: writer B commits a revision for a collection that writer A has purged; B pushes a title update after the purge; A's blob GC deletes a hash that B's queue still references.</li></ul> | Tombstone design, `UNIQUE(public_id)`, FK policy, multi-writer purge |
-| **S2: Turso platform check** | <ul><li>Does `@tursodatabase/sync` run under Node 22 on agent-1 (Linux x64) and on the MacBook Air (macOS arm64)?</li><li>How do bootstrap, `checkpoint()`, and a push while offline behave?</li><li>Can `@tursodatabase/serverless` with a `--read-only` token query a `--tursodb` (Sync) database? The reader depends on this.</li></ul> | Writer runtime, reader feasibility |
+| **S2: Turso platform check** | <ul><li>Does `@tursodatabase/sync` run under Node 24 on agent-1 (Linux x64) and on the MacBook Air (macOS arm64)?</li><li>How do bootstrap, `checkpoint()`, and a push while offline behave?</li><li>Can `@tursodatabase/serverless` with a `--read-only` token query a `--tursodb` (Sync) database? The reader depends on this.</li></ul> | Writer runtime, reader feasibility |
 | **S3: R2 conditional PUT** | Using `@aws-sdk/client-s3` against R2: does `If-None-Match: *` return 412 for an existing key, and does that 412 count as a billable Class A operation?<br>**2026-10-07: the 412 is confirmed** (AWS CLI 2.37.9, `--if-none-match '*'` → `PreconditionFailed`). Whether it is billed is still unknown. | Commit procedure |
 | **S4: Migration rehearsal harness** | A script that applies a migration on two replicas and checks they converge. It is reused for every future migration. | Migration discipline |
 

@@ -55,7 +55,7 @@
 
 ## Runtimes and code layout
 
-The writer runs on **Node 22 LTS**. The reader runs on **Cloudflare Workers**. Bun is not used, because Turso Sync's native module isn't documented for Bun. Code is shared through a runtime-agnostic core:
+The writer runs on **Node 24 LTS**. The reader runs on **Cloudflare Workers**. Bun is not used, because Turso Sync's native module isn't documented for Bun. Code is shared through a runtime-agnostic core:
 
 ```
 packages/
