@@ -116,4 +116,10 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 - **Self-contained.** CSS is inlined, and syntax highlighting is done at render time, also inlined. As a result a rendition displays correctly with no internet access on the tailnet, and the reader only has to stream it.
 - **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`. Both the writer and the reader serve that path as static files, with no token.
 - **No CDNs.** Renditions never reference external CDNs.
+- **Deterministic and bounded.** Output depends only on the input bytes and the renderer version, never on time, load, or host settings, because renditions are content-addressed:
+  - Highlighting has no time limit, but lines over 5,000 characters and fences over 100 KB are shown as plain text.
+  - Sources over 1 MB, deeply nested input, and render errors fall back to the same page template showing the escaped source as plain text, with a one-line notice.
+  - Rendering runs in a worker thread with a fixed stack size, so it never blocks the writer's event loop.
+- **Version policy.** Any change to renderer dependencies, CSS, language set, template, or options bumps `RENDERER_VERSION`. A golden-output hash test enforces this.
+- **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
