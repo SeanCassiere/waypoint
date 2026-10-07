@@ -55,8 +55,8 @@ type WriteResult = {
   "collection_id": "col_01j9qz7x2bm4d8vk3np6rt9hcs",
   "revision_id":   "rev_01j9qz8k7cfyva3xr6m2hg5e4n",
   "display_number": 4,
-  "url":        "https://agent-1.<tailnet>.ts.net/c/7f3k9m2qxv8h/r/k2m9x4p7c1ab/",
-  "latest_url": "https://agent-1.<tailnet>.ts.net/c/7f3k9m2qxv8h/",
+  "url":        "https://waypoint.tail7aca06.ts.net/c/7f3k9m2qxv8h/r/k2m9x4p7c1ab/",
+  "latest_url": "https://waypoint.tail7aca06.ts.net/c/7f3k9m2qxv8h/",
   "sync_state": "committed",
   "unchanged": false
 }
@@ -70,7 +70,7 @@ The MCP server is a local stdio process on each agent machine:
 // e.g. Claude Code MCP config
 { "mcpServers": { "waypoint": {
     "command": "npx", "args": ["-y", "@waypoint/mcp"],
-    "env": { "WAYPOINT_URL": "https://agent-1.<tailnet>.ts.net" } } } }
+    "env": { "WAYPOINT_URL": "https://waypoint.tail7aca06.ts.net" } } } }
 ```
 
 For each write it:
@@ -162,7 +162,7 @@ The writer hashes and stores the parts itself.
 ```bash
 curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
      -F 'file:plan.html=@./plan.html' -F 'file:img/flow.png=@./img/flow.png' \
-     https://agent-1.<tailnet>.ts.net/api/collections
+     https://waypoint.tail7aca06.ts.net/api/collections
 ```
 
 ### Queue & status

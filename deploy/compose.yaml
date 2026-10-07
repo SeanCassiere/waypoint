@@ -1,0 +1,60 @@
+name: waypoint
+services:
+  ts-waypoint:
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    hostname: waypoint
+    env_file: /home/agent-1/.config/waypoint/ts.env
+    environment:
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      # The auth key is single-use: only log in when no node state exists yet.
+      TS_AUTH_ONCE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_EXTRA_ARGS: --advertise-tags=tag:waypoint
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  writer:
+    image: waypoint-writer:${WAYPOINT_IMAGE_TAG:-current}
+    network_mode: service:ts-waypoint
+    depends_on:
+      - ts-waypoint
+    env_file: /home/agent-1/.config/waypoint/prod.env
+    environment:
+      WAYPOINT_DATA_DIR: /data
+    volumes:
+      - /home/agent-1/.local/share/waypoint/prod:/data
+    user: "1000:1000"
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 512
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7410/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  tailscale-state:
