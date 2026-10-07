@@ -27,11 +27,13 @@ export async function publicPreview(
     c.html(
       renderPublicShell({
         title: ctx.collection.title,
-        mode: ctx.pinned ? "pinned" : "latest",
-        revisionTime: served.created_at,
-        files: paths.map((file) => ({ path: file, href: href(file) })),
+        files: paths.map((file) => ({ path: file })),
+        head: manifest.headPath,
         current,
-        frameSrc: rawPath(served.public_id, current),
+        fileHref: href,
+        frameBase: rawPath(served.public_id, ""),
+        updatedAt: ctx.pinned ? null : served.created_at,
+        snapshotAt: ctx.pinned ? served.created_at : null,
       }),
     ),
   );
