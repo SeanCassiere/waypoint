@@ -431,7 +431,7 @@ describe("markdown rendition", () => {
     expect(
       await goldenHash(),
       "renderer output changed: bump RENDERER_VERSION and update the golden hash",
-    ).toBe("83a760a71e761db438b14a6f670e594f87eeed3010c6ead9e0fbb13c68bc25a4");
+    ).toBe("3ff53822f18f3616db96ca723be98ab8e2864b63ec107241256ab3a4fb6bdf49");
   });
 
   it("produces byte-identical golden output in a fresh process", async () => {

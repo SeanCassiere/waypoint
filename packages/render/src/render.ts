@@ -184,8 +184,10 @@ export const processor = unified()
   .use(rehypeStringify, { allowDangerousHtml: true });
 
 // Folio reading template (spec section 8, final/render-final.css). Deviations from that file:
-// heading anchors also cover h5/h6, and lone images use figure.image instead of p>img:only-child
-// so images inside running text stay inline.
+// heading anchors also cover h5/h6; lone images use figure.image instead of p>img:only-child so
+// images inside running text stay inline; alerts get the block margin; and on wide screens a
+// table wrap grows only as wide as its table needs (at least the measure, at most
+// min(100vw - 64px, 1120px)), centred, instead of every table spanning the full breakout.
 const css = `:root{color-scheme:light dark;--fg:#1b1a17;--fg-2:#4b5563;--muted:#66615a;--bg:#fcfbf9;--line:#e5e4e0;--line-2:#d4d2cc;--subtle:#f5f4f1;--code-bg:#f6f5f2;--link:#1d5bd6;--link-u:#9db7ef;--mark:#fff1a8;--note:#1d5bd6;--tip:#18794e;--warn:#9a6700;--caution:#c4320a;--measure:68ch}
 @media(prefers-color-scheme:dark){:root{--fg:#ebe8e2;--fg-2:#bdb9b1;--muted:#958f86;--bg:#151514;--line:#2b2c30;--line-2:#3a3b40;--subtle:#1e1f23;--code-bg:#1c1d21;--link:#8db4ff;--link-u:#3d5a91;--mark:#5a4a00;--note:#8db4ff;--tip:#5fd39a;--warn:#e3b341;--caution:#ff8a65}}
 *{box-sizing:border-box}
@@ -210,14 +212,15 @@ li.task-list-item{list-style:none;margin-left:-1.4em}li.task-list-item>input{wid
 strong{font-weight:650}
 blockquote{padding:.1em 0 .1em 1.1em;color:var(--fg-2);border-left:3px solid var(--line-2)}
 blockquote>:last-child{margin-bottom:0}
-.markdown-alert{border-left:3px solid var(--note);padding:.6em 1em;background:var(--subtle);border-radius:0 6px 6px 0;color:var(--fg)}
+.markdown-alert{margin:0 0 1.15em;border-left:3px solid var(--note);padding:.6em 1em;background:var(--subtle);border-radius:0 6px 6px 0;color:var(--fg)}
+.markdown-alert>:last-child{margin-bottom:0}
 .markdown-alert-title{font-weight:650;font-size:.88em;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.25em;color:var(--note)}
 .markdown-alert-tip{border-color:var(--tip)}.markdown-alert-tip .markdown-alert-title{color:var(--tip)}
 .markdown-alert-warning{border-color:var(--warn)}.markdown-alert-warning .markdown-alert-title{color:var(--warn)}
 .markdown-alert-caution{border-color:var(--caution)}.markdown-alert-caution .markdown-alert-title{color:var(--caution)}
 .table-wrap{margin:0 0 1.4em;overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:linear-gradient(to right,var(--bg) 30%,transparent) left/40px 100% no-repeat local,linear-gradient(to left,var(--bg) 30%,transparent) right/40px 100% no-repeat local,radial-gradient(farthest-side at 0 50%,rgba(0,0,0,.16),transparent) left/12px 100% no-repeat scroll,radial-gradient(farthest-side at 100% 50%,rgba(0,0,0,.16),transparent) right/12px 100% no-repeat scroll}
 .table-wrap:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-@media(min-width:900px){.table-wrap{margin-inline:calc((var(--measure) - min(100vw - 64px,1120px))/2)}}
+@media(min-width:900px){.table-wrap{width:max-content;min-width:100%;max-width:min(100vw - 64px,1120px);position:relative;left:50%;transform:translateX(-50%)}}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.9em;line-height:1.5;font-variant-numeric:tabular-nums}
 th,td{padding:.55em .85em;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;min-width:9ch}
 th{background:var(--subtle);font-weight:600;font-size:.92em;white-space:nowrap}
