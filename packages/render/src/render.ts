@@ -36,7 +36,7 @@ export const RENDERER_NAME = "markdown";
 // would leave two different outputs claiming the same key. Existing blobs get the new version
 // through `waypoint-writer rerender`.
 // v1: GitHub-like template. v2: Folio reading template (headings anchors, alerts, contents,
-// table wrap, figures, code labels, frame reporter).
+// table wrap, figures, code labels, frame reporter, dir="auto" on text blocks).
 export const RENDERER_VERSION = 2;
 
 const languages = [
@@ -251,9 +251,11 @@ details.toc ol{margin:.5em 0 .2em;padding-left:1.2em}details.toc li{margin:.15em
  * It posts only `location.pathname + location.hash` to `parent`: no origin, query string,
  * referrer, or document content. The shell already knows that path (it set the frame's src),
  * and the parent must check `event.source` itself. It also collapses the contents block on
- * phones; without JS the block simply stays open.
+ * phones; without JS the block simply stays open. The width is checked after layout (an iframe
+ * starts at its default 300px before the shell sizes it) and again whenever it crosses 600px,
+ * until the reader toggles the block themselves.
  */
-export const FRAME_REPORTER = `(()=>{const t=document.querySelector("details.toc");if(t&&matchMedia("(max-width:600px)").matches)t.open=false;const p=window.parent;if(p===window)return;const s=()=>{try{p.postMessage({type:"waypoint:location",href:location.pathname+location.hash},"*")}catch{}};addEventListener("hashchange",s);if(document.readyState==="complete")s();else addEventListener("load",s)})();`;
+export const FRAME_REPORTER = `(()=>{const d=document,t=d.querySelector("details.toc"),r=f=>d.readyState=="complete"?f():addEventListener("load",f);if(t){const q=matchMedia("(max-width:600px)");let u;const f=()=>{u||d.documentElement.clientWidth&&(t.open=!q.matches)};t.onclick=()=>u=1;q.onchange=f;r(()=>requestAnimationFrame(f))}const p=parent;if(p==window)return;const s=()=>{try{p.postMessage({type:"waypoint:location",href:location.pathname+location.hash},"*")}catch{}};addEventListener("hashchange",s);r(s)})();`;
 
 function escapeHtml(value: string): string {
   return value
@@ -369,7 +371,7 @@ function contents(root: Root): Element | undefined {
     const id = node.properties.id;
     if (typeof id !== "string" || id === "") return;
     entries.push(
-      element("li", {}, [
+      element("li", { dir: "auto" }, [
         element("a", { href: `#${id}` }, [{ type: "text", value: plainText(node) }]),
       ]),
     );
@@ -392,9 +394,24 @@ function loneImage(node: Element): boolean {
   return inner.length === 1 && inner[0]?.type === "element" && inner[0].tagName === "img";
 }
 
+/** Text blocks take their direction from their own text, so RTL documents read right to left. */
+const bidiBlocks = new Set([
+  ...headingTags,
+  "p",
+  "li",
+  "td",
+  "th",
+  "blockquote",
+  "dt",
+  "dd",
+  "figcaption",
+]);
+
 function decorate(root: Root): void {
   const insideTable = new WeakSet<Element>();
   walk(root, (node, parent) => {
+    if (bidiBlocks.has(node.tagName) && node.properties.dir === undefined)
+      node.properties.dir = "auto";
     if (node.tagName === "table") {
       walk(node, (inner) => insideTable.add(inner));
       if (insideTable.has(node)) return;
