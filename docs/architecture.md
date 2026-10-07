@@ -36,9 +36,18 @@
   - the **viewer**: collection list, collection view with file sidebar and revision picker, and a Trash view
   - **raw content**: files and renditions
 - Runs a single **committer** worker, which moves queued writes into durable cloud state.
-- Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead.
+- Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead. See [Data-directory lock](#data-directory-lock).
 - Reuses prepared statements. See [Prepared statements and native memory](#prepared-statements-and-native-memory).
 - Multiple writers are possible. Each has its own data directory, and they converge through the cloud DB.
+
+#### Data-directory lock
+
+`serve`, `restore` and `rerender` each take the data-directory lock before opening a database, so only one of them runs at a time, even from different containers that bind-mount the same directory.
+
+- The lock is an OS-level POSIX record lock on `writer-lock.db`, held by Turso for as long as the process keeps that file open. The kernel drops it when the process exits, however it exits, so a crashed writer never leaves a stale lock to clean up, and nothing ever deletes the lock file.
+- Process IDs aren't used for liveness. Containers have their own PID namespaces, so a PID check from another container can't see the owner. (Before this change, a second container could delete a live writer's `writer.lock`; only Turso's own lock on `waypoint.db` stopped it.)
+- After taking the lock, the owner writes `writer-lock.json` with its PID, hostname (the container ID in Docker), command and start time. A process that fails to get the lock reports that owner in its error. Only the owner removes the file, while it still holds the lock.
+- A leftover `writer.lock` from older versions is ignored.
 
 #### Prepared statements and native memory
 
