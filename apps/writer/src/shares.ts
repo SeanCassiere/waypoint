@@ -129,7 +129,10 @@ export async function revokeAll(s: HttpServices, collectionId: string): Promise<
   });
 }
 
-/** Moves an active link's expiry later (never earlier), with a snapshot rewrite. */
+/**
+ * Moves an active link's expiry later (never earlier), with a snapshot rewrite. Asking for the
+ * current expiry again is a no-op success, so retries are idempotent.
+ */
 export async function extendLink(
   s: HttpServices,
   id: string,
@@ -149,8 +152,10 @@ export async function extendLink(
     const now = Date.now();
     if (row.revoked_at !== null) throw new WaypointError("conflict", "Share link is revoked");
     if (row.expires_at === null) throw new WaypointError("conflict", "Share link never expires");
+    // A retry of an extension that already applied succeeds without another snapshot.
+    if (expiresAt === row.expires_at) return;
     if (row.expires_at <= now) throw new WaypointError("conflict", "Share link has expired");
-    if (expiresAt <= row.expires_at)
+    if (expiresAt < row.expires_at)
       throw new WaypointError("validation_failed", "Expiry can only move later");
     await s.queue.run(
       "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",

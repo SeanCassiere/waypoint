@@ -210,7 +210,7 @@ On startup and before every push, the writer compares three values: `WAYPOINT_EN
 | Lost | Recovery |
 |---|---|
 | A writer machine | Start a writer on any tailnet machine with an empty data directory. Turso Sync bootstraps `waypoint.db` from the cloud. The local blob store refills lazily from the bucket as files are read. |
-| Committed but unpushed rows (disk lost during a cloud DB outage) | `waypoint-writer restore --merge` replays DR manifests and snapshots from the bucket that are missing from the cloud DB. |
+| Committed but unpushed rows (disk lost during a cloud DB outage) | `waypoint-writer restore --merge` replays DR manifests and snapshots from the bucket that are missing from the cloud DB. Share links merge too: a revoked link stays revoked, and the later `expires_at` wins (null only if both sides are null; D48). |
 | The cloud DB | Create a new Turso Sync DB and run `waypoint-writer restore --from-bucket`. It replays every `collections/*.json` and `manifests/*.json`. A manifest is ignored if its collection snapshot is missing or its parent's manifest is missing (this applies down the chain). Restore is the only time Waypoint lists the bucket. Manifests hold the renditions made at ingest, not ones added later by `rerender`, so run `waypoint-writer rerender --all` after a restore. |
 | The bucket | Not recoverable. This is the durability floor. If that ever matters, add R2 replication or a second bucket. |
 

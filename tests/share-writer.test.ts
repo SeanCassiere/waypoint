@@ -350,6 +350,64 @@ describe("writer share links", () => {
       await rm(restoreDir, { recursive: true, force: true });
     }
   });
+  it("merge keeps the later expiry from either side, and revoked stays revoked", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const other = await createdId(await create({ expires_at: soon }));
+    const forever = await createdId(await create({}));
+    await worker.drain();
+    const restoreDir = await mkdtemp(join(tmpdir(), "waypoint-share-restore-"));
+    const opened = await openDatabases({
+      environment: "dev",
+      dataDir: restoreDir,
+      baseUrl: "http://localhost:7410",
+      port: 7410,
+      queueGiveUpHours: 72,
+      maxBlobBytes: 1024,
+      sync: false,
+    });
+    const expiry = async (link: string) =>
+      (
+        await opened.waypoint.get<{ expires_at: number | null; revoked_at: number | null }>(
+          "SELECT expires_at,revoked_at FROM share_links WHERE id=?",
+          [link],
+        )
+      )?.expires_at;
+    try {
+      await migrate(opened.waypoint, waypointMigrations);
+      await migrate(opened.queue, queueMigrations);
+      const sync = new SyncLoop(opened.queue, opened.syncClient, Date.now, opened.waypoint);
+      await restore(opened.waypoint, bucket, sync, "from-bucket");
+      expect(await expiry(id)).toBe(soon);
+      // The writer extends one link; the restored copy extends the other further and revokes it.
+      const extended = soon + 86_400_000;
+      expect(
+        (await app.request(`/api/share-links/${id}/extend`, json({ expires_at: extended }))).status,
+      ).toBe(200);
+      await worker.drain();
+      await opened.waypoint.run("UPDATE share_links SET expires_at=?, revoked_at=? WHERE id=?", [
+        soon + 2 * 86_400_000,
+        123,
+        other,
+      ]);
+      await restore(opened.waypoint, bucket, sync, "merge");
+      expect(await expiry(id)).toBe(extended);
+      expect(await expiry(other)).toBe(soon + 2 * 86_400_000);
+      expect(
+        await opened.waypoint.get("SELECT revoked_at FROM share_links WHERE id=?", [other]),
+      ).toEqual({ revoked_at: 123 });
+      // Null (never expires) survives only when both sides are null.
+      expect(await expiry(forever)).toBeNull();
+      await opened.waypoint.run("UPDATE share_links SET expires_at=NULL WHERE id=?", [id]);
+      await restore(opened.waypoint, bucket, sync, "merge");
+      expect(await expiry(id)).toBe(extended);
+      expect(await expiry(forever)).toBeNull();
+    } finally {
+      await opened.waypoint.close();
+      await opened.queue.close();
+      await rm(restoreDir, { recursive: true, force: true });
+    }
+  });
   it("purge removes local links", async () => {
     expect((await create()).status).toBe(201);
     expect(
@@ -573,6 +631,18 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(await jsonBody(later)).toMatchObject({
       share_link: { expires_at: soon + 7 * 86_400_000 },
     });
+    // Retrying the same extension succeeds and changes nothing (no write, no snapshot).
+    await worker.drain();
+    const writes = [vi.spyOn(waypoint, "run"), vi.spyOn(queue, "run")];
+    const again = await extend(soon + 7 * 86_400_000);
+    const calls = writes.flatMap((spy) => spy.mock.calls.map((call) => call[0]));
+    writes.forEach((spy) => spy.mockRestore());
+    expect(again.status).toBe(200);
+    expect(await jsonBody(again)).toMatchObject({
+      share_link: { expires_at: soon + 7 * 86_400_000 },
+    });
+    expect(calls.filter((sql) => /share_links|pending_snapshots/.test(sql))).toEqual([]);
+    expect((await extend(soon + 7 * 86_400_000 - 1)).status).toBe(400);
     const forever = await createdId(await create({}));
     expect((await extend(soon, forever)).status).toBe(409);
     await app.request(`/api/share-links/${id}/revoke`, json({}));

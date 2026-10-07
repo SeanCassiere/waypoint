@@ -213,7 +213,7 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 | `GET /api/share-links?state=active\|expired\|revoked` | Every link across collections, each with `collection: { id, public_id, title, deleted }`. `active` includes `activating`; `revoked` includes `revoking`. |
 | `GET /api/share-links/:id` | `{ share_link }`, for activation polling. |
 | `POST /api/share-links/revoke-all?state=active` `{}` | Revoke every active link. Returns `{ revoked }`. |
-| `POST /api/share-links/:id/extend` `{ expires_at }` | Move an active, expiring link's expiry later (never earlier; 409 for revoked, expired or never-expiring links). Queues a snapshot rewrite like revocation. |
+| `POST /api/share-links/:id/extend` `{ expires_at }` | Move an active, expiring link's expiry later (never earlier; 409 for revoked, expired or never-expiring links). Queues a snapshot rewrite like revocation. Repeating the current `expires_at` succeeds with no change, so retries are safe. |
 | `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
 | `GET /api/collections/:id/revisions` | List revisions. Each summary includes `changes: { added, modified, removed }` against its parent (file counts; a root revision counts every file as added). With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones (without `changes`). |
 | `GET /api/revisions/:id` | Revision + full manifest |
