@@ -661,7 +661,7 @@ export class DiffWorkers {
         new Worker(new URL(import.meta.url), {
           execArgv: [],
           workerData: { waypointDiff: true },
-          resourceLimits: { maxOldGenerationSizeMb: 512, stackSizeMb: 4 },
+          resourceLimits: { maxOldGenerationSizeMb: 256, stackSizeMb: 4 },
         });
     } catch (error) {
       console.error(`Diff worker failed to start: ${String(error)}`);
