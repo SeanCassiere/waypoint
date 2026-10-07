@@ -70,6 +70,8 @@ function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
   }
   for (const node of $$(".row, .acts, [data-url-missing]", holder))
     if (node.parentElement === holder) node.remove();
+  // Expiry no longer applies (/links rows).
+  for (const node of $$("[data-live]", holder)) node.remove();
   setRevokeNote(holder, pushed);
   countRevoked();
   holder.tabIndex = -1;

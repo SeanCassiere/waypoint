@@ -661,9 +661,11 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     {link.collection.deleted ? <span>inactive while in Trash</span> : null}
                     {isLive(link) ? (
                       link.expires_at === null ? (
-                        <span class="soon">never expires</span>
+                        <span class="soon" data-live>
+                          never expires
+                        </span>
                       ) : (
-                        <span class={link.expires_at - now < DAY ? "soon" : undefined}>
+                        <span class={link.expires_at - now < DAY ? "soon" : undefined} data-live>
                           expires <Time at={link.expires_at} fmt="until" now={now} />
                         </span>
                       )
