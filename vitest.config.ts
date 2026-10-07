@@ -5,9 +5,9 @@ const include = [
   "packages/*/tests/**/*.test.ts",
   "apps/*/tests/**/*.test.ts",
 ];
-// CPU-budget tests measure thread CPU time, which a saturated machine inflates, so they run in a
-// second group after every other test has finished.
-const cpu = ["tests/reader-cpu.test.ts"];
+// CPU-budget and wall-clock tests measure time, which a saturated machine inflates, so they run
+// in a second group after every other test has finished.
+const cpu = ["tests/reader-cpu.test.ts", "tests/compare-limits.test.ts"];
 
 export default defineConfig({
   test: {

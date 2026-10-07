@@ -119,3 +119,20 @@ export function markWords(
     )
     .join("");
 }
+
+/**
+ * Fragments longer than this aren't rendered. Markdown parsing is superlinear on some inputs
+ * (nested brackets and emphasis), so this keeps one fragment's cost to a few hundred ms.
+ */
+export const MAX_FRAGMENT_SOURCE = 8 * 1024;
+
+/**
+ * Renders a batch of fragments within a time budget. A fragment that is too long, or comes
+ * after the budget is spent, is `null`; the caller shows its source instead.
+ */
+export function renderFragments(sources: readonly string[], budgetMs = 1000): (string | null)[] {
+  const deadline = Date.now() + budgetMs;
+  return sources.map((source) =>
+    source.length > MAX_FRAGMENT_SOURCE || Date.now() > deadline ? null : renderFragment(source),
+  );
+}

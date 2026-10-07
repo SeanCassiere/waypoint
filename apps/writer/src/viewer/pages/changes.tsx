@@ -1,14 +1,18 @@
 /** @jsxImportSource hono/jsx */
-import { markWords, renderFragment } from "@waypoint/render";
+import { markWords } from "@waypoint/render";
 import type { Context } from "hono";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import {
   compareManifests,
+  MAX_BLOCKS,
+  MAX_LINES,
   type CompareFile,
   type DiffBlock,
   type FileDiff,
   type LineDiffRow,
+  type TruncatedReason,
   type WordOp,
 } from "../../compare.js";
 import type { HttpServices } from "../../http.js";
@@ -36,6 +40,9 @@ const RENDER_FIRST = 5;
 const ADDED_PREVIEW = 20;
 const ADDED_LIMIT = 200;
 const FOLD_RENDER_LIMIT = 30;
+/** Code blocks diff line by line with an LCS table; past this many cells, lines show as removed
+ * then added. */
+const CODE_LCS_CELLS = 250_000;
 
 const glyph = (status: CompareFile["status"]) =>
   status === "added" ? "+" : status === "removed" ? "−" : status === "modified" ? "~" : "=";
@@ -57,8 +64,49 @@ function Words(props: { words: readonly WordOp[] }) {
     </>
   );
 }
-function Rendered(props: { markdown: string }) {
-  return <div class="tx rd" dangerouslySetInnerHTML={{ __html: renderFragment(props.markdown) }} />;
+/**
+ * Markdown blocks on the page, rendered together off the event loop (Markdown parsing is
+ * superlinear on some inputs). Components emit placeholders; `fill` swaps in the HTML, or the
+ * block's source when it was too long or the time budget ran out.
+ */
+class Fragments {
+  private readonly sources: string[] = [];
+  private readonly fallbacks: Child[] = [];
+  add(markdown: string, fallback: Child): number {
+    this.sources.push(markdown);
+    this.fallbacks.push(fallback);
+    return this.sources.length - 1;
+  }
+  async fill(
+    html: string,
+    render: (sources: string[]) => Promise<(string | null)[]>,
+  ): Promise<string> {
+    const rendered = await render(this.sources);
+    const fallbacks = await Promise.all(
+      this.fallbacks.map(async (fallback, index) => {
+        if (typeof rendered[index] === "string") return "";
+        const node = <>{fallback}</>;
+        return (await node).toString();
+      }),
+    );
+    // Placeholders are comments, which escaped page text can never contain.
+    return html.replace(/<!--wpfrag:(\d+)-->/g, (_, at: string) => {
+      const index = Number(at);
+      const fragment = rendered[index];
+      return typeof fragment === "string"
+        ? `<div class="tx rd">${fragment}</div>`
+        : (fallbacks[index] ?? "");
+    });
+  }
+}
+function Rendered(props: { markdown: string; source: Child; frags: Fragments }) {
+  const fallback = (
+    <div class="tx code">
+      <span class="srcnote">Source · not rendered</span>
+      {props.source}
+    </div>
+  );
+  return raw(`<!--wpfrag:${props.frags.add(props.markdown, fallback)}-->`);
 }
 const marker = (op: DiffBlock["op"]) =>
   op === "insert" ? (
@@ -178,6 +226,24 @@ function CodeBlock(props: { op: DiffBlock }) {
   const rows: Child[] = [];
   let deleted = 0;
   let added = 0;
+  if (before.length * after.length > CODE_LCS_CELLS)
+    return (
+      <div class="blk src mod">
+        {marker("replace")}
+        <div class="tx">
+          <span class="srcnote">
+            Code{language ? ` · ${language}` : ""} ·{" "}
+            {plural(Math.max(before.length, after.length), "line")} changed
+          </span>
+          {before.map((line) => (
+            <span class="lndel">{line}</span>
+          ))}
+          {after.map((line) => (
+            <span class="lnadd">{line}</span>
+          ))}
+        </div>
+      </div>
+    );
   // A simple line LCS is enough for code blocks inside one Markdown block.
   const table: number[][] = Array.from({ length: before.length + 1 }, () =>
     Array.from({ length: after.length + 1 }, () => 0),
@@ -221,15 +287,11 @@ function CodeBlock(props: { op: DiffBlock }) {
     </div>
   );
 }
-function BlockView(props: { op: DiffBlock }) {
+function BlockView(props: { op: DiffBlock; frags: Fragments }) {
   const { op } = props;
   if (op.kind === "code") return <CodeBlock op={op} />;
-  const source =
-    op.op === "replace" && op.words
-      ? markWords(op.words)
-      : op.op === "delete"
-        ? (op.base_text ?? "")
-        : (op.head_text ?? "");
+  const text = op.op === "delete" ? (op.base_text ?? "") : (op.head_text ?? "");
+  const source = op.op === "replace" && op.words ? markWords(op.words) : text;
   return (
     <div
       class={`blk ${tone(op.op)}`}
@@ -237,18 +299,22 @@ function BlockView(props: { op: DiffBlock }) {
       tabindex={op.op === "equal" ? undefined : -1}
     >
       {marker(op.op)}
-      <Rendered markdown={source} />
+      <Rendered
+        markdown={source}
+        source={op.op === "replace" && op.words ? <Words words={op.words} /> : text}
+        frags={props.frags}
+      />
     </div>
   );
 }
-function UnitView(props: { unit: Unit }) {
+function UnitView(props: { unit: Unit; frags: Fragments }) {
   return "table" in props.unit ? (
     <TableUnit rows={props.unit.table} />
   ) : (
-    <BlockView op={props.unit.block} />
+    <BlockView op={props.unit.block} frags={props.frags} />
   );
 }
-function Fold(props: { units: Unit[]; where: "above" | "below" | "between" }) {
+function Fold(props: { units: Unit[]; where: "above" | "below" | "between"; frags: Fragments }) {
   const count = props.units.reduce((sum, unit) => sum + ("table" in unit ? 1 : 1), 0);
   const label = `Show ${plural(count, "unchanged block")}${props.where === "between" ? "" : ` ${props.where}`}`;
   if (count > FOLD_RENDER_LIMIT)
@@ -261,20 +327,21 @@ function Fold(props: { units: Unit[]; where: "above" | "below" | "between" }) {
     <details class="folded">
       <summary class="fold">{label}</summary>
       {props.units.map((unit) => (
-        <UnitView unit={unit} />
+        <UnitView unit={unit} frags={props.frags} />
       ))}
     </details>
   );
 }
 /** Renders block ops with unchanged runs folded behind <details> (one block of context kept). */
-function BlockDiff(props: { ops: readonly DiffBlock[]; limit?: number }) {
+function BlockDiff(props: { ops: readonly DiffBlock[]; limit?: number; frags: Fragments }) {
+  const { frags } = props;
   const all = units(props.ops);
   const shown = props.limit ? all.slice(0, props.limit) : all;
   const out: Child[] = [];
   let index = 0;
   while (index < shown.length) {
     if (!unchanged(shown[index]!)) {
-      out.push(<UnitView unit={shown[index]!} />);
+      out.push(<UnitView unit={shown[index]!} frags={frags} />);
       index++;
       continue;
     }
@@ -284,18 +351,18 @@ function BlockDiff(props: { ops: readonly DiffBlock[]; limit?: number }) {
     const atStart = index === 0;
     const atEnd = end === shown.length;
     if (run.length <= 2 && !atStart && !atEnd)
-      run.forEach((unit) => out.push(<UnitView unit={unit} />));
-    else if (atStart && atEnd) out.push(<Fold units={run} where="between" />);
+      run.forEach((unit) => out.push(<UnitView unit={unit} frags={frags} />));
+    else if (atStart && atEnd) out.push(<Fold units={run} where="between" frags={frags} />);
     else if (atStart) {
-      if (run.length > 1) out.push(<Fold units={run.slice(0, -1)} where="above" />);
-      out.push(<UnitView unit={run.at(-1)!} />);
+      if (run.length > 1) out.push(<Fold units={run.slice(0, -1)} where="above" frags={frags} />);
+      out.push(<UnitView unit={run.at(-1)!} frags={frags} />);
     } else if (atEnd) {
-      out.push(<UnitView unit={run[0]!} />);
-      if (run.length > 1) out.push(<Fold units={run.slice(1)} where="below" />);
+      out.push(<UnitView unit={run[0]!} frags={frags} />);
+      if (run.length > 1) out.push(<Fold units={run.slice(1)} where="below" frags={frags} />);
     } else {
-      out.push(<UnitView unit={run[0]!} />);
-      out.push(<Fold units={run.slice(1, -1)} where="between" />);
-      out.push(<UnitView unit={run.at(-1)!} />);
+      out.push(<UnitView unit={run[0]!} frags={frags} />);
+      out.push(<Fold units={run.slice(1, -1)} where="between" frags={frags} />);
+      out.push(<UnitView unit={run.at(-1)!} frags={frags} />);
     }
     index = end;
   }
@@ -348,6 +415,14 @@ function summary(diff: FileDiff): string {
   );
 }
 
+const TRUNCATED: Record<TruncatedReason, string> = {
+  size: "This change is too large to show (over 1 MB).",
+  lines: `This file has more than ${MAX_LINES.toLocaleString("en-US")} lines, too many to diff here.`,
+  blocks: `This file has more than ${MAX_BLOCKS.toLocaleString("en-US")} blocks, too many to diff here.`,
+  complex: "This change is too complex to show as a diff.",
+};
+const truncatedReason = (diff: FileDiff): string => TRUNCATED[diff.truncated_reason ?? "size"];
+
 function FileCard(props: {
   ctx: CollectionContext;
   file: CompareFile;
@@ -357,6 +432,7 @@ function FileCard(props: {
   basePub: string | null;
   view: "rendered" | "source";
   href: (params: Record<string, string>) => string;
+  frags: Fragments;
 }) {
   const { ctx, file, diff } = props;
   const headN = ctx.revision.display_number ?? 0;
@@ -379,11 +455,23 @@ function FileCard(props: {
     );
   else if (diff.truncated)
     body = (
-      <div class="note">
-        This change is too large to show (&gt; 1 MB). Open both versions:{" "}
-        {openBase ? <a href={openBase}>#{props.baseNumber}</a> : null}
-        {openBase ? " · " : ""}
-        <a href={openHead}>#{headN}</a>.
+      <div class="note" data-truncated={diff.truncated_reason ?? "size"}>
+        {truncatedReason(diff)}{" "}
+        {diff.truncated_reason === "blocks" && props.view === "rendered" ? (
+          <>
+            <a href={props.href({ view: "source", file: file.path })}>Try Source lines</a>, or open
+          </>
+        ) : (
+          "Open"
+        )}{" "}
+        {openBase && file.base ? "both versions: " : ""}
+        {openBase && file.base ? (
+          <>
+            <a href={openBase}>#{props.baseNumber}</a> ({bytes(file.base.size)}) ·{" "}
+          </>
+        ) : null}
+        <a href={openHead}>#{headN}</a>
+        {file.head ? ` (${bytes(file.head.size)})` : ""}.
       </div>
     );
   else if (diff.kind === "image")
@@ -433,7 +521,7 @@ function FileCard(props: {
   else if (file.status === "added" && diff.ops.length > ADDED_LIMIT)
     body = (
       <>
-        <BlockDiff ops={diff.ops} limit={ADDED_PREVIEW} />
+        <BlockDiff ops={diff.ops} limit={ADDED_PREVIEW} frags={props.frags} />
         <div class="note">
           Showing the first {ADDED_PREVIEW} of {diff.ops.length} blocks.{" "}
           <a href={openHead}>
@@ -442,7 +530,7 @@ function FileCard(props: {
         </div>
       </>
     );
-  else body = <BlockDiff ops={diff.ops} />;
+  else body = <BlockDiff ops={diff.ops} frags={props.frags} />;
   return (
     <section class="fd" id={`f-${props.index}`} aria-label={file.path} data-file-diff={file.path}>
       <header>
@@ -567,6 +655,27 @@ export async function changesPage(
       </p>
     </>
   );
+  const frags = new Fragments();
+  const cardList = (
+    <>
+      {(only ? changed.filter((file) => file.path === only) : changed).map((file) => (
+        <FileCard
+          ctx={ctx}
+          file={file}
+          index={compare.files.indexOf(file)}
+          diff={diffs.get(file.path) ?? null}
+          baseNumber={baseN}
+          basePub={baseRow?.public_id ?? null}
+          view={view}
+          href={href}
+          frags={frags}
+        />
+      ))}
+    </>
+  );
+  const cards = await frags.fill((await cardList).toString(), (sources) =>
+    extras.renderFragments(sources),
+  );
   const chips: Child[] = [];
   if (compare.counts.modified)
     chips.push(
@@ -650,18 +759,7 @@ export async function changesPage(
                   {compare.head_path_changed ? "; only the head file changed" : ""}.
                 </p>
               )}
-              {(only ? changed.filter((file) => file.path === only) : changed).map((file) => (
-                <FileCard
-                  ctx={ctx}
-                  file={file}
-                  index={compare.files.indexOf(file)}
-                  diff={diffs.get(file.path) ?? null}
-                  baseNumber={baseN}
-                  basePub={baseRow?.public_id ?? null}
-                  view={view}
-                  href={href}
-                />
-              ))}
+              {raw(cards)}
               {only ? (
                 <p class="cmphead">
                   <a href={href({ file: "" })}>Show all changed files</a>

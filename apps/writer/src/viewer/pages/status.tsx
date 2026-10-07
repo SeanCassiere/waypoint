@@ -19,6 +19,8 @@ export interface ViewerExtras {
   serverBundle(): Promise<string | null>;
   /** Cached per-file diff (B1) for the Changes page. */
   fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff>;
+  /** Renders Changes-page Markdown fragments off the event loop; `null` means show source. */
+  renderFragments(sources: string[]): Promise<(string | null)[]>;
   /** Agents currently long-polling for a new revision (B5). */
   watchers?(): { collection_id: string; after: string; since: number; client: string | null }[];
 }

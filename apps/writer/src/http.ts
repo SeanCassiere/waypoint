@@ -29,8 +29,8 @@ import { BucketError } from "./bucket.js";
 import { blobKey, type WriterCommitter } from "./committer.js";
 import {
   compareManifests,
-  diffFile,
   DiffCache,
+  DiffWorkers,
   MAX_SIDE_BYTES,
   type CompareFile,
   type FileDiff,
@@ -173,6 +173,9 @@ const matchesEtag = (header: string | undefined, etag: string) =>
     const token = item.trim().replace(/^W\//, "");
     return token === etag || token === "*";
   }) ?? false;
+/** Shared by every app instance: diff and fragment workers hold no per-app state. */
+const diffWorkers = new DiffWorkers();
+
 export function createApp(s: HttpServices): Hono {
   const app = new Hono();
   const revisionEvents = s.reads.revisionEvents;
@@ -241,12 +244,18 @@ export function createApp(s: HttpServices): Hono {
       throw error;
     }
   }
-  const diffs = new DiffCache(200);
+  const diffs = new DiffCache();
   async function fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff> {
     const key = `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${mode}|${file.mime}|${file.path}`;
     const cached = diffs.get(key);
     if (cached) return cached;
-    const result = diffFile(file, await blobText(file.base), await blobText(file.head), mode);
+    // Large inputs are diffed in a worker with a time limit, never on the event loop.
+    const result = await diffWorkers.diff({
+      file,
+      base: await blobText(file.base),
+      head: await blobText(file.head),
+      mode,
+    });
     if (!result.truncated) diffs.set(key, result);
     return result;
   }
@@ -1270,6 +1279,7 @@ export function createApp(s: HttpServices): Hono {
     viewerApp(s, {
       serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
       fileDiff,
+      renderFragments: (sources) => diffWorkers.fragments(sources),
       watchers: () => [...watchers.values()],
     }),
   );
