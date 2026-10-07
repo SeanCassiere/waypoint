@@ -33,6 +33,7 @@ The tailnet is the trust boundary, not the home LAN. The writer is **not reachab
 | R2 `waypoint-writer-<env>` | Read/write/delete objects in one bucket | Writer | same |
 | Turso read-only token | Read metadata | Reader Worker | `reader-<env>.env` on agent-1, then uploaded as a Worker secret |
 | R2 `waypoint-reader-<env>` | Read and list one bucket | Reader Worker | same |
+| Prod read-only reader values (the two rows above, prod only) | Same as above | PR Worker Previews of `waypoint-reader` | `reader-prod.env`, uploaded with each preview deployment by the Preview workflow on the self-hosted runner |
 | Cloudflare `waypoint-reader-deploy` | Deploy Workers; edit DNS and routes on `pingstash.com` | Deploy pipeline (self-hosted runner) | `cloudflare.env` on agent-1. **Never** a GitHub secret. |
 | Tailscale auth key (`tag:waypoint`) | Join the tailnet as the sidecar, once | Sidecar | `ts.env` on agent-1; single-use and already consumed |
 | Share tokens (`wps_…`) | Read one collection (or one revision) publicly | Whoever the owner shares the URL with | Only `sha256(token)` is stored, so a leaked database doesn't leak working links |
@@ -84,6 +85,17 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 - Deploys run only on the **self-hosted runner on agent-1**, triggered by successful CI on `main`. The runner runs as the `agent-1` user, so it can read `~/.config/waypoint/`. Merging to `main` is therefore equivalent to running code with production credentials.
   - The repository is private, and only the owner can merge.
   - Never add a workflow that runs untrusted code (for example from forks) on the `waypoint-deploy` runner.
+- **PR previews run unreviewed PR code on the same runner** (D49). The Preview workflow ([preview.yml](../.github/workflows/preview.yml)) checks out each PR's head commit on the `waypoint-deploy` runner, uploads it as a Worker Preview of the prod reader with the prod **read-only** reader credentials, and deletes it when the PR closes. GitHub runs a `pull_request` workflow **from the PR's own branch**, so whoever can push a branch to this repository can change the workflow in that branch and run anything on the runner, with everything in `~/.config/waypoint/`, before any review.
+  - **That's acceptable only because only the owner can push branches.** If anyone else ever gets write access (a collaborator, a deploy key, or an app or bot that can push branches), remove the Preview workflow or move previews off the self-hosted runner first.
+  - **Fork PRs never reach the runner.** Every self-hosted job has `if: head.repo.full_name == github.repository`, so fork PRs skip it.
+  - **A guard job runs first, on a GitHub-hosted runner.** It fails unless the head repo is this repo and both `github.actor` and `github.triggering_actor` are on its allow list (only `SeanCassiere`; bots only after review). The self-hosted jobs `need` it.
+  - The guard is defense in depth against mistakes, not against a malicious branch, which could edit the guard too. The real control is who can push.
+  - **Never use `pull_request_target`.** It would run with this repo's permissions for fork PRs.
+  - The preview jobs get a read-only `GITHUB_TOKEN`. Only the comment job, on a GitHub-hosted runner with no checkout, can write PR comments.
+- **Previews are owner-only.** Cloudflare Access (app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f`, one Allow policy for the owner) covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. Those are the prod Worker's `workers.dev` route, its version URLs and every preview.
+  - The preview script fails, and deletes the preview, unless both its URLs answer 302 to the Access login.
+  - Previews are never enabled on `waypoint.pingstash.com`, which stays public, production only, and without Access. Its route pins `previews_enabled: false`.
+  - A preview can read everything the prod reader can (all prod metadata and blobs, not just shared ones), and it can't write.
 - Dependencies: Dependabot alerts are triaged. Lockfiles are frozen in CI. pnpm's `minimumReleaseAge` delays brand-new package versions.
 
 ## What's out of scope (accepted risks)
@@ -94,8 +106,9 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 | A leaked share URL grants access until revoked or expired | Capability-URL model. Revoke it in the writer; it takes effect within about 60 s. Passwords and audience grants are planned to narrow this. |
 | Malicious agent HTML in the tailnet viewer can call the writer API | D23. The agents are the owner's own. |
 | Turso or Cloudflare can read stored content | Accepted provider trust. There's no client-side encryption. |
+| A pushed branch can run code on the deploy runner, with production credentials, before review | Only the owner can push (D49). The Preview workflow runs the PR branch's own workflow file there. |
 | Losing the R2 bucket loses content | The bucket is the durability floor; see [write-path-and-sync.md](write-path-and-sync.md#restore--disaster-recovery). |
 
 ## Related decisions
 
-D1–D6, D20, D21, D23, D24, D26, D36, D37, D38, D40, D41. See [decisions.md](decisions.md).
+D1–D6, D20, D21, D23, D24, D26, D36, D37, D38, D40, D41, D49. See [decisions.md](decisions.md).

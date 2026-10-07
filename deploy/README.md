@@ -248,6 +248,65 @@ cd apps/reader
 
 Use `dev` in place of `prod` for the dev Worker. Load `cloudflare.env` in the shell before manual `wrangler` commands, without echoing it. `DRY_RUN=1 bash deploy/deploy-reader.sh dev` checks the script's local stages without reading secrets or calling Wrangler.
 
+The prod Worker's `workers.dev` route (`https://waypoint-reader.seancassiere.workers.dev`) and its version and preview URLs are enabled, and all of them are behind Cloudflare Access (owner only; see [PR previews](#pr-previews)). The custom domain `waypoint.pingstash.com` stays public and has previews disabled. The dev Worker has no `workers.dev` route.
+
+## PR previews
+
+Every pull request from this repository gets a [Worker Preview](https://developers.cloudflare.com/workers/previews/) of the **production** reader Worker `waypoint-reader`, named `pr-<number>`:
+
+```
+https://pr-<number>-waypoint-reader.seancassiere.workers.dev
+```
+
+It runs the PR's reader code against **production data, read-only**: it gets the same read-only Turso token and R2 keys as the prod reader. Prod share links work on it unchanged; swap `https://waypoint.pingstash.com` for the preview URL and keep the `/s/<token>/c/…` path. Each upload also has an immutable deployment URL, `https://<deployment-id>-waypoint-reader.seancassiere.workers.dev`.
+
+**Access.** The Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` ("Waypoint reader workers.dev and previews") covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. It has one Allow policy (the owner's email), with login by One-time PIN or Cloudflare. Without signing in, every one of those hostnames answers 302 to `seancassiere.cloudflareaccess.com`. That redirect is the expected success state: it proves Access protects the preview. Previews are never enabled on `waypoint.pingstash.com`, and Access is never put on it.
+
+**Workflow.** [.github/workflows/preview.yml](../.github/workflows/preview.yml) runs on `pull_request` (`opened`, `synchronize`, `reopened`, `closed`):
+
+1. `guard` (GitHub-hosted) fails unless the PR's head repository is this repository and both `github.actor` and `github.triggering_actor` are allow-listed (only `SeanCassiere`). Fork PRs skip every job.
+2. `up` (self-hosted `waypoint-deploy` runner, PR head commit) installs only `@waypoint/reader...`, builds the reader, runs the reader dry run and the preview script's dry run, then runs `deploy/preview-reader.sh <number> up`.
+3. `comment` (GitHub-hosted, no checkout) upserts one sticky PR comment with the preview URL, the commit, and the deployment URL.
+4. On `closed`, `down` runs `deploy/preview-reader.sh <number> down`, and `comment` edits the comment to say the preview was deleted.
+
+A newer push cancels an in-flight `up`. `closed` waits for it and then deletes the preview. The preview doesn't wait for the CI workflow; it repeats CI's reader build checks before uploading.
+
+**What `preview-reader.sh <number> up` does.**
+
+1. It loads `cloudflare.env` and `reader-prod.env` with the same strict parser as `deploy-reader.sh` ([reader-env.sh](reader-env.sh)).
+2. It writes the seven reader values to a mode-600 JSON file and runs:
+
+   ```
+   wrangler preview --env prod --name pr-<number> --secrets-file <file> --json --ignore-base-config
+   ```
+
+   That creates or updates the preview and uploads a deployment with those values as its secrets. The file is deleted immediately after. Preview secrets are never inherited from production, so every deployment carries the current prod values. `--ignore-base-config` keeps the dashboard's Preview base config out of it: the `previews` block in `wrangler.jsonc` is the whole configuration. That block binds `ACCESS_LOG` to the separate Analytics Engine dataset `waypoint_access_preview`, and `TOKEN_MISS_LIMITER` to its own rate-limit namespace `1003`.
+3. It checks that both URLs are `workers.dev` hostnames of `waypoint-reader`, and that the preview's latest deployment is the one just uploaded.
+4. It retries for up to 120 s (`SMOKE_TIMEOUT_SECONDS`) until `/healthz` on both the preview URL and the deployment URL answers 302 to the Access login for its own hostname. If either ever answers 2xx (served without Access), it deletes the preview at once and fails. The deep health check can't run, because it would need to get past Access.
+5. It prints the URLs and writes them to `$GITHUB_OUTPUT`.
+
+`down` deletes the preview with `wrangler preview delete --skip-confirmation`, and confirms through the API that it's gone. It succeeds if the preview was already gone.
+
+`DRY_RUN=1 bash deploy/preview-reader.sh 1 up` (and `down`) checks the script's local stages without reading secrets or calling Wrangler. CI runs both, plus a smoke failure that must fail.
+
+**Manual use** from the checked-out branch on agent-1, after `pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint` and `pnpm --filter @waypoint/reader build`:
+
+```bash
+bash deploy/preview-reader.sh 123 up
+bash deploy/preview-reader.sh 123 down
+```
+
+**Cleanup.** Closing a PR deletes its preview. If a `down` run failed, or the workflow was disabled, delete leftovers by hand. Load `cloudflare.env` without echoing it, then:
+
+```bash
+cd apps/reader
+./node_modules/.bin/wrangler preview delete --env prod --name pr-123 --skip-confirmation
+```
+
+The dashboard lists every preview under Workers & Pages → `waypoint-reader` → Previews. The Free plan keeps at most 100 previews per Worker and 100 deployments per preview; past that, Cloudflare deletes the least recently deployed preview or the oldest deployment.
+
+**If previews have no URL.** `wrangler preview` warns that the deployment has no active URLs, and the script fails on the URL check. This happens when the Worker's `workers.dev` route or its previews are disabled. The prod deploy sets both from `wrangler.jsonc` (`workers_dev: true`, `preview_urls: true`). Before enabling them by any other route, confirm that the Access app still covers both hostnames.
+
 ## Reinstalling the existing runner
 
 These are recovery steps for the already installed runner, not part of a

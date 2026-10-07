@@ -31,14 +31,28 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 **Merging to `main` deploys.** Don't deploy by hand unless the pipeline is broken.
 
-1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs format, lint, typecheck, tests, build, and the MCP smoke test.
-2. Merge to `main`. CI runs again on `main`.
-3. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`). It runs [deploy/deploy.sh](deploy/deploy.sh), which:
+1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs:
+   - `lint` (format check, lint, core import guard)
+   - `typecheck`
+   - `test`
+   - `build-reader` (reader dry run and deploy-script dry runs)
+   - `build-writer-image`
+   - `mcp-smoke`
+   - `browser`
+
+   `ci-ok` passes only if every one of them succeeds.
+
+2. The **Preview** workflow ([.github/workflows/preview.yml](.github/workflows/preview.yml)) uploads the PR's reader as a Worker Preview of the prod reader, at `https://pr-<number>-waypoint-reader.seancassiere.workers.dev`, and comments the URL on the PR.
+   - It serves production data, read-only, behind Cloudflare Access (owner only). Without signing in, the URL answers 302 to the Access login, which is the expected state.
+   - It updates on every push and is deleted when the PR closes.
+   - It runs only for same-repo PRs pushed by the owner, on the self-hosted runner. See [deploy/README.md](deploy/README.md#pr-previews) and [docs/trust-model.md](docs/trust-model.md#deploy-pipeline).
+3. Merge to `main`. CI runs again on `main`.
+4. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`). It runs [deploy/deploy.sh](deploy/deploy.sh), which:
    - builds the image `waypoint-writer:<sha>` locally (no registry)
    - recreates only the writer container
    - waits for the container health check, then for `https://waypoint.tail7aca06.ts.net/healthz` through the tailnet
    - **on failure, rolls back** to `waypoint-writer:previous` and fails the workflow
-4. Confirm with `gh run list --workflow Deploy --limit 1` and `curl -fsS https://waypoint.tail7aca06.ts.net/healthz`.
+5. Confirm with `gh run list --workflow Deploy --limit 1` and `curl -fsS https://waypoint.tail7aca06.ts.net/healthz`.
 
 Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md).
 

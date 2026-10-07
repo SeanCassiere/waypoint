@@ -28,11 +28,14 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 - [x] **(P2)** Workers Analytics Engine enabled. Account is on the Workers **Free** plan.
 - [x] **(P2)** `waypoint.pingstash.com`, `waypoint-dev.pingstash.com` and `*.pingstash.com` have no existing DNS records, and no zone rules match them.
 - [x] **(P2)** Reader Worker source, Wrangler configuration for both environments, rate-limit and Analytics Engine bindings, and the deploy pipeline are implemented and pass a local Wrangler dry run. Deployment is still pending.
-- [ ] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`), with `workers_dev: false`. Each has:
+- [ ] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`). The dev Worker has `workers_dev: false`. The prod Worker's `workers.dev` route and preview URLs are enabled, but only behind Cloudflare Access (see the PR previews item). Each has:
   - secrets from `~/.config/waypoint/reader-<env>.env`: the Turso read-only token and R2 read-only keys. Blobs are read over the S3 API, **not** an R2 binding (decision D38).
   - an Analytics Engine binding `ACCESS_LOG`
   - a Rate Limiting binding `TOKEN_MISS_LIMITER`
 - [ ] **(P2)** Custom domains attached to those Workers. Attaching them creates the DNS records and certificates.
+- [x] **PR previews** (decision D49): a Worker Preview of `waypoint-reader` per same-repo PR, at `pr-<number>-waypoint-reader.seancassiere.workers.dev`, made by the Preview workflow on the self-hosted runner and deleted when the PR closes. Details: [provisioning.md](provisioning.md#27-pr-previews) and [deploy/README.md](../deploy/README.md#pr-previews).
+  - Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` (owner only) covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. `waypoint.pingstash.com` stays public, without Access or previews.
+  - Previews get the prod read-only reader secrets with each upload, the Analytics Engine dataset `waypoint_access_preview`, and rate-limit namespace `1003`.
 
 ### Tailscale
 - [x] **(P1)** The tag owner `tag:waypoint` is in the tailnet policy (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`). The policy is otherwise allow-all.
