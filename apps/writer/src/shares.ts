@@ -248,11 +248,22 @@ export async function extendLink(
       "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
       [row.collection_id, now],
     );
-    await s.waypoint.run("UPDATE share_links SET expires_at=? WHERE id=? AND revoked_at IS NULL", [
-      expiresAt,
-      id,
-    ]);
+    // Re-checked in the UPDATE with the time now: a link that expired (or was revoked) since the
+    // check above stays expired. The queued snapshot rewrite is then a harmless no-op.
+    const changed = await s.waypoint.run(
+      "UPDATE share_links SET expires_at=? WHERE id=? AND revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at>?",
+      [expiresAt, id, Date.now()],
+    );
     s.ingest.committer.wake();
+    if (changed.changes === 0) {
+      const current = await s.waypoint.get<{ revoked_at: number | null }>(
+        "SELECT revoked_at FROM share_links WHERE id=?",
+        [id],
+      );
+      if (!current) throw new WaypointError("not_found", "Share link not found");
+      if (current.revoked_at !== null) throw new WaypointError("conflict", "Share link is revoked");
+      throw new WaypointError("conflict", "Share link has expired");
+    }
     s.syncLoop?.triggerPush();
   });
   const updated = await s.waypoint.get<ShareRow>(

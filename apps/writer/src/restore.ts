@@ -283,13 +283,16 @@ export async function restore(
           link.revoked_at,
           link.id,
         ]);
-      // An extension on either side survives: keep the later expiry (null, never expires,
-      // only when both sides are null). Revocation above is unaffected.
-      if (mode === "merge" && link.expires_at !== null)
-        await tx.run(
-          "UPDATE share_links SET expires_at=? WHERE id=? AND (expires_at IS NULL OR expires_at<?)",
-          [link.expires_at, link.id, link.expires_at],
-        );
+      // An extension on either side survives: keep the later expiry. Never expiring (null) is
+      // final (D48), so it is the latest of all: null on either side wins. Revocation above is
+      // unaffected.
+      if (mode === "merge")
+        await (link.expires_at === null
+          ? tx.run("UPDATE share_links SET expires_at=NULL WHERE id=?", [link.id])
+          : tx.run(
+              "UPDATE share_links SET expires_at=? WHERE id=? AND expires_at IS NOT NULL AND expires_at<?",
+              [link.expires_at, link.id, link.expires_at],
+            ));
     }
   });
   await sync.push();

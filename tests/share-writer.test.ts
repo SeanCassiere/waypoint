@@ -350,7 +350,7 @@ describe("writer share links", () => {
       await rm(restoreDir, { recursive: true, force: true });
     }
   });
-  it("merge keeps the later expiry from either side, and revoked stays revoked", async () => {
+  it("merge keeps the later expiry from either side, never-expiring wins, and revoked stays revoked", async () => {
     const soon = Date.now() + 3_600_000;
     const id = await createdId(await create({ expires_at: soon }));
     const other = await createdId(await create({ expires_at: soon }));
@@ -396,11 +396,12 @@ describe("writer share links", () => {
       expect(
         await opened.waypoint.get("SELECT revoked_at FROM share_links WHERE id=?", [other]),
       ).toEqual({ revoked_at: 123 });
-      // Null (never expires) survives only when both sides are null.
+      // Never expiring (null) is final (D48): it wins on either side.
       expect(await expiry(forever)).toBeNull();
       await opened.waypoint.run("UPDATE share_links SET expires_at=NULL WHERE id=?", [id]);
+      await opened.waypoint.run("UPDATE share_links SET expires_at=? WHERE id=?", [soon, forever]);
       await restore(opened.waypoint, bucket, sync, "merge");
-      expect(await expiry(id)).toBe(extended);
+      expect(await expiry(id)).toBeNull();
       expect(await expiry(forever)).toBeNull();
     } finally {
       await opened.waypoint.close();
@@ -647,6 +648,30 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect((await extend(soon, forever)).status).toBe(409);
     await app.request(`/api/share-links/${id}/revoke`, json({}));
     expect((await extend(soon + 30 * 86_400_000)).status).toBe(409);
+  });
+  it("won't revive a link that expires between the check and the update", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const past = Date.now() - 1;
+    // The link passes the expiry check, then expires just before the UPDATE runs.
+    const run = waypoint.run.bind(waypoint);
+    const spy = vi.spyOn(waypoint, "run").mockImplementation(async (sql, args) => {
+      if (sql.startsWith("UPDATE share_links SET expires_at=?"))
+        await run("UPDATE share_links SET expires_at=? WHERE id=?", [past, id]);
+      return run(sql, args);
+    });
+    const response = await app.request(
+      `/api/share-links/${id}/extend`,
+      json({ expires_at: soon + 86_400_000 }),
+    );
+    spy.mockRestore();
+    expect(response.status).toBe(409);
+    expect(await jsonBody(response)).toMatchObject({
+      error: { code: "conflict", message: "Share link has expired" },
+    });
+    expect(await waypoint.get("SELECT expires_at FROM share_links WHERE id=?", [id])).toEqual({
+      expires_at: past,
+    });
   });
   it("summarizes live links on search results and renders the Links tab, chip and status segment", async () => {
     await create({ label: "Design review — Sam" });
