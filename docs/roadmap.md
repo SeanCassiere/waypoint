@@ -55,9 +55,9 @@ Phase 0 findings, in short (details in [turso-sync-notes.md](turso-sync-notes.md
 - **Folio:** the redesigned writer viewer (Recent, collection shell, Changes, Gallery, Links, Trash, Status, Connect an agent), the public shell shared through `packages/ui`, and a public preview (`?as=public`) on the writer.
 - **Provisioned:** both reader Workers, their custom domains, bindings and secrets; see [infrastructure.md](infrastructure.md).
 
-## In progress
+## After phase 2
 
-- **PR previews.** _(In progress; details to follow.)_
+- **Parallel CI and PR previews** (#22): CI runs lint, typecheck, tests, the reader build, the writer image, the MCP smoke test and the Chromium checks as parallel jobs behind one `ci-ok` gate. Each same-repo PR gets a Worker Preview of the prod reader on `workers.dev`, behind Cloudflare Access and deleted when the PR closes (D49).
 
 ## Next and deferred (unscheduled)
 
