@@ -155,14 +155,17 @@ Any queued revisions for the purged collection fail with `collection_purged`. Ph
 
 ## Turso Sync
 
-- `waypoint.db` is opened with `@tursodatabase/sync` against the environment's cloud DB.
-- **Push:** after every commit, and on a 60 s timer that also retries failed pushes. Turso Sync doesn't retry on its own. Committed data stays durable locally and recoverable from the bucket, so a failed push is harmless.
+- `waypoint.db` is opened with `@tursodatabase/sync` (`connect({ path, url, authToken })`) against the environment's cloud DB. `queue.db` is opened with `@tursodatabase/database`, the same engine without sync, as a separate file and connection in the same process (confirmed in spike S2).
+- **First start needs the cloud.** In 0.8.2, `bootstrapIfEmpty: false` is ignored (S1), so a writer with an empty data directory must reach the cloud DB to start. After that it works offline.
+- **Push:** after every commit, and on a 60 s timer that also retries failed pushes. Turso Sync doesn't retry on its own. Committed data stays durable locally and recoverable from the bucket, so a failed push is harmless. An offline push rejects cleanly, and local writes made during the outage are pushed later (S1).
+- **Push failure caused by a constraint** (for example a `UNIQUE` violation; S1 saw `BATCH_STEP_ERROR`) blocks the whole push. The writer pulls and then retries the push. If it fails again with the same constraint error, the writer reports it in `/api/status` and keeps the affected revisions out of `synced`. A pull can replace the conflicting local row with the remote one, so this must never be ignored. With derived public IDs it should only happen on a true hash collision.
 - **Pull:** on a 30 s timer, and opportunistically during ingest (see step 2).
 - **Checkpoint:** after each successful push, to keep the local WAL bounded.
-- **Conflicts** resolve as row-level last-push-wins:
-  - Insert-only rows with globally unique keys don't conflict.
-  - Identical rows from two writers (the same blob, or the same derived public ID) resolve harmlessly.
-  - The only real conflicts are edits to a collection's title or metadata. Last write wins, which is acceptable here.
+- **Conflicts** resolve as last-push-wins, observed in spike S1:
+  - Updates to *different columns* of the same row **merge**. Updates to the same column: the last push wins.
+  - A delete beat a concurrent update; only one push order was tested.
+  - For the same primary key with different values (even with `INSERT OR IGNORE`), the last push wins. Identical rows converge cleanly.
+  - So insert-only rows with globally unique keys don't conflict. Identical rows from two writers (the same blob, or the same derived public ID) resolve harmlessly. The only real conflicts are edits to a collection's title or metadata, where the last push wins per column. That is acceptable here.
 
 ### Outage matrix
 

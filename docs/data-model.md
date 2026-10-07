@@ -8,7 +8,7 @@ Conventions:
 - Timestamps are `INTEGER` Unix milliseconds.
 - JSON columns are `TEXT` holding a JSON object.
 - ID columns use the default `BINARY` collation, never `NOCASE`.
-- **`PRAGMA foreign_keys` is OFF on `waypoint.db`.** Rows pulled from other writers may arrive in any order, so the `REFERENCES` clauses are documentation only. The committer enforces the invariants instead. Spike S1 checks whether the sync layer could support FK enforcement.
+- **`PRAGMA foreign_keys` is OFF on `waypoint.db`.** Rows pulled from other writers may arrive in any order, so the `REFERENCES` clauses are documentation only. The committer enforces the invariants instead. Spike S1 confirmed that pulls bypass FK enforcement even with the pragma on: a child row was applied before its parent existed.
 
 ## IDs
 
