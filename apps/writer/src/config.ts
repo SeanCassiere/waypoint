@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface Config {
   environment: "dev" | "prod";
@@ -11,6 +13,7 @@ export interface Config {
   maxFiles?: number;
   maxRevisionBytes?: number;
   sync: boolean;
+  mcpTarballPath?: string;
   tursoUrl?: string;
   tursoAuthToken?: string;
   r2AccountId?: string;
@@ -94,6 +97,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxFiles,
     maxRevisionBytes,
     sync,
+    mcpTarballPath: env.WAYPOINT_MCP_TARBALL
+      ? resolve(env.WAYPOINT_MCP_TARBALL)
+      : existsSync("/app/static/waypoint-mcp.tgz")
+        ? "/app/static/waypoint-mcp.tgz"
+        : fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url)),
     ...cloud,
   };
 }

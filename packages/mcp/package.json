@@ -11,6 +11,16 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "build": "tsc"
+    "build": "tsc -b",
+    "smoke": "node scripts/smoke.ts",
+    "bundle": "node esbuild.config.ts && node scripts/bundle.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@waypoint/core": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

@@ -42,7 +42,15 @@ try {
     config.maxRevisionBytes,
   );
   const server = serve({
-    fetch: createApp({ waypoint, queue, blobs, reads, ingest, port: config.port }).fetch,
+    fetch: createApp({
+      waypoint,
+      queue,
+      blobs,
+      reads,
+      ingest,
+      port: config.port,
+      ...(config.mcpTarballPath ? { mcpTarballPath: config.mcpTarballPath } : {}),
+    }).fetch,
     hostname: "127.0.0.1",
     port: config.port,
   });

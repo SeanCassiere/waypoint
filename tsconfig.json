@@ -15,7 +15,9 @@
     "scripts/**/*.mjs",
     "oxlint.config.ts",
     "oxfmt.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "packages/mcp/scripts/**/*.ts",
+    "packages/mcp/esbuild.config.ts"
   ],
   "exclude": ["tests/fixtures/core-denied-import/**"]
 }
