@@ -1,7 +1,7 @@
 import { renderPublicShell } from "@waypoint/ui";
 import type { Context } from "hono";
 
-import { rawPath, shellPath } from "../../viewer-paths.js";
+import { shellPath } from "../../viewer-paths.js";
 import { noStore } from "../respond.js";
 import type { CollectionContext } from "./collection.js";
 
@@ -31,7 +31,7 @@ export async function publicPreview(
         head: manifest.headPath,
         current,
         fileHref: href,
-        frameBase: rawPath(served.public_id, ""),
+        frameBase: `/raw/r/${served.public_id}/`,
         updatedAt: ctx.pinned ? null : served.created_at,
         snapshotAt: ctx.pinned ? served.created_at : null,
       }),
