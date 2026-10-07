@@ -605,7 +605,8 @@ function textBody(options: {
   const { ctx, file, diff, window, href } = options;
   const at = (from: number) => href({ file: file.path, from: String(from) });
   const key = [
-    ctx.collection.public_id,
+    // The page's own links (base and view parameters) are part of the HTML.
+    href({ file: file.path }),
     ctx.revision.id,
     options.baseId ?? "-",
     file.path,
