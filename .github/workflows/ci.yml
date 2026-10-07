@@ -8,48 +8,86 @@ on:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Independent jobs run in parallel on GitHub-hosted runners. `ci-ok` is the single required
+# check. Any failed, cancelled or skipped job fails it, so the workflow's conclusion is
+# `failure` and the Deploy workflow (which requires `success`) never runs.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm format:check
+      # Builds the TypeScript projects and the viewer bundle, runs type-aware oxlint, then the
+      # core import guard (`pnpm core:guard`).
       - run: pnpm lint
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # Workspace packages export from dist/, so tests need a build. A full build also produces
+      # the MCP tarball, which enables the tarball checks in real-writer.test.ts.
+      - run: pnpm build
       - run: scripts/fetch-tursodb.sh
       - run: pnpm test
         env:
           TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb
-      - run: pnpm build
+  build-reader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # The same build the Deploy and Preview workflows run before uploading the reader.
+      - run: pnpm --filter @waypoint/reader build
       - run: pnpm --filter @waypoint/reader dry-run
       - run: du -h apps/reader/dist/index.js || true
       - run: DRY_RUN=1 bash deploy/deploy-reader.sh dev
       - run: DRY_RUN=1 bash deploy/deploy-reader.sh prod
       - run: if DRY_RUN=1 DRY_RUN_FAIL_SMOKE=1 bash deploy/deploy-reader.sh dev; then exit 1; fi
-      - run: pnpm --filter @waypoint/mcp smoke
-      # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
+      - run: DRY_RUN=1 bash deploy/preview-reader.sh 1 up
+      - run: DRY_RUN=1 bash deploy/preview-reader.sh 1 down
+      - run: if DRY_RUN=1 DRY_RUN_FAIL_SMOKE=1 bash deploy/preview-reader.sh 1 up; then exit 1; fi
+  # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
+  build-writer-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       - name: Build writer image
         run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
+  mcp-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - run: pnpm --filter @waypoint/mcp smoke
   # Real-Chromium checks of the writer viewer and the public reader shell (CSP, sandboxing,
-  # navigation). Runs alongside `check`; needs only a build, not the test suite.
+  # navigation). Needs only a build, not the test suite.
   browser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm build
       - run: pnpm test:browser
       - run: pnpm test:browser:reader
+  ci-ok:
+    if: always()
+    needs: [lint, typecheck, test, build-reader, build-writer-image, mcp-smoke, browser]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          jq -e 'to_entries | all(.value.result == "success")' <<<"$NEEDS" > /dev/null
