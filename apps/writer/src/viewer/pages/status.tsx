@@ -413,17 +413,13 @@ export async function statusPage(
               <div class="empty">No snapshot, delete, or purge errors.</div>
             )}
           </div>
-<<<<<<< HEAD
           {status.queue_errors.length > STATUS_LIST ? (
             <p class="legend" data-more="queue-errors">
               and {status.queue_errors.length - STATUS_LIST} more…{" "}
               <a href="/api/status">All as JSON</a>
             </p>
           ) : null}
-          <h3 class="sec">Writer</h3>
-=======
           <h2 class="sec">Writer</h2>
->>>>>>> feat/folio-b
           <div class="rows">
             <div class="r">
               <span class="t mono">{chrome.host}</span>
