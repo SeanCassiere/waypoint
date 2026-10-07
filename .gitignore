@@ -11,6 +11,4 @@ dist/
 coverage/
 *.tsbuildinfo
 .pnpm-store/
-spikes/.tools/
-spikes/.tmp/
 .tools/

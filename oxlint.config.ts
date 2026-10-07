@@ -7,7 +7,6 @@ export default defineConfig({
   ignorePatterns: [
     "**/dist/**",
     "**/coverage/**",
-    "spikes/**",
     "**/.tools/**",
     "**/node_modules/**",
     "tests/fixtures/core-denied-import/**",

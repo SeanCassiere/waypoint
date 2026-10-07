@@ -8,7 +8,6 @@
 **/.env*
 *.db*
 **/*.db*
-spikes/
 .tools/
 **/coverage/
 docs/

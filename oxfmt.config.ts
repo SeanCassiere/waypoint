@@ -6,7 +6,6 @@ export default defineConfig({
   ignorePatterns: [
     "**/dist/**",
     "**/coverage/**",
-    "spikes/**",
     "**/node_modules/**",
     "pnpm-lock.yaml",
     "docs/**",
