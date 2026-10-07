@@ -79,6 +79,8 @@ try {
         Date.now,
         Math.random,
         config.queueGiveUpHours,
+        undefined,
+        (collectionId) => reads.notifyRevision(collectionId),
       )
     : undefined;
   if (committer) {
@@ -86,6 +88,7 @@ try {
     syncLoop.start();
     committer.wake();
   }
+  const shutdownController = new AbortController();
   const server = serve({
     fetch: createApp({
       waypoint,
@@ -98,6 +101,7 @@ try {
       syncLoop,
       environment: config.environment,
       port: config.port,
+      shutdownSignal: shutdownController.signal,
       ...(config.mcpTarballPath ? { mcpTarballPath: config.mcpTarballPath } : {}),
       ...(config.mcpLauncherPath ? { mcpLauncherPath: config.mcpLauncherPath } : {}),
       ...(config.mcpServerPath ? { mcpServerPath: config.mcpServerPath } : {}),
@@ -111,6 +115,7 @@ try {
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    shutdownController.abort();
     committer?.stop();
     syncLoop.stop();
     const timeout = setTimeout(() => process.exit(1), 10_000);

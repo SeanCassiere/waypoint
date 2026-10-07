@@ -130,11 +130,12 @@ type SourceDir = {
 | Tool | Input | Output |
 |---|---|---|
 | `create_collection` | `title`, `files?`, `source_dir?`, `head_path?`, `message?`, `metadata?` | `WriteResult` |
-| `add_revision` | `collection_id`, `files?`, `source_dir?`, `remove?: string[]`, `head_path?`, `message?`, `metadata?`, `mode?: "merge" \| "replace"` (default `merge`), `parent_revision_id?` (default: latest) | `WriteResult` |
-| `get_collection` | `collection_id`, `revision_id?` | collection; the selected revision (default latest) with its manifest, URLs, and sync state |
-| `list_collections` | `query?` (title substring), `limit?` (default 50), `include_deleted?` | collections, newest first, each with a latest-revision summary and `latest_url` |
-| `list_revisions` | `collection_id` | revisions with display number, message, parent, and sync state |
-| `read_file` | `collection_id`, `path`, `revision_id?` | text content for text files; metadata and URL for images and other binaries |
+| `add_revision` | `collection` (ID, public ID, or URL; `collection_id` alias), `files?`, `source_dir?`, `remove?: string[]`, `head_path?`, `message?`, `metadata?`, `mode?: "merge" \| "replace"` (default `merge`), `parent_revision_id?` (default: latest) | `WriteResult` |
+| `search_collections` | `query?`, `metadata?`, `updated_after?`, `sort?: "updated" \| "created"` (default `updated`), `include_deleted?`, `limit?` (default 20, max 100), `cursor?` | `{ collections: CollectionSearchResult[], next_cursor }`. See [Finding and handing off collections](#finding-and-handing-off-collections). |
+| `get_collection` | `collection` (a `col_` ID, public ID, or Waypoint URL; `collection_id` is accepted as an alias), `revision_id?`, `include_head?` | collection; the selected revision (default latest) with its manifest, URLs, and sync state. With `include_head`, also the head document's text. |
+| `list_revisions` | `collection` (ID, public ID, or URL; `collection_id` alias) | revisions with display number, message, parent, and sync state |
+| `wait_for_revision` | `collection` (ID, public ID, or URL; `collection_id` alias), `after_revision_id`, `timeout_seconds?` (default 30, max 50) | `{ changed, revisions: RevisionSummary[] }`: revisions newer than `after_revision_id`, returned as soon as one appears |
+| `read_file` | `collection` (ID, public ID, or URL; `collection_id` alias), `path`, `revision_id?` | text content for text files; metadata and URL for images and other binaries |
 | `resolve_url` | `url` | `{ collection_id, revision_id?, path? }` |
 | `waypoint_status` | — | queue counts, oldest pending age, failed items, last successful bucket upload, push, and pull, and the last error |
 
@@ -144,6 +145,37 @@ type SourceDir = {
 - **Merge mode:** `remove` is applied first, then `files`. A path in both is an error.
 - **Safe retries.** The MCP server mints `col_` and `rev_` IDs before the first attempt and reuses them on retries, so a retry after a timeout returns the original result instead of an error. Revision IDs follow the [minting rule](data-model.md#minting-and-validating-client-generated-ids). On `id_before_parent`, the server re-mints using `details.parent_timestamp` and tries again.
 - **Not exposed over MCP in phase 1:** collection title and metadata edits, soft delete, undelete, and purge. They're available in the API and the viewer only, so agents can't delete things.
+
+### Finding and handing off collections
+
+One agent can build up a collection (research, a plan), and another agent, possibly in a new session or on another machine, can find it and act on it.
+
+**`search_collections`** searches across the writer, committed and pending alike:
+- **`query`** is free text, matched case-insensitively as a substring of the **title** and of the **metadata values** (for example `project` or `tags`). If `query` is an exact `col_` ID, a public ID, or a Waypoint URL, that collection is returned first with `match: "id"`.
+- **`metadata`** is an object of top-level key → value filters. A filter matches when the collection's metadata value equals the given value, or, when the stored value is an array, contains it. Example: `{ "project": "waypoint", "tags": "research" }`.
+- **`updated_after`** (ISO timestamp or Unix ms) returns only collections with a revision newer than this. Use it to look for new work since you last checked.
+- Results are sorted by `updated_at` (the newest revision's time) by default, newest first. Pass `cursor` (from `next_cursor`) to page. Paging is a snapshot as of the first page: later pages show values as of that snapshot, and collections created mid-scan are omitted. Cursors expire after 10 minutes or if the writer restarts; start a new search then. Revision timestamps are stamped inside the queue transaction; client-minted IDs may be earlier, and a small interval remains between the timestamp and commit.
+
+```ts
+type CollectionSearchResult = {
+  id: string; public_id: string; title: string
+  metadata: Record<string, unknown>
+  created_at: number; updated_at: number      // updated_at = newest revision's time
+  deleted: boolean
+  revision_count: number
+  latest_revision: { id: string; display_number: number; message: string | null
+                     created_at: number; sync_state: SyncState
+                     head_path: string; file_count: number } | null
+  latest_url: string
+  match: "id" | "title" | "metadata" | null   // why it matched; null when no query
+}
+```
+
+**`get_collection`** accepts any identifier: a `col_` ID, a public ID, or a pasted URL. With `include_head: true` it also returns the selected revision's head document text (markdown source for markdown, capped at 64 KB, text types only), so an agent can read a plan in one call. Pass `revision_id` to select an older revision; the HTTP endpoint accepts the same parameter. If the head blob is unavailable, `head.text` is `null` and `head.unavailable` is `true`. Other files are read with `read_file`.
+
+**Watching:** `wait_for_revision` blocks until a revision newer than `after_revision_id` exists, or until the timeout, whichever comes first. It returns `changed: false` on timeout, and the agent may call it again. It sees revisions from any agent on this writer, pending ones included. Pass the latest revision ID you've already seen.
+
+Convention: agents that publish work meant for others to pick up should set `metadata` such as `{ "project": "<repo or topic>", "tags": ["research"] }`, so it can be found by filter.
 
 ## HTTP API (writer)
 
@@ -160,13 +192,13 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 |---|---|
 | `POST /api/collections` | Create a collection and its first revision. Body: `{ collection_id?, revision_id?, title, head_path?, message?, metadata?, files: [{ path, hash, mime? }] }`. Every hash must already be present. Returns `WriteResult`. |
 | `POST /api/collections/:id/revisions` | Add a revision. Body: `{ revision_id?, parent_revision_id?, mode?, head_path?, message?, metadata?, files?: [{ path, hash, mime? }], remove?: string[] }`. Returns `WriteResult`. |
-| `GET /api/collections` | List. Query: `query`, `limit`, `include_deleted` |
-| `GET /api/collections/:id` | Collection + latest revision summary |
+| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }` |
+| `GET /api/collections/:id` | Collection + latest revision summary. `:id` may be a `col_` ID or a public ID. `?include_head=1` adds the head document's text. |
 | `PATCH /api/collections/:id` | Edit `title` and/or `metadata` |
 | `DELETE /api/collections/:id` | Soft delete |
 | `POST /api/collections/:id/undelete` | Undo soft delete |
 | `POST /api/collections/:id/purge` `{ confirm: "<collection id>" }` | Queue a hard purge; returns immediately |
-| `GET /api/collections/:id/revisions` | List revisions |
+| `GET /api/collections/:id/revisions` | List revisions. With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones. |
 | `GET /api/revisions/:id` | Revision + full manifest |
 | `GET /api/revisions/:id/files/*path` | Raw file content. Markdown returns its rendition; add `?source` for the original. |
 | `POST /api/resolve` `{ url }` | URL → IDs |

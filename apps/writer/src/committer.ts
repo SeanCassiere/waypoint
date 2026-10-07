@@ -103,6 +103,7 @@ export class WriterCommitter implements Committer {
     readonly random: () => number = Math.random,
     readonly giveUpHours = 72,
     readonly onStep?: (step: CommitterStep) => Promise<void> | void,
+    readonly onCommitted?: (collectionId: string) => void,
   ) {}
   private async step(name: CommitterStep): Promise<void> {
     await this.onStep?.(name);
@@ -642,6 +643,7 @@ export class WriterCommitter implements Committer {
       ]);
     });
     this.notify();
+    this.onCommitted?.(row.collection_id);
     this.sync.triggerPush();
     await this.queue.run(
       "UPDATE pending_revisions SET next_attempt_at=NULL WHERE parent_revision_id=? AND state='pending'",

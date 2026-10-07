@@ -144,10 +144,11 @@ export function viewerApp(s: HttpServices): Hono {
 
   app.get("/", async (c) => {
     const q = c.req.query("q") ?? "";
-    const items = await s.reads.listCollections(q, 200);
-    const counts = await s.reads.fileCounts(
-      items.flatMap((item) => (item.latest_revision ? [item.latest_revision.id] : [])),
-    );
+    const { collections: items, next_cursor: nextCursor } = await s.reads.searchCollections({
+      query: q,
+      limit: 100,
+      cursor: c.req.query("cursor"),
+    });
     return noStore(
       c.html(
         <Layout title="Collections">
@@ -158,9 +159,9 @@ export function viewerApp(s: HttpServices): Hono {
                 <input
                   type="search"
                   name="q"
-                  aria-label="Search collection titles"
+                  aria-label="Search collections"
                   value={q}
-                  placeholder="Search titles"
+                  placeholder="Search titles, tags, IDs or URLs"
                 />
                 <button type="submit">Search</button>
               </form>
@@ -189,15 +190,26 @@ export function viewerApp(s: HttpServices): Hono {
                     </span>
                     {item.latest_revision && badge(item.latest_revision.sync_state)}
                     <span class="meta">
-                      {counts.get(item.latest_revision?.id ?? "") ?? 0}{" "}
-                      {(counts.get(item.latest_revision?.id ?? "") ?? 0) === 1 ? "file" : "files"}
+                      {item.latest_revision?.file_count ?? 0}{" "}
+                      {(item.latest_revision?.file_count ?? 0) === 1 ? "file" : "files"}
                     </span>
+                    {(item.metadata.tags !== undefined || item.metadata.project !== undefined) && (
+                      <span class="meta">
+                        {[item.metadata.project, item.metadata.tags]
+                          .flat()
+                          .filter((value) => typeof value === "string")
+                          .join(" · ")}
+                      </span>
+                    )}
                   </div>
                 ))
               ) : (
                 <div class="row muted">No collections found.</div>
               )}
             </div>
+            {nextCursor && (
+              <a href={`/?${new URLSearchParams({ q, cursor: nextCursor }).toString()}`}>More</a>
+            )}
           </main>
         </Layout>,
       ),

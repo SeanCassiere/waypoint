@@ -158,6 +158,15 @@ async function seedPendingCollection(
   return { id, publicId, revisionId };
 }
 describe("viewer routes", () => {
+  it("shows a More link with the next search cursor", async () => {
+    const search = vi
+      .spyOn(services.reads, "searchCollections")
+      .mockResolvedValue({ collections: [], next_cursor: "next-page" });
+    const html = await (await app.request("/?q=plan")).text();
+    expect(html).toContain("More");
+    expect(html).toContain("q=plan&amp;cursor=next-page");
+    search.mockRestore();
+  });
   it("lists newest collections, searches titles, and escapes title markup", async () => {
     await app.request(
       "/api/collections",

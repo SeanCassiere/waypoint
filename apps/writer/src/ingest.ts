@@ -370,6 +370,8 @@ export class IngestService {
               ],
             ),
           );
+          // Minted IDs may precede rendering; updated_at uses this late transaction timestamp.
+          const insertedAt = Date.now();
           await tx.run(
             "INSERT INTO pending_revisions (id,public_id,collection_id,parent_revision_id,head_path,message,metadata,manifest_json,created_at,state,attempts) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
             [
@@ -381,7 +383,7 @@ export class IngestService {
               request.message ?? null,
               JSON.stringify(request.metadata ?? {}),
               JSON.stringify(manifest),
-              now,
+              insertedAt,
               "pending",
             ],
           );

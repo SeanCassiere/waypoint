@@ -67,6 +67,43 @@ export interface CollectionSummary {
 }
 export interface CollectionDetail extends CollectionSummary {
   revision: RevisionDetail | null;
+  head?:
+    | {
+        path: string;
+        mime: string;
+        text: string | null;
+        truncated: boolean;
+        url: string;
+        unavailable?: boolean | undefined;
+      }
+    | null
+    | undefined;
+}
+export interface CollectionSearchResult {
+  id: string;
+  public_id: string;
+  title: string;
+  metadata: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+  deleted: boolean;
+  revision_count: number;
+  latest_revision:
+    | (Pick<
+        RevisionSummary,
+        "id" | "display_number" | "message" | "created_at" | "sync_state" | "head_path"
+      > & { file_count: number })
+    | null;
+  latest_url: string;
+  match: "id" | "title" | "metadata" | null;
+}
+export interface SearchCollectionsResponse {
+  collections: CollectionSearchResult[];
+  next_cursor: string | null;
+}
+export interface WaitForRevisionResponse {
+  changed: boolean;
+  revisions: RevisionSummary[];
 }
 export interface ListCollectionsResponse {
   collections: CollectionSummary[];

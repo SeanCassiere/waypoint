@@ -74,8 +74,16 @@ const writeFields = {
     ),
 };
 const createSchema = { title: z.string().describe("Collection title"), ...writeFields };
+const collectionFields = {
+  collection: z.string().optional().describe("Collection ID, public ID, or Waypoint URL"),
+  collection_id: z.string().optional().describe("Alias for collection"),
+};
+const requireCollection = (value: {
+  collection?: string | undefined;
+  collection_id?: string | undefined;
+}) => Boolean(value.collection || value.collection_id);
 const addSchema = {
-  collection_id: id.describe("Collection ID to revise"),
+  ...collectionFields,
   ...writeFields,
   remove: z
     .array(z.string())
@@ -89,6 +97,39 @@ const addSchema = {
     ),
   parent_revision_id: id.optional().describe("Revision to build from; defaults to latest"),
 };
+const addToolSchema = z.object(addSchema).refine(requireCollection, "collection is required");
+const getToolSchema = z
+  .object({
+    ...collectionFields,
+    revision_id: id.optional().describe("Specific revision; defaults to latest"),
+    include_head: z
+      .boolean()
+      .optional()
+      .describe("Include up to 64 KB of the selected head document's source text"),
+  })
+  .refine(requireCollection, "collection is required");
+const listRevisionsToolSchema = z
+  .object(collectionFields)
+  .refine(requireCollection, "collection is required");
+const waitToolSchema = z
+  .object({
+    ...collectionFields,
+    after_revision_id: id.describe("Last revision already seen"),
+    timeout_seconds: z
+      .number()
+      .min(0)
+      .max(50)
+      .optional()
+      .describe("Long-poll duration in seconds; defaults to 30"),
+  })
+  .refine(requireCollection, "collection is required");
+const readFileToolSchema = z
+  .object({
+    ...collectionFields,
+    path: z.string().describe("Relative file path inside the revision"),
+    revision_id: id.optional().describe("Specific revision; defaults to latest"),
+  })
+  .refine(requireCollection, "collection is required");
 export function limitsFromEnv(env: NodeJS.ProcessEnv): Limits {
   const positive = (key: string, fallback: number): number => {
     const raw = env[key];
@@ -120,34 +161,38 @@ export function createServer(client: WaypointClient, launcher?: LauncherInfo): M
   function register(
     name: string,
     description: string,
-    schema: z.ZodRawShape,
+    schema: z.ZodRawShape | z.ZodType,
     handler: (input: unknown, signal: AbortSignal) => Promise<unknown>,
   ): void {
-    server.registerTool(name, { description, inputSchema: schema }, async (input, extra) => {
-      try {
-        const value = await handler(input, extra.signal);
-        const structuredContent =
-          typeof value === "object" && value !== null && !Array.isArray(value)
-            ? Object.fromEntries(Object.entries(value))
-            : { result: value };
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-          structuredContent,
-        };
-      } catch (error) {
-        const detail =
-          error instanceof ApiError || isWaypointError(error)
-            ? { code: error.code, message: error.message, details: error.details }
-            : error instanceof Error
-              ? { code: "client_error", message: error.message, details: {} }
-              : { code: "client_error", message: String(error), details: {} };
-        return {
-          isError: true,
-          structuredContent: detail,
-          content: [{ type: "text" as const, text: JSON.stringify(detail, null, 2) }],
-        };
-      }
-    });
+    server.registerTool(
+      name,
+      { description, inputSchema: schema },
+      async (input: unknown, extra: { signal: AbortSignal }) => {
+        try {
+          const value = await handler(input, extra.signal);
+          const structuredContent =
+            typeof value === "object" && value !== null && !Array.isArray(value)
+              ? Object.fromEntries(Object.entries(value))
+              : { result: value };
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+            structuredContent,
+          };
+        } catch (error) {
+          const detail =
+            error instanceof ApiError || isWaypointError(error)
+              ? { code: error.code, message: error.message, details: error.details }
+              : error instanceof Error
+                ? { code: "client_error", message: error.message, details: {} }
+                : { code: "client_error", message: String(error), details: {} };
+          return {
+            isError: true,
+            structuredContent: detail,
+            content: [{ type: "text" as const, text: JSON.stringify(detail, null, 2) }],
+          };
+        }
+      },
+    );
   }
   register(
     "create_collection",
@@ -158,76 +203,109 @@ export function createServer(client: WaypointClient, launcher?: LauncherInfo): M
   register(
     "add_revision",
     "Add a revision to a collection. Merge mode is the default: unchanged parent files carry over; remove deletes paths. The returned latest_url works on the tailnet immediately and is usually the URL to share.",
-    addSchema,
-    (input, signal) => client.add(z.object(addSchema).parse(input), signal),
+    addToolSchema,
+    (input, signal) => {
+      const args = addToolSchema.parse(input);
+      return client.add(
+        { ...args, collection_id: args.collection ?? args.collection_id ?? "" },
+        signal,
+      );
+    },
   );
   register(
     "get_collection",
-    "Get a collection and a selected revision's full file manifest and URLs. Omit revision_id to inspect the latest revision.",
-    {
-      collection_id: id.describe("Collection ID"),
-      revision_id: id.optional().describe("Specific revision; defaults to latest"),
-    },
+    "Get a collection by ID, public ID, or URL, its file manifest, and optionally the head document text.",
+    getToolSchema,
     (input, signal) => {
-      const args = z.object({ collection_id: id, revision_id: id.optional() }).parse(input);
-      return client.getCollection(args.collection_id, args.revision_id, signal);
+      const args = getToolSchema.parse(input);
+      const collection = args.collection ?? args.collection_id ?? "";
+      return client.getCollection(collection, args.revision_id, signal, args.include_head);
     },
   );
   register(
-    "list_collections",
-    "Find collections by title substring, newest first, with each collection's latest URL.",
+    "search_collections",
+    "List or search collection titles and metadata; find by ID or URL. Prefer the most recently updated result.",
     {
-      query: z.string().optional().describe("Case-insensitive title substring"),
+      query: z
+        .string()
+        .optional()
+        .describe("Title or metadata value substring, collection ID, public ID, or Waypoint URL"),
+      metadata: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Top-level metadata filters; array values may contain the requested value"),
+      updated_after: z
+        .union([z.iso.datetime({ offset: true }), z.iso.date(), z.number()])
+        .optional()
+        .describe("Only collections revised after this ISO time or Unix milliseconds"),
+      sort: z
+        .enum(["updated", "created"])
+        .optional()
+        .describe("Newest updated or created first; defaults to updated"),
       limit: z
         .number()
         .int()
         .min(1)
-        .max(200)
+        .max(100)
         .optional()
-        .describe("Maximum results, 1–200; defaults to 50"),
-      include_deleted: z
-        .boolean()
-        .optional()
-        .describe("Include soft-deleted collections; defaults to false"),
+        .describe("Page size; defaults to 20, maximum 100"),
+      cursor: z.string().optional().describe("Opaque next_cursor from the previous page"),
+      include_deleted: z.boolean().optional().describe("Include soft-deleted collections"),
     },
     (input, signal) =>
-      client.listCollections(
-        ...(() => {
-          const args = z
-            .object({
-              query: z.string().optional(),
-              limit: z.number().optional(),
-              include_deleted: z.boolean().optional(),
-            })
-            .parse(input);
-          return [args.query, args.limit, args.include_deleted, signal] as const;
-        })(),
+      client.searchCollections(
+        z
+          .object({
+            query: z.string().optional(),
+            metadata: z.record(z.string(), z.unknown()).optional(),
+            updated_after: z
+              .union([z.iso.datetime({ offset: true }), z.iso.date(), z.number()])
+              .optional(),
+            sort: z.enum(["updated", "created"]).optional(),
+            limit: z.number().optional(),
+            cursor: z.string().optional(),
+            include_deleted: z.boolean().optional(),
+          })
+          .parse(input),
+        signal,
       ),
+  );
+  register(
+    "wait_for_revision",
+    "Wait for revisions newer than the one already read, then return the new revisions or changed: false on timeout.",
+    waitToolSchema,
+    (input, signal) => {
+      const args = waitToolSchema.parse(input);
+      return client.waitForRevision(
+        args.collection ?? args.collection_id ?? "",
+        args.after_revision_id,
+        args.timeout_seconds,
+        signal,
+      );
+    },
   );
   register(
     "list_revisions",
     "List a collection's revision history with messages, parents, display numbers, and sync states.",
-    { collection_id: id.describe("Collection ID") },
-    (input, signal) =>
-      client.listRevisions(z.object({ collection_id: id }).parse(input).collection_id, signal),
+    listRevisionsToolSchema,
+    (input, signal) => {
+      const args = listRevisionsToolSchema.parse(input);
+      return client.listRevisions(args.collection ?? args.collection_id ?? "", signal);
+    },
   );
   register(
     "read_file",
     "Read a source file from a revision. Text is returned up to 256 KB; binary files return metadata and a URL.",
-    {
-      collection_id: id.describe("Collection ID"),
-      path: z.string().describe("Relative file path inside the revision"),
-      revision_id: id.optional().describe("Specific revision; defaults to latest"),
+    readFileToolSchema,
+    (input, signal) => {
+      const args = readFileToolSchema.parse(input);
+      return client.readFile(
+        args.collection ?? args.collection_id ?? "",
+        args.path,
+        args.revision_id,
+        signal,
+      );
     },
-    (input, signal) =>
-      client.readFile(
-        ...(() => {
-          const args = z
-            .object({ collection_id: id, path: z.string(), revision_id: id.optional() })
-            .parse(input);
-          return [args.collection_id, args.path, args.revision_id, signal] as const;
-        })(),
-      ),
   );
   register(
     "resolve_url",

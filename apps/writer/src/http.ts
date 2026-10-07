@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
@@ -45,6 +45,7 @@ export interface HttpServices {
   mcpLauncherPath?: string;
   mcpServerPath?: string;
   mcpSkillPath?: string;
+  shutdownSignal?: AbortSignal;
 }
 async function parseJson(c: Context): Promise<unknown> {
   const type = c.req.header("content-type") ?? "";
@@ -149,6 +150,8 @@ const matchesEtag = (header: string | undefined, etag: string) =>
   }) ?? false;
 export function createApp(s: HttpServices): Hono {
   const app = new Hono();
+  const revisionEvents = s.reads.revisionEvents;
+  let waiters = 0;
   const tarballPath =
     s.mcpTarballPath ??
     fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
@@ -405,29 +408,142 @@ export function createApp(s: HttpServices): Hono {
       );
     return validated(z.record(z.string(), z.unknown()), await parseJson(c));
   }
-  app.post("/api/collections", async (c) =>
-    c.json(await s.ingest.create(createRequest(await writeBody(c)))),
-  );
-  app.post("/api/collections/:id/revisions", async (c) =>
-    c.json(
-      await s.ingest.add(c.req.param("id"), addRequest(await writeBody(c, c.req.param("id")))),
-    ),
-  );
+  app.post("/api/collections", async (c) => {
+    const result = await s.ingest.create(createRequest(await writeBody(c)));
+    s.reads.notifyRevision(result.collection_id);
+    return c.json(result);
+  });
+  app.post("/api/collections/:id/revisions", async (c) => {
+    const result = await s.ingest.add(
+      c.req.param("id"),
+      addRequest(await writeBody(c, c.req.param("id"))),
+    );
+    s.reads.notifyRevision(result.collection_id);
+    return c.json(result);
+  });
   app.get("/api/collections", async (c) => {
-    const limit = Number(c.req.query("limit") ?? 50);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200)
-      throw new WaypointError("validation_failed", "Invalid limit");
+    const params = c.req.query();
+    let metadata: Record<string, unknown> | undefined;
+    if (params.metadata !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(params.metadata);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        metadata = z.record(z.string(), z.unknown()).parse(parsed);
+      } catch {
+        throw new WaypointError("validation_failed", "Invalid metadata filter");
+      }
+    }
+    const updated = params.updated_after;
+    if (
+      updated !== undefined &&
+      !/^\d+$/.test(updated) &&
+      !z.iso.datetime({ offset: true }).safeParse(updated).success &&
+      !z.iso.date().safeParse(updated).success
+    )
+      throw new WaypointError("validation_failed", "Invalid updated_after");
+    const updatedAfter =
+      updated === undefined
+        ? undefined
+        : /^\d+$/.test(updated)
+          ? Number(updated)
+          : Date.parse(updated);
+    if (updatedAfter !== undefined && (!Number.isSafeInteger(updatedAfter) || updatedAfter < 0))
+      throw new WaypointError("validation_failed", "Invalid updated_after");
+    const sort = params.sort;
+    if (sort !== undefined && sort !== "updated" && sort !== "created")
+      throw new WaypointError("validation_failed", "Invalid sort");
+    return c.json(
+      await s.reads.searchCollections({
+        query: params.query,
+        metadata,
+        updated_after: updatedAfter,
+        sort,
+        limit: params.limit === undefined ? undefined : Number(params.limit),
+        cursor: params.cursor,
+        include_deleted: params.include_deleted === "true" || params.include_deleted === "1",
+      }),
+    );
+  });
+  app.get("/api/collections/:id", async (c) => {
+    const input = c.req.param("id");
+    const id = input.startsWith("col_") ? input : (await s.reads.collectionByPublicId(input))?.id;
+    if (!id) throw new WaypointError("collection_not_found", "Collection not found");
+    const detail = await s.reads.getCollection(id, c.req.query("revision_id"));
+    if (c.req.query("include_head") !== "1") return c.json(detail);
+    const headPath = detail.revision?.head_path;
+    const file = detail.revision?.files.find((entry) => entry.path === headPath);
+    if (!file || !headPath) return c.json({ ...detail, head: null });
+    if (!isTextMime(file.mime))
+      return c.json({
+        ...detail,
+        head: { path: headPath, mime: file.mime, text: null, truncated: false, url: file.url },
+      });
+    try {
+      await ensureBlob(file.hash);
+    } catch (error) {
+      if (
+        !(isWaypointError(error) && (error.code === "not_found" || error.code === "blob_missing"))
+      )
+        throw error;
+      return c.json({
+        ...detail,
+        head: {
+          path: headPath,
+          mime: file.mime,
+          text: null,
+          truncated: false,
+          url: file.url,
+          unavailable: true,
+        },
+      });
+    }
+    const max = 64 * 1024;
+    let handle;
+    try {
+      handle = await open(s.blobs.path(file.hash), "r");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      return c.json({
+        ...detail,
+        head: {
+          path: headPath,
+          mime: file.mime,
+          text: null,
+          truncated: false,
+          url: file.url,
+          unavailable: true,
+        },
+      });
+    }
+    const bytes = Buffer.alloc(max + 1);
+    let count = 0;
+    try {
+      while (count < bytes.length) {
+        const read = await handle.read(bytes, count, bytes.length - count, count);
+        if (!read.bytesRead) break;
+        count += read.bytesRead;
+      }
+    } finally {
+      await handle.close();
+    }
+    const truncated = count > max;
+    let end = Math.min(count, max);
+    if (truncated) {
+      for (let trim = 0; trim < 4; trim++) {
+        try {
+          new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
+          break;
+        } catch {
+          end--;
+        }
+      }
+    }
+    const text = new TextDecoder().decode(bytes.subarray(0, end));
     return c.json({
-      collections: await s.reads.listCollections(
-        c.req.query("query") ?? "",
-        limit,
-        c.req.query("include_deleted") === "true",
-      ),
+      ...detail,
+      head: { path: headPath, mime: file.mime, text, truncated, url: file.url },
     });
   });
-  app.get("/api/collections/:id", async (c) =>
-    c.json(await s.reads.getCollection(c.req.param("id"))),
-  );
   app.patch("/api/collections/:id", async (c) => {
     const id = c.req.param("id");
     const body = validated(
@@ -576,10 +692,87 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/collections/:id/revisions", async (c) => {
-    const id = c.req.param("id");
+    const input = c.req.param("id");
+    const id = input.startsWith("col_") ? input : (await s.reads.collectionByPublicId(input))?.id;
+    if (!id) throw new WaypointError("collection_not_found", "Collection not found");
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
-    return c.json(await s.reads.listRevisions(id));
+    const after = c.req.query("after");
+    if (!after) return c.json(await s.reads.listRevisions(id));
+    const seconds = Number(c.req.query("wait") ?? 0);
+    if (!Number.isFinite(seconds)) throw new WaypointError("validation_failed", "Invalid wait");
+    const waitSeconds = Math.max(0, Math.min(seconds, 50));
+    const list = async () => {
+      const revisions = (await s.reads.listRevisions(id)).revisions;
+      if (!revisions.some((revision) => revision.id === after))
+        throw new WaypointError("not_found", "Revision does not belong to collection");
+      return revisions.filter((revision) => revision.id > after);
+    };
+    if (waitSeconds === 0) {
+      const revisions = await list();
+      return c.json({ changed: revisions.length > 0, revisions });
+    }
+    let notified = false;
+    let wake: (() => void) | undefined;
+    const onRevision = (changedId: string) => {
+      if (changedId === id) {
+        notified = true;
+        wake?.();
+      }
+    };
+    const onAbort = () => wake?.();
+    revisionEvents.on("revision", onRevision);
+    c.req.raw.signal.addEventListener("abort", onAbort);
+    s.shutdownSignal?.addEventListener("abort", onAbort);
+    let counted = false;
+    try {
+      let revisions = await list();
+      if (notified && !revisions.length) {
+        notified = false;
+        revisions = await list();
+      }
+      if (revisions.length || c.req.raw.signal.aborted || s.shutdownSignal?.aborted)
+        return c.json({ changed: revisions.length > 0, revisions });
+      if (waiters >= 200) {
+        c.header("Retry-After", "2");
+        return c.json(
+          { error: { code: "unavailable", message: "Too many revision waiters", details: {} } },
+          503,
+        );
+      }
+      waiters++;
+      counted = true;
+      const deadline = Date.now() + waitSeconds * 1000;
+      while (
+        !revisions.length &&
+        Date.now() < deadline &&
+        !c.req.raw.signal.aborted &&
+        !s.shutdownSignal?.aborted
+      ) {
+        if (notified) {
+          notified = false;
+          revisions = await list();
+          continue;
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(done, Math.min(2000, deadline - Date.now()));
+          function done() {
+            clearTimeout(timer);
+            if (wake === done) wake = undefined;
+            resolve();
+          }
+          wake = done;
+          if (notified || c.req.raw.signal.aborted || s.shutdownSignal?.aborted) done();
+        });
+        if (!c.req.raw.signal.aborted && !s.shutdownSignal?.aborted) revisions = await list();
+      }
+      return c.json({ changed: revisions.length > 0, revisions });
+    } finally {
+      if (counted) waiters--;
+      revisionEvents.off("revision", onRevision);
+      c.req.raw.signal.removeEventListener("abort", onAbort);
+      s.shutdownSignal?.removeEventListener("abort", onAbort);
+    }
   });
   app.get("/api/revisions/:id", async (c) => c.json(await s.reads.getRevision(c.req.param("id"))));
   async function serve(
