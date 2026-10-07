@@ -147,6 +147,31 @@ async function seed(): Promise<{
   };
 }
 
+/** Commits `total` markdown files, then queues their standalone renditions as `rerender` does. */
+async function backlog(total: number): Promise<string[]> {
+  const sources: string[] = [];
+  for (let index = 0; index < total; index++) sources.push(await put(`# Backlog ${index}`));
+  await ingest.create({
+    title: "Backlog",
+    head_path: "doc-0.md",
+    files: sources.map((hash, index) => ({ path: `doc-${index}.md`, hash })),
+  });
+  await commitAll();
+  for (const [index, source] of sources.entries()) {
+    const text = `<v2># Backlog ${index}`;
+    const output = await put(text);
+    await queue.run("INSERT OR IGNORE INTO pending_blobs (hash,size) VALUES (?,?)", [
+      output,
+      text.length,
+    ]);
+    await queue.run(
+      "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+      [source, "markdown", 2, output, "text/html", clock],
+    );
+  }
+  return sources;
+}
+
 describe("rerender", () => {
   it("parses its flags and rejects ambiguous or mismatched ones", () => {
     const renderer = { rendererName: "markdown", rendererVersion: 2 };
@@ -474,31 +499,6 @@ describe("rerender", () => {
     const html = await readFile(blobs.path(row.output_hash), "utf8");
     expect(html).toContain('"waypoint:location"');
   });
-
-  /** Commits `count` markdown files, then queues their standalone renditions as `rerender` does. */
-  async function backlog(count: number): Promise<string[]> {
-    const sources: string[] = [];
-    for (let index = 0; index < count; index++) sources.push(await put(`# Backlog ${index}`));
-    await ingest.create({
-      title: "Backlog",
-      head_path: "doc-0.md",
-      files: sources.map((hash, index) => ({ path: `doc-${index}.md`, hash })),
-    });
-    await commitAll();
-    for (const [index, source] of sources.entries()) {
-      const text = `<v2># Backlog ${index}`;
-      const output = await put(text);
-      await queue.run("INSERT OR IGNORE INTO pending_blobs (hash,size) VALUES (?,?)", [
-        output,
-        text.length,
-      ]);
-      await queue.run(
-        "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
-        [source, "markdown", 2, output, "text/html", clock],
-      );
-    }
-    return sources;
-  }
 
   it("commits a rerender backlog in batches so new revisions don't wait behind it", async () => {
     await seed();
