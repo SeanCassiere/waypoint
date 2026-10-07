@@ -107,6 +107,8 @@ smoke() {
     [[ "$code" == 404 ]] || return 1
     grep -qi '^x-robots-tag: noindex, nofollow' "$temporary/miss-headers" || return 1
     grep -qi '^referrer-policy: no-referrer' "$temporary/miss-headers" || return 1
+    code="$(curl -sS -m 8 -o /dev/null -w '%{http_code}' "https://$host/" || true)"
+    [[ "$code" == 200 ]] || return 1
     code="$(curl -sS -m 8 -o "$temporary/robots-body" -w '%{http_code}' "https://$host/robots.txt" || true)"
     [[ "$code" == 200 ]] && grep -q 'Disallow: /' "$temporary/robots-body"
   }
