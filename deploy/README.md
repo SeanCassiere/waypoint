@@ -88,6 +88,29 @@ Avoid `down --volumes`: the named volume holds the sidecar's Tailscale identity.
 The deployment never touches unrelated containers, networks, images, the host
 Tailscale daemon, or the host's Serve configuration. It needs no reboot.
 
+## Memory
+
+The writer container is limited to 1 GB. Check its usage with:
+
+```bash
+sg docker -c 'docker stats --no-stream waypoint-writer-1'
+```
+
+The Turso engine leaks native memory for each statement it prepares, so the
+writer caches prepared statements by SQL text and reuses them (see
+[Prepared statements and native memory](../docs/architecture.md#prepared-statements-and-native-memory)).
+With the cache, RSS grows by about 0.16 KB per query and flattens over time,
+instead of the 12.5 KB per query that took prod from start to 294 MB in 14 h.
+If usage still climbs toward the limit, restarting the writer is safe, because
+queued writes survive in `queue.db`:
+
+```bash
+sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml restart -t 60 writer'
+```
+
+Note the usage and uptime before restarting, so the growth rate can be compared
+with the numbers above.
+
 ## Re-rendering markdown after a renderer upgrade
 
 Markdown is rendered at ingest, so a deploy that bumps `RENDERER_VERSION` only

@@ -37,7 +37,16 @@
   - **raw content**: files and renditions
 - Runs a single **committer** worker, which moves queued writes into durable cloud state.
 - Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead.
+- Reuses prepared statements. See [Prepared statements and native memory](#prepared-statements-and-native-memory).
 - Multiple writers are possible. Each has its own data directory, and they converge through the cloud DB.
+
+#### Prepared statements and native memory
+
+The Turso engine (`@tursodatabase/database` 0.8.2) leaks native memory for every statement it prepares: about 12.5 KB when the statement is never closed and about 2.5 KB even when it's closed. Preparing a statement per query, as the writer did until October 2026, grew RSS by 1.9 GB per 150,000 reads.
+
+The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keyed by SQL text (256 per connection) and reuses them. Measured on agent-1 with 200,000 reads of one statement: RSS grows about 0.16 KB per query (32 MB in total, flattening as the run goes on), and each query takes about 4 µs instead of about 30 µs. Each distinct SQL string still costs one prepare, so evictions (SQL with variable `IN (…)` lists) leak about 2.5 KB each.
+
+Running a statement prepared before a schema change aborts the process inside the engine. The cache is cleared after any statement or `exec` containing `CREATE`, `ALTER` or `DROP`, and after every pull that changed the database. A pull runs outside the connection chain, so a statement queued between the end of the pull and the reset could still run against a schema the pull changed. Only this writer's own migrations change the cloud schema, and they run at startup before anything is served, so that window isn't reachable in practice. The deploy runbook covers [memory checks](../deploy/README.md#memory).
 
 ### MCP server (phase 1)
 - A small local **stdio** process on each machine where agents run, started with `npx` and configured with `WAYPOINT_URL`.

@@ -203,4 +203,70 @@ describe("production SyncClient", () => {
     },
     30000,
   );
+  it.skipIf(!process.env.TURSODB_BIN)(
+    "drops cached statements when a pull brings data and schema changes",
+    async () => {
+      const bin = process.env.TURSODB_BIN;
+      if (!bin) throw new Error("TURSODB_BIN required");
+      const dir = await mkdtemp(join(tmpdir(), "waypoint-sync-statements-"));
+      const socket = createServer();
+      await new Promise<void>((resolve) => socket.listen(0, "127.0.0.1", resolve));
+      const address = socket.address();
+      if (!address || typeof address === "string") throw new Error("No port");
+      const port = address.port;
+      await new Promise<void>((resolve) => socket.close(() => resolve()));
+      const server = spawn(bin, [join(dir, "server.db"), "--sync-server", `127.0.0.1:${port}`], {
+        stdio: "ignore",
+      });
+      const url = `http://127.0.0.1:${port}`;
+      try {
+        expect(await waitForServer(url, 80)).toBe(true);
+        const config: Config = {
+          environment: "dev",
+          dataDir: join(dir, "a"),
+          baseUrl: url,
+          port,
+          queueGiveUpHours: 72,
+          maxBlobBytes: 1024,
+          sync: true,
+          tursoUrl: url,
+          tursoAuthToken: "test",
+          r2AccountId: "test",
+          r2AccessKeyId: "test",
+          r2SecretAccessKey: "test",
+          r2Bucket: "test",
+        };
+        const first = await openDatabases(config);
+        const second = await openDatabases({ ...config, dataDir: join(dir, "b") });
+        try {
+          await first.waypoint.exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
+          await first.waypoint.run("INSERT INTO notes (id,body) VALUES (1,'one')");
+          await first.syncClient.push();
+          expect(await second.syncClient.pull()).toBe(true);
+          // Cache the statement on the second replica, then change data and schema remotely.
+          expect(await second.waypoint.all("SELECT * FROM notes ORDER BY id")).toEqual([
+            { id: 1, body: "one" },
+          ]);
+          await first.waypoint.exec("ALTER TABLE notes ADD COLUMN tag TEXT DEFAULT 't'");
+          await first.waypoint.run("INSERT INTO notes (id,body) VALUES (2,'two')");
+          await first.syncClient.push();
+          expect(await second.syncClient.pull()).toBe(true);
+          expect(await second.waypoint.all("SELECT * FROM notes ORDER BY id")).toEqual([
+            { id: 1, body: "one", tag: "t" },
+            { id: 2, body: "two", tag: "t" },
+          ]);
+        } finally {
+          await second.waypoint.close();
+          await second.queue.close();
+          await first.waypoint.close();
+          await first.queue.close();
+        }
+      } finally {
+        server.kill("SIGTERM");
+        await new Promise<void>((resolve) => server.once("exit", () => resolve()));
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    30000,
+  );
 });
