@@ -22,5 +22,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: scripts/fetch-tursodb.sh
       - run: pnpm test
+        env:
+          TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb
       - run: pnpm build

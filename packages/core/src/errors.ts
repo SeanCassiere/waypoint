@@ -1,4 +1,8 @@
 export type WaypointErrorCode =
+  | "forbidden"
+  | "unsupported_media_type"
+  | "conflict"
+  | "internal_error"
   | "validation_failed"
   | "path_invalid"
   | "path_case_conflict"
@@ -20,6 +24,10 @@ export type WaypointErrorCode =
   | "not_found";
 
 export const ERROR_STATUS: Record<WaypointErrorCode, number> = {
+  forbidden: 403,
+  unsupported_media_type: 415,
+  conflict: 409,
+  internal_error: 500,
   validation_failed: 400,
   path_invalid: 400,
   path_case_conflict: 400,
