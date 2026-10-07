@@ -9,6 +9,7 @@ import {
   validatePath,
   validateClientId,
   isTextMime,
+  MCP_LAUNCHER_API,
   WaypointError,
   withBase,
   type CreateCollectionRequest,
@@ -41,6 +42,9 @@ export interface HttpServices {
   environment?: "dev" | "prod";
   port?: number;
   mcpTarballPath?: string;
+  mcpLauncherPath?: string;
+  mcpServerPath?: string;
+  mcpSkillPath?: string;
 }
 async function parseJson(c: Context): Promise<unknown> {
   const type = c.req.header("content-type") ?? "";
@@ -129,18 +133,36 @@ function addRequest(input: unknown): AddRevisionRequest {
     ...(value.remove ? { remove: value.remove } : {}),
   };
 }
-export function createApp(s: HttpServices): Hono {
-  const app = new Hono();
-  const tarballPath =
-    s.mcpTarballPath ??
-    fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
-  const tarball = readFile(tarballPath).then(
+const artifact = (path: string) =>
+  readFile(path).then(
     (bytes) => ({ bytes, hash: createHash("sha256").update(bytes).digest("hex") }),
     (error: unknown) => {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
         return undefined;
       throw error;
     },
+  );
+const matchesEtag = (header: string | undefined, etag: string) =>
+  header?.split(",").some((item) => {
+    const token = item.trim().replace(/^W\//, "");
+    return token === etag || token === "*";
+  }) ?? false;
+export function createApp(s: HttpServices): Hono {
+  const app = new Hono();
+  const tarballPath =
+    s.mcpTarballPath ??
+    fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
+  const tarball = artifact(tarballPath);
+  const launcher = artifact(
+    s.mcpLauncherPath ??
+      fileURLToPath(new URL("../../../packages/mcp/dist/launcher.mjs", import.meta.url)),
+  );
+  const serverBundle = artifact(
+    s.mcpServerPath ??
+      fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp-server.mjs", import.meta.url)),
+  );
+  const skill = artifact(
+    s.mcpSkillPath ?? fileURLToPath(new URL("../../../skills/waypoint/SKILL.md", import.meta.url)),
   );
   const downloads = new Map<string, Promise<void>>();
   async function ensureBlob(hash: string): Promise<void> {
@@ -212,20 +234,53 @@ export function createApp(s: HttpServices): Hono {
     await next();
   });
   app.get("/healthz", (c) => c.json({ ok: true }));
-  app.get("/mcp", async () => {
-    const loaded = await tarball;
-    const tarballUrl = withBase(
-      s.reads.baseUrl,
-      `/mcp/waypoint-mcp${loaded ? `-${loaded.hash.slice(0, 12)}` : ""}.tgz`,
-    );
-    const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint.\n\nClaude Code:\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n`;
+  app.get("/mcp", () => {
+    const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
+    const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");
+    const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing. Set WAYPOINT_MCP_PIN=embedded for debugging.\n\nClaude Code:\n\n\`\`\`sh\nclaude mcp add waypoint --env WAYPOINT_URL=${s.reads.baseUrl} -- npx --prefer-offline -y ${tarballUrl}\n\`\`\`\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["--prefer-offline","-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["--prefer-offline", "-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n\nInstall the Waypoint skill:\n\n\`\`\`sh\nmkdir -p ~/.codex/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.codex/skills/waypoint/SKILL.md\nmkdir -p ~/.claude/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.claude/skills/waypoint/SKILL.md\n\`\`\`\n`;
     return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+  });
+  app.get("/mcp/server.mjs", async (c) => {
+    const loaded = await serverBundle;
+    if (!loaded) return new Response("MCP server bundle not built", { status: 404 });
+    const etag = `"sha256-${loaded.hash}"`;
+    const headers = {
+      "content-type": "text/javascript; charset=utf-8",
+      etag,
+      "x-waypoint-content-sha256": loaded.hash,
+      "cache-control": "no-cache",
+    };
+    if (matchesEtag(c.req.header("if-none-match"), etag))
+      return new Response(null, { status: 304, headers });
+    return new Response(loaded.bytes, { headers });
+  });
+  app.get("/mcp/version", async (c) => {
+    const [server, packageTarball, launcherCode] = await Promise.all([
+      serverBundle,
+      tarball,
+      launcher,
+    ]);
+    if (!server || !packageTarball || !launcherCode)
+      return new Response("MCP artifacts not built", { status: 404 });
+    return c.json({
+      server_sha256: server.hash,
+      package_sha256: packageTarball.hash,
+      launcher_sha256: launcherCode.hash,
+      launcher_api: MCP_LAUNCHER_API,
+    });
+  });
+  app.get("/mcp/skill/SKILL.md", async () => {
+    const loaded = await skill;
+    return loaded
+      ? new Response(loaded.bytes, { headers: { "content-type": "text/markdown; charset=utf-8" } })
+      : new Response("Skill not found", { status: 404 });
   });
   app.get("/mcp/:filename", async (c) => {
     const loaded = await tarball;
     if (!loaded) return new Response("MCP tarball not built", { status: 404 });
-    const versioned = `waypoint-mcp-${loaded.hash.slice(0, 12)}.tgz`;
-    if (c.req.param("filename") !== "waypoint-mcp.tgz" && c.req.param("filename") !== versioned)
+    const filename = c.req.param("filename");
+    // Legacy URLs help machines that never installed; existing npx cache entries stay pinned until cleared or reconfigured.
+    if (filename !== "waypoint-mcp.tgz" && !/^waypoint-mcp-[a-f0-9]{12}\.tgz$/.test(filename))
       return new Response("Not found", { status: 404 });
     const { bytes, hash } = loaded;
     const etag = `"sha256-${hash}"`;
@@ -233,18 +288,9 @@ export function createApp(s: HttpServices): Hono {
       "content-type": "application/octet-stream",
       "content-length": String(bytes.length),
       etag,
-      "cache-control":
-        c.req.param("filename") === versioned ? "public, max-age=31536000, immutable" : "no-cache",
+      "cache-control": "no-cache",
     };
-    if (
-      c.req
-        .header("if-none-match")
-        ?.split(",")
-        .some((item) => {
-          const token = item.trim().replace(/^W\//, "");
-          return token === etag || token === "*";
-        })
-    )
+    if (filename === "waypoint-mcp.tgz" && matchesEtag(c.req.header("if-none-match"), etag))
       return new Response(null, { status: 304, headers });
     return new Response(bytes, { headers });
   });

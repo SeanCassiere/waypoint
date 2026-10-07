@@ -687,7 +687,7 @@ export class WaypointClient {
       resolveResult.parse(value),
     );
   }
-  status(signal?: AbortSignal): Promise<unknown> {
+  status(signal?: AbortSignal): Promise<StatusResponse> {
     return this.json("/api/status", "GET", undefined, signal).then((value) =>
       statusResult.parse(value),
     );

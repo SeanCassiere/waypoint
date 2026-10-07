@@ -1,8 +1,11 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { newId } from "@waypoint/core";
@@ -307,11 +310,12 @@ it("serves the MCP snippet and tarball with a strong ETag", async () => {
   expect(response.status).toBe(200);
   expect(response.headers.get("etag")).toMatch(/^"sha256-[a-f0-9]{64}"$/);
   const version = response.headers.get("etag")?.slice(8, 20);
-  expect(helpText).toContain(`/mcp/waypoint-mcp-${version}.tgz`);
+  expect(helpText).toContain(`/mcp/waypoint-mcp.tgz`);
+  expect(helpText).not.toContain(`/mcp/waypoint-mcp-${version}.tgz`);
   expect(response.headers.get("cache-control")).toBe("no-cache");
   const immutable = await app.request(`/mcp/waypoint-mcp-${version}.tgz`);
   expect(immutable.status).toBe(200);
-  expect(immutable.headers.get("cache-control")).toContain("immutable");
+  expect(immutable.headers.get("cache-control")).toBe("no-cache");
   expect(Buffer.from(await response.arrayBuffer())).toEqual(await readFile(tarball));
   expect(
     (
@@ -680,4 +684,196 @@ it("times out an individual HTTP request and preserves the retry budget", async 
   );
   await expect(client.status()).rejects.toThrow("request timed out");
   expect(calls).toBeGreaterThanOrEqual(1);
+});
+
+it("serves stable MCP artifacts, legacy URLs, version and skill", async () => {
+  const { services, dir } = await writer();
+  const mcpServerPath = join(dir, "server.mjs");
+  const mcpTarballPath = join(dir, "launcher.tgz");
+  const mcpLauncherPath = join(dir, "launcher.mjs");
+  const mcpSkillPath = join(dir, "SKILL.md");
+  await Promise.all([
+    writeFile(mcpServerPath, "export const LAUNCHER_API = 1;"),
+    writeFile(mcpTarballPath, "launcher"),
+    writeFile(mcpLauncherPath, "launcher code"),
+    writeFile(mcpSkillPath, "# Waypoint skill"),
+  ]);
+  const app = createApp({
+    ...services,
+    mcpServerPath,
+    mcpTarballPath,
+    mcpLauncherPath,
+    mcpSkillPath,
+  });
+  const server = await app.request("/mcp/server.mjs");
+  expect(server.status).toBe(200);
+  expect(server.headers.get("content-type")).toContain("text/javascript");
+  expect(server.headers.get("cache-control")).toBe("no-cache");
+  const serverSha = server.headers.get("x-waypoint-content-sha256");
+  expect(serverSha).toMatch(/^[a-f0-9]{64}$/);
+  expect(server.headers.get("etag")).toBe(`"sha256-${serverSha}"`);
+  expect(
+    (
+      await app.request("/mcp/server.mjs", {
+        headers: { "if-none-match": server.headers.get("etag") ?? "" },
+      })
+    ).status,
+  ).toBe(304);
+  const stable = await app.request("/mcp/waypoint-mcp.tgz");
+  const legacy = await app.request("/mcp/waypoint-mcp-deadbeef1234.tgz");
+  expect(stable.status).toBe(200);
+  expect(legacy.status).toBe(200);
+  expect(legacy.headers.get("cache-control")).toBe("no-cache");
+  expect(
+    (
+      await app.request("/mcp/waypoint-mcp-deadbeef1234.tgz", {
+        headers: { "if-none-match": stable.headers.get("etag") ?? "" },
+      })
+    ).status,
+  ).toBe(200);
+  expect(await legacy.text()).toBe(await stable.text());
+  expect((await app.request("/mcp/waypoint-mcp-bad.tgz")).status).toBe(404);
+  expect(await (await app.request("/mcp/version")).json()).toEqual({
+    server_sha256: serverSha,
+    package_sha256: stable.headers.get("etag")?.slice(8, -1),
+    launcher_sha256: createHash("sha256").update("launcher code").digest("hex"),
+    launcher_api: 1,
+  });
+  expect(await (await app.request("/mcp/skill/SKILL.md")).text()).toBe("# Waypoint skill");
+  const help = await (await app.request("/mcp")).text();
+  expect(help).toContain("claude mcp add waypoint");
+  expect(help.match(/--prefer-offline/g)).toHaveLength(3);
+  expect(help).toContain("~/.codex/skills/waypoint/SKILL.md");
+  expect(help).toContain("~/.claude/skills/waypoint/SKILL.md");
+  expect(help).toContain("WAYPOINT_MCP_PIN=embedded");
+  expect(help).toContain("/mcp/waypoint-mcp.tgz");
+  expect(help).not.toMatch(/waypoint-mcp-[a-f0-9]{12}\.tgz/);
+  const missing = createApp({ ...services, mcpSkillPath: join(dir, "missing.md") });
+  expect((await missing.request("/mcp/skill/SKILL.md")).status).toBe(404);
+});
+
+it("reports the running and latest MCP bundle through waypoint_status", async () => {
+  const { waypoint, services, dir } = await writer();
+  const mcpServerPath = join(dir, "server.mjs");
+  const mcpTarballPath = join(dir, "launcher.tgz");
+  const mcpLauncherPath = join(dir, "launcher.mjs");
+  await writeFile(mcpServerPath, "current server");
+  await writeFile(mcpTarballPath, "launcher");
+  await writeFile(mcpLauncherPath, "launcher code");
+  const app = createApp({ ...services, mcpServerPath, mcpTarballPath, mcpLauncherPath });
+  const fetcher: typeof fetch = async (input, init) => app.fetch(new Request(input, init));
+  const clientApi = new WaypointClient(waypoint.base, "test", undefined, fetcher);
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const server = createServer(clientApi, {
+    version: 1,
+    bundleSha256: "a".repeat(64),
+    source: "cache",
+  });
+  const client = new Client({ name: "test", version: "1" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  closers.push(async () => {
+    await client.close();
+    await server.close();
+  });
+  const result = await client.callTool({ name: "waypoint_status" });
+  const statusMcp = z.object({ mcp: z.unknown() }).parse(result.structuredContent).mcp;
+  const version = z
+    .object({ server_sha256: z.string() })
+    .parse(await (await app.request("/mcp/version")).json());
+  expect(statusMcp).toEqual({
+    running_sha256: "a".repeat(64),
+    source: "cache",
+    latest_sha256: version.server_sha256,
+    update_available: true,
+  });
+});
+
+it.skipIf(
+  !existsSync("packages/mcp/dist/launcher.mjs") ||
+    !existsSync("packages/mcp/dist/waypoint-mcp-server.mjs"),
+)("launches against the real writer and reports MCP update state over stdio", async () => {
+  const { app, dir } = await writer();
+  const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  closers.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing writer port");
+  const child = spawn("node", ["packages/mcp/dist/launcher.mjs"], {
+    env: {
+      ...process.env,
+      WAYPOINT_URL: `http://127.0.0.1:${address.port}`,
+      WAYPOINT_MCP_CACHE_DIR: join(dir, "cache"),
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let output = "";
+  const messages: Array<Record<string, unknown>> = [];
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+    while (output.includes("\n")) {
+      const index = output.indexOf("\n");
+      const line = output.slice(0, index);
+      output = output.slice(index + 1);
+      if (line) messages.push(z.record(z.string(), z.unknown()).parse(JSON.parse(line)));
+    }
+  });
+  let errors = "";
+  child.stderr.on("data", (chunk: Buffer) => {
+    errors += chunk.toString();
+  });
+  const send = (message: Record<string, unknown>) =>
+    child.stdin.write(JSON.stringify(message) + "\n");
+  const waitFor = async (id: number): Promise<Record<string, unknown>> => {
+    for (let i = 0; i < 100; i++) {
+      const found = messages.find((message) => message.id === id);
+      if (found) return found;
+      if (child.exitCode !== null) throw new Error(`MCP exited: ${errors}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`MCP timeout: ${errors}`);
+  };
+  try {
+    send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1" },
+      },
+    });
+    expect((await waitFor(1)).result).toBeTruthy();
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "waypoint_status", arguments: {} },
+    });
+    const called = await waitFor(2);
+    const result = z
+      .object({
+        structuredContent: z.object({
+          mcp: z.object({
+            running_sha256: z.string(),
+            source: z.string(),
+            latest_sha256: z.string(),
+            update_available: z.boolean(),
+          }),
+        }),
+      })
+      .parse(called.result);
+    expect(result.structuredContent.mcp).toMatchObject({
+      source: "fresh",
+      update_available: false,
+    });
+    expect(result.structuredContent.mcp.running_sha256).toBe(
+      result.structuredContent.mcp.latest_sha256,
+    );
+  } finally {
+    child.kill();
+    if (child.exitCode === null && child.signalCode === null)
+      await new Promise((resolve) => child.once("exit", resolve));
+  }
 });

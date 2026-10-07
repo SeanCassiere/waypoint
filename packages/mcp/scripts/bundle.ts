@@ -10,8 +10,9 @@ const manifest = z
 const stage = "dist/package";
 await rm(stage, { recursive: true, force: true });
 await mkdir(`${stage}/bin`, { recursive: true });
-await copyFile("dist/waypoint-mcp.mjs", `${stage}/bin/waypoint-mcp.mjs`);
-await chmod(`${stage}/bin/waypoint-mcp.mjs`, 0o755);
+await copyFile("dist/waypoint-mcp-server.mjs", `${stage}/bin/waypoint-mcp-server.mjs`);
+await copyFile("dist/launcher.mjs", `${stage}/bin/launcher.mjs`);
+await chmod(`${stage}/bin/launcher.mjs`, 0o755);
 await writeFile(
   `${stage}/package.json`,
   JSON.stringify(
@@ -20,7 +21,7 @@ await writeFile(
       version: manifest.version,
       type: "module",
       engines: { node: ">=24" },
-      bin: { "waypoint-mcp": "bin/waypoint-mcp.mjs" },
+      bin: { "waypoint-mcp": "bin/launcher.mjs" },
     },
     null,
     2,

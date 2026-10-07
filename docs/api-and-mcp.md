@@ -69,9 +69,29 @@ The MCP server is a local stdio process on each agent machine:
 ```jsonc
 // e.g. Claude Code MCP config
 { "mcpServers": { "waypoint": {
-    "command": "npx", "args": ["-y", "@waypoint/mcp"],
+    "command": "npx", "args": ["--prefer-offline", "-y", "https://waypoint.tail7aca06.ts.net/mcp/waypoint-mcp.tgz"],
     "env": { "WAYPOINT_URL": "https://waypoint.tail7aca06.ts.net" } } } }
 ```
+
+The writer's `/mcp` page has ready-made snippets for Claude Code and Codex.
+
+### Updates without config changes
+
+The configured URL never changes. The tarball is a small **launcher**. npx caches it indefinitely, so it is kept tiny and backward-compatible (`LAUNCHER_API`). On every start the launcher:
+1. fetches the current server bundle from the writer, `GET /mcp/server.mjs`, using an ETag. It verifies the body against `X-Waypoint-Content-SHA256` and caches it under `~/.cache/waypoint-mcp/` (or `$XDG_CACHE_HOME`, or `$WAYPOINT_MCP_CACHE_DIR`).
+2. runs the freshest valid bundle: freshly fetched, then the last cached copy if the writer is unreachable, then the copy embedded in the launcher.
+
+A writer deploy therefore reaches every agent the next time it starts the MCP server. `waypoint_status` reports `mcp.update_available` when a running server is older than the writer's bundle. Set `WAYPOINT_MCP_PIN=embedded` to skip fetching, for debugging.
+
+Related writer routes:
+- `GET /mcp`: setup page
+- `GET /mcp/waypoint-mcp.tgz`: the launcher
+- `GET /mcp/server.mjs`: the server bundle
+- `GET /mcp/version`: `{ server_sha256, launcher_sha256, launcher_api }`
+- `GET /mcp/skill/SKILL.md`: the agent skill
+- Legacy hashed URLs `/mcp/waypoint-mcp-<hash>.tgz` serve the current launcher instead of returning 404. A machine that already installed an old hashed tarball keeps it until its npx cache entry is cleared, so switch such configs to the stable URL once.
+
+Always configure with `npx --prefer-offline`. Otherwise npx retries the tarball URL for about 70 s when the writer is down, exceeding MCP startup timeouts. The launcher does its own update check regardless.
 
 For each write it:
 1. reads files from the agent's local disk and hashes them
