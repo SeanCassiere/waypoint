@@ -602,6 +602,10 @@ describe("errors and MIME", () => {
   it("maps every error to the documented status and serializes the body", () => {
     const expected: Record<string, number> = {
       validation_failed: 400,
+      forbidden: 403,
+      unsupported_media_type: 415,
+      conflict: 409,
+      internal_error: 500,
       path_invalid: 400,
       path_case_conflict: 400,
       head_path_missing: 400,

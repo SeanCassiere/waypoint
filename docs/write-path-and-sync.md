@@ -26,7 +26,9 @@ blobs/sha256/ab/<hex>     local blob store (also the read cache)
 
 Exactly one writer process owns a data directory. Within that process:
 - **A single committer** processes the queue, so there is no double-uploading or double-committing.
-- **Ingest is serialized per collection** with an in-process lock. Two agents calling `add_revision` with the default parent at the same moment get chained revisions instead of a fork.
+- **Mutations are serialized per collection** with an in-process lock. This covers ingest, edits, delete and undelete, purge, queue retry and drop, and the committer's collection-commit step. Two agents calling `add_revision` with the default parent at the same moment get chained revisions instead of a fork.
+  - Ingest releases the lock after the queue transaction (step 8), before it waits for the commit (step 9), so a slow commit never serializes other writes.
+- **Each database connection is serialized.** A transaction holds the connection exclusively, so statements from other requests can never interleave with, or be rolled back by, someone else's transaction.
 
 ## Ingest
 
@@ -117,7 +119,7 @@ The committer processes pending revisions in ID order (oldest first). For each o
 ### Other queued work
 
 These are idempotent and **never give up**:
-- **Collection snapshots** (`pending_snapshots`): written whenever the title, metadata, or tombstone of a *committed* collection changes. Those changes themselves are written directly to `waypoint.db`, because there is nothing to upload first.
+- **Collection snapshots** (`pending_snapshots`): written whenever the title, metadata, or tombstone of a *committed* collection changes. Those changes themselves are written directly to `waypoint.db`, because there is nothing to upload first. The `pending_snapshots` row is written **before** the `waypoint.db` change, so a crash can only cause a harmless extra snapshot, never a lost one. Deleting an already-deleted collection keeps the original `deleted_at`.
 - **Bucket deletes** (`pending_r2_deletes`). For example, dropping a revision from the queue deletes its DR manifest, if one was already written. That way a restore from the bucket can't bring the revision back.
 - **Purges** (`pending_purges`); see [Purge](#purge).
 
@@ -138,7 +140,7 @@ These are idempotent and **never give up**:
 |---|---|
 | `pending` | In `pending_revisions` with `state = 'pending'` |
 | `failed` | In `pending_revisions` with `state = 'failed'` |
-| `committed` | In `waypoint.db` and in `unpushed` |
+| `committed` | In `waypoint.db`, and either in `unpushed` or still in `pending_revisions` (the crash window between commit steps 5 and 6) |
 | `synced` | In `waypoint.db` and not in `unpushed`. This includes every revision pulled from other writers. |
 
 An `unpushed` row is deleted after a push succeeds, provided that push *started* after the row's `committed_at`.
@@ -187,6 +189,8 @@ Any queued revisions for the purged collection fail with `collection_purged`. Ph
 ## Environment guard
 
 On startup and before every push, the writer compares three values: `WAYPOINT_ENV`, `meta.environment` in the local `waypoint.db`, and `meta.environment` in the cloud DB. If any differ, it refuses to sync. When it bootstraps an empty cloud DB for the first time, the writer writes `meta.environment` itself.
+- The guard runs **before migrations**.
+- **Only a first start needs the cloud.** If the local `meta.environment` already exists and matches `WAYPOINT_ENV`, an unreachable cloud at startup isn't fatal. The writer starts with sync marked *unverified*, then performs the remote check before its first push. A first start, with no local `meta`, still requires the cloud.
 
 ## Restore / disaster recovery
 

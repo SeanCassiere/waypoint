@@ -34,7 +34,7 @@ Today these artifacts are scattered across machines' disks. Waypoint gives them 
 
 | Zone | Who | Can read | Can write |
 |---|---|---|---|
-| **Tailnet** | Any device on the user's Tailscale network | Everything, including deleted and failed items | Everything. No auth. |
+| **Tailnet** | Any device on the user's Tailscale network | Everything, including deleted and failed items | Everything. No auth, but cross-site browser requests are rejected (see [api-and-mcp.md](api-and-mcp.md#request-safety)). |
 | **Public** | Anyone on the internet | Only what a valid share link allows. Everything else returns 404. | Nothing, ever |
 
 The cloud DB and bucket hold *everything*, private content included. Being stored in the cloud **does not** mean being exposed. The reader denies every request unless a share link permits it.

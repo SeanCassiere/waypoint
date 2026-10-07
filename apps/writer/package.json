@@ -9,9 +9,17 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@waypoint/core": "workspace:*"
+    "@hono/node-server": "^2.1.3",
+    "@tursodatabase/database": "0.8.2",
+    "@tursodatabase/sync": "0.8.2",
+    "@waypoint/core": "workspace:*",
+    "@waypoint/render": "workspace:*",
+    "busboy": "^1.6.0",
+    "hono": "^4.13.13",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/node": "^24.0.0"
   }
 }

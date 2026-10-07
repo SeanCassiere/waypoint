@@ -13,3 +13,4 @@ coverage/
 .pnpm-store/
 spikes/.tools/
 spikes/.tmp/
+.tools/
