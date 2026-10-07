@@ -28,20 +28,30 @@ export async function publicPreview(
   const current = manifest.files[path] ? path : manifest.headPath;
   const href = (file: string) =>
     `${shellPath(ctx.collection.public_id, served.public_id, file, ctx.pinned, manifest.headPath)}?as=public`;
-  return noStore(
-    c.html(
-      renderPublicShell({
-        title: ctx.collection.title,
-        files: paths.map((file) => ({ path: file })),
-        head: manifest.headPath,
-        current,
-        fileHref: href,
-        frameBase: `/raw/r/${served.public_id}/`,
-        updatedAt: ctx.pinned ? null : served.created_at,
-        snapshotAt: ctx.pinned ? served.created_at : null,
-      }),
-    ),
+  const shell = renderPublicShell({
+    title: ctx.collection.title,
+    files: paths.map((file) => ({ path: file })),
+    head: manifest.headPath,
+    current,
+    fileHref: href,
+    frameBase: `/raw/r/${served.public_id}/`,
+    updatedAt: ctx.pinned ? null : served.created_at,
+    snapshotAt: ctx.pinned ? served.created_at : null,
+  });
+  // Owner-only hint, injected on the writer; the reader's own output never contains it.
+  const back = shellPath(
+    ctx.collection.public_id,
+    served.public_id,
+    current,
+    ctx.pinned,
+    manifest.headPath,
   );
+  const banner = `<div role="note" data-preview-banner style="position:sticky;top:0;z-index:10;padding:.5rem 1rem;font:500 .875rem/1.4 system-ui,sans-serif;background:#fff4d6;color:#5c4300;border-bottom:1px solid #e8d49a;text-align:center">Preview: this is what the public sees through a share link. <a href="${escapeAttr(back)}" style="color:inherit">Back to the collection</a></div>`;
+  return noStore(c.html(shell.replace(/<body([^>]*)>/, (m) => `${m}${banner}`)));
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 /**

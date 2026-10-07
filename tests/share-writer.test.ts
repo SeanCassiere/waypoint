@@ -665,6 +665,8 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
     const previewHtml = await preview.text();
     expect(previewHtml).toContain("Read-only · shared with you");
+    expect(previewHtml).toContain("data-preview-banner");
+    expect(previewHtml).toContain("Preview: this is what the public sees");
     expect(previewHtml).toContain(
       'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
     );
