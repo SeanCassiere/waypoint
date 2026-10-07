@@ -165,18 +165,42 @@ One agent can build up a collection (research, a plan), and another agent, possi
 - **`updated_after`** (ISO timestamp or Unix ms) returns only collections with a revision newer than this. Use it to look for new work since you last checked.
 - Results are sorted by `updated_at` (the newest revision's time) by default, newest first. Pass `cursor` (from `next_cursor`) to page. Paging is a snapshot as of the first page: later pages show values as of that snapshot, and collections created mid-scan are omitted. Cursors expire after 10 minutes or if the writer restarts; start a new search then. Revision timestamps are stamped inside the queue transaction; client-minted IDs may be earlier, and a small interval remains between the timestamp and commit.
 
+Each `search_collections` result (one-line JSON):
+
+```ts
+type SearchCollectionsToolResult = {
+  collections: {
+    id: string; title: string
+    metadata: Record<string, unknown>
+    updated_at: string                          // ISO; the newest revision's time
+    revision_count: number
+    latest_url: string
+    deleted?: true                              // only when soft-deleted
+    match?: "id" | "title" | "metadata"         // why it matched; omitted when no query
+    latest_revision: { id: string; display_number: number; message: string | null
+                       sync_state: SyncState; head_path: string; file_count: number } | null
+  }[]
+  next_cursor: string | null
+}
+```
+
+`GET /api/collections` returns the fuller `CollectionSearchResult` from `@waypoint/core` (`api.ts`), for the viewer:
+
 ```ts
 type CollectionSearchResult = {
   id: string; public_id: string; title: string
   metadata: Record<string, unknown>
-  created_at: number; updated_at: number      // updated_at = newest revision's time
+  created_at: number; updated_at: number      // Unix ms; updated_at = newest revision's time
   deleted: boolean
   revision_count: number
   latest_revision: { id: string; display_number: number; message: string | null
                      created_at: number; sync_state: SyncState
-                     head_path: string; file_count: number } | null
+                     head_path: string; file_count: number
+                     changes?: RevisionChanges | null; source_host?: string | null } | null
   latest_url: string
-  match: "id" | "title" | "metadata" | null   // why it matched; null when no query
+  match: "id" | "title" | "metadata" | null   // null when no query
+  queue?: { pending: number; failed: number } // uncommitted revisions
+  share?: { active: number; follows_latest: boolean } | null  // live public links
 }
 ```
 

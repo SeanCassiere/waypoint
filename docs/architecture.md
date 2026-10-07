@@ -33,7 +33,7 @@
 - Runs in Docker on agent-1 behind its own Tailscale sidecar node, reachable at `https://waypoint.tail7aca06.ts.net`. The host's Tailscale setup is untouched (see [infrastructure.md](infrastructure.md)).
 - Serves three things:
   - the **HTTP API** for writes and reads
-  - the **viewer**: collection list, collection view with file sidebar and revision picker, and a Trash view
+  - the **viewer** (the "Folio" design): Recent (collection list and search), the collection view (file sidebar, document frame, History and Links panels, revision stepping), per-revision Changes and image Gallery views, and the Links, Trash, Status and MCP setup pages. See the viewer routes in [api-and-mcp.md](api-and-mcp.md).
   - **raw content**: files and renditions
 - Runs a single **committer** worker, which moves queued writes into durable cloud state.
 - Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead. See [Data-directory lock](#data-directory-lock).
@@ -82,6 +82,9 @@ packages/
                    manifest merge, URL routing, Hono route handlers written against
                    Storage / Repo interfaces. Web APIs only (fetch, Web Crypto, Web Streams).
   render/          markdown → HTML renderer (runs on the writer only)
+  ui/              runtime-agnostic UI shared by the writer viewer and the reader:
+                   design tokens, HTML escaping, the public shell, and the frame
+                   location listener. Web APIs only, like core.
   mcp/             stdio MCP server (published for `npx`)
 apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,
@@ -90,7 +93,7 @@ apps/
                    Cache API, Analytics Engine (phase 2)
 ```
 
-- `core` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
+- `core` and `ui` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
 - The reader's build fails if anything Node-only leaks in. A separate tsconfig and the package `exports` conditions enforce this.
 - Proposed tooling: a pnpm workspace with TypeScript, Hono on both runtimes, the MCP TypeScript SDK, `typeid-js`, and `@aws-sdk/client-s3` for R2.
 
@@ -142,6 +145,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 - **Version policy.** Any change to renderer dependencies, CSS, language set, template, or options bumps `RENDERER_VERSION`. A golden-output hash test enforces this.
 - **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
 - **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
+- **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
 
 ### The reading template (renderer version 2, "Folio")
 
@@ -169,4 +173,3 @@ Fallback documents (oversized, too deeply nested, or failed renders) use the sam
 - **Batched commits.** The committer commits at most 50 queued renditions per pass, then commits any new revisions before the next 50, so a large backlog never delays agents' writes. Dropping or purging a queued revision keeps rerender rows, whose source is already committed.
 - **Runs with the server stopped.** It takes the data-directory lock like `serve` and `restore`, so it refuses to run while the writer is up. The writer's committer uploads the queued work on its next start.
 - **Not in DR manifests.** A revision's manifest is written once, at commit, so renditions added later are not in it. A restore from the bucket brings back the renditions recorded at ingest; run `rerender` again afterwards.
-- **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
