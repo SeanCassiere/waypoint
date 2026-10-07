@@ -4,8 +4,14 @@
 #
 # Previews run PR code against production data with the prod read-only reader credentials, so
 # they're safe only behind Cloudflare Access. `up` succeeds only once both the preview URL and
-# its deployment URL answer 302 to the Access login, and deletes the preview again if either
-# ever serves content without it. See docs/decisions.md D49 and deploy/README.md#pr-previews.
+# its deployment URL answer 302 to the Access login. It fails closed: once `wrangler preview`
+# has started, any failure before that check passes (including a signal) deletes the preview.
+# See docs/decisions.md D49 and deploy/README.md#pr-previews.
+#
+# DRY_RUN=1 runs every stage against a fake wrangler and fake responses, without secrets.
+# DRY_RUN_FAIL=<stage> makes one stage fail (wrangler, json, urls, served, redirect, error,
+# unreachable), and DRY_RUN_LOG=<file> records the fake wrangler's calls; see
+# deploy/preview-reader-check.sh.
 set -euo pipefail
 
 pr="${1:-}"
@@ -21,8 +27,18 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/apps/reader"
 
 umask 077
-temporary="$(mktemp -d)"
-trap 'rm -rf "$temporary"' EXIT
+temporary="$(mktemp -d -p "${RUNNER_TEMP:-/tmp}")"
+uploaded=0
+verified=0
+# Fail closed: a preview that was (or may have been) uploaded but not verified is deleted.
+cleanup() {
+  if (( uploaded && !verified )); then
+    echo "$log_prefix: $name was not verified behind Cloudflare Access; deleting it" >&2
+    delete_preview || echo "$log_prefix: deleting $name FAILED; delete it by hand (deploy/README.md#pr-previews)" >&2
+  fi
+  rm -rf "$temporary"
+}
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 export WRANGLER_SEND_METRICS=false
@@ -43,12 +59,21 @@ if [[ "$dry_run" == 1 ]]; then
 set -euo pipefail
 # shellcheck source=deploy/reader-env.sh
 source "$READER_ENV_LIB"
-case "$*" in
+args="$*"
+case "$args" in
   'preview --env prod --name pr-'*' --secrets-file '*' --json '*)
-    args="$*"; file="${args#*--secrets-file }"; reader_check_secrets_file "${file%% *}"
+    file="${args#*--secrets-file }"; reader_check_secrets_file "${file%% *}"
     preview="${args#*--name }"; preview="${preview%% *}"
-    printf '{"preview":{"name":"%s","urls":["https://%s-waypoint-reader.dry-run.workers.dev"]},"deployment":{"id":"dry-run-deployment","urls":["https://dry-run-waypoint-reader.dry-run.workers.dev"]}}\n' "$preview" "$preview" ;;
-  'preview delete --env prod --name pr-'*' --skip-confirmation') : ;;
+    if [[ -n "${DRY_RUN_LOG:-}" ]]; then echo "upload $preview" >> "$DRY_RUN_LOG"; fi
+    case "${DRY_RUN_FAIL:-}" in
+      wrangler) exit 1 ;;
+      json) echo 'not json' ;;
+      urls) printf '{"preview":{"name":"%s","urls":[]},"deployment":{"id":"dry-run-deployment","urls":[]}}\n' "$preview" ;;
+      *) printf '{"preview":{"name":"%s","urls":["https://%s-waypoint-reader.dry-run.workers.dev"]},"deployment":{"id":"dry-run-deployment","urls":["https://dry-run-waypoint-reader.dry-run.workers.dev"]}}\n' "$preview" "$preview" ;;
+    esac ;;
+  'preview delete --env prod --name pr-'*' --skip-confirmation')
+    preview="${args#*--name }"; preview="${preview%% *}"
+    if [[ -n "${DRY_RUN_LOG:-}" ]]; then echo "delete $preview" >> "$DRY_RUN_LOG"; fi ;;
   *) exit 2 ;;
 esac
 EOF
@@ -89,10 +114,13 @@ fi
 reader_load_secrets prod
 reader_write_secrets "$temporary/secrets.json"
 sha="${PREVIEW_SHA:-$(git -C "$repo_root" rev-parse HEAD)}"
-# --ignore-base-config: the previews block in wrangler.jsonc is the whole preview config, so a
-# dashboard edit can't change what a preview binds to. Secrets come only from --secrets-file.
+# --ignore-base-config: the dashboard's Preview base config is not merged in. Wrangler sends it
+# only when it creates the preview (the first push of a PR); later deployments carry their whole
+# runtime env (bindings from the previews block, secrets from --secrets-file) anyway, so the
+# base config never reaches a deployment either way. Keep the base config empty regardless.
 # wrangler reads GITHUB_SHA for the deployment's commit annotation; on pull_request events that
 # is the merge commit, so pass the PR head instead.
+uploaded=1
 if ! GITHUB_SHA="$sha" "$wrangler" preview --env prod --name "$name" --secrets-file "$temporary/secrets.json" \
   --json --ignore-base-config --tag "${sha:0:12}" --message "PR #$pr at ${sha:0:12}" > "$temporary/preview.json"; then
   rm -f "$temporary/secrets.json"
@@ -126,35 +154,44 @@ fi
 echo "Preview $name deployment $deployment_id is live"
 
 # Without credentials, both URLs must redirect to the Access login for their own hostname.
-# A 2xx means the preview is reachable without Access: delete it at once and fail.
+# A 2xx means the preview is reachable without Access: stop at once. Anything else that isn't
+# that redirect is retried until the window closes. Either way the EXIT trap deletes it.
 smoke() {
   local target host result code location attempt_ok deadline
+  local interval=6
   deadline=$((SECONDS + ${SMOKE_TIMEOUT_SECONDS:-120}))
+  if [[ "$dry_run" == 1 ]]; then interval=0; deadline=$((SECONDS + ${SMOKE_TIMEOUT_SECONDS:-1})); fi
   while (( SECONDS < deadline )); do
     attempt_ok=1
     for target in "$url" "$deployment_url"; do
       host="${target#https://}"
       if [[ "$dry_run" == 1 ]]; then
-        if [[ "${DRY_RUN_FAIL_SMOKE:-0}" == 1 ]]; then result="200 "; else result="302 https://$access_host/cdn-cgi/access/login/$host?redirect_url=%2Fhealthz"; fi
+        case "${DRY_RUN_FAIL:-}" in
+          served) result="200 " ;;
+          redirect) result="302 https://elsewhere.example/cdn-cgi/access/login/$host?redirect_url=%2Fhealthz" ;;
+          error) result="503 " ;;
+          unreachable) result="000 " ;;
+          *) result="302 https://$access_host/cdn-cgi/access/login/$host?redirect_url=%2Fhealthz" ;;
+        esac
       else
         result="$(curl -sS -m 10 -o /dev/null -w '%{http_code} %{redirect_url}' "$target/healthz" 2>/dev/null || echo '000 ')"
       fi
       code="${result%% *}"; location="${result#* }"
       echo "$host/healthz -> $code ${location%%\?*}"
       if [[ "$code" == 2* ]]; then
-        echo "$log_prefix: $host served content without Cloudflare Access; deleting $name" >&2
-        delete_preview || true
+        echo "$log_prefix: $host served content without Cloudflare Access" >&2
         return 1
       fi
       [[ "$code" == 302 && "$location" == "https://$access_host/cdn-cgi/access/login/$host?"* ]] || attempt_ok=0
     done
     (( attempt_ok )) && return 0
-    sleep 6
+    sleep "$interval"
   done
   echo "$log_prefix: no Access redirect from $name within the smoke window" >&2
   return 1
 }
 smoke
+verified=1
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   printf 'url=%s\ndeployment_url=%s\ndeployment_id=%s\n' "$url" "$deployment_url" "$deployment_id" >> "$GITHUB_OUTPUT"
 fi

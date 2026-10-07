@@ -10,9 +10,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/apps/reader"
 host=waypoint.pingstash.com
 if [[ "$environment" == dev ]]; then host=waypoint-dev.pingstash.com; fi
+# prod: workers_dev and preview_urls are on, so its workers.dev hostname must be behind the
+# Cloudflare Access app (decision D49). The smoke requires the Access redirect there.
+workers_dev_host=waypoint-reader.seancassiere.workers.dev
+access_host="${ACCESS_TEAM_DOMAIN:-seancassiere.cloudflareaccess.com}"
 
 umask 077
-temporary="$(mktemp -d)"
+temporary="$(mktemp -d -p "${RUNNER_TEMP:-/tmp}")"
 trap 'rm -rf "$temporary"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -71,7 +75,8 @@ smoke() {
     [[ "$(cat "$temporary/health-body")" == ok ]] || return 1
     grep -qi '^x-robots-tag: noindex, nofollow' "$temporary/miss-headers" || return 1
     grep -qi '^referrer-policy: no-referrer' "$temporary/miss-headers" || return 1
-    grep -q 'Disallow: /' "$temporary/robots-body"
+    grep -q 'Disallow: /' "$temporary/robots-body" || return 1
+    [[ "$environment" != prod || "${DRY_RUN_FAIL_ACCESS:-0}" != 1 ]]
     return
   fi
   check_once() {
@@ -87,7 +92,15 @@ smoke() {
     code="$(curl -sS -m 8 -o /dev/null -w '%{http_code}' "https://$host/" || true)"
     [[ "$code" == 200 ]] || return 1
     code="$(curl -sS -m 8 -o "$temporary/robots-body" -w '%{http_code}' "https://$host/robots.txt" || true)"
-    [[ "$code" == 200 ]] && grep -q 'Disallow: /' "$temporary/robots-body"
+    [[ "$code" == 200 ]] && grep -q 'Disallow: /' "$temporary/robots-body" || return 1
+    if [[ "$environment" == prod ]]; then
+      local result
+      result="$(curl -sS -m 8 -o /dev/null -w '%{http_code} %{redirect_url}' "https://$workers_dev_host/healthz" || true)"
+      if [[ "${result%% *}" != 302 || "${result#* }" != "https://$access_host/cdn-cgi/access/login/$workers_dev_host?"* ]]; then
+        echo "Reader smoke: https://$workers_dev_host/healthz -> ${result%%\?*}, expected 302 to Cloudflare Access" >&2
+        return 1
+      fi
+    fi
   }
   deadline=$((SECONDS + ${SMOKE_TIMEOUT_SECONDS:-120}))
   while (( SECONDS < deadline )); do
