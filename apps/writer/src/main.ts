@@ -11,7 +11,13 @@ import { IngestService } from "./ingest.js";
 import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.js";
 import { ReadModel } from "./read-model.js";
 import { writerRenderer } from "./renderer.js";
-import { parseRerenderArgs, RERENDER_USAGE, rerender, type RerenderOptions } from "./rerender.js";
+import {
+  formatRerenderSummary,
+  parseRerenderArgs,
+  RERENDER_USAGE,
+  rerender,
+  type RerenderOptions,
+} from "./rerender.js";
 import { restore } from "./restore.js";
 import { SyncLoop } from "./sync-loop.js";
 
@@ -70,7 +76,7 @@ try {
   if (rerenderOptions) {
     const bucket = config.sync ? new R2Bucket(config) : undefined;
     console.log(
-      JSON.stringify(
+      formatRerenderSummary(
         await rerender(waypoint, queue, blobs, writerRenderer, rerenderOptions, bucket),
       ),
     );

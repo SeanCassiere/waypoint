@@ -240,6 +240,19 @@ describe("rerender", () => {
     expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(3);
   });
 
+  it("ends its output with a plain remaining line for loops", async () => {
+    await seed();
+    const dry = await rerender(waypoint, queue, blobs, new FakeRenderer(2), {
+      dryRun: true,
+      limit: 1,
+    });
+    const dryLines = formatRerenderSummary(dry).split("\n");
+    expect(JSON.parse(dryLines[0]!)).toEqual(dry);
+    expect(dryLines[1]).toBe("remaining: 2 (dry run)");
+    const run = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
+    expect(formatRerenderSummary(run).split("\n").at(-1)).toBe("remaining: 0");
+  });
+
   it("resumes across --limit runs and scopes to one collection", async () => {
     const { alpha, beta, shared } = await seed();
     const v2 = new FakeRenderer(2);

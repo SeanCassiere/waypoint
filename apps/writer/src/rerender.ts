@@ -50,6 +50,18 @@ export type RerenderSummary = {
   failed: string[];
 };
 
+/**
+ * The command's output: the JSON summary, then one plain `remaining: N` line, so a loop can stop
+ * when it reads `remaining: 0`. In a dry run N is what a real run with the same options would
+ * leave.
+ */
+export function formatRerenderSummary(summary: RerenderSummary): string {
+  return [
+    JSON.stringify(summary),
+    `remaining: ${summary.remaining}${summary.dry_run ? " (dry run)" : ""}`,
+  ].join("\n");
+}
+
 export const RERENDER_USAGE =
   "Usage: waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>] [--renderer markdown] [--version <n>]";
 

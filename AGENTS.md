@@ -42,6 +42,8 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md).
 
+**After a deploy that bumps `RENDERER_VERSION`**, re-render existing markdown with the step-by-step procedure in [deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade). It stops the deploy runner and the writer, so follow it exactly and restart both at the end.
+
 Things that need care when changing code:
 
 - **Schema changes are additive only** (new tables, columns, indexes; never rename or drop). Turso Sync has bugs with destructive DDL. See [docs/data-model.md](docs/data-model.md#migrations).

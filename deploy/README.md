@@ -115,29 +115,86 @@ with the numbers above.
 
 Markdown is rendered at ingest, so a deploy that bumps `RENDERER_VERSION` only
 affects new content. Older documents keep their previous rendition (which is
-fine to serve) until you run the `rerender` subcommand once after the deploy.
-It takes the data-directory lock, so stop the writer while it runs; writes from
-agents fail during that window, which is usually a minute or two. Run it from
-the repository root on agent-1:
+fine to serve) until `rerender` gives them one at the new version. Do it once
+after the deploy, in batches, with this procedure.
+
+`rerender` takes the data-directory lock, so the writer must be stopped while it
+runs; agents' writes fail during that window. The rendered output is only
+queued. The writer uploads it after it starts again, a batch of 50 renditions
+at a time between new revisions, so a large backlog never holds up agents.
+
+Run everything from the repository root on agent-1. `$C` is the compose
+prefix; the example uses version 2, which must match the deployed
+`RENDERER_VERSION`.
 
 ```bash
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml stop writer'
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml run --rm --no-deps writer node dist/main.js rerender --all --dry-run'
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml run --rm --no-deps writer node dist/main.js rerender --all'
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml up -d --no-deps writer'
-curl -fsS https://waypoint.tail7aca06.ts.net/healthz
+C="docker compose -p waypoint -f deploy/compose.yaml"
 ```
 
-Each run prints a JSON summary (`sources`, `current`, `queued`, `remaining`,
-`missing`, `failed`). The work is queued locally; the writer's committer
-uploads each new rendition and inserts its rows when the writer starts again,
-and the reader switches to the newest version once the rows are pushed.
-`--collection <id or public id>` limits the scope and `--limit <n>` caps a run;
-both are safe to repeat, because sources that already have a current-version
-rendition are skipped. A source blob missing from the local cache is fetched
-from R2. `--renderer markdown --version <n>` is accepted as a guard and fails if
-the image renders a different version. `docker compose run` reuses the writer
-service's env file, data volume and user, so no secrets are loaded in your shell.
+1. Stop the deploy runner, so no deploy can recreate the writer during the
+   window:
+
+   ```bash
+   systemctl --user stop waypoint-gh-runner.service
+   ```
+
+2. Check that the Tailscale sidecar is running (its `STATUS` starts with
+   `Up`). Don't stop it; the writer shares its network namespace.
+
+   ```bash
+   sg docker -c "$C ps ts-waypoint"
+   ```
+
+3. Stop the writer, giving it 60 s to finish in-flight uploads, and check that
+   it exited (its `STATUS` starts with `Exited`):
+
+   ```bash
+   sg docker -c "$C stop -t 60 writer"
+   sg docker -c "$C ps -a writer"
+   ```
+
+4. Preview, then render one batch. Each run prints its JSON summary followed by
+   a `remaining: N` line (sources still without a current-version rendition).
+
+   ```bash
+   sg docker -c "$C run --rm --no-deps -T writer node dist/main.js rerender --all --renderer markdown --version 2 --dry-run"
+   sg docker -c "$C run --rm --no-deps -T writer node dist/main.js rerender --all --renderer markdown --version 2 --limit 500"
+   ```
+
+5. Start the writer and wait until it's healthy:
+
+   ```bash
+   sg docker -c "$C up -d --no-deps writer"
+   until [ "$(sg docker -c "docker inspect -f '{{.State.Health.Status}}' waypoint-writer-1")" = healthy ]; do sleep 2; done
+   ```
+
+6. Check it through the tailnet, then wait for the queued renditions to upload
+   (`pending_renditions` reaches 0):
+
+   ```bash
+   curl -fsS https://waypoint.tail7aca06.ts.net/healthz
+   until [ "$(curl -fsS https://waypoint.tail7aca06.ts.net/api/status | jq .queue.pending_renditions)" = 0 ]; do sleep 10; done
+   ```
+
+7. If step 4 printed `remaining:` above 0, repeat steps 3 to 6.
+
+8. Restart the deploy runner:
+
+   ```bash
+   systemctl --user start waypoint-gh-runner.service
+   ```
+
+If anything fails, start the writer (step 5) and the runner (step 8) before
+investigating. Every step is safe to repeat: sources that already have a
+current-version rendition, committed or queued, are skipped.
+
+The summary's fields are `sources`, `current`, `queued`, `remaining`,
+`missing` and `failed`. `--collection <id or public id>` limits the scope. A
+source blob missing from the local cache is fetched from R2. `--renderer
+markdown --version <n>` is a guard: it fails if the image renders a different
+version. `docker compose run` reuses the writer service's env file, data volume
+and user, so no secrets are loaded in your shell. `-T` keeps the output
+plain for scripts.
 
 ## Public reader Workers
 
