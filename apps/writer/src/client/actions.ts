@@ -1,9 +1,8 @@
 import { shellPath } from "../viewer-paths.js";
 import { api, field } from "./api.js";
 import { copyText } from "./copy.js";
-import { confirmDialog, formDialog } from "./dialogs.js";
+import { bindForm, confirmDialog } from "./dialogs.js";
 import { $, $$, el, run, shellRoot } from "./dom.js";
-import { openKeys } from "./keys.js";
 import { readMark } from "./lastread.js";
 import { setPanel, showTab } from "./panel.js";
 import { toast } from "./toast.js";
@@ -266,7 +265,6 @@ registerAction("drop", drop);
 registerAction("trash", trash);
 registerAction("restore", restore);
 registerAction("purge", purge);
-registerAction("keys", () => openKeys());
 registerAction("panel-tab", (element) => showTab(element.dataset.tab ?? "files"));
 registerAction("panel-close", () => setPanel(false));
 registerAction("print", () => {
@@ -292,8 +290,8 @@ registerAction("copy-raw", () => {
   const raw = $("[data-download]", HTMLAnchorElement)?.href;
   return raw ? copyText(raw, "raw URL") : undefined;
 });
-registerAction("rename", () =>
-  formDialog("rename", async (form) => {
+function bindCollectionForms(): void {
+  bindForm("rename", async (form) => {
     const title = new FormData(form).get("title");
     if (typeof title !== "string" || !title.trim()) throw new Error("Enter a title");
     const root = shellRoot();
@@ -304,10 +302,8 @@ registerAction("rename", () =>
     if (root) root.dataset.title = title.trim();
     document.title = `${title.trim()} · Waypoint`;
     toast("Renamed");
-  }),
-);
-registerAction("metadata", () =>
-  formDialog("metadata", async (form) => {
+  });
+  bindForm("metadata", async (form) => {
     const raw = new FormData(form).get("metadata");
     let parsed: unknown;
     try {
@@ -324,10 +320,11 @@ registerAction("metadata", () =>
     );
     toast("Metadata saved");
     location.reload();
-  }),
-);
+  });
+}
 
 export function bindActions(): void {
+  bindCollectionForms();
   document.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;

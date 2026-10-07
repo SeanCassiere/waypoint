@@ -27,8 +27,8 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
   app.get("/", (c) => recentPage(s, c));
   app.get("/trash", (c) => trashPage(s, c));
   app.get("/status", (c) => statusPage(s, c, extras));
-  app.get("/c/:pub", (c) => collectionPage(s, c));
-  app.get("/c/:pub/*", (c) => collectionPage(s, c));
+  app.get("/c/:pub", (c) => collectionPage(s, c, extras));
+  app.get("/c/:pub/*", (c) => collectionPage(s, c, extras));
   app.get("*", async (c) => notFound(c, await getChrome(s), new URL(c.req.raw.url).pathname));
   return app;
 }

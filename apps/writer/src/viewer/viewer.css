@@ -675,6 +675,29 @@ a.chip.public:hover {
   inset: auto;
   color: var(--ink);
 }
+/* Native popovers placed with CSS anchor positioning: a popover opened through popovertarget
+   uses its invoker as the implicit anchor, and flips when it would overflow. */
+.pop2,
+.menu {
+  position-area: bottom span-left;
+  position-try-fallbacks:
+    flip-block,
+    flip-inline,
+    flip-block flip-inline;
+  margin-block: 6px;
+}
+.rmenu {
+  position-area: bottom span-right;
+}
+@supports not (position-area: bottom) {
+  .pop2,
+  .menu {
+    inset: calc(var(--bar-h) + 6px) 12px auto auto;
+  }
+  .rmenu {
+    inset: calc(var(--bar-h) + 6px) auto auto 12px;
+  }
+}
 .pop2 {
   position: fixed;
   z-index: 40;
@@ -722,7 +745,7 @@ a.chip.public:hover {
   box-shadow: var(--sh-2);
   padding: 6px;
   width: min(400px, calc(100vw - 24px));
-  max-height: calc(100dvh - 70px);
+  max-height: calc(100dvh - 120px);
   overflow: auto;
 }
 .menu .mi {
@@ -1738,45 +1761,45 @@ details.sees > summary h3 {
   color: var(--muted);
   font-size: 13px;
 }
-.blk .tx.r > :first-child {
+.blk .tx.rd > :first-child {
   margin-top: 0;
 }
-.blk .tx.r > :last-child {
+.blk .tx.rd > :last-child {
   margin-bottom: 0;
 }
-.blk .tx.r h1,
-.blk .tx.r h2,
-.blk .tx.r h3,
-.blk .tx.r h4 {
+.blk .tx.rd h1,
+.blk .tx.rd h2,
+.blk .tx.rd h3,
+.blk .tx.rd h4 {
   margin: 0;
   font: 650 1.2em/1.3 var(--sans);
 }
-.blk .tx.r h1 {
+.blk .tx.rd h1 {
   font-size: 1.45em;
 }
-.blk .tx.r p,
-.blk .tx.r ul,
-.blk .tx.r ol,
-.blk .tx.r blockquote {
+.blk .tx.rd p,
+.blk .tx.rd ul,
+.blk .tx.rd ol,
+.blk .tx.rd blockquote {
   margin: 0;
 }
-.blk .tx.r ul,
-.blk .tx.r ol {
+.blk .tx.rd ul,
+.blk .tx.rd ol {
   padding-left: 1.4em;
 }
-.blk .tx.r blockquote {
+.blk .tx.rd blockquote {
   border-left: 3px solid var(--rule-2);
   padding-left: 1em;
   color: var(--ink-2);
 }
-.blk .tx.r code {
+.blk .tx.rd code {
   font: 0.86em var(--mono);
   background: var(--sunken);
   border: 1px solid var(--rule);
   border-radius: 4px;
   padding: 0 0.3em;
 }
-.blk .tx.r a {
+.blk .tx.rd a {
   color: var(--public);
 }
 .blk.src .tx,
@@ -2607,21 +2630,108 @@ h3.sec .n {
     padding: 0 10px;
   }
 }
+/* Motion (spec §3.3): opacity and transform only, 120-200 ms, and none under reduced motion.
+   Popovers and dialogs animate open and closed with @starting-style and allow-discrete. */
 @media (prefers-reduced-motion: no-preference) {
   .panel {
     transition: transform 160ms ease-out;
   }
-  [popover]:popover-open {
-    animation: pop 120ms ease-out;
+  .menu,
+  .pop2 {
+    transition:
+      opacity 120ms ease-out,
+      transform 120ms ease-out,
+      overlay 120ms allow-discrete,
+      display 120ms allow-discrete;
   }
-  dialog.dlg[open] {
-    animation: pop 160ms ease-out;
-  }
-}
-@keyframes pop {
-  from {
+  .menu:not(:popover-open),
+  .pop2:not(:popover-open) {
     opacity: 0;
     transform: scale(0.98);
+  }
+  @starting-style {
+    .menu:popover-open,
+    .pop2:popover-open {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+  dialog.dlg,
+  dialog.lbx {
+    transition:
+      opacity 160ms ease-out,
+      transform 160ms ease-out,
+      overlay 160ms allow-discrete,
+      display 160ms allow-discrete;
+  }
+  dialog.dlg:not([open]),
+  dialog.lbx:not([open]) {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  @starting-style {
+    dialog.dlg[open],
+    dialog.lbx[open] {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  dialog::backdrop {
+    transition:
+      opacity 160ms ease-out,
+      overlay 160ms allow-discrete,
+      display 160ms allow-discrete;
+  }
+  dialog:not([open])::backdrop {
+    opacity: 0;
+  }
+  @starting-style {
+    dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+  /* Cross-document view transitions: a calm crossfade between pages; persistent chrome keeps
+     its place and shared elements (collection titles, the revision pill) morph. */
+  @view-transition {
+    navigation: auto;
+  }
+  ::view-transition-group(*) {
+    animation-duration: 200ms;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 180ms;
+  }
+}
+.bar {
+  view-transition-name: topbar;
+}
+.panel {
+  view-transition-name: side-panel;
+}
+.tabbar {
+  view-transition-name: tabbar;
+}
+.revbtn {
+  view-transition-name: rev-pill;
+}
+/* Agent documents are never animated: the frame swaps instantly. */
+.frame {
+  view-transition-name: doc-frame;
+}
+::view-transition-old(doc-frame) {
+  display: none;
+}
+::view-transition-group(doc-frame),
+::view-transition-new(doc-frame) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -18,6 +18,7 @@
     "@waypoint/render": "workspace:*",
     "@waypoint/ui": "workspace:*",
     "busboy": "^1.6.0",
+    "diff": "^8.0.4",
     "hono": "^4.13.13",
     "zod": "^4.6.5"
   },

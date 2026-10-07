@@ -111,37 +111,37 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   });
 }
 
-/** Opens a dialog that contains a `[data-form]` and submits it with `submit`. */
-export function formDialog(id: string, submit: (form: HTMLFormElement) => Promise<void>): void {
+/**
+ * Binds the form inside a dialog. Dialogs open natively (commandfor + command="show-modal")
+ * and cancel through <form method="dialog">; script only performs the fetch on submit.
+ */
+export function bindForm(id: string, submit: (form: HTMLFormElement) => Promise<void>): void {
   const dialog = document.getElementById(id);
   if (!(dialog instanceof HTMLDialogElement)) return;
   const form = $("form", HTMLFormElement, dialog);
   if (!form) return;
   const error = $("[data-form-error]", dialog);
-  if (error) error.textContent = "";
-  if (!form.dataset.bound) {
-    form.dataset.bound = "true";
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const button = $("button:not([type=button])", HTMLButtonElement, form);
-      if (button) {
-        button.disabled = true;
-        button.setAttribute("aria-busy", "true");
-      }
-      submit(form)
-        .then(() => dialog.close())
-        .catch((cause: unknown) => {
-          if (error) error.textContent = cause instanceof Error ? cause.message : "Request failed";
-        })
-        .finally(() => {
-          if (button) {
-            button.disabled = false;
-            button.removeAttribute("aria-busy");
-          }
-        });
-    });
-    form.querySelector("[data-close]")?.addEventListener("click", () => dialog.close());
-  }
-  dialog.showModal();
-  $("input,textarea", form)?.focus();
+  dialog.addEventListener("close", () => {
+    if (error) error.textContent = "";
+  });
+  form.addEventListener("submit", (event) => {
+    if (event.submitter?.getAttribute("formmethod") === "dialog") return;
+    event.preventDefault();
+    const button = $("button:not([formmethod])", HTMLButtonElement, form);
+    if (button) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    }
+    submit(form)
+      .then(() => dialog.close())
+      .catch((cause: unknown) => {
+        if (error) error.textContent = cause instanceof Error ? cause.message : "Request failed";
+      })
+      .finally(() => {
+        if (button) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        }
+      });
+  });
 }

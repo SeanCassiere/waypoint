@@ -28,6 +28,14 @@ import { BlobStore } from "./blob-store.js";
 import type { Bucket } from "./bucket.js";
 import { BucketError } from "./bucket.js";
 import { blobKey, type WriterCommitter } from "./committer.js";
+import {
+  compareManifests,
+  diffFile,
+  DiffCache,
+  MAX_SIDE_BYTES,
+  type CompareFile,
+  type FileDiff,
+} from "./compare.js";
 import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
@@ -199,6 +207,49 @@ export function createApp(s: HttpServices): Hono {
       downloads.set(hash, flight);
     }
     await flight;
+  }
+  /** Text of a blob for diffs: null when the side is absent, undefined when too large or unavailable. */
+  async function blobText(
+    side: { hash: string; size: number } | null,
+  ): Promise<string | null | undefined> {
+    if (!side) return null;
+    if (side.size > MAX_SIDE_BYTES) return undefined;
+    try {
+      await ensureBlob(side.hash);
+      return new TextDecoder().decode(await readFile(s.blobs.path(side.hash)));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      if (isWaypointError(error) && ["not_found", "bucket_unavailable"].includes(error.code))
+        return undefined;
+      throw error;
+    }
+  }
+  const diffs = new DiffCache(200);
+  async function fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff> {
+    const key = `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${mode}|${file.mime}|${file.path}`;
+    const cached = diffs.get(key);
+    if (cached) return cached;
+    const result = diffFile(file, await blobText(file.base), await blobText(file.head), mode);
+    if (!result.truncated) diffs.set(key, result);
+    return result;
+  }
+  async function compareRevisions(id: string, baseId: string | undefined) {
+    const head = await s.reads.revision(id);
+    if (!head) throw new WaypointError("not_found", "Revision not found");
+    const baseRef = baseId ?? head.parent_revision_id ?? undefined;
+    const baseRevision = baseRef ? await s.reads.revision(baseRef) : undefined;
+    if (baseRef && (!baseRevision || baseRevision.collection_id !== head.collection_id))
+      throw new WaypointError("not_found", "Base revision not found in this collection");
+    return {
+      head,
+      base: baseRevision,
+      compare: compareManifests(baseRevision?.manifest ?? null, head.manifest),
+    };
+  }
+  async function revisionSummary(id: string) {
+    const { files, ...rest } = await s.reads.getRevision(id);
+    void files;
+    return rest;
   }
   app.onError((error, c) => {
     if (isWaypointError(error))
@@ -943,6 +994,39 @@ export function createApp(s: HttpServices): Hono {
     }
   });
   app.get("/api/revisions/:id", async (c) => c.json(await s.reads.getRevision(c.req.param("id"))));
+  // B1: manifest-level compare; base defaults to the parent.
+  app.get("/api/revisions/:id/compare", async (c) => {
+    const {
+      head,
+      base: baseRevision,
+      compare,
+    } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    return c.json({
+      base: baseRevision ? await revisionSummary(baseRevision.id) : null,
+      head: await revisionSummary(head.id),
+      ...compare,
+    });
+  });
+  // B1: per-file diff. mode=blocks (Markdown) or lines.
+  app.get("/api/revisions/:id/compare/*", async (c) => {
+    const url = new URL(c.req.raw.url);
+    const encoded = url.pathname.split("/compare/").slice(1).join("/compare/");
+    if (/%(?:2f|5c)/i.test(encoded))
+      throw new WaypointError("path_invalid", "Encoded separator in file path");
+    let path: string;
+    try {
+      path = validatePath(decodeURIComponent(encoded));
+    } catch {
+      throw new WaypointError("path_invalid", "Invalid file path");
+    }
+    const mode = c.req.query("mode") === "lines" ? "lines" : "blocks";
+    const { compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    const file = compare.files.find((item) => item.path === path);
+    if (!file) throw new WaypointError("not_found", "File not in either revision");
+    const { ops, ...diff } = await fileDiff(file, mode);
+    void ops;
+    return c.json(diff);
+  });
   async function serve(
     id: string,
     path: string,
@@ -1123,6 +1207,7 @@ export function createApp(s: HttpServices): Hono {
     "/",
     viewerApp(s, {
       serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
+      fileDiff,
     }),
   );
   return app;

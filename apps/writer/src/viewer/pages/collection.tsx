@@ -28,6 +28,8 @@ import {
 import { bytes, ext, projectAndTags } from "../format.js";
 import { Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
+import { changesPage, CompareDialog } from "./changes.js";
+import type { ViewerExtras } from "./status.js";
 
 const HISTORY_PAGE = 50;
 const shortUrl = (url: string) => `…${new URL(url).pathname}`;
@@ -206,7 +208,9 @@ export function CollectionBar(props: {
             </span>
           </>
         ) : null}
-        <h1 data-title-text>{collection.title}</h1>
+        <h1 data-title-text style={`view-transition-name:col-${collection.public_id}`}>
+          {collection.title}
+        </h1>
       </nav>
       <button
         type="button"
@@ -270,12 +274,19 @@ export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
         changesHref={changesHref(ctx)}
       />
       <hr />
-      <button type="button" class="mi" data-action="compare">
+      <button type="button" class="mi" commandfor="compare" command="show-modal">
         <span aria-hidden="true">⇄</span>
         <span>Compare…</span>
         <small>Choose any two revisions</small>
       </button>
-      <button type="button" class="mi" data-action="panel-tab" data-tab="history">
+      <button
+        type="button"
+        class="mi"
+        data-action="panel-tab"
+        data-tab="history"
+        popovertarget="rev-menu"
+        popovertargetaction="hide"
+      >
         <span aria-hidden="true">◷</span>
         <span>Open History panel</span>
         <kbd>h</kbd>
@@ -301,7 +312,15 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
   return (
     <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
       <div class="lbl">Links</div>
-      <button type="button" class="mi" role="menuitem" data-action="copy-link" data-kind="latest">
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        popovertarget="copy-menu"
+        popovertargetaction="hide"
+        data-action="copy-link"
+        data-kind="latest"
+      >
         <span aria-hidden="true">⧉</span>
         <span>Link to latest</span>
         <kbd>c</kbd>
@@ -309,7 +328,15 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
           {shortUrl(latestUrl)}
         </small>
       </button>
-      <button type="button" class="mi" role="menuitem" data-action="copy-link" data-kind="pinned">
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        popovertarget="copy-menu"
+        popovertargetaction="hide"
+        data-action="copy-link"
+        data-kind="pinned"
+      >
         <span aria-hidden="true">⧉</span>
         <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
         <kbd>⇧C</kbd>
@@ -319,7 +346,14 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
       </button>
       <hr />
       <div class="lbl">For another agent</div>
-      <button type="button" class="mi" role="menuitem" data-action="copy-handoff">
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        popovertarget="copy-menu"
+        popovertargetaction="hide"
+        data-action="copy-handoff"
+      >
         <span aria-hidden="true">⧉</span>
         <span>Handoff block</span>
         <kbd>a</kbd>
@@ -333,6 +367,8 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
         type="button"
         class="mi"
         role="menuitem"
+        popovertarget="copy-menu"
+        popovertargetaction="hide"
         data-action="copy-text"
         data-text={ctx.collection.id}
         data-label="collection ID"
@@ -345,6 +381,8 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
         type="button"
         class="mi"
         role="menuitem"
+        popovertarget="copy-menu"
+        popovertargetaction="hide"
         data-action="copy-text"
         data-text={ctx.revision.id}
         data-label="revision ID"
@@ -362,16 +400,23 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
   const raw = rawPath(ctx.revision.public_id, path);
   return (
     <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
-      <button type="button" class="mi pubitem show-sm" role="menuitem" data-action="share">
+      <button
+        type="button"
+        class="mi pubitem show-sm"
+        role="menuitem"
+        popovertarget="more-menu"
+        popovertargetaction="hide"
+        data-action="share"
+      >
         <Globe />
         <span>Share…</span>
         <kbd>s</kbd>
       </button>
-      <button type="button" class="mi" role="menuitem" data-action="rename">
+      <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
         <span aria-hidden="true">✎</span>
         <span>Rename…</span>
       </button>
-      <button type="button" class="mi" role="menuitem" data-action="metadata">
+      <button type="button" class="mi" role="menuitem" commandfor="metadata" command="show-modal">
         <span aria-hidden="true">{"{}"}</span>
         <span>Edit metadata…</span>
       </button>
@@ -384,7 +429,14 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
         <span aria-hidden="true">↓</span>
         <span>Download file</span>
       </a>
-      <button type="button" class="mi" role="menuitem" data-action="print">
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        popovertarget="more-menu"
+        popovertargetaction="hide"
+        data-action="print"
+      >
         <span aria-hidden="true">⎙</span>
         <span>Print</span>
       </button>
@@ -400,13 +452,20 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           <span>Preview as public ↗</span>
         </a>
       ) : null}
-      <button type="button" class="mi" role="menuitem" data-action="keys">
+      <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
         <span aria-hidden="true">?</span>
         <span>Keyboard shortcuts</span>
         <kbd>?</kbd>
       </button>
       <hr />
-      <button type="button" class="mi dangeritem" role="menuitem" data-action="trash">
+      <button
+        type="button"
+        class="mi dangeritem"
+        role="menuitem"
+        popovertarget="more-menu"
+        popovertargetaction="hide"
+        data-action="trash"
+      >
         <span aria-hidden="true">⌫</span>
         <span>Move to Trash…</span>
       </button>
@@ -424,12 +483,12 @@ export function CollectionDialogs(props: { ctx: CollectionContext }) {
             <h2 id="rename-title">Rename collection</h2>
             <label class="fl">
               Title
-              <input name="title" value={ctx.collection.title} required maxLength={300} />
+              <input name="title" value={ctx.collection.title} required maxLength={300} autofocus />
             </label>
           </div>
           <p class="alert" role="alert" data-form-error />
           <div class="ft">
-            <button type="button" class="btn" data-close>
+            <button class="btn" formmethod="dialog" formnovalidate value="cancel">
               Cancel
             </button>
             <button class="btn primary">Save</button>
@@ -452,7 +511,7 @@ export function CollectionDialogs(props: { ctx: CollectionContext }) {
           </div>
           <p class="alert" role="alert" data-form-error />
           <div class="ft">
-            <button type="button" class="btn" data-close>
+            <button class="btn" formmethod="dialog" formnovalidate value="cancel">
               Cancel
             </button>
             <button class="btn primary">Save</button>
@@ -935,10 +994,24 @@ export function DeletedPage(props: { chrome: Chrome; collection: CollectionRow }
   );
 }
 
-export async function collectionPage(s: HttpServices, c: Context): Promise<Response> {
+export async function collectionPage(
+  s: HttpServices,
+  c: Context,
+  extras: ViewerExtras,
+): Promise<Response> {
   const pub = (c.req.param("pub") ?? "").toLowerCase();
   const now = Date.now();
   const url = new URL(c.req.raw.url);
+  // The Compare… picker submits ?base=&head= here when JavaScript is off.
+  const pickHead = url.searchParams.get("head");
+  const pickBase = url.searchParams.get("base");
+  if (pickHead && pickBase && /^[0-9a-z]{12}$/i.test(pickHead) && /^[0-9a-z]{12}$/i.test(pickBase))
+    return noStore(
+      c.redirect(
+        `/c/${pub}/r/${pickHead.toLowerCase()}/changes?base=${pickBase.toLowerCase()}`,
+        302,
+      ),
+    );
   const after = url.pathname.slice(`/c/${pub}/`.length);
   const match = /^r\/([^/]+)(?:\/(.*))?$/.exec(after);
   const rpub = match?.[1]?.toLowerCase();
@@ -952,6 +1025,9 @@ export async function collectionPage(s: HttpServices, c: Context): Promise<Respo
     return notFound(c, loaded.chrome, url.pathname, `/c/${loaded.collection.public_id}/`);
   const { ctx } = loaded;
   const { collection, revision } = ctx;
+  // "changes" names the Changes page unless the revision has a root file called "changes".
+  if (match && (match[2] === "changes" || match[2] === "changes/") && !ctx.manifest.files.changes)
+    return changesPage(s, c, ctx, extras);
   const encoded = match ? (match[2] ?? "") : after;
   const path = decodePath(encoded, revision.head_path);
   if (path === null) return notFound(c, ctx.chrome, url.pathname, `/c/${collection.public_id}/`);
@@ -1037,6 +1113,7 @@ export async function collectionPage(s: HttpServices, c: Context): Promise<Respo
         <CopyMenu ctx={ctx} path={path} />
         <MoreMenu ctx={ctx} path={path} />
         <CollectionDialogs ctx={ctx} />
+        <CompareDialog ctx={ctx} basePub={null} />
         <LegacyShareDialog pinned={ctx.pinned} />
       </Layout>,
     ),

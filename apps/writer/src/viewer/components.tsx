@@ -188,6 +188,8 @@ export function HealthPopover(props: { health: Health; now: number; host: string
           <button
             type="button"
             class="btn sm"
+            popovertarget="health-pop"
+            popovertargetaction="hide"
             data-action="retry"
             data-ids={health.failed.map((item) => item.id).join(",")}
           >

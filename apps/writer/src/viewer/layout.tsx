@@ -110,7 +110,7 @@ export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
           <span aria-hidden="true">⌫</span>
           <span>Trash</span>
         </a>
-        <button type="button" class="mi" role="menuitem" data-action="keys">
+        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
           <span aria-hidden="true">?</span>
           <span>Keyboard shortcuts</span>
           <kbd>?</kbd>
@@ -204,16 +204,16 @@ function ConfirmDialog() {
         </label>
       </div>
       <p class="alert" role="alert" data-confirm-error />
-      <div class="ft">
+      <form method="dialog" class="ft">
         <span class="grow" data-confirm-note />
-        <button type="button" class="btn" data-confirm-cancel>
+        <button class="btn" value="cancel" data-confirm-cancel>
           Cancel
         </button>
         <button type="button" class="btn" data-confirm-alt hidden />
         <button type="button" class="btn danger" data-confirm-ok>
           OK
         </button>
-      </div>
+      </form>
     </dialog>
   );
 }

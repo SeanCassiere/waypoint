@@ -1,4 +1,5 @@
 import { $, $$, storage } from "./dom.js";
+import { withTransition } from "./motion.js";
 
 const wide = () => window.matchMedia("(min-width: 1101px)").matches;
 
@@ -52,7 +53,7 @@ export function bindPanel(): void {
   for (const tab of tabs) {
     tab.addEventListener("click", (event) => {
       event.preventDefault();
-      selectTab(tab.dataset.tab ?? "files");
+      withTransition(() => selectTab(tab.dataset.tab ?? "files"));
     });
     tab.addEventListener("keydown", (event) => {
       const index = tabs.indexOf(tab);

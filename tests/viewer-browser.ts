@@ -182,6 +182,21 @@ try {
   await page.locator("#rev-menu").waitFor({ state: "visible" });
   await page.locator("#rev-menu").getByRole("link", { name: "Revision 1" }).click();
   await page.waitForURL(`**${pinned}notes/b.md`);
+  // "d" opens the Changes page against the parent; j focuses the first change; Esc goes back.
+  await page.goto(`${base}${secondPinned}`);
+  await page.locator("body").press("d");
+  await page.waitForURL(`**${secondPinned}changes`);
+  await page.getByRole("heading", { name: "Changes in #2" }).waitFor();
+  await page.locator("body").press("j");
+  assert.equal(await page.evaluate('document.activeElement?.hasAttribute("data-change")'), true);
+  await page.locator("body").press("Escape");
+  await page.waitForURL((url) => url.pathname === secondPinned);
+  // Compare… opens natively (commandfor/command) and navigates to the chosen pair.
+  await page.getByRole("button", { name: /^Revision 2/ }).click();
+  await page.getByRole("button", { name: /Compare…/ }).click();
+  await page.locator("#compare").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await page.waitForURL(/\/changes\?base=/);
   // Keyboard shortcuts dialog and the disable toggle.
   await page.locator("body").press("?");
   await page.locator("#keys").waitFor({ state: "visible" });

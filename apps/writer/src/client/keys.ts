@@ -1,5 +1,4 @@
 import { $, shellRoot, storage } from "./dom.js";
-import { openPopover } from "./menus.js";
 import { setPanel, showTab, togglePanel, panelOpen } from "./panel.js";
 
 export type Command =
@@ -137,12 +136,6 @@ export function bindKeys(): void {
         return;
       case "k":
         run("previous-change");
-        return;
-      case "r":
-        if (inShell) {
-          event.preventDefault();
-          openPopover("rev-menu");
-        }
         return;
       default:
         return;

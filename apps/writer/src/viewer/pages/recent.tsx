@@ -71,7 +71,9 @@ export function CollectionRow(props: {
       data-n={latest ? String(latest.display_number) : undefined}
     >
       <span class="t">
-        <span class="tt">{highlight(item.title, query)}</span>
+        <span class="tt" style={`view-transition-name:col-${item.public_id}`}>
+          {highlight(item.title, query)}
+        </span>
       </span>
       <span class="when">
         <Time at={item.updated_at} now={now} />

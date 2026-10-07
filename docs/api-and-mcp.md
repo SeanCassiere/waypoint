@@ -208,6 +208,8 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 | `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
 | `GET /api/collections/:id/revisions` | List revisions. Each summary includes `changes: { added, modified, removed }` against its parent (file counts; a root revision counts every file as added). With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones (without `changes`). |
 | `GET /api/revisions/:id` | Revision + full manifest |
+| `GET /api/revisions/:id/compare?base=<rev_id>` | Manifest compare against `base` (default: the parent). Returns `{ base, head, head_path_changed, counts: { added, removed, modified, unchanged }, files: [{ path, status, mime, base, head, text }] }`; files come head first, then by path. |
+| `GET /api/revisions/:id/compare/*path?base=&mode=blocks\|lines` | One file's diff. `blocks` (Markdown) splits blank-line blocks (a fence is one block; list items and table rows are separate), runs an LCS over blocks, pairs similar delete+insert runs into `replace`, and word-diffs each pair. `lines` is a unified line diff with word highlights. Returns `{ path, status, kind: "text"\|"image"\|"binary", truncated, hunks, folded_after, lines? }`; over 1 MB per side or 5,000 blocks returns `truncated: true`. Results are cached in memory (LRU of 200) by content hash. |
 | `GET /api/revisions/:id/files/*path` | Raw file content. Markdown returns its rendition; add `?source` for the original. |
 | `POST /api/resolve` `{ url }` | URL → IDs |
 

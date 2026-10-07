@@ -3,6 +3,7 @@ import { MCP_LAUNCHER_API } from "@waypoint/core";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
+import type { CompareFile, FileDiff } from "../../compare.js";
 import type { HealthItem } from "../../health.js";
 import type { HttpServices } from "../../http.js";
 import { getStatus } from "../../status-data.js";
@@ -16,6 +17,8 @@ import { formatTime } from "../timefmt.js";
 export interface ViewerExtras {
   /** Short hash of the MCP server bundle the writer serves, if built. */
   serverBundle(): Promise<string | null>;
+  /** Cached per-file diff (B1) for the Changes page. */
+  fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff>;
   /** Agents currently long-polling for a new revision (B5). */
   watchers?(): { collection_id: string; after: string; since: number; client: string | null }[];
 }
