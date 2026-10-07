@@ -21,8 +21,9 @@ const A2 = { pub: "a2a2a2a2a2a2" };
 
 describe("CPU budget worst cases", () => {
   // Thread CPU (what the Worker limit counts) for the whole shell request, response body
-  // included, with 2,000 files. Lowest mean of three batches, so one batch slowed by other work
-  // on a busy machine doesn't decide the result.
+  // included, with 2,000 files. The median of seven batches of five warmed-up requests (thread
+  // CPU ticks are about 1 ms, too coarse to time one request), so a garbage collection or a
+  // busy neighbour landing in one or two batches doesn't decide the result.
   const shapes: [string, string[]][] = [
     ["realistic", Array.from({ length: 2000 }, (_, i) => `dir${i % 40}/file-${i}.html`)],
     [
@@ -109,9 +110,12 @@ describe("CPU budget worst cases", () => {
         return (used.user + used.system) / 1000 / 5;
       };
       // oxlint-disable-next-line eslint/no-await-in-loop -- Warm-up before measuring.
-      for (let i = 0; i < 3; i++) await one();
-      const means = [await batch(), await batch(), await batch()];
-      expect(Math.min(...means)).toBeLessThan(5);
+      for (let i = 0; i < 5; i++) await one();
+      const means: number[] = [];
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Batches run one after another.
+      for (let i = 0; i < 7; i++) means.push(await batch());
+      const median = means.toSorted((a, b) => a - b)[3]!;
+      expect(median).toBeLessThan(5);
       // The file list is bounded, so the page stays small whatever the paths look like.
       expect(bytes).toBeLessThan(1_000_000);
     });
