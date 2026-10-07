@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import {
+  isPublicId,
   latestCollectionUrl,
   pinnedRevisionUrl,
   rawUrl,
@@ -1034,7 +1035,7 @@ export async function collectionPage(
   // The Compare… picker submits ?base=&head= here when JavaScript is off.
   const pickHead = url.searchParams.get("head");
   const pickBase = url.searchParams.get("base");
-  if (pickHead && pickBase && /^[0-9a-z]{12}$/i.test(pickHead) && /^[0-9a-z]{12}$/i.test(pickBase))
+  if (pickHead && pickBase && isPublicId(pub) && isPublicId(pickHead) && isPublicId(pickBase))
     return noStore(
       c.redirect(
         `/c/${pub}/r/${pickHead.toLowerCase()}/changes?base=${pickBase.toLowerCase()}`,

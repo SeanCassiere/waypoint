@@ -504,7 +504,12 @@ describe("Folio shell", () => {
     };
     expect((await getHealth(services)).state).toBe("off");
     const now = Date.now();
-    expect((await getHealth(live, now)).state).toBe("uploading");
+    const uploading = await getHealth(live, now);
+    expect(uploading.state).toBe("uploading");
+    const oldest = await queue.get<{ at: number }>(
+      "SELECT MIN(created_at) AS at FROM pending_revisions",
+    );
+    expect(uploading.oldestPendingAt).toBe(oldest?.at);
     syncLoop.lastAttemptFailed = true;
     syncLoop.lastOkAt = now - 3 * 60_000;
     expect((await getHealth(live, now)).state).toBe("offline");
@@ -553,9 +558,17 @@ describe("Folio shell", () => {
       "/c/doesnotexist/",
     ]) {
       const response = await app.request(path);
-      expect(response.headers.get("content-type"), path).toMatch(/^text\/html/);
-      expect(response.headers.get("content-security-policy"), path).toBe("frame-ancestors 'self'");
-      expect(response.headers.get("x-frame-options"), path).toBe("SAMEORIGIN");
+      expect({
+        path,
+        type: response.headers.get("content-type")?.split(";")[0],
+        csp: response.headers.get("content-security-policy"),
+        frame: response.headers.get("x-frame-options"),
+      }).toEqual({
+        path,
+        type: "text/html",
+        csp: "frame-ancestors 'self'",
+        frame: "SAMEORIGIN",
+      });
     }
     const mcp = await app.request("/mcp", { headers: { accept: "text/html" } });
     expect(mcp.headers.get("x-frame-options")).toBe("SAMEORIGIN");

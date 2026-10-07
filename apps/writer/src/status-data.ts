@@ -75,7 +75,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
       unpushed: (await s.queue.all("SELECT revision_id FROM unpushed")).length,
     },
     oldest_pending_age_ms: pending.length
-      ? Date.now() - Math.min(...pending.map((row) => row.created_at))
+      ? Date.now() - pending.reduce((oldest, row) => Math.min(oldest, row.created_at), Infinity)
       : null,
     pending_items: pending.map((row) => ({
       id: row.id,

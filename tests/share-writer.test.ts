@@ -730,4 +730,29 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(after[0]).toBeLessThan(30);
     expect(after[1]).toBeLessThan(25);
   });
+  it("keeps Recent and /links query counts constant as shared collections grow", async () => {
+    const shared = async (title: string) => {
+      const response = await app.request(
+        "/api/collections",
+        json({ title, files: [{ path: "index.txt", hash }] }),
+      );
+      const id = String((await jsonBody(response)).collection_id);
+      await worker.drain();
+      for (const label of ["a", "b"])
+        expect(
+          (await app.request(`/api/collections/${id}/share-links`, json({ label }))).status,
+        ).toBe(201);
+    };
+    await create({ label: "first" });
+    await shared("Second");
+    const before = [await queryCount("/"), await queryCount("/links")];
+    for (let i = 0; i < 8; i++) await shared(`Shared ${i}`);
+    const after = [await queryCount("/"), await queryCount("/links")];
+    expect(after).toEqual(before);
+    expect(after[0]).toBeLessThan(25);
+    expect(after[1]).toBeLessThan(25);
+    const links = await (await app.request("/links")).text();
+    expect(links).toContain("Shared 7");
+    expect(links).toContain("Second");
+  });
 });

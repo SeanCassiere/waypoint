@@ -162,7 +162,11 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
     aria,
     failed,
     pending,
-    oldestPendingAt: pending.length ? Math.min(...pending.map((row) => row.created_at)) : null,
+    // A loop, not Math.min(...spread): the queue can hold more rows than the argument limit.
+    oldestPendingAt: pending.reduce<number | null>(
+      (oldest, row) => (oldest === null || row.created_at < oldest ? row.created_at : oldest),
+      null,
+    ),
     lastPushAt: s.syncLoop?.lastPushAt ?? null,
     lastPullAt: s.ingest.sync.lastPullAt,
     cloudLastOkAt: lastOk,

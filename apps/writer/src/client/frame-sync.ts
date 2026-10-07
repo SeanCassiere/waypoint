@@ -100,21 +100,21 @@ export function bindFrameSync(): void {
     }
   });
   // Renditions also report their location by postMessage (needed for the public reader's
-  // sandboxed frames; redundant but harmless here). Only the frame's own window is trusted.
+  // sandboxed frames; redundant but harmless here). Only the frame's own window is trusted,
+  // and only while it shows a same-origin document: a page the frame navigated to elsewhere
+  // could post any path (D23).
   window.addEventListener("message", (event) => {
     if (!frame || event.source !== frame.contentWindow) return;
-    const href = frameLocationHref(event.data);
-    if (!href) return;
-    // Renditions report path + fragment only. On the writer the frame is same-origin, so its
-    // live location (with the query string) is authoritative; otherwise resolve the report
-    // against the frame's own URL.
-    let live: string | null = null;
+    if (!frameLocationHref(event.data)) return;
+    // On the writer the frame is same-origin, so its live location (with the query string) is
+    // authoritative. If it can't be read, the frame has left the origin; ignore the report.
+    let live: string | undefined;
     try {
-      live = frame.contentWindow?.location.href ?? null;
+      live = frame.contentWindow?.location.href;
     } catch {
-      live = null;
+      return;
     }
-    fromUrl(live ?? new URL(href, frame.src).href);
+    if (live && new URL(live).origin === location.origin) fromUrl(live);
   });
   window.addEventListener("popstate", () => {
     const prefix = shellPath(collection, revision, "", pinned);

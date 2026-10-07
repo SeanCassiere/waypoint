@@ -265,5 +265,15 @@ describe("compare API and Changes page", () => {
     );
     expect(picked.status).toBe(302);
     expect(picked.headers.get("location")).toMatch(/\/changes\?base=/);
+    // The collection segment is validated too before it goes into the redirect.
+    const query = `?base=${first1.split("/")[4] ?? ""}&head=${pinned.split("/")[4] ?? ""}`;
+    for (const pub of ["%2F%2Fevil.example", "not_a_pub!!", "%5Cevil"]) {
+      const bad = await app.request(`/c/${pub}/${query}`);
+      expect({ pub, status: bad.status, location: bad.headers.get("location") }).toEqual({
+        pub,
+        status: 404,
+        location: null,
+      });
+    }
   });
 });

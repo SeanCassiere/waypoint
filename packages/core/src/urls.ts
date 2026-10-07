@@ -13,6 +13,10 @@ export type WriterUrl =
     }
   | { kind: "raw"; revisionPublicId: PublicId; path: string };
 const publicIdPattern = /^[0-9a-hjkmnp-tv-z]{12}$/i;
+/** Whether `id` has the shape of a collection or revision public ID (case-insensitive). */
+export function isPublicId(id: string): boolean {
+  return publicIdPattern.test(id);
+}
 function publicId(id: string): PublicId {
   if (!publicIdPattern.test(id)) throw new WaypointError("validation_failed", "Invalid public ID");
   return brand<PublicId>(id.toLowerCase());
