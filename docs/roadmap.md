@@ -65,16 +65,15 @@ Also in phase 0:
 - Mermaid diagrams in renditions, as a versioned script under `/assets/`
 - Multi-writer-safe purge: purge markers that survive sync, plus a grace period before blob GC. Required before a second writer goes live.
 - A CLI, a thin wrapper over the HTTP API, if it turns out to be useful
-- Grants beyond share links: passwords, expiry UI, audiences
+- Grants beyond share links: passwords and audiences
 - Comments
 - Single-file redaction
 - Search
 - Pruning the local blob cache
-- MCP tools for share links and collection edits
+- Owner-facing collection edits beyond the current viewer
 - Multiple writers in practice: a second writer machine, or Kubernetes
 
 ## Open questions
 
-- **Reader blob access:** an R2 binding, which can't be scoped and is guarded only by code and lint, or the S3 API with a read-only token, which is structurally read-only but gives up the binding's benefits? This must be decided before phase 2.
 - **Renderer details:** which markdown library and highlighter, and the default styling for rendered markdown.
 - **Viewer shell/iframe URL syncing:** confirm that same-origin iframe navigation tracking works smoothly with the browser's back and forward buttons.

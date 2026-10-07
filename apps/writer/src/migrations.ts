@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS renditions (source_hash TEXT NOT NULL REFERENCES blob
     id: "0002_renditions_output_index",
     sql: "CREATE INDEX IF NOT EXISTS renditions_by_output ON renditions (output_hash);",
   },
+  {
+    id: "0003_share_links",
+    sql: `CREATE TABLE IF NOT EXISTS share_links (id TEXT PRIMARY KEY CHECK (id GLOB 'shl_*' AND length(id) = 30), token_hash TEXT NOT NULL UNIQUE, collection_id TEXT NOT NULL REFERENCES collections(id), revision_id TEXT REFERENCES revisions(id), label TEXT, expires_at INTEGER, revoked_at INTEGER, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS share_links_by_collection ON share_links (collection_id);
+CREATE INDEX IF NOT EXISTS share_links_by_token_hash ON share_links (token_hash);`,
+  },
 ];
 export const queueMigrations = [
   {

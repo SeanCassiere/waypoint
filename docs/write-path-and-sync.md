@@ -26,7 +26,7 @@ blobs/sha256/ab/<hex>     local blob store (also the read cache)
 
 Exactly one writer process owns a data directory. Within that process:
 - **A single committer** processes the queue, so there is no double-uploading or double-committing.
-- **Mutations are serialized per collection** with an in-process lock. This covers ingest, edits, delete and undelete, purge, queue retry and drop, and the committer's collection-commit step. Two agents calling `add_revision` with the default parent at the same moment get chained revisions instead of a fork.
+- **Mutations are serialized per collection** with an in-process lock. This covers ingest, edits, delete and undelete, share-link create and revoke, purge, queue retry and drop, and the committer's collection-commit step. Two agents calling `add_revision` with the default parent at the same moment get chained revisions instead of a fork.
   - Ingest releases the lock after the queue transaction (step 8), before it waits for the commit (step 9), so a slow commit never serializes other writes.
 - **Each database connection is serialized.** A transaction holds the connection exclusively, so statements from other requests can never interleave with, or be rolled back by, someone else's transaction.
 

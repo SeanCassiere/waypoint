@@ -104,6 +104,11 @@ try {
     if (request.url().includes("/raw/r/")) rawRequests.push(request.url());
   });
   await page.goto(`${base}${latest}`);
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.locator("[data-share-dialog]").waitFor({ state: "visible" });
+  assert.equal(await page.locator('[data-share-form] input[name="label"]').count(), 1);
+  assert.equal(await page.locator('[data-share-form] input[name="expires"]').count(), 1);
+  await page.locator("[data-share-close]").click();
   assert.notEqual(
     await page.locator("body").evaluate("element => getComputedStyle(element).fontFamily"),
     "Times New Roman",
@@ -164,7 +169,9 @@ try {
   await page.getByRole("button", { name: "Go", exact: true }).click();
   await page.waitForURL(`**${secondPinned}index.md`);
   assert.equal(new URL(page.url()).pathname, `${secondPinned}index.md`);
-  console.log("Chromium viewer navigation, history, source/hash, picker, and font: passed");
+  console.log(
+    "Chromium viewer share dialog, navigation, history, source/hash, picker, and font: passed",
+  );
 } finally {
   await browser?.close();
   child.kill("SIGTERM");

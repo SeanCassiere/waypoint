@@ -28,7 +28,10 @@ export default defineConfig({
     "typescript/require-await": "error",
   },
   overrides: [
-    { files: ["packages/core/**"], rules: { "import/no-nodejs-modules": "error" } },
+    {
+      files: ["packages/core/**", "apps/reader/**"],
+      rules: { "import/no-nodejs-modules": "error" },
+    },
     {
       files: ["tests/**"],
       rules: { "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "code"] }] },

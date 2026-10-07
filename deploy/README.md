@@ -88,6 +88,32 @@ Avoid `down --volumes`: the named volume holds the sidecar's Tailscale identity.
 The deployment never touches unrelated containers, networks, images, the host
 Tailscale daemon, or the host's Serve configuration. It needs no reboot.
 
+## Public reader Workers
+
+The reader job runs on the same self-hosted runner after the writer job succeeds. It checks out the same commit, installs the frozen lockfile, builds the reader, then deploys dev before prod. No reader credentials enter GitHub Actions secrets. The runner reads mode-600 `~/.config/waypoint/cloudflare.env` for `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `reader-dev.env` or `reader-prod.env` for the seven reader values listed in [provisioning](../docs/provisioning.md#part-2-cloud-reader). The deploy script writes them to a mode-600 temporary JSON file for `wrangler secret bulk`, then deletes it immediately after upload.
+
+Before the first reader deploy, provision those files and add `WAYPOINT_PUBLIC_BASE_URL=https://waypoint-dev.pingstash.com` to the writer's `dev.env` and `WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com` to `prod.env`. The writer must be restarted through the normal deploy for the setting to take effect. The custom domains are attached by Wrangler; do not add DNS records by hand.
+
+Manual deploy from the checked out repository on agent-1:
+
+```bash
+pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
+pnpm --filter @waypoint/reader build
+bash deploy/deploy-reader.sh dev
+bash deploy/deploy-reader.sh prod
+```
+
+The script records the current Worker version, uploads secrets, deploys, then retries `/healthz`, `/healthz/deep`, an unknown share URL, and `/robots.txt` for up to 120 seconds by default. On smoke failure it calls `wrangler rollback` with the recorded version when one exists and exits nonzero. For a manual rollback, inspect versions and select the prior known-good version:
+
+```bash
+cd apps/reader
+./node_modules/.bin/wrangler deployments list --env prod
+./node_modules/.bin/wrangler rollback <version-id> --env prod --yes
+./node_modules/.bin/wrangler tail --env prod
+```
+
+Use `dev` in place of `prod` for the dev Worker. Load `cloudflare.env` in the shell before manual `wrangler` commands, without echoing it. `DRY_RUN=1 bash deploy/deploy-reader.sh dev` checks the script's local stages without reading secrets or calling Wrangler.
+
 ## Reinstalling the existing runner
 
 These are recovery steps for the already installed runner, not part of a
@@ -165,3 +191,5 @@ systemctl --user status waypoint-gh-runner.service
 
 `Linger=yes` is already configured. If it was removed, run
 `loginctl enable-linger "$USER"` as `agent-1` before starting the unit.
+
+The smoke window defaults to 120 seconds; set `SMOKE_TIMEOUT_SECONDS` for slow first-time custom-domain DNS and certificate provisioning. The smoke includes `/healthz/deep`. A first deployment with no previous version cannot roll back. Worker secrets are not versioned: after a rollback caused by a bad secret, correct and re-upload that secret.

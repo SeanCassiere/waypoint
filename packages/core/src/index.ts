@@ -5,4 +5,5 @@ export * from "./ids.js";
 export * from "./manifest.js";
 export * from "./mime.js";
 export * from "./paths.js";
+export * from "./share.js";
 export * from "./urls.js";

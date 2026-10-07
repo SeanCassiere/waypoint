@@ -22,6 +22,20 @@ const snapshotSchema = z.object({
   updated_at: z.number().optional(),
   collection: collectionSchema,
   tombstone: tombstoneSchema.nullable(),
+  share_links: z
+    .array(
+      z.object({
+        id: z.string(),
+        token_hash: z.string(),
+        collection_id: z.string(),
+        revision_id: z.string().nullable(),
+        label: z.string().nullable(),
+        expires_at: z.number().nullable(),
+        revoked_at: z.number().nullable(),
+        created_at: z.number(),
+      }),
+    )
+    .optional(),
 });
 const revisionSchema = z.object({
   id: z.string(),
@@ -73,6 +87,12 @@ async function validSnapshot(bucket: Bucket, key: string): Promise<Snapshot> {
     throw new Error(`Invalid tombstone in ${key}`);
   if (key !== `collections/${value.collection.id}.json`)
     throw new Error(`Collection key mismatch: ${key}`);
+  for (const link of value.share_links ?? []) {
+    parseId(link.id, "shl");
+    if (link.collection_id !== value.collection.id || !isContentHash(link.token_hash))
+      throw new Error(`Invalid share link in ${key}`);
+    if (link.revision_id) parseId(link.revision_id, "rev");
+  }
   return value;
 }
 async function validManifest(bucket: Bucket, key: string): Promise<DrManifest> {
@@ -171,6 +191,7 @@ export async function restore(
   )
     throw new Error("Restore requires an empty cloud DB");
   const collectionIds = new Set<string>();
+  const shareLinks: Snapshot["share_links"] = [];
   let collections = 0;
   let batch: Snapshot[] = [];
   const flushSnapshots = async () => {
@@ -185,6 +206,7 @@ export async function restore(
     for (const key of page) {
       const row = await validSnapshot(bucket, key);
       collectionIds.add(row.collection.id);
+      shareLinks.push(...(row.share_links ?? []));
       batch.push(row);
       if (batch.length >= 100) await flushSnapshots();
     }
@@ -233,6 +255,36 @@ export async function restore(
     unresolved = next;
   }
   await flushManifests();
+  await waypoint.transaction(async (tx) => {
+    for (const link of shareLinks) {
+      if (
+        link.revision_id &&
+        !(await tx.get("SELECT 1 FROM revisions WHERE id=? AND collection_id=?", [
+          link.revision_id,
+          link.collection_id,
+        ]))
+      )
+        continue;
+      await tx.run(
+        "INSERT OR IGNORE INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+        [
+          link.id,
+          link.token_hash,
+          link.collection_id,
+          link.revision_id,
+          link.label,
+          link.expires_at,
+          link.revoked_at,
+          link.created_at,
+        ],
+      );
+      if (mode === "merge" && link.revoked_at !== null)
+        await tx.run("UPDATE share_links SET revoked_at=COALESCE(revoked_at,?) WHERE id=?", [
+          link.revoked_at,
+          link.id,
+        ]);
+    }
+  });
   await sync.push();
   return { collections, revisions, ignored };
 }

@@ -27,6 +27,7 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 - [x] **(P2)** Deploy token `waypoint-reader-deploy` (custom token; permissions in [provisioning.md](provisioning.md#23-cloudflare-deploy-api-token)), scoped to this account and the `pingstash.com` zone only. Verified with a throwaway Worker on a custom domain, which was then deleted.
 - [x] **(P2)** Workers Analytics Engine enabled. Account is on the Workers **Free** plan.
 - [x] **(P2)** `waypoint.pingstash.com`, `waypoint-dev.pingstash.com` and `*.pingstash.com` have no existing DNS records, and no zone rules match them.
+- [x] **(P2)** Reader Worker source, Wrangler configuration for both environments, rate-limit and Analytics Engine bindings, and the deploy pipeline are implemented and pass a local Wrangler dry run. Deployment is still pending.
 - [ ] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`), with `workers_dev: false`. Each has:
   - secrets from `~/.config/waypoint/reader-<env>.env`: the Turso read-only token and R2 read-only keys. Blobs are read over the S3 API, **not** an R2 binding (decision D38).
   - an Analytics Engine binding `ACCESS_LOG`
@@ -53,6 +54,7 @@ The configuration lives in an env file on the writer machine, never committed. O
 WAYPOINT_ENV=prod                         # dev | prod
 WAYPOINT_DATA_DIR=~/.local/share/waypoint/prod
 WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net
+WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com  # optional; enables share-link API
 WAYPOINT_PORT=7410
 WAYPOINT_QUEUE_GIVE_UP_HOURS=72
 WAYPOINT_MAX_BLOB_MB=50
