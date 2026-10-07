@@ -26,7 +26,8 @@ Development: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and 
 | Doc | What it covers |
 |---|---|
 | [Glossary](docs/glossary.md) | What a collection, revision, blob, writer, etc. are. Read this first. |
-| [Overview](docs/overview.md) | Goals, non-goals, trust model, core principles |
+| [Overview](docs/overview.md) | Goals, non-goals, core principles |
+| [Trust model](docs/trust-model.md) | Who can do what: zones, credentials, share links, untrusted content, deploy pipeline, accepted risks |
 | [Architecture](docs/architecture.md) | Components, runtimes, how data flows |
 | [Data model](docs/data-model.md) | Schema, IDs, invariants, migrations |
 | [Write path & sync](docs/write-path-and-sync.md) | Ingest, local queue, R2 upload, Turso Sync, retries, restore |
