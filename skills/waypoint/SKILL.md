@@ -23,14 +23,14 @@ Use the `waypoint` MCP server's tools. If they aren't available, tell the user t
    - A directory of run output: `source_dir: { dir: "/abs/path/run-output" }`. `.git`, `node_modules`, and dotfiles are excluded by default.
    - Paths must be **absolute**. Small generated text can be passed inline with `content` instead of `source_path`.
    - Set `head_path` when it isn't obvious. Otherwise Waypoint picks `index.html`, then `index.md`, then `README.md`, then the only file.
-2. **Updating it:** `add_revision` with the `collection_id`. It **merges** by default: send only the changed files, and list deleted paths in `remove`. Use `mode: "replace"` only when the file set should be exactly what you send.
+2. **Updating it:** `add_revision` with the `collection_id`. It **merges** by default: send only the changed files, and list deleted paths in `remove`. Use `mode: "replace"` only when the file set should be exactly what you send. The head document carries over from the previous revision, so pass `head_path` only to change it.
 3. Write a short `message` on each revision describing what changed, like a commit message.
 4. Relative links between files in the same collection work, for example `[details](notes/details.md)` and `![chart](img/chart.png)`.
 
 ## What to tell the user
 
 - Give them **`latest_url`**, which always shows the newest revision. Give `url` (pinned to this revision) only when they need a fixed snapshot.
-- `sync_state` of `pending` or `committed` is normal; the content is already viewable. It becomes `synced` once it reaches the cloud. `failed` means the cloud upload gave up; mention it and suggest checking `<writer>/status`.
+- `sync_state` of `pending` or `committed` is normal; the content is already viewable. It becomes `synced` once it reaches the cloud. `failed` means the cloud upload gave up; mention it and suggest checking `<writer>/status`. To re-check sync state later, call `list_revisions`.
 - If `waypoint_status` reports `mcp.update_available`, tell the user that restarting the agent session picks up the newer Waypoint MCP version.
 
 ## Rules
