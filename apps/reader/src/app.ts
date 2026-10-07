@@ -5,9 +5,11 @@ import {
   parseShareUrl,
   shareShellUrl,
   validatePath,
-  encodePath,
 } from "@waypoint/core";
+import { publicShellCss, publicShellScript, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
+
+import { deniedPage, rootPage, staticCss } from "./pages.js";
 
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;
@@ -52,7 +54,7 @@ type Link = {
   pinned_created_at: number | null;
 };
 type Revision = { id: string; public_id: string; head_path: string; created_at: number };
-type File = { path: string; blob_hash: string; mime: string };
+type File = { path: string; blob_hash: string; mime: string; size?: number | null };
 type Rendition = { output_hash: string; output_mime: string; renderer_version: number };
 const standard = {
   "X-Robots-Tag": "noindex, nofollow",
@@ -61,37 +63,45 @@ const standard = {
   "Cache-Control": "private",
 };
 const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms";
-const page404 = "<!doctype html><title>Not found</title><h1>Not found</h1>";
-const denied = (status = 404): Response =>
-  new Response(page404, {
-    status,
-    headers: { ...standard, "Content-Type": "text/html; charset=utf-8" },
-  });
-const entities: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-const escape = (value: string): string => value.replace(/[&<>"']/g, (char) => entities[char]!);
-const css =
-  "body{margin:0;font:16px system-ui;color:#1b222b;background:#fff}header{padding:1rem;border-bottom:1px solid #aaa}main{display:grid;grid-template-columns:minmax(12rem,20rem) 1fr;height:calc(100vh - 6rem)}nav{padding:1rem;overflow:auto;border-right:1px solid #aaa}nav a{display:block;padding:.4rem;color:inherit;word-break:break-all}nav a[aria-current]{font-weight:bold;background:#ddd}iframe{width:100%;height:100%;border:0}small{color:#666}@media(max-width:650px){main{grid-template-columns:1fr;grid-template-rows:12rem 1fr}nav{border-right:0;border-bottom:1px solid #aaa}}@media(prefers-color-scheme:dark){body{color:#eee;background:#141820}nav a[aria-current]{background:#38404a}small{color:#aaa}}";
-const cssHash = crypto.subtle
-  .digest("SHA-256", new TextEncoder().encode(css))
-  .then((digest) => btoa(String.fromCharCode(...new Uint8Array(digest))));
-export function renderFileLinks(
-  files: ReadonlyArray<{ path: string }>,
-  prefix: string,
-  current: string,
-): string {
-  return files
-    .map(
-      (item) =>
-        `<a href="${prefix}${item.path.split("/").map(encodeURIComponent).join("/")}"${item.path === current ? ' aria-current="page"' : ""}>${escape(item.path)}</a>`,
-    )
-    .join("");
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
 }
+type Policies = { shell: string; static: string };
+let policies: Promise<Policies> | undefined;
+/**
+ * CSPs hash the exact inline <style> and <script> bodies. Computed on first use rather than at
+ * module load, because Workers restrict some work in global scope.
+ */
+function csp(): Promise<Policies> {
+  policies ??= Promise.all([sha256(publicShellCss), sha256(publicShellScript), sha256(staticCss)])
+    .then(([shellStyle, shellScript, staticStyle]) => ({
+      shell: `default-src 'none'; style-src ${shellStyle}; script-src ${shellScript}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      static: `default-src 'none'; style-src ${staticStyle}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    }))
+    .catch((error: unknown) => {
+      policies = undefined;
+      throw error;
+    });
+  return policies;
+}
+const staticHeaders = (policy: string, cache: string): Record<string, string> => ({
+  "X-Robots-Tag": standard["X-Robots-Tag"],
+  "Referrer-Policy": standard["Referrer-Policy"],
+  "X-Content-Type-Options": standard["X-Content-Type-Options"],
+  "Content-Type": "text/html; charset=utf-8",
+  "Content-Security-Policy": policy,
+  "Cache-Control": cache,
+});
+/** The one denial response: same status, body and headers for every reason (spec §9.2). */
+const denied = async (): Promise<Response> =>
+  new Response(deniedPage, {
+    status: 404,
+    headers: staticHeaders((await csp()).static, "no-store"),
+  });
+/** Content the sandboxed iframe can show; anything else gets the download card. */
+const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
+const encodeSegments = (path: string): string => path.split("/").map(encodeURIComponent).join("/");
 const linkSql =
   "SELECT s.id,s.collection_id,s.revision_id,s.expires_at,s.revoked_at,c.public_id,c.title,t.deleted_at,pr.public_id AS pinned_public_id,pr.head_path AS pinned_head_path,pr.created_at AS pinned_created_at FROM share_links s JOIN collections c ON c.id=s.collection_id LEFT JOIN collection_tombstones t ON t.collection_id=c.id LEFT JOIN revisions pr ON pr.id=s.revision_id AND pr.collection_id=s.collection_id WHERE ";
 function decodeRawPath(encoded: string): string {
@@ -222,6 +232,14 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" },
       });
     }
+  });
+  // The bare root (spec §9.2): a fixed page that confirms nothing, so it is a 200 that uptime
+  // checks can probe. Hono answers HEAD from this GET handler with the same headers.
+  app.get("/", async (c) => {
+    if (c.req.path !== "/") return denied();
+    return new Response(rootPage, {
+      headers: staticHeaders((await csp()).static, "public, max-age=3600"),
+    });
   });
   app.get(
     "/robots.txt",
@@ -358,7 +376,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     }
     const file = (
       await db.all<File>(
-        "SELECT path,blob_hash,mime FROM revision_files WHERE revision_id=? AND path=?",
+        "SELECT path,blob_hash,mime,size FROM revision_files WHERE revision_id=? AND path=?",
         [revision.id, path],
       )
     )[0];
@@ -380,16 +398,24 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         link.public_id,
         link.revision_id ? revision.public_id : undefined,
       );
-      const links = renderFileLinks(files, prefix, path);
       const cap = await rawCap(env.RAW_CAP_KEY, link.id, revision.public_id);
-      const frame = `${base}/x/${link.id}.${cap}/r/${revision.public_id}/${encodePath(path)}`;
-      const csp = `default-src 'none'; style-src 'sha256-${await cssHash}'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
-      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(link.title)}</title><style>${css}</style></head><body><header><strong>${escape(link.title)}</strong>${link.revision_id ? `<br><small>Snapshot from ${escape(new Date(revision.created_at).toLocaleDateString("en-CA"))}</small>` : ""}</header><main><nav aria-label="Files">${links}</nav><iframe title="${escape(path)}" src="${escape(frame)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></main></body></html>`;
+      const html = renderPublicShell({
+        title: link.title,
+        files,
+        head: revision.head_path,
+        current: path,
+        fileHref: (item) => prefix + encodeSegments(item),
+        frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
+        updatedAt: link.revision_id ? null : revision.created_at,
+        snapshotAt: link.revision_id ? revision.created_at : null,
+        download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
+      });
+      const policy = (await csp()).shell;
       response = new Response(html, {
         headers: {
           ...standard,
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": csp,
+          "Content-Security-Policy": policy,
           "X-Frame-Options": "DENY",
         },
       });
