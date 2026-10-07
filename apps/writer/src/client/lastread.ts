@@ -1,5 +1,5 @@
 import { shellPath } from "../viewer-paths.js";
-import { clockOf, dayLabel, formatTime } from "../viewer/timefmt.js";
+import { dayLabel, sinceText } from "../viewer/timefmt.js";
 import { $, $$, el, shellRoot, storage } from "./dom.js";
 import { refreshStatusLine } from "./status-line.js";
 
@@ -40,6 +40,7 @@ export function bindRecentMarks(): void {
   const lastVisit = Number(store?.getItem("wp:lastVisit") ?? Number.NaN);
   const known = Number.isFinite(lastVisit) && lastVisit > 0;
   const items = $$(".item[data-updated]", HTMLAnchorElement, recent);
+  const since = known ? sinceText(lastVisit, now, false) : "";
   for (const item of items) {
     const mark = item.dataset.pub ? readMark(item.dataset.pub) : null;
     const n = Number(item.dataset.n);
@@ -59,9 +60,7 @@ export function bindRecentMarks(): void {
       const isNew = known && updated > lastVisit;
       if (isNew) fresh++;
       item.classList.toggle("new", isNew);
-      const label = isNew
-        ? `New since ${formatTime(lastVisit, "clock", now, false)}`
-        : dayLabel(updated, now, false);
+      const label = isNew ? `New since ${since}` : dayLabel(updated, now, false);
       if (label !== current) {
         groups.append(el("div", { class: isNew ? "day since" : "day", text: label }));
         current = label;
@@ -72,8 +71,8 @@ export function bindRecentMarks(): void {
   const lede = $("[data-lede]", recent);
   if (lede && known)
     lede.textContent = fresh
-      ? `${fresh} ${fresh === 1 ? "collection" : "collections"} changed since you were last here at ${clockOf(lastVisit, false)}.`
-      : `Nothing new since ${formatTime(lastVisit, "day", now, false)}.`;
+      ? `${fresh} ${fresh === 1 ? "collection" : "collections"} changed since you were last here${/^\d\d:/.test(since) ? " at" : ","} ${since}.`
+      : `Nothing new since ${since}.`;
   window.addEventListener("pagehide", () => store?.setItem("wp:lastVisit", String(Date.now())));
 }
 

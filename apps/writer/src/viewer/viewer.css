@@ -864,6 +864,15 @@ a.chip.public:hover {
   font-weight: 500;
   color: var(--muted);
 }
+.revbtn.static {
+  cursor: default;
+}
+.revbtn .caret {
+  display: inline-block;
+}
+body:has(#rev-menu:popover-open) .revbtn .caret {
+  rotate: 180deg;
+}
 .revbtn .l.pending {
   color: var(--pending);
 }
@@ -2714,6 +2723,10 @@ h3.sec .n {
   .r .aside {
     grid-row: auto;
     grid-column: 1;
+  }
+  /* Actions follow the details they act on (Revoke… below the link's facts). */
+  .r .acts {
+    order: 99;
   }
   .imgpair {
     grid-template-columns: 1fr;

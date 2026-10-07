@@ -27,7 +27,7 @@ import {
   type TimelineRow,
 } from "../components.js";
 import { bytes, ext, projectAndTags } from "../format.js";
-import { Layout, NotFoundBody, type Chrome } from "../layout.js";
+import { HomeBar, Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
 import { changesPage, CompareDialog } from "./changes.js";
 import { galleryPage } from "./gallery.js";
@@ -1000,19 +1000,14 @@ export function notFound(
 ) {
   return noStore(
     c.html(
-      <Layout
-        title="Not found"
-        chrome={chrome}
-        bar={<HomeBarLite chrome={chrome} />}
-        page="not-found"
-      >
+      <Layout title="Not found" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="not-found">
         <NotFoundBody path={path} latestHref={latestHref} message={message} />
       </Layout>,
       404,
     ),
   );
 }
-function HomeBarLite(props: { chrome: Chrome }) {
+export function HomeBarLite(props: { chrome: Chrome }) {
   return (
     <header class="bar">
       <a class="logo" href="/" aria-label="Waypoint, Recent">
@@ -1025,12 +1020,102 @@ function HomeBarLite(props: { chrome: Chrome }) {
   );
 }
 
-export function DeletedPage(props: { chrome: Chrome; collection: CollectionRow }) {
+/** The In Trash page keeps the collection bar (spec §5.3, deleted.html), minus Copy and Share. */
+function TrashBar(props: { chrome: Chrome; collection: CollectionRow; n: number | null }) {
+  const { collection } = props;
+  let metadata: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(collection.metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      metadata = Object.fromEntries(Object.entries(parsed));
+  } catch {
+    metadata = {};
+  }
+  const { project } = projectAndTags(metadata);
+  return (
+    <header class="bar cbar">
+      <a class="iconbtn back" href="/" aria-label="Back to Recent">
+        ‹
+      </a>
+      <a class="logo" href="/" aria-label="Waypoint, Recent">
+        <LogoMark />
+      </a>
+      <nav class="crumbs" aria-label="Breadcrumb">
+        {project ? (
+          <>
+            <a
+              class="hide-sm"
+              href={`/?${new URLSearchParams({ q: `project:${project}` }).toString()}`}
+              title={project}
+            >
+              {project}
+            </a>
+            <span class="sep hide-sm" aria-hidden="true">
+              /
+            </span>
+          </>
+        ) : null}
+        <h1 data-title-text style={`view-transition-name:col-${collection.public_id}`}>
+          {collection.title}
+        </h1>
+      </nav>
+      {props.n !== null ? (
+        <span class="revbtn static">
+          #{props.n}
+          <span class="l">in Trash</span>
+        </span>
+      ) : null}
+      <span class="grow" />
+      <button
+        type="button"
+        class="iconbtn"
+        popovertarget="more-menu"
+        aria-haspopup="menu"
+        aria-label="More actions"
+        title="More actions"
+      >
+        ⋯
+      </button>
+      <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="restore"
+          data-id={collection.id}
+          data-title={collection.title}
+          data-then="reload"
+        >
+          <span aria-hidden="true">↺</span>
+          <span>Restore…</span>
+        </button>
+        <a class="mi" role="menuitem" href="/trash">
+          <span aria-hidden="true">⌫</span>
+          <span>Open Trash</span>
+        </a>
+        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
+          <span aria-hidden="true">?</span>
+          <span>Keyboard shortcuts</span>
+          <kbd>?</kbd>
+        </button>
+      </div>
+      <HealthPill health={props.chrome.health} />
+    </header>
+  );
+}
+
+export function DeletedPage(props: {
+  chrome: Chrome;
+  collection: CollectionRow;
+  n?: number | null;
+}) {
   return (
     <Layout
       title={`${props.collection.title} (in Trash)`}
       chrome={props.chrome}
-      bar={<HomeBarLite chrome={props.chrome} />}
+      bar={<TrashBar chrome={props.chrome} collection={props.collection} n={props.n ?? null} />}
       page="deleted"
     >
       <main class="wrap narrow" id="main">
@@ -1087,10 +1172,20 @@ export async function collectionPage(
   const rpub = match?.[1]?.toLowerCase();
   const loaded = await loadCollection(s, c, { pub, rpub, now });
   if (loaded.kind === "missing") return notFound(c, loaded.chrome, url.pathname);
-  if (loaded.kind === "deleted")
+  if (loaded.kind === "deleted") {
+    const rows = await s.reads.revisions(loaded.collection.id);
+    const last = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
     return noStore(
-      c.html(<DeletedPage chrome={loaded.chrome} collection={loaded.collection} />, 410),
+      c.html(
+        <DeletedPage
+          chrome={loaded.chrome}
+          collection={loaded.collection}
+          n={last?.display_number ?? null}
+        />,
+        410,
+      ),
     );
+  }
   if (loaded.kind === "no-revision")
     return notFound(c, loaded.chrome, url.pathname, `/c/${loaded.collection.public_id}/`);
   const { ctx } = loaded;

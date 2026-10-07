@@ -119,3 +119,16 @@ export function dayLabel(time: number, now: number, utc: boolean): string {
 export function clockOf(time: number, utc: boolean): string {
   return clock(parts(time, utc));
 }
+
+/**
+ * The last-visit mark on Recent, worded the same in the lede and the "New since" divider:
+ * "21:15" today, "yesterday 23:30", "Wed 23:30" this week, otherwise "3 Oct".
+ */
+export function sinceText(time: number, now: number, utc: boolean): string {
+  const days = dayDiff(time, now, utc);
+  const p = parts(time, utc);
+  if (days <= 0) return clock(p);
+  if (days === 1) return `yesterday ${clock(p)}`;
+  if (days < 7) return `${DAYS[p.weekday] ?? ""} ${clock(p)}`;
+  return shortDate(p, parts(now, utc));
+}

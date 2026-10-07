@@ -29,7 +29,7 @@ import {
   CollectionDialogs,
   type CollectionContext,
 } from "./collection.js";
-import { previewHref, ShareDialog } from "./share.js";
+import { isLive, LinksPanel, previewHref, ShareDialog } from "./share.js";
 import type { ViewerExtras } from "./status.js";
 
 const RENDER_FIRST = 5;
@@ -602,9 +602,25 @@ export async function changesPage(
         <ShellRoot ctx={ctx} path={revision.head_path} mode="changes">
           <Panel
             ctx={ctx}
-            tab={c.req.query("panel") === "history" ? "history" : "files"}
+            tab={
+              c.req.query("panel") === "history"
+                ? "history"
+                : c.req.query("panel") === "links" && ctx.links.length
+                  ? "links"
+                  : "files"
+            }
             files={filesPanel}
             history={<HistoryPanel ctx={ctx} path="" all={c.req.query("history") === "all"} />}
+            links={
+              ctx.links.length ? (
+                <LinksPanel
+                  ctx={ctx}
+                  links={ctx.links}
+                  previewHref={previewHref(ctx, revision.head_path)}
+                />
+              ) : undefined
+            }
+            linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
             <div class="cmp" data-done={done}>

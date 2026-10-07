@@ -132,7 +132,7 @@ async function trash(): Promise<void> {
   const linkCount = Number(root.dataset.links ?? "0");
   const ok = await confirmDialog({
     title: `Move “${root.dataset.title ?? "this collection"}” to Trash?`,
-    body: `Hide this collection everywhere.${linkCount ? ` Its ${plural(linkCount, "public link")} stop working until you restore it.` : ""} You can restore it from Trash.`,
+    body: `Hide this collection everywhere.${linkCount ? ` Its ${plural(linkCount, "public link")} ${linkCount === 1 ? "stops" : "stop"} working until you restore it.` : ""} You can restore it from Trash.`,
     ok: "Move to Trash",
     okClass: "danger",
     run: async () => {

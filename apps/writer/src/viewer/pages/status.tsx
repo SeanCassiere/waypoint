@@ -288,7 +288,12 @@ export async function statusPage(
                 <div class="r" id={item.id}>
                   <span class="t">{revisionLink(item)}</span>
                   <span class="acts">
-                    <button type="button" class="btn sm ghost" data-action="drop" data-id={item.id}>
+                    <button
+                      type="button"
+                      class="btn sm danger"
+                      data-action="drop"
+                      data-id={item.id}
+                    >
                       Drop…
                     </button>
                   </span>
