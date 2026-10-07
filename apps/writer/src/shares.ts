@@ -185,6 +185,37 @@ export async function linkPage(
     next: remaining && last ? encodeLinkCursor(last) : null,
   };
 }
+/** GET /api/share-links: default and maximum page sizes. */
+export const API_LINKS_DEFAULT = 50;
+export const API_LINKS_MAX = 200;
+/**
+ * One page of links for the API, newest first, optionally in one filter: two queries plus
+ * shareViews' five, whatever the number of links. An unreadable cursor is a validation error.
+ */
+export async function listLinks(
+  s: HttpServices,
+  options: { filter?: LinkFilter | undefined; cursor?: string | undefined; limit: number },
+  now = Date.now(),
+): Promise<{ views: ShareView[]; next: string | null }> {
+  const after = options.cursor === undefined ? undefined : decodeLinkCursor(options.cursor);
+  if (options.cursor !== undefined && !after)
+    throw new WaypointError("validation_failed", "Invalid cursor");
+  const where = options.filter ? filterSql(options.filter) : "1=1";
+  const args = options.filter ? filterArgs(options.filter, now) : [];
+  const keyset = after ? " AND (created_at<? OR (created_at=? AND id<?))" : "";
+  const keyArgs = after ? [after[0], after[0], after[1]] : [];
+  // One extra row says whether another page follows.
+  const rows = await s.waypoint.all<ShareRow>(
+    `SELECT ${SHARE_COLUMNS} FROM share_links WHERE ${where}${keyset} ORDER BY created_at DESC,id DESC LIMIT ?`,
+    [...args, ...keyArgs, options.limit + 1],
+  );
+  const page = rows.slice(0, options.limit);
+  const last = page.at(-1);
+  return {
+    views: await shareViews(s, page),
+    next: rows.length > options.limit && last ? encodeLinkCursor(last) : null,
+  };
+}
 export async function allLinks(s: HttpServices): Promise<ShareView[]> {
   return shareViews(
     s,

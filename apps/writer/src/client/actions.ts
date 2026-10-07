@@ -1,4 +1,5 @@
 import { shellPath } from "../viewer-paths.js";
+import { plural } from "../viewer/format.js";
 import { api, field } from "./api.js";
 import { copyText } from "./copy.js";
 import { bindForm, confirmDialog } from "./dialogs.js";
@@ -12,8 +13,6 @@ const actions = new Map<string, Action>();
 export function registerAction(name: string, action: Action): void {
   actions.set(name, action);
 }
-const plural = (count: number, one: string, many = `${one}s`) =>
-  `${count} ${count === 1 ? one : many}`;
 
 function busy(button: HTMLElement, label: string): () => void {
   const original = [...button.childNodes];

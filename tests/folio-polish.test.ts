@@ -180,7 +180,11 @@ describe("Connect an agent, gallery and watchers", () => {
     expect(page).toContain("Machines that have published");
     const codex = await app.request("/mcp?client=codex", { headers: { accept: "text/html" } });
     expect(await codex.text()).toContain("[mcp_servers.waypoint]");
-    expect((await app.request("/mcp")).headers.get("content-type")).toContain("text/markdown");
+    const markdown = await app.request("/mcp");
+    expect(markdown.headers.get("content-type")).toContain("text/markdown");
+    // The body depends on Accept, so shared caches must keep the two apart.
+    expect(html.headers.get("vary")).toMatch(/\bAccept\b/);
+    expect(markdown.headers.get("vary")).toMatch(/\bAccept\b/);
     expect(await (await app.request("/mcp.md")).text()).toContain("# Waypoint MCP");
   });
   it("renders a folder gallery with change glyphs and removed images", async () => {

@@ -1,5 +1,6 @@
 import type { RevisionChanges } from "@waypoint/core";
 
+/** "1 file", "3 files"; the one helper for counted nouns, on the server and in the browser. */
 export const plural = (count: number, one: string, many = `${one}s`): string =>
   `${count} ${count === 1 ? one : many}`;
 

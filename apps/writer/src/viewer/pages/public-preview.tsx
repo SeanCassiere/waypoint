@@ -46,9 +46,16 @@ export async function publicPreview(
     ctx.pinned,
     manifest.headPath,
   );
-  const banner = `<div role="note" data-preview-banner style="position:sticky;top:0;z-index:10;padding:.5rem 1rem;font:500 .875rem/1.4 system-ui,sans-serif;background:#fff4d6;color:#5c4300;border-bottom:1px solid #e8d49a;text-align:center">Preview: this is what the public sees through a share link. <a href="${escapeAttr(back)}" style="color:inherit">Back to the collection</a></div>`;
+  // The writer's CSP is only `frame-ancestors 'self'`, so an inline <style> is allowed here
+  // (unlike on the reader, whose shell this otherwise is).
+  const banner = `<style>${BANNER_CSS}</style><div role="note" class="wp-preview-banner" data-preview-banner>Preview: this is what the public sees through a share link. <a href="${escapeAttr(back)}">Back to the collection</a></div>`;
   return noStore(c.html(shell.replace(/<body([^>]*)>/, (m) => `${m}${banner}`)));
 }
+
+const BANNER_CSS =
+  ".wp-preview-banner{position:sticky;top:0;z-index:10;padding:.5rem 1rem;font:500 .875rem/1.4 system-ui,sans-serif;background:#fff4d6;color:#5c4300;border-bottom:1px solid #e8d49a;text-align:center}" +
+  ".wp-preview-banner a{color:inherit}" +
+  "@media (prefers-color-scheme:dark){.wp-preview-banner{background:#3a2e0e;color:#f5dc9a;border-bottom-color:#5e4a17}}";
 
 function escapeAttr(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");

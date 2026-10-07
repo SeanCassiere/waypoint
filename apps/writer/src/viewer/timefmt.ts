@@ -116,10 +116,6 @@ export function dayLabel(time: number, now: number, utc: boolean): string {
   return shortDate(p, parts(now, utc));
 }
 
-export function clockOf(time: number, utc: boolean): string {
-  return clock(parts(time, utc));
-}
-
 /**
  * The last-visit mark on Recent, worded the same in the lede and the "New since" divider:
  * "21:15" today, "yesterday 23:30", "Wed 23:30" this week, otherwise "3 Oct".

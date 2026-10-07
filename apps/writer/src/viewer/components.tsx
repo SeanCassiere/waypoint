@@ -427,12 +427,3 @@ export function Timeline(props: {
     </div>
   );
 }
-
-export function EmptyState(props: { title: string; children: Child }) {
-  return (
-    <div class="empty">
-      <b>{props.title}</b>
-      {props.children}
-    </div>
-  );
-}

@@ -1,3 +1,4 @@
+import { plural } from "../viewer/format.js";
 import { fullDate } from "../viewer/timefmt.js";
 import { registerAction } from "./actions.js";
 import { api, field } from "./api.js";
@@ -9,7 +10,6 @@ import { withTransition } from "./motion.js";
 import { toast } from "./toast.js";
 
 const DAY = 86_400_000;
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 function linkState(value: unknown): string {
   const state = field(field(value, "share_link"), "state");

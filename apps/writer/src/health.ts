@@ -4,6 +4,7 @@ import { LocalSyncClient } from "./db.js";
 import type { HttpServices } from "./http.js";
 import { sourceHost } from "./read-model.js";
 import { cloudLastOkAt } from "./status-data.js";
+import { plural } from "./viewer/format.js";
 
 /** Writer health for the pill, the popover, Needs attention and Status (spec §4.2). */
 export type HealthState = "blocked" | "failed" | "offline" | "off" | "uploading" | "synced";
@@ -41,9 +42,6 @@ export interface Health {
 }
 export const OFFLINE_AFTER_MS = 2 * 60_000;
 export const STUCK_AFTER_MS = 10 * 60_000;
-
-const plural = (count: number, one: string, many = `${one}s`) =>
-  `${count} ${count === 1 ? one : many}`;
 
 const byNewest = (a: HealthItem, b: HealthItem) => b.created_at - a.created_at;
 

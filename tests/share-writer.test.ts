@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
 import { BlobStore } from "../apps/writer/src/blob-store.js";
@@ -600,6 +601,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const active = await jsonBody(await app.request("/api/share-links?state=active"));
     expect(Array.isArray(active.share_links) && active.share_links.length).toBe(1);
     expect((await app.request("/api/share-links?state=bogus")).status).toBe(400);
+    expect(all.next_cursor).toBeNull();
     expect(
       await jsonBody(
         await app.request(`/api/collections/${collectionId}/share-links/revoke-all`, json({})),
@@ -649,6 +651,35 @@ describe("share links for the Folio UI (B3, B4)", () => {
     await app.request(`/api/share-links/${id}/revoke`, json({}));
     expect((await extend(soon + 30 * 86_400_000)).status).toBe(409);
   });
+  it("pages GET /api/share-links with limit and cursor", async () => {
+    const ids: string[] = [];
+    for (const label of ["one", "two", "three", "four", "five"])
+      ids.push(await createdId(await create({ label })));
+    await app.request(`/api/share-links/${ids[1]}/revoke`, json({}));
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+      const page = await jsonBody(await app.request(`/api/share-links?limit=2${query}`));
+      const links = z.array(z.object({ id: z.string() })).parse(page.share_links);
+      expect(links.length).toBeLessThanOrEqual(2);
+      seen.push(...links.map((link) => link.id));
+      cursor = z.string().nullable().parse(page.next_cursor);
+      pages++;
+    } while (cursor && pages < 10);
+    // Each link exactly once, across three pages.
+    expect(pages).toBe(3);
+    expect(seen.toSorted()).toEqual(ids.toSorted());
+    const active = await jsonBody(await app.request("/api/share-links?state=active&limit=3"));
+    const activeIds = z.array(z.object({ id: z.string() })).parse(active.share_links);
+    expect(activeIds).toHaveLength(3);
+    expect(activeIds.map((link) => link.id)).not.toContain(ids[1]);
+    expect(active.next_cursor).toEqual(expect.any(String));
+    for (const bad of ["limit=0", "limit=201", "limit=1.5", "limit=x", "cursor=nope"])
+      expect((await app.request(`/api/share-links?${bad}`)).status).toBe(400);
+    expect((await app.request("/api/share-links?limit=200")).status).toBe(200);
+  });
   it("won't revive a link that expires between the check and the update", async () => {
     const soon = Date.now() + 3_600_000;
     const id = await createdId(await create({ expires_at: soon }));
@@ -692,6 +723,9 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(previewHtml).toContain("Read-only · shared with you");
     expect(previewHtml).toContain("data-preview-banner");
     expect(previewHtml).toContain("Preview: this is what the public sees");
+    // The banner's own <style> has a dark variant, and the writer's CSP doesn't block it.
+    expect(previewHtml).toMatch(/<style>[^<]*\.wp-preview-banner[^<]*prefers-color-scheme:dark/);
+    expect(preview.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
     expect(previewHtml).toContain(
       'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
     );

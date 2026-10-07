@@ -42,9 +42,12 @@ import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
 import {
   allLinks,
+  API_LINKS_DEFAULT,
+  API_LINKS_MAX,
   collectionLinks,
   extendLink,
   inFilter,
+  listLinks,
   revokeAll,
   SHARE_COLUMNS,
   shareViews,
@@ -340,12 +343,15 @@ export function createApp(s: HttpServices): Hono {
     return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
   };
   app.get("/mcp.md", () => mcpMarkdown());
-  // Browsers get the Connect an agent page; agents and curl keep the markdown.
-  app.get("/mcp", async (c) =>
-    (c.req.header("accept") ?? "").includes("text/html")
-      ? mcpPage(s, c, (await serverBundle)?.hash.slice(0, 7) ?? null)
-      : mcpMarkdown(),
-  );
+  // Browsers get the Connect an agent page; agents and curl keep the markdown. The body depends
+  // on Accept, so caches must key on it.
+  app.get("/mcp", async (c) => {
+    const response = (c.req.header("accept") ?? "").includes("text/html")
+      ? await mcpPage(s, c, (await serverBundle)?.hash.slice(0, 7) ?? null)
+      : mcpMarkdown();
+    response.headers.append("Vary", "Accept");
+    return response;
+  });
   app.get("/mcp/server.mjs", async (c) => {
     const loaded = await serverBundle;
     if (!loaded) return new Response("MCP server bundle not built", { status: 404 });
@@ -838,14 +844,22 @@ export function createApp(s: HttpServices): Hono {
       throw new WaypointError("collection_not_found", "Collection not found");
     return c.json({ share_links: (await collectionLinks(s, id)).map(withoutCollection) });
   });
-  // B3: every link across collections, optionally one filter (active includes activating).
+  // B3: links across collections, newest first, a page at a time, optionally one filter
+  // (active includes activating). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
   app.get("/api/share-links", async (c) => {
     requireSharing();
     const state = c.req.query("state");
     if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
       throw new WaypointError("validation_failed", "Invalid state filter");
-    const views = await allLinks(s);
-    return c.json({ share_links: state ? views.filter((view) => inFilter(view, state)) : views });
+    const limitText = c.req.query("limit");
+    const limit = limitText === undefined ? API_LINKS_DEFAULT : Number(limitText);
+    if (!/^\d+$/u.test(limitText ?? "1") || limit < 1 || limit > API_LINKS_MAX)
+      throw new WaypointError(
+        "validation_failed",
+        `limit must be an integer from 1 to ${API_LINKS_MAX}`,
+      );
+    const page = await listLinks(s, { filter: state, cursor: c.req.query("cursor"), limit });
+    return c.json({ share_links: page.views, next_cursor: page.next });
   });
   app.get("/api/share-links/:id", async (c) => {
     requireSharing();

@@ -1785,6 +1785,33 @@ details.sees > summary h3 {
   font: 600 13px var(--mono);
   overflow-wrap: anywhere;
 }
+/* Phones: the glyph, path and "Open in #N" share the first row (a long path wraps within it,
+   so the button never wraps onto a row of its own); the chips and change summary go below. */
+@media (max-width: 760px) {
+  .fd > header {
+    row-gap: 4px;
+  }
+  .fd > header > * {
+    order: 3;
+  }
+  .fd > header > :first-child,
+  .fd > header > .p {
+    order: 0;
+  }
+  .fd > header > .p {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .fd > header > .btn {
+    order: 1;
+    flex: none;
+  }
+  .fd > header > .grow {
+    order: 2;
+    flex-basis: 100%;
+    height: 0;
+  }
+}
 .fd .note {
   padding: 12px 16px;
   font-size: 13px;
