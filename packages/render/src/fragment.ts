@@ -75,6 +75,9 @@ function transform(parent: Root | Element, state: { current: State }): void {
       continue;
     }
     cleanProperties(child.properties);
+    if (child.tagName === "input" && child.properties.type === "checkbox")
+      // Task-list boxes are read-only state; name them so they aren't unlabelled form controls.
+      child.properties.ariaLabel = child.properties.checked ? "Done" : "Not done";
     if (child.tagName === "img") {
       const alt = typeof child.properties.alt === "string" ? child.properties.alt : "";
       children.push({ type: "text", value: `[image${alt ? `: ${alt}` : ""}]` });

@@ -111,6 +111,9 @@ describe("block splitting and diffing (B1)", () => {
     expect(html).toContain("[image: x]");
     expect(renderFragment("## Heading\n")).not.toContain("id=");
     expect(renderFragment("[ok](https://example.com)")).toContain('rel="noopener noreferrer"');
+    expect(renderFragment("- [x] done\n- [ ] todo\n")).toMatch(
+      /aria-label="Done"[^>]*>.*aria-label="Not done"/s,
+    );
   });
   it("compares manifests head-first and diffs text by lines", () => {
     const compare = compareManifests(
