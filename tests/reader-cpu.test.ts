@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 import { createReaderApp, type ReaderEnv } from "../apps/reader/src/app.js";
 import { newShareToken } from "../packages/core/src/index.js";
 
+// Workers' Free-plan limit is 10 ms per request. Locally we hold a 5 ms margin; shared CI
+// runners are slower and noisier, so CI allows 8 ms, which still leaves headroom under 10 ms.
+const CPU_BUDGET_MS = process.env.CI ? 8 : 5;
+
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",
   TURSO_READONLY_TOKEN: "x",
@@ -115,7 +119,7 @@ describe("CPU budget worst cases", () => {
       // oxlint-disable-next-line eslint/no-await-in-loop -- Batches run one after another.
       for (let i = 0; i < 7; i++) means.push(await batch());
       const median = means.toSorted((a, b) => a - b)[3]!;
-      expect(median).toBeLessThan(5);
+      expect(median).toBeLessThan(CPU_BUDGET_MS);
       // The file list is bounded, so the page stays small whatever the paths look like.
       expect(bytes).toBeLessThan(1_000_000);
     });
