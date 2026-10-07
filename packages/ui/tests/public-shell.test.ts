@@ -243,6 +243,31 @@ describe("tree limits", () => {
     expect(visible.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
     expect(publicShellCss).toContain(".ptabs2 a,.tree a{unicode-bidi:plaintext}");
   });
+  it("shows bidi controls in the download card and the frame title", () => {
+    const spoof = "docs/invoice‮fdp.exe";
+    const card = markup(
+      renderPublicShell({
+        ...base,
+        files: [{ path: "index.md" }, { path: spoof }],
+        current: spoof,
+        download: { mime: "application/octet-stream", size: 10 },
+      }),
+    );
+    expect(card).toContain("<h2>docs/invoice�fdp.exe</h2>");
+    expect(card).toContain('download="invoice�fdp.exe"');
+    // The link target keeps the real name, percent-encoded.
+    expect(card).toContain(`href="${base.frameBase}docs/invoice%E2%80%AEfdp.exe"`);
+    expect(card.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[‪-‮⁦-⁩]/);
+    const frame = markup(
+      renderPublicShell({
+        ...base,
+        files: [{ path: "index.md" }, { path: spoof }],
+        current: spoof,
+      }),
+    );
+    expect(frame).toContain('title="docs/invoice�fdp.exe"');
+    expect(frame.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[‪-‮⁦-⁩]/);
+  });
 });
 describe("encodeLinkPath", () => {
   it("leaves names readable but resolves to the same path", () => {

@@ -339,11 +339,13 @@ function documentArea(options: PublicShellOptions): string {
   const src = options.frameBase + encodePathSegments(options.current);
   if (options.download) {
     const { mime, size } = options.download;
-    const name = options.current.slice(options.current.lastIndexOf("/") + 1);
-    const meta = `${size === null ? "" : `${bytes(size)} · `}${mime} · can't be previewed in the browser`;
-    return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(options.current))}</div><h2>${escapeHtml(options.current)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
+    // Bidi controls in a file name could spoof its extension ("invoice\u202Efdp.exe").
+    const shown = showBidi(options.current);
+    const name = shown.slice(shown.lastIndexOf("/") + 1);
+    const meta = `${size === null ? "" : `${bytes(size)} · `}${showBidi(mime)} · can't be previewed in the browser`;
+    return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
   }
-  return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(options.current)}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
+  return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
 }
 
 /** Renders the complete public shell document. Cost is linear in the number of files. */
