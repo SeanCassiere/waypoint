@@ -6,15 +6,11 @@ import {
   shareShellUrl,
   validatePath,
 } from "@waypoint/core";
-import {
-  encodePathSegments,
-  publicShellCss,
-  publicShellScript,
-  renderPublicShell,
-} from "@waypoint/ui";
+import { encodeLinkPath, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
-import { deniedPage, rootPage, staticCss } from "./pages.js";
+import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.js";
+import { deniedPage, rootPage } from "./pages.js";
 
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;
@@ -68,42 +64,25 @@ const standard = {
   "Cache-Control": "private",
 };
 const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms";
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
-}
-type Policies = { shell: string; static: string };
-let policies: Promise<Policies> | undefined;
 /**
- * CSPs hash the exact inline <style> and <script> bodies. Computed on first use rather than at
- * module load, because Workers restrict some work in global scope.
+ * Hash-only CSPs. The hashes are build-time constants (csp-hashes.ts, verified against the exact
+ * inline <style> and <script> bodies by tests/reader-csp-hashes.test.ts), so no response,
+ * least of all the denial, waits on crypto.
  */
-function csp(): Promise<Policies> {
-  policies ??= Promise.all([sha256(publicShellCss), sha256(publicShellScript), sha256(staticCss)])
-    .then(([shellStyle, shellScript, staticStyle]) => ({
-      shell: `default-src 'none'; style-src ${shellStyle}; script-src ${shellScript}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-      static: `default-src 'none'; style-src ${staticStyle}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-    }))
-    .catch((error: unknown) => {
-      policies = undefined;
-      throw error;
-    });
-  return policies;
-}
-const staticHeaders = (policy: string, cache: string): Record<string, string> => ({
+const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticHeaders = (cache: string): Record<string, string> => ({
   "X-Robots-Tag": standard["X-Robots-Tag"],
   "Referrer-Policy": standard["Referrer-Policy"],
   "X-Content-Type-Options": standard["X-Content-Type-Options"],
   "Content-Type": "text/html; charset=utf-8",
-  "Content-Security-Policy": policy,
+  "Content-Security-Policy": staticPolicy,
+  "Cross-Origin-Opener-Policy": "same-origin",
   "Cache-Control": cache,
 });
+const deniedHeaders = staticHeaders("no-store");
 /** The one denial response: same status, body and headers for every reason (spec §9.2). */
-const denied = async (): Promise<Response> =>
-  new Response(deniedPage, {
-    status: 404,
-    headers: staticHeaders((await csp()).static, "no-store"),
-  });
+const denied = (): Response => new Response(deniedPage, { status: 404, headers: deniedHeaders });
 /** Content the sandboxed iframe can show; anything else gets the download card. */
 const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
 const linkSql =
@@ -170,17 +149,32 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const lookupCache = new Map<string, { until: number; link: Link | null }>();
   const blockedIps = new Map<string, number>();
   const now = deps.now ?? Date.now;
-  async function deny(env: ReaderEnv, ip: string): Promise<Response> {
+  /** Counts one denial-equivalent request for this IP; false once the limiter rejects it. */
+  async function count(env: ReaderEnv, ip: string): Promise<boolean> {
     try {
       if (env.TOKEN_MISS_LIMITER && !(await env.TOKEN_MISS_LIMITER.limit({ key: ip })).success) {
         // Map insertion order provides a bounded LRU. Expired entries are removed on access.
         blockedIps.delete(ip);
         blockedIps.set(ip, now() + 60_000);
         if (blockedIps.size > 10_000) blockedIps.delete(blockedIps.keys().next().value!);
+        return false;
       }
     } catch (error) {
       logFailure("limiter", error);
     }
+    return true;
+  }
+  /** True while this IP is blocked; refreshes its LRU position, drops it once expired. */
+  function blocked(ip: string): boolean {
+    const until = blockedIps.get(ip);
+    if (until === undefined) return false;
+    blockedIps.delete(ip);
+    if (until <= now()) return false;
+    blockedIps.set(ip, until);
+    return true;
+  }
+  async function deny(env: ReaderEnv, ip: string): Promise<Response> {
+    await count(env, ip);
     return denied();
   }
   async function lookup(db: ReaderDb, kind: "token" | "id", value: string): Promise<Link | null> {
@@ -222,6 +216,10 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       new Response("ok", { headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" } }),
   );
   app.get("/healthz/deep", async (c) => {
+    // Each deep probe queries Turso and R2, so it counts toward the per-IP limiter like a
+    // denial; a blocked IP gets the uniform denial without touching either.
+    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+    if (blocked(ip) || !(await count(c.env, ip))) return denied();
     try {
       await deps.db(c.env).all("SELECT 1 FROM collections LIMIT 1");
       const result = await deps.blob(c.env).probe();
@@ -239,12 +237,10 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   });
   // The bare root (spec §9.2): a fixed page that confirms nothing, so it is a 200 that uptime
   // checks can probe. Hono answers HEAD from this GET handler with the same headers.
-  app.get("/", async (c) => {
-    if (c.req.path !== "/") return denied();
-    return new Response(rootPage, {
-      headers: staticHeaders((await csp()).static, "public, max-age=3600"),
-    });
-  });
+  const rootHeaders = staticHeaders("public, max-age=3600");
+  app.get("/", (c) =>
+    c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : denied(),
+  );
   app.get(
     "/robots.txt",
     () =>
@@ -255,15 +251,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const serve = async (c: Context<{ Bindings: ReaderEnv }>) => {
     const env = c.env;
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    const blockedUntil = blockedIps.get(ip);
-    if (blockedUntil !== undefined) {
-      if (blockedUntil > now()) {
-        blockedIps.delete(ip);
-        blockedIps.set(ip, blockedUntil);
-        return denied();
-      }
-      blockedIps.delete(ip);
-    }
+    if (blocked(ip)) return denied();
     const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf;
     const record = (link: Link, revisionId: string, path: string, status: number): void => {
       try {
@@ -402,27 +390,33 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         link.public_id,
         link.revision_id ? revision.public_id : undefined,
       );
-      const linkPrefix = new URL(prefix).pathname;
+      // Links relative to this page's own URL: smaller, and they don't repeat the share token.
+      // The page's folder depth below the shell prefix decides how many "../" to use; a page
+      // above it (no trailing slash) falls back to root-relative links.
+      const prefixPath = new URL(prefix).pathname;
+      const depth = new URL(c.req.url).pathname.split("/").length - prefixPath.split("/").length;
+      const linkPrefix = depth < 0 ? prefixPath : depth === 0 ? "./" : "../".repeat(depth);
       const cap = await rawCap(env.RAW_CAP_KEY, link.id, revision.public_id);
       const html = renderPublicShell({
         title: link.title,
         files,
         head: revision.head_path,
         current: path,
-        // Root-relative links keep a 2,000-file shell small.
-        fileHref: (item) => linkPrefix + encodePathSegments(item),
+        // Relative, minimally encoded links keep a 2,000-file shell small.
+        fileHref: (item) => linkPrefix + encodeLinkPath(item),
         frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
         updatedAt: link.revision_id ? null : revision.created_at,
         snapshotAt: link.revision_id ? revision.created_at : null,
         download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
       });
-      const policy = (await csp()).shell;
       response = new Response(html, {
         headers: {
           ...standard,
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": policy,
+          "Content-Security-Policy": shellPolicy,
           "X-Frame-Options": "DENY",
+          // Documents may open popups that escape the sandbox; sever their opener to the shell.
+          "Cross-Origin-Opener-Policy": "same-origin",
         },
       });
     } else {

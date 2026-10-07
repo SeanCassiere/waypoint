@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  encodeLinkPath,
   encodePathSegments,
+  PUBLIC_SHELL_LIST_BUDGET,
   formatShellTime,
   publicShellCss,
   publicShellScript,
@@ -95,12 +97,12 @@ describe("public shell", () => {
       current: "a/b/y.md",
     });
     expect(tree).toContain(
-      '<summary>Files <span class="n">(9)</span><span class="cur">a/b/y.md</span>',
+      '<summary>Files <span class="n">(9)</span><span class="cur" dir="auto">a/b/y.md</span>',
     );
     const menu = tree.slice(tree.indexOf('<div class="pmenu tree">'));
     expect(menu.indexOf('data-p="index.md"')).toBeLessThan(menu.indexOf("<details"));
     expect(menu).toContain(
-      '<details open><summary>a/</summary><div class="in"><details open><summary>b/</summary><div class="in">',
+      '<details open><summary dir="auto">a/</summary><div class="in"><details open><summary dir="auto">b/</summary><div class="in">',
     );
     expect(menu).toContain('data-p="a/b/y.md" aria-current="page">y.md</a>');
     // Balanced folders; the extra close is the Files dropdown itself.
@@ -112,9 +114,9 @@ describe("public shell", () => {
   it("collapses folders in large manifests except the current file's", () => {
     const files = Array.from({ length: 300 }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
     const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
-    expect(html).toContain("<details open><summary>d1/</summary>");
-    expect(html).toContain("<details><summary>d0/</summary>");
-    expect(html).toContain("<details><summary>d2/</summary>");
+    expect(html).toContain('<details open><summary dir="auto">d1/</summary>');
+    expect(html).toContain('<details><summary dir="auto">d0/</summary>');
+    expect(html).toContain('<details><summary dir="auto">d2/</summary>');
   });
   it("says Snapshot for single-revision links and Updated for latest", () => {
     const at = Date.UTC(2026, 9, 7, 22, 8);
@@ -157,5 +159,113 @@ describe("encodePathSegments", () => {
       "it's (1)!*.md",
     ])
       expect(encodePathSegments(path)).toBe(path.split("/").map(encodeURIComponent).join("/"));
+  });
+});
+const menuOf = (html: string): string => html.slice(html.indexOf('<div class="pmenu tree">'));
+describe("tree limits", () => {
+  it("collapses single-folder chains and single-file folders", () => {
+    const paths = [
+      "index.md",
+      "a/b/c/d/x.md",
+      "a/b/c/d/y.md",
+      "solo/only.md",
+      ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
+    ];
+    const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
+    expect(menu).toContain('<summary dir="auto">a/b/c/d/</summary>');
+    expect(menu).not.toContain('<summary dir="auto">b/');
+    expect(menu).toContain('data-p="solo/only.md">solo/only.md</a>');
+    expect(menu).not.toContain("solo/</summary>");
+  });
+  it("nests at most 6 folders deep and puts deeper folders in the label", () => {
+    const deep = `${"a/".repeat(250)}f.md`;
+    const paths = [
+      "index.md",
+      deep,
+      `${"a/".repeat(250)}g.md`,
+      ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
+    ];
+    const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
+    expect(menu).toContain(`<summary dir="auto">${"a/".repeat(6)}</summary>`);
+    expect((menu.match(/<details/g) ?? []).length).toBe(1);
+    expect(menu).toContain(`data-p="${deep}">`);
+    // The label is the rest of the path, shortened in the middle.
+    expect(menu).toMatch(/>(?:a\/){19}…(?:a\/){17}f\.md<\/a>/);
+  });
+  it("stops the list at the budget and says how many files aren't listed", () => {
+    const paths = Array.from(
+      { length: 2000 },
+      (_, i) => `${String(i).padStart(4, "0")}/${"x".repeat(500)}.md`,
+    );
+    const html = renderPublicShell({
+      ...base,
+      files: paths.map((path) => ({ path })),
+      head: paths[0]!,
+    });
+    const listed = (html.match(/<a href=/g) ?? []).length;
+    expect(listed).toBeGreaterThan(100);
+    expect(listed).toBeLessThan(2000);
+    expect(html).toContain(
+      `<p class="more">${2000 - listed} more files aren&#39;t listed here.</p>`.replace(
+        "&#39;",
+        "'",
+      ),
+    );
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 20_000);
+    // Ordinary 2,000-file manifests fit entirely.
+    const ordinary = Array.from(
+      { length: 2000 },
+      (_, i) => `dir${i % 40}/file-${i}.html`,
+    ).toSorted();
+    const full = renderPublicShell({
+      ...base,
+      files: ordinary.map((path) => ({ path })),
+      head: ordinary[0]!,
+      fileHref: (path) => `./${encodeLinkPath(path)}`,
+    });
+    expect((full.match(/<a href=/g) ?? []).length).toBe(2000);
+    expect(full).not.toContain('class="more"');
+  });
+  it("requires frameBase to end with a slash", () => {
+    expect(() =>
+      renderPublicShell({ ...base, frameBase: "https://reader.example/x/a.b/r/c" }),
+    ).toThrow("frameBase must end with /");
+  });
+  it("shows bidi controls in names and titles instead of applying them", () => {
+    const html = renderPublicShell({
+      ...base,
+      title: "Report \u202eexe.pdf",
+      files: [{ path: "index.md" }, { path: "invoice\u202efdp.exe" }],
+    });
+    const visible = markup(html);
+    expect(visible).toContain('data-p="invoice\u202efdp.exe">invoice\ufffdfdp.exe</a>');
+    expect(visible).toContain('<h1 dir="auto">Report \ufffdexe.pdf</h1>');
+    expect(visible.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+    expect(publicShellCss).toContain(".ptabs2 a,.tree a{unicode-bidi:plaintext}");
+  });
+});
+describe("encodeLinkPath", () => {
+  it("leaves names readable but resolves to the same path", () => {
+    const shell = "https://reader.example/s/t/c/p/";
+    for (const path of [
+      "a b/c#d?.md",
+      "100%/x.md",
+      "文/ü.md",
+      "q\"<x>'.md",
+      "a\\b.md",
+      "t\tn\n.md",
+      "a:b.md",
+    ]) {
+      const href = `./${encodeLinkPath(path)}`;
+      const url = new URL(href, shell);
+      expect(url.search + url.hash).toBe("");
+      const decoded = url.pathname
+        .slice("/s/t/c/p/".length)
+        .split("/")
+        .map(decodeURIComponent)
+        .join("/");
+      expect(decoded).toBe(path);
+    }
+    expect(encodeLinkPath("文/ü.md")).toBe("文/ü.md");
   });
 });

@@ -80,6 +80,8 @@ html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;over
 .tree details[open]>summary::before{rotate:45deg}
 .tree .in{padding-left:14px}
 .tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
+.tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
+.lh h1,.tree summary,.pfiles .cur{unicode-bidi:isolate}.ptabs2 a,.tree a{unicode-bidi:plaintext}
 main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--paper)}
 .pframe{flex:1;display:block;width:100%;min-height:0;border:0;background:var(--paper)}
 .scroll{flex:1;overflow:auto;padding:0 16px 32px}
@@ -108,7 +110,7 @@ export const publicShellCss = tokensCss + shellCss;
  *   and name a file already linked in the shell. The shell then moves `aria-current` and
  *   replaces its URL with that link's own server-rendered href, never with message data.
  */
-export const publicShellScript = `(()=>{const o={day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"};for(const t of document.querySelectorAll("time[datetime]")){const d=new Date(t.dateTime);if(!isNaN(d.getTime()))t.textContent=d.toLocaleString(undefined,o)}const f=document.getElementById("doc");if(!f||!f.dataset.base)return;const b=new URL(f.dataset.base,location.href);const base=b.origin+b.pathname;const links=()=>document.querySelectorAll("a[data-p]");addEventListener("message",e=>{if(e.source!==f.contentWindow)return;const m=e.data;if(!m||typeof m!=="object"||m.type!=="waypoint:location"||typeof m.href!=="string"||m.href.length>8192)return;let p;try{const u=new URL(m.href,f.src);const h=u.origin+u.pathname;if(!h.startsWith(base))return;p=h.slice(base.length).split("/").map(decodeURIComponent).join("/").normalize("NFC")}catch{return}let hit=null;for(const a of links())if(a.dataset.p===p){hit=a;break}if(!hit||hit.hasAttribute("aria-current"))return;for(const a of links())if(a.dataset.p===p)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current");f.title=p;const c=document.querySelector(".pfiles .cur");if(c)c.textContent=p;if(hit.href!==location.href)history.replaceState(null,"",hit.href)})})()`;
+export const publicShellScript = `(()=>{const o={day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"};for(const t of document.querySelectorAll("time[datetime]")){const d=new Date(t.dateTime);if(!isNaN(d.getTime()))t.textContent=d.toLocaleString(undefined,o)}const f=document.getElementById("doc");if(!f||!f.dataset.base)return;const b=new URL(f.dataset.base,location.href);const base=b.origin+b.pathname;const links=()=>document.querySelectorAll("a[data-p]");addEventListener("message",e=>{if(e.source!==f.contentWindow)return;const m=e.data;if(!m||typeof m!=="object"||m.type!=="waypoint:location"||typeof m.href!=="string"||m.href.length>8192)return;let p;try{const u=new URL(m.href,f.src);const h=u.origin+u.pathname;if(!h.startsWith(base))return;const r=h.slice(base.length);if(/%(?:2f|5c)/i.test(r))return;p=r.split("/").map(decodeURIComponent).join("/").normalize("NFC")}catch{return}let hit=null;for(const a of links())if(a.dataset.p===p){hit=a;break}if(!hit||hit.hasAttribute("aria-current"))return;for(const a of links())if(a.dataset.p===p)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current");f.title=p;const c=document.querySelector(".pfiles .cur");if(c)c.textContent=p.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g,"\\ufffd");if(hit.href!==location.href)history.replaceState(null,"",hit.href)})})()`;
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "7 Oct 2026, 22:08 UTC": the no-script fallback; the script localizes it. */
@@ -142,45 +144,158 @@ const unreserved = /^[A-Za-z0-9._~/-]*$/;
 export const encodePathSegments = (path: string): string =>
   unreserved.test(path) ? path : encodeURIComponent(path).replaceAll("%2F", "/");
 
-function link(options: PublicShellOptions, path: string, label: string): string {
-  const current = path === options.current ? ' aria-current="page"' : "";
-  // The label is the path or a suffix of it, so one test covers both.
-  const clean = !special.test(path);
-  return `<a href="${esc(options.fileHref(path))}" data-p="${clean ? path : escapeHtml(path)}"${current}>${clean ? label : escapeHtml(label)}</a>`;
+// oxlint-disable-next-line eslint/no-control-regex -- Controls and spaces must be percent-encoded in URLs.
+const linkUnsafe = /[\u0000- "#%<>?\\^`{|}\u007f]/g;
+/**
+ * A path for an HTML link, IRI style: only characters that would change how the URL parses
+ * (`%`, `?`, `#`, `\`, spaces and controls, and a few that browsers escape anyway) are
+ * percent-encoded. Other characters, including non-ASCII, stay as they are; the browser
+ * percent-encodes them as UTF-8 when it follows the link, so the server decodes the same path.
+ * Much smaller than `encodePathSegments` for non-ASCII names.
+ */
+export const encodeLinkPath = (path: string): string =>
+  unreserved.test(path) ? path : path.replace(linkUnsafe, (char) => encodeURIComponent(char));
+
+// Explicit bidi embeddings, overrides and isolates. In a label they could make a name read
+// differently from what it is ("invoice<RLO>fdp.exe"), so labels show them as U+FFFD.
+const bidiControls = /[‪-‮⁦-⁩]/g;
+const showBidi = (text: string): string => text.replace(bidiControls, "�");
+
+/** Labels longer than this are shortened in the middle; `data-p` keeps the full path. */
+const LABEL_MAX = 80;
+function label(text: string): string {
+  let shown = text;
+  if (shown.length > LABEL_MAX) {
+    let head = 38;
+    let tail = shown.length - 38;
+    // Don't split a surrogate pair.
+    if (/[\ud800-\udbff]/.test(shown.charAt(head - 1))) head--;
+    if (/[\udc00-\udfff]/.test(shown.charAt(tail))) tail++;
+    shown = `${shown.slice(0, head)}…${shown.slice(tail)}`;
+  }
+  return esc(showBidi(shown));
 }
 
-/** Tree of every file but the head, in one pass over the sorted paths. */
-function tree(options: PublicShellOptions, paths: readonly string[]): string {
-  const out: string[] = [];
-  const stack: string[] = [];
-  const currentDir = options.current.slice(0, options.current.lastIndexOf("/") + 1);
-  const openAll = paths.length <= OPEN_FOLDERS_LIMIT;
-  let previousDir: string | null = null;
-  for (const path of paths) {
-    const slash = path.lastIndexOf("/");
-    const dir = path.slice(0, slash + 1);
-    // Fast path: most files share their folder with the previous one.
-    if (dir !== previousDir) {
-      previousDir = dir;
-      const parts = slash < 0 ? [] : dir.slice(0, -1).split("/");
-      let shared = 0;
-      while (shared < stack.length && shared < parts.length && stack[shared] === parts[shared])
-        shared++;
-      while (stack.length > shared) {
-        stack.pop();
-        out.push("</div></details>");
-      }
-      while (stack.length < parts.length) {
-        const name = parts[stack.length] ?? "";
-        stack.push(name);
-        const prefix = `${stack.join("/")}/`;
-        const open = openAll || currentDir.startsWith(prefix) ? " open" : "";
-        out.push(`<details${open}><summary>${esc(name)}/</summary><div class="in">`);
-      }
-    }
-    out.push(link(options, path, path.slice(slash + 1)));
+/** Folders nest at most this deep in the tree; deeper segments join the file's label. */
+export const PUBLIC_SHELL_TREE_DEPTH = 6;
+/**
+ * Upper bound on the size of the file-list markup, in characters (non-ASCII names count
+ * triple). A 2,000-file manifest with ordinary names and relative links uses about a third. Past it the list stops with a count of the files not listed, so
+ * pathological manifests (very long, deep or non-ASCII paths) can't blow the Worker CPU budget.
+ */
+export const PUBLIC_SHELL_LIST_BUDGET = 300_000;
+
+const nonAscii = /[^ -~\t\n\r]/;
+interface Budget {
+  used: number;
+  listed: number;
+}
+
+function link(options: PublicShellOptions, path: string, text: string, budget: Budget): string {
+  const current = path === options.current ? ' aria-current="page"' : "";
+  const out = `<a href="${esc(options.fileHref(path))}" data-p="${esc(path)}"${current}>${label(text)}</a>`;
+  // Count UTF-8 bytes roughly: non-ASCII names cost up to three bytes per character.
+  budget.used += nonAscii.test(path) ? out.length * 3 : out.length;
+  budget.listed++;
+  return out;
+}
+
+interface Folder {
+  name: string;
+  /** Subfolders and file paths, in path order. */
+  entries: (Folder | string)[];
+  folders: Map<string, Folder>;
+  open: boolean;
+}
+const folder = (name: string): Folder => ({ name, entries: [], folders: new Map(), open: false });
+
+/** Length of the folder key: the path up to its last `/`, but at most `PUBLIC_SHELL_TREE_DEPTH` folders deep. */
+function keyLength(path: string): number {
+  let end = 0;
+  for (let depth = 0; depth < PUBLIC_SHELL_TREE_DEPTH; depth++) {
+    const slash = path.indexOf("/", end);
+    if (slash < 0) break;
+    end = slash + 1;
   }
-  for (let i = 0; i < stack.length; i++) out.push("</div></details>");
+  return end;
+}
+
+function folderFor(root: Folder, key: string): Folder {
+  let node = root;
+  let start = 0;
+  while (start < key.length) {
+    const slash = key.indexOf("/", start);
+    const name = key.slice(start, slash);
+    let next = node.folders.get(name);
+    if (!next) {
+      next = folder(name);
+      node.folders.set(name, next);
+      node.entries.push(next);
+    }
+    node = next;
+    start = slash + 1;
+  }
+  return node;
+}
+
+function renderFolder(
+  options: PublicShellOptions,
+  node: Folder,
+  prefix: number,
+  openAll: boolean,
+  budget: Budget,
+  out: string[],
+): void {
+  for (const entry of node.entries) {
+    if (budget.used > PUBLIC_SHELL_LIST_BUDGET) return;
+    if (typeof entry === "string") {
+      out.push(link(options, entry, entry.slice(prefix), budget));
+      continue;
+    }
+    // Collapse chains of folders that hold only one folder into one row.
+    let child = entry;
+    let name = `${child.name}/`;
+    while (child.entries.length === 1 && typeof child.entries[0] !== "string") {
+      child = child.entries[0]!;
+      name += `${child.name}/`;
+    }
+    // A folder holding a single file shows as that file, labelled with its folders.
+    const only = child.entries.length === 1 ? child.entries[0] : undefined;
+    if (typeof only === "string") {
+      out.push(link(options, only, only.slice(prefix), budget));
+      continue;
+    }
+    const open = openAll || child.open ? " open" : "";
+    out.push(`<details${open}><summary dir="auto">${label(name)}</summary><div class="in">`);
+    renderFolder(options, child, prefix + name.length, openAll, budget, out);
+    out.push("</div></details>");
+  }
+}
+
+/** Tree of every file but the head. Linear in the total length of the paths, and bounded. */
+function tree(options: PublicShellOptions, paths: readonly string[], budget: Budget): string {
+  const root = folder("");
+  let previousKey: string | null = null;
+  let previous = root;
+  for (const path of paths) {
+    const key = path.slice(0, keyLength(path));
+    // Fast path: sorted input keeps a folder's files together.
+    if (key !== previousKey) {
+      previousKey = key;
+      previous = folderFor(root, key);
+    }
+    previous.entries.push(path);
+  }
+  const currentKey = options.current.slice(0, keyLength(options.current));
+  let node: Folder | undefined = root;
+  for (let start = 0; node && start < currentKey.length;) {
+    const slash = currentKey.indexOf("/", start);
+    node = node.folders.get(currentKey.slice(start, slash));
+    if (node) node.open = true;
+    start = slash + 1;
+  }
+  const out: string[] = [];
+  renderFolder(options, root, 0, paths.length <= OPEN_FOLDERS_LIMIT, budget, out);
   return out.join("");
 }
 
@@ -193,12 +308,19 @@ function files(options: PublicShellOptions): string {
   if (!sorted) all.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const hasHead = all.includes(options.head);
   const rest = hasHead ? all.filter((path) => path !== options.head) : all;
+  const budget: Budget = { used: 0, listed: 0 };
   if (all.length <= PUBLIC_SHELL_TAB_LIMIT) {
     const ordered = hasHead ? [options.head, ...rest] : rest;
-    return `<nav class="ptabs2" aria-label="Files">${ordered.map((path) => link(options, path, path)).join("")}</nav>`;
+    return `<nav class="ptabs2" aria-label="Files">${ordered.map((path) => link(options, path, path, budget)).join("")}</nav>`;
   }
-  const head = hasHead ? `${link(options, options.head, options.head)}<hr>` : "";
-  return `<nav class="pfiles" aria-label="Files"><details><summary>Files <span class="n">(${all.length})</span><span class="cur">${escapeHtml(options.current)}</span></summary><div class="pmenu tree">${head}${tree(options, rest)}</div></details></nav>`;
+  const head = hasHead ? `${link(options, options.head, options.head, budget)}<hr>` : "";
+  const list = tree(options, rest, budget);
+  const missing = all.length - budget.listed;
+  const more =
+    missing > 0
+      ? `<p class="more">${missing} more ${missing === 1 ? "file isn't" : "files aren't"} listed here.</p>`
+      : "";
+  return `<nav class="pfiles" aria-label="Files"><details><summary>Files <span class="n">(${all.length})</span><span class="cur" dir="auto">${label(options.current)}</span></summary><div class="pmenu tree">${head}${list}${more}</div></details></nav>`;
 }
 
 function note(options: PublicShellOptions): string {
@@ -226,12 +348,14 @@ function documentArea(options: PublicShellOptions): string {
 
 /** Renders the complete public shell document. Cost is linear in the number of files. */
 export function renderPublicShell(options: PublicShellOptions): string {
-  const title = escapeHtml(options.title);
+  // The location listener's prefix check relies on a whole-segment prefix.
+  if (!options.frameBase.endsWith("/")) throw new Error("frameBase must end with /");
+  const title = escapeHtml(showBidi(options.title));
   const style = options.assets
     ? `<link rel="stylesheet" href="${escapeHtml(options.assets.cssHref)}">`
     : `<style>${publicShellCss}</style>`;
   const script = options.assets
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap"><header class="lh"><div class="ttl"><h1>${title}</h1>${note(options)}</div><span class="ro">Read-only · shared with you</span></header>${files(options)}</div>${documentArea(options)}${script}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap"><header class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options)}</div><span class="ro">Read-only · shared with you</span></header>${files(options)}</div>${documentArea(options)}${script}</body></html>`;
 }

@@ -77,10 +77,16 @@ const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
   "content-type",
+  "cross-origin-opener-policy",
   "referrer-policy",
   "x-content-type-options",
   "x-robots-tag",
 ];
+/** Resolves a shell's file links against its URL, as the browser would. */
+const resolveLinks = (html: string, page: string): string[] =>
+  [...html.matchAll(/<a href="([^"]+)" data-p=/g)].map(
+    (m) => new URL(m[1]!.replaceAll("&amp;", "&"), page).pathname,
+  );
 function fixture(body?: ReadableStream<Uint8Array>) {
   const db: ReaderDb = {
     async all<T>(sql: string, args: (string | number)[] = []): Promise<T[]> {
@@ -295,6 +301,7 @@ describe("public reader", () => {
         "cache-control": "public, max-age=3600",
         "content-security-policy": staticPolicy,
         "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
         "referrer-policy": "no-referrer",
         "x-content-type-options": "nosniff",
         "x-robots-tag": "noindex, nofollow",
@@ -360,12 +367,16 @@ describe("public reader", () => {
       expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
       expect(html).not.toContain("rev_");
     }
-    const latestLinks = [...latest.matchAll(/<a href="([^"]+)" data-p=/g)].map((m) => m[1]);
+    // Tab links are relative to the shell URL; resolve them as the browser would.
+    const latestLinks = resolveLinks(latest, shareShellUrl(base, token, collection));
     expect(latestLinks.length).toBeGreaterThan(0);
-    for (const href of latestLinks) expect(href).not.toContain("/r/");
+    for (const href of latestLinks) {
+      expect(href).not.toContain("/r/");
+      expect(href.startsWith(new URL(shareShellUrl(base, token, collection)).pathname)).toBe(true);
+    }
     expect(latest).toContain(`/r/${secondPub}/index.md`);
     expect(latest).not.toContain(firstPub);
-    const pinnedLinks = [...pinned.matchAll(/<a href="([^"]+)" data-p=/g)].map((m) => m[1]);
+    const pinnedLinks = resolveLinks(pinned, shareShellUrl(base, token, collection, firstPub));
     expect(pinnedLinks.length).toBeGreaterThan(0);
     for (const href of pinnedLinks) expect(href).toContain(`/r/${firstPub}/`);
     expect(pinned).not.toContain(secondPub);
@@ -413,7 +424,7 @@ describe("public reader", () => {
     expect(tree).not.toContain('<nav class="ptabs2"');
     expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
     expect(tree).toContain('<summary>Files <span class="n">(9)</span>');
-    expect(tree).toContain("<details open><summary>docs/</summary>");
+    expect(tree).toContain('<details open><summary dir="auto">docs/</summary>');
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
@@ -483,10 +494,43 @@ describe("public reader", () => {
     expect((await app.request("/index.html", {}, bindings)).status).toBe(404);
     expect((await app.request("/unknown", {}, bindings)).status).toBe(404);
     expect(await (await app.request("/healthz", {}, bindings)).text()).toBe("ok");
+    limiter.mockResolvedValue({ success: true });
     const deep = await app.request("/healthz/deep", {}, bindings);
     expect(deep.status).toBe(200);
     expect(await deep.text()).toBe("ok");
     expect(reads).toContain("SELECT 1 FROM collections LIMIT 1");
     expect(await (await app.request("/robots.txt", {}, bindings)).text()).toContain("Disallow: /");
+  });
+  it("counts /healthz/deep toward the per-IP limiter and denies once blocked", async () => {
+    const { app, bindings } = fixture();
+    const ip = { headers: { "cf-connecting-ip": "192.0.2.50" } };
+    const deep = await app.request("/healthz/deep", ip, bindings);
+    expect(await deep.text()).toBe("ok");
+    expect(limiter).toHaveBeenCalledWith({ key: "192.0.2.50" });
+    limiter.mockResolvedValue({ success: false });
+    const before = reads.length;
+    const rejected = await app.request("/healthz/deep", ip, bindings);
+    expect(rejected.status).toBe(404);
+    expect(await rejected.text()).toBe(deniedPage);
+    const calls = limiter.mock.calls.length;
+    const blocked = await app.request("/healthz/deep", ip, bindings);
+    expect(await blocked.text()).toBe(deniedPage);
+    // Blocked: no limiter call, no Turso query; /healthz stays cheap and unlimited.
+    expect(limiter.mock.calls.length).toBe(calls);
+    expect(reads.length).toBe(before);
+    expect(await (await app.request("/healthz", ip, bindings)).text()).toBe("ok");
+    expect(limiter.mock.calls.length).toBe(calls);
+  });
+  it("sets COOP on the shell and keeps the token out of every link", async () => {
+    const { app, bindings } = fixture();
+    const shell = await app.request(
+      shareShellUrl(base, token, collection, undefined, "other.txt"),
+      {},
+      bindings,
+    );
+    expect(shell.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+    const html = await shell.text();
+    for (const m of html.matchAll(/<a [^>]*href="([^"]+)"/g)) expect(m[1]).not.toContain(token);
+    expect(html).toContain('<a href="./index.md" data-p="index.md">');
   });
 });
