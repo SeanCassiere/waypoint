@@ -216,6 +216,8 @@ export interface Facets {
   tags: { value: string; count: number }[];
   hosts: { value: string; count: number; last_written_at: number }[];
 }
+/** About 150 bytes each: a few MB at most. */
+export const CHANGE_CACHE_SIZE = 20_000;
 export class ReadModel {
   readonly revisionEvents = new EventEmitter().setMaxListeners(220);
   private readonly searchSnapshots = new Map<
@@ -225,11 +227,21 @@ export class ReadModel {
   notifyRevision(collectionId: string): void {
     this.revisionEvents.emit("revision", collectionId);
   }
+  /** Change counts of committed revisions, least recently used first (see changesFor). */
+  private readonly changeCache = new Map<string, RevisionChanges>();
   constructor(
     readonly waypoint: Db,
     readonly queue: Db,
     readonly baseUrl: string,
   ) {}
+  private cacheChanges(id: string, changes: RevisionChanges): void {
+    this.changeCache.delete(id);
+    this.changeCache.set(id, { ...changes });
+    for (const key of this.changeCache.keys()) {
+      if (this.changeCache.size <= CHANGE_CACHE_SIZE) break;
+      this.changeCache.delete(key);
+    }
+  }
   async collection(id: string): Promise<CollectionRow | undefined> {
     const pending = await this.queue.get<CollectionRow>(
       "SELECT * FROM pending_collections WHERE id=?",
@@ -572,8 +584,12 @@ export class ReadModel {
   }
   /**
    * Change counts against each revision's parent (B2). Committed revisions use one grouped
-   * self-join over revision_files; queued revisions are diffed in memory from their manifests.
+   * join of revision_files against the parent's; queued revisions are diffed in memory from their manifests.
    * At most three queries regardless of how many revisions are passed.
+   *
+   * The self-join reads every file of each revision and its parent, so callers pass only the
+   * revisions they show. Counts of committed revisions never change once their parent is
+   * committed too, so they're kept in a bounded in-memory cache and cost no query afterwards.
    */
   async changesFor(
     rows: readonly Pick<
@@ -585,7 +601,13 @@ export class ReadModel {
     if (!rows.length) return result;
     const queued = (row: Pick<RevisionRow, "sync_state">) =>
       row.sync_state === "pending" || row.sync_state === "failed";
-    const committed = rows.filter((row) => !queued(row)).map((row) => row.id);
+    const committed: string[] = [];
+    for (const row of rows) {
+      if (queued(row)) continue;
+      const cached = this.changeCache.get(row.id);
+      if (cached) result.set(row.id, { ...cached });
+      else committed.push(row.id);
+    }
     const pending = rows.filter(queued);
     const manifests = new Map<string, Map<string, string>>();
     for (const row of pending)
@@ -594,9 +616,18 @@ export class ReadModel {
     const missing = pending.filter((row) => !manifests.has(row.id)).map((row) => row.id);
     const [grouped, loaded] = await Promise.all([
       committed.length
-        ? this.waypoint.all<{ id: string; added: number; modified: number; removed: number }>(
-            `SELECT r.id AS id,SUM(CASE WHEN p.path IS NULL THEN 1 ELSE 0 END) AS added,SUM(CASE WHEN p.path IS NOT NULL AND p.blob_hash<>f.blob_hash THEN 1 ELSE 0 END) AS modified,0 AS removed FROM revisions r JOIN revision_files f ON f.revision_id=r.id LEFT JOIN revision_files p ON p.revision_id=r.parent_revision_id AND p.path=f.path WHERE r.id IN (${placeholders(committed)}) GROUP BY r.id UNION ALL SELECT r.id AS id,0 AS added,0 AS modified,COUNT(*) AS removed FROM revisions r JOIN revision_files p ON p.revision_id=r.parent_revision_id LEFT JOIN revision_files f ON f.revision_id=r.id AND f.path=p.path WHERE r.id IN (${placeholders(committed)}) AND f.path IS NULL GROUP BY r.id`,
-            [...committed, ...committed],
+        ? this.waypoint.all<{
+            id: string;
+            files: number;
+            added: number;
+            modified: number;
+            parent_files: number;
+            settled: number;
+          }>(
+            // One join of each revision's files against its parent's; removed files follow from
+            // the parent's file count (removed = parent files − files the two share).
+            `WITH t AS (SELECT r.id AS id,r.parent_revision_id AS parent,COUNT(*) AS files,SUM(CASE WHEN p.path IS NULL THEN 1 ELSE 0 END) AS added,SUM(CASE WHEN p.path IS NOT NULL AND p.blob_hash<>f.blob_hash THEN 1 ELSE 0 END) AS modified FROM revisions r JOIN revision_files f ON f.revision_id=r.id LEFT JOIN revision_files p ON p.revision_id=r.parent_revision_id AND p.path=f.path WHERE r.id IN (${placeholders(committed)}) GROUP BY r.id) SELECT t.id AS id,t.files AS files,t.added AS added,t.modified AS modified,(SELECT COUNT(*) FROM revision_files q WHERE q.revision_id=t.parent) AS parent_files,CASE WHEN t.parent IS NULL OR EXISTS (SELECT 1 FROM revisions q WHERE q.id=t.parent) THEN 1 ELSE 0 END AS settled FROM t`,
+            committed,
           )
         : Promise.resolve([]),
       missing.length
@@ -607,11 +638,14 @@ export class ReadModel {
         : Promise.resolve([]),
     ]);
     for (const row of grouped) {
-      const current = result.get(row.id) ?? { added: 0, modified: 0, removed: 0 };
-      current.added += row.added;
-      current.modified += row.modified;
-      current.removed += row.removed;
-      result.set(row.id, current);
+      const changes = {
+        added: row.added,
+        modified: row.modified,
+        removed: Math.max(0, row.parent_files - (row.files - row.added)),
+      };
+      result.set(row.id, changes);
+      // Final once the parent is committed too: neither revision's files change after that.
+      if (row.settled) this.cacheChanges(row.id, changes);
     }
     for (const row of loaded) manifests.set(row.id, hashesOf(parseManifest(row.manifest_json)));
     const parentIds = [

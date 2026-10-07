@@ -71,6 +71,8 @@ export class Db implements DbHandle {
    */
   private statements = new Map<string, EngineStatement>();
   private busy = new Set<EngineStatement>();
+  /** Called after each statement with its execution time (tests and diagnostics). */
+  onStatement: ((sql: string, ms: number) => void) | undefined;
   constructor(readonly engine: Engine) {}
   connectionOperation<T>(fn: () => Promise<T>): Promise<T> {
     const task = this.chain.then(fn);
@@ -103,12 +105,14 @@ export class Db implements DbHandle {
     }
     this.busy.add(statement);
     let failed = false;
+    const started = this.onStatement ? performance.now() : 0;
     try {
       return await use(statement);
     } catch (error) {
       failed = true;
       throw error;
     } finally {
+      this.onStatement?.(sql, performance.now() - started);
       this.busy.delete(statement);
       const owned = this.statements.get(sql) === statement;
       // A failed statement is prepared afresh next time rather than trusted again.

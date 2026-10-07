@@ -7,9 +7,9 @@ const include = [
 ];
 // CPU-budget and wall-clock tests measure time, which a saturated machine inflates, so each
 // group runs alone after every other test has finished: the reader's CPU budgets, then the
-// writer's diff limits (which load worker threads of their own).
+// writer's diff limits (which load worker threads of their own) and large-fixture guards.
 const cpu = ["tests/reader-cpu.test.ts"];
-const timing = ["tests/compare-limits.test.ts"];
+const timing = ["tests/compare-limits.test.ts", "tests/scale-guards.test.ts"];
 
 export default defineConfig({
   test: {

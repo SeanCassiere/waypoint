@@ -715,6 +715,8 @@ describe("share links for the Folio UI (B3, B4)", () => {
   });
   it("keeps query counts constant as links grow on the shell, Recent and /links", async () => {
     await create({ label: "first" });
+    // Warm the change-count cache, so both measurements are of a warm shell.
+    await app.request(`/c/${collectionPublicId}/`);
     const before = [
       await queryCount(`/c/${collectionPublicId}/`),
       await queryCount("/"),

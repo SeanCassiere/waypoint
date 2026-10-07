@@ -986,7 +986,13 @@ export function createApp(s: HttpServices): Hono {
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
     const after = c.req.query("after");
-    if (!after) return c.json(await s.reads.listRevisions(id, { changes: true }));
+    // Change counts read every file of every revision, so they're opt-in (`?changes=1`).
+    if (!after)
+      return c.json(
+        await s.reads.listRevisions(id, {
+          changes: ["1", "true"].includes(c.req.query("changes") ?? ""),
+        }),
+      );
     const seconds = Number(c.req.query("wait") ?? 0);
     if (!Number.isFinite(seconds)) throw new WaypointError("validation_failed", "Invalid wait");
     const waitSeconds = Math.max(0, Math.min(seconds, 50));

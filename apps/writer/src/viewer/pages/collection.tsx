@@ -139,9 +139,13 @@ export async function loadCollection(
   const latest = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
   const revision = options.rpub ? rows.find((row) => row.public_id === options.rpub) : latest;
   if (!revision) return { kind: "no-revision", chrome, collection };
+  // Change counts only for the revisions this page shows: the History panel's page, the
+  // revision menu's newest eight, and the revision being viewed.
+  const historyAll = c.req.query("history") === "all";
+  const shown = historyAll ? rows : [...rows.slice(-HISTORY_PAGE), revision];
   const [manifest, changes, links] = await Promise.all([
     s.reads.manifestOf(revision),
-    s.reads.changesFor(rows),
+    s.reads.changesFor([...new Set(shown)]),
     s.publicBaseUrl ? collectionLinks(s, collection.id) : Promise.resolve([]),
   ]);
   const timeline: TimelineRow[] = rows.map((row) => ({

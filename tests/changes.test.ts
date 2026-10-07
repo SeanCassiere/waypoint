@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BlobStore } from "../apps/writer/src/blob-store.js";
 import type { Config } from "../apps/writer/src/config.js";
@@ -141,8 +141,20 @@ describe("revision change counts (B2)", () => {
     expect(changes.get(two)).toEqual({ added: 2, modified: 1, removed: 1 });
     expect(changes.get(three)).toEqual({ added: 0, modified: 1, removed: 1 });
     expect(changes.get(four)).toEqual({ added: 1, modified: 1, removed: 0 });
-    const api: unknown = await (
+    // Committed counts are cached: the second call returns the same counts without the join.
+    const all = vi.spyOn(waypoint, "all");
+    const again = await reads.changesFor(await reads.revisions(collection));
+    expect(again.get(two)).toEqual({ added: 2, modified: 1, removed: 1 });
+    expect(again.get(three)).toEqual({ added: 0, modified: 1, removed: 1 });
+    expect(all.mock.calls.filter(([sql]) => sql.includes("SUM(CASE"))).toHaveLength(0);
+    all.mockRestore();
+    // The API leaves them out unless asked: they cost a join over every revision's files.
+    const plain: unknown = await (
       await app.request(`/api/collections/${collection}/revisions`)
+    ).json();
+    expect(JSON.stringify(plain)).not.toContain('"changes"');
+    const api: unknown = await (
+      await app.request(`/api/collections/${collection}/revisions?changes=1`)
     ).json();
     const listed =
       api && typeof api === "object" && "revisions" in api && Array.isArray(api.revisions)
