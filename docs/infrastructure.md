@@ -7,16 +7,18 @@ Two environments, **dev** and **prod**, kept fully separate: different cloud DB,
 Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed for the public reader.
 
 ### Turso
-- [ ] **(P1)** A Turso account and organization (free plan).
-- [ ] **(P1)** Cloud DBs `waypoint-dev` and `waypoint-prod`, created as Turso Sync databases (`turso db create <name> --tursodb`; confirm the exact flag against the current docs at setup time). Pick the region closest to agent-1, and to likely public viewers.
-- [ ] **(P1)** A full-access token per DB for the writer(s).
+- [x] **(P1)** A Turso account and organization (`seancassiere`, Free plan). The organization's **TursoDB** setting must be enabled before Sync-capable databases can be created.
+- [x] **(P1)** Cloud DBs `waypoint-dev` and `waypoint-prod`, created as Turso Sync databases in group `waypoint`, location `aws-ap-southeast-2` (Sydney):
+  `turso db create waypoint-<env> --tursodb --location aws-ap-southeast-2 --group waypoint --wait`
+  - Their URLs use the `turso://` scheme. For the HTTP API, swap it for `https://`.
+- [x] **(P1)** A full-access token per DB for the writer(s), created with `turso db tokens create <db> --expiration never`.
 - [ ] **(P2)** A read-only token for `waypoint-prod`, used by the reader: `turso db tokens create waypoint-prod --read-only`.
 
 ### Cloudflare R2
-- [ ] **(P1)** R2 enabled on the account. This needs a payment method, even on the free plan.
-- [ ] **(P1)** Private buckets `waypoint-dev` and `waypoint-prod`. Default storage class **Standard**: Infrequent Access has no free tier and a 30-day minimum. No public access and no `r2.dev` URL.
-- [ ] **(P1)** An R2 API token per bucket with **Object Read & Write**, scoped to that one bucket, for the writer. The secret is shown only once; store it straight into the writer's env file.
-- [ ] **(P1)** A billing budget alert at a low threshold such as $1. Cloudflare has no hard spending cap, and alerts arrive by email about once a day.
+- [x] **(P1)** R2 enabled on the account. This needs a payment method, even on the free plan.
+- [x] **(P1)** Private buckets `waypoint-dev` and `waypoint-prod`, with location Automatic (resolved to Oceania). Default storage class **Standard**: Infrequent Access has no free tier and a 30-day minimum. No public access, `r2.dev` URL, custom domain, or CORS.
+- [x] **(P1)** An R2 **Account API token** per bucket (`waypoint-writer-dev`, `waypoint-writer-prod`): **Object Read & Write**, scoped to that one bucket, TTL forever. The secret is shown only once. Each token was verified to be denied on the other environment's bucket (403).
+- [x] **(P1)** A billing budget alert at $1, alongside the default $10 alert. Cloudflare has no hard spending cap, and alerts arrive by email about once a day.
 
 ### Cloudflare Workers (P2)
 - [ ] **(P2)** A Worker `waypoint-reader` with:
@@ -32,7 +34,7 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 
 ## Writer configuration
 
-The configuration lives in an env file on the writer machine, which is never committed:
+The configuration lives in an env file on the writer machine, never committed. On agent-1 the files are `~/.config/waypoint/dev.env` and `~/.config/waypoint/prod.env`, mode 600, in a directory with mode 700:
 
 ```bash
 WAYPOINT_ENV=prod                         # dev | prod
