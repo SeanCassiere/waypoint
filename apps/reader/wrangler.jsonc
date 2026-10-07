@@ -24,9 +24,16 @@
     },
     "prod": {
       "name": "waypoint-reader",
-      "workers_dev": false,
-      "preview_urls": false,
-      "routes": [{ "pattern": "waypoint.pingstash.com", "custom_domain": true }],
+      // waypoint-reader.seancassiere.workers.dev, its version URLs and its Worker Previews
+      // (pr-<n>-waypoint-reader.seancassiere.workers.dev) are all behind the Cloudflare Access app
+      // fb19dcb4-9f87-47dc-a038-1b41cef93d0f (owner only). They're safe to enable only because of
+      // it; see docs/decisions.md D49. The custom domain stays public and production only: never
+      // set previews_enabled on it, and never put Access on it.
+      "workers_dev": true,
+      "preview_urls": true,
+      "routes": [
+        { "pattern": "waypoint.pingstash.com", "custom_domain": true, "previews_enabled": false },
+      ],
       "analytics_engine_datasets": [{ "binding": "ACCESS_LOG", "dataset": "waypoint_access" }],
       "ratelimits": [
         {
@@ -35,6 +42,22 @@
           "simple": { "limit": 30, "period": 60 },
         },
       ],
+      // Worker Previews (`wrangler preview --env prod`, deploy/preview-reader.sh) don't inherit
+      // production bindings. They get their own Analytics Engine dataset and rate-limit
+      // namespace, so preview traffic never mixes with production's. Their secrets are the prod
+      // read-only reader values, uploaded with each preview deployment.
+      "previews": {
+        "analytics_engine_datasets": [
+          { "binding": "ACCESS_LOG", "dataset": "waypoint_access_preview" },
+        ],
+        "ratelimits": [
+          {
+            "name": "TOKEN_MISS_LIMITER",
+            "namespace_id": "1003",
+            "simple": { "limit": 30, "period": 60 },
+          },
+        ],
+      },
     },
   },
 }
