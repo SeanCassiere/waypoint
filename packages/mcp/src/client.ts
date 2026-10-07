@@ -125,6 +125,7 @@ const resolveResult = z
     ...(value.path === undefined ? {} : { path: value.path }),
   })) satisfies z.ZodType<ResolveResponse>;
 const statusResult = z.looseObject({
+  environment: z.enum(["dev", "prod"]),
   queue: z.looseObject({
     pending_collections: z.number(),
     pending_revisions: z.number(),
@@ -138,13 +139,25 @@ const statusResult = z.looseObject({
   }),
   oldest_pending_age_ms: z.number().nullable(),
   failed_items: z.array(
-    z.looseObject({ id: z.string(), created_at: z.number(), last_error: z.string().nullable() }),
+    z.looseObject({
+      id: z.string(),
+      created_at: z.number(),
+      last_error: z.string().nullable(),
+      error_kind: z.string().nullable(),
+      collection_public_id: z.string().nullable(),
+    }),
   ),
+  pending_items: z.array(z.object({ id: z.string(), collection_public_id: z.string().nullable() })),
+  sync_enabled: z.boolean(),
+  queue_errors: z.array(z.object({ kind: z.string(), id: z.string(), last_error: z.string() })),
   last_upload_at: z.number().nullable(),
   last_push_at: z.number().nullable(),
   last_pull_at: z.number().nullable(),
   last_error: z.string().nullable(),
   sync_verified: z.boolean(),
+  sync_blocked: z.boolean(),
+  account_paused: z.boolean(),
+  account_error: z.string().nullable(),
 }) satisfies z.ZodType<StatusResponse>;
 const CACHE_TTL_MS = 10 * 60_000;
 interface CachedIds {

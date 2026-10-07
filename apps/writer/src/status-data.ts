@@ -20,13 +20,30 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     last_error: string | null;
     error_kind: string | null;
   }>("SELECT id,collection_id,state,created_at,last_error,error_kind FROM pending_revisions");
-  const [pendingCollections, committedCollections, uploads, lastPush] = await Promise.all([
+  const [
+    pendingCollections,
+    committedCollections,
+    uploads,
+    lastPush,
+    snapshotErrors,
+    deleteErrors,
+    purgeErrors,
+  ] = await Promise.all([
     s.queue.all<{ id: string; public_id: string }>("SELECT id,public_id FROM pending_collections"),
     s.waypoint.all<{ id: string; public_id: string }>("SELECT id,public_id FROM collections"),
     s.waypoint.get<{ last_upload_at: number | null }>(
       "SELECT MAX(uploaded_at) AS last_upload_at FROM blobs",
     ),
     s.waypoint.get<{ value: string }>("SELECT value FROM meta WHERE key='last_push_at'"),
+    s.queue.all<{ id: string; last_error: string }>(
+      "SELECT collection_id AS id,last_error FROM pending_snapshots WHERE last_error IS NOT NULL",
+    ),
+    s.queue.all<{ id: string; last_error: string }>(
+      "SELECT key AS id,last_error FROM pending_r2_deletes WHERE last_error IS NOT NULL",
+    ),
+    s.queue.all<{ id: string; last_error: string }>(
+      "SELECT collection_id AS id,last_error FROM pending_purges WHERE last_error IS NOT NULL",
+    ),
   ]);
   const collectionIds = new Map(
     [...committedCollections, ...pendingCollections].map((row) => [row.id, row.public_id]),
@@ -34,7 +51,18 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
   const pending = rows.filter((row) => row.state === "pending");
   const failed = rows.filter((row) => row.state === "failed");
   const pushTime = lastPush ? Number(lastPush.value) : null;
+  const queueErrors = [
+    ...snapshotErrors.map((row) => ({ kind: "snapshot", ...row })),
+    ...deleteErrors.map((row) => ({ kind: "bucket_delete", ...row })),
+    ...purgeErrors.map((row) => ({ kind: "purge", ...row })),
+  ];
+  const latestRevisionError = rows
+    .filter((row) => row.last_error !== null)
+    .toSorted(
+      (a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    )[0]?.last_error;
   return {
+    environment: s.environment ?? "dev",
     queue: {
       pending_collections: pendingCollections.length,
       pending_revisions: pending.length,
@@ -60,16 +88,22 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
       error_kind: row.error_kind,
       collection_public_id: collectionIds.get(row.collection_id) ?? null,
     })),
-    last_upload_at: uploads?.last_upload_at ?? null,
-    last_push_at: pushTime !== null && Number.isFinite(pushTime) ? pushTime : null,
+    queue_errors: queueErrors,
+    last_upload_at: s.committer?.lastUploadAt ?? uploads?.last_upload_at ?? null,
+    last_push_at:
+      s.syncLoop?.lastPushAt ?? (pushTime !== null && Number.isFinite(pushTime) ? pushTime : null),
     last_pull_at: s.ingest.sync.lastPullAt,
     last_error:
-      rows
-        .filter((row) => row.last_error !== null)
-        .toSorted(
-          (a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
-        )[0]?.last_error ?? null,
+      s.committer?.accountError ??
+      (s.syncLoop?.blocked ? s.syncLoop.lastError : null) ??
+      latestRevisionError ??
+      queueErrors[0]?.last_error ??
+      s.syncLoop?.lastError ??
+      null,
     sync_verified: Boolean(s.ingest.sync.verified),
+    sync_blocked: Boolean(s.syncLoop?.blocked),
     sync_enabled: !(s.ingest.sync instanceof LocalSyncClient),
+    account_paused: Boolean(s.committer?.accountError),
+    account_error: s.committer?.accountError ?? null,
   };
 }

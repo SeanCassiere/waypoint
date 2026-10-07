@@ -1,6 +1,8 @@
 import { serve } from "@hono/node-server";
 
 import { BlobStore } from "./blob-store.js";
+import { R2Bucket } from "./bucket.js";
+import { WriterCommitter } from "./committer.js";
 import { loadConfig } from "./config.js";
 import { ownDataDirectory } from "./data-dir.js";
 import { openDatabases } from "./db.js";
@@ -9,14 +11,22 @@ import { IngestService } from "./ingest.js";
 import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.js";
 import { ReadModel } from "./read-model.js";
 import { writerRenderer } from "./renderer.js";
+import { restore } from "./restore.js";
+import { SyncLoop } from "./sync-loop.js";
 
 const command = process.argv[2] ?? "serve";
-if (command === "restore") {
-  console.log("not implemented yet");
+const restoreMode = process.argv[3];
+if (command === "--help" || command === "help") {
+  console.log(
+    "Usage: waypoint-writer serve | restore --from-bucket | restore --merge\nA fresh writer normally bootstraps from the cloud DB; restore rebuilds missing cloud data from the bucket.",
+  );
   process.exit(0);
 }
-if (command !== "serve") {
-  console.error("Usage: waypoint-writer serve|restore");
+if (
+  command !== "serve" &&
+  !(command === "restore" && (restoreMode === "--from-bucket" || restoreMode === "--merge"))
+) {
+  console.error("Usage: waypoint-writer serve | restore --from-bucket | restore --merge");
   process.exit(2);
 }
 let releaseDirectory: (() => Promise<void>) | undefined;
@@ -27,6 +37,21 @@ try {
   await guardEnvironment(waypoint, syncClient, config.environment, config.sync);
   await migrate(waypoint, waypointMigrations);
   await migrate(queue, queueMigrations);
+  if (command === "restore") {
+    if (!config.sync) throw new Error("Restore requires cloud sync");
+    const bucket = new R2Bucket(config);
+    const summary = await restore(
+      waypoint,
+      bucket,
+      new SyncLoop(queue, syncClient, Date.now, waypoint, { pushMs: 300_000 }),
+      restoreMode === "--merge" ? "merge" : "from-bucket",
+    );
+    console.log(JSON.stringify(summary));
+    await waypoint.close();
+    await queue.close();
+    await releaseDirectory();
+    process.exit(0);
+  }
   const blobs = new BlobStore(config.dataDir, config.maxBlobBytes);
   await blobs.sweepTemps();
   const reads = new ReadModel(waypoint, queue, config.baseUrl);
@@ -41,6 +66,26 @@ try {
     config.maxFiles,
     config.maxRevisionBytes,
   );
+  const bucket = config.sync ? new R2Bucket(config) : undefined;
+  const syncLoop = new SyncLoop(queue, syncClient, Date.now, waypoint);
+  const committer = bucket
+    ? new WriterCommitter(
+        waypoint,
+        queue,
+        blobs,
+        bucket,
+        syncLoop,
+        ingest,
+        Date.now,
+        Math.random,
+        config.queueGiveUpHours,
+      )
+    : undefined;
+  if (committer) {
+    ingest.committer = committer;
+    syncLoop.start();
+    committer.wake();
+  }
   const server = serve({
     fetch: createApp({
       waypoint,
@@ -48,6 +93,10 @@ try {
       blobs,
       reads,
       ingest,
+      bucket,
+      committer,
+      syncLoop,
+      environment: config.environment,
       port: config.port,
       ...(config.mcpTarballPath ? { mcpTarballPath: config.mcpTarballPath } : {}),
     }).fetch,
@@ -59,11 +108,15 @@ try {
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    committer?.stop();
+    syncLoop.stop();
     const timeout = setTimeout(() => process.exit(1), 10_000);
     if ("closeIdleConnections" in server) server.closeIdleConnections();
     server.close(() => {
       void blobs
         .waitForIdle()
+        .then(() => committer?.drain())
+        .then(() => syncLoop.drain())
         .then(() => blobs.sweepTemps())
         .then(() => Promise.all([waypoint.close(), queue.close()]))
         .then(async () => releaseDirectory?.())

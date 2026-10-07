@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { connect as connectLocal } from "@tursodatabase/database";
 import { connect as connectSync } from "@tursodatabase/sync";
@@ -36,6 +37,23 @@ export function inSeries<T>(items: Iterable<T>, fn: (item: T) => Promise<unknown
     Promise.resolve(),
   );
 }
+export async function retrySyncBusy<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          /database is locked|database is busy|SQLITE_BUSY|SQLITE_LOCKED/i.test(error.message)
+        ) ||
+        attempt >= 5
+      )
+        throw error;
+      await delay(10 * (attempt + 1));
+    }
+  }
+}
 export class Db implements DbHandle {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(readonly engine: Engine) {}
@@ -46,12 +64,30 @@ export class Db implements DbHandle {
   }
   private raw: DbHandle = {
     all: async <T>(sql: string, args: Params = []) =>
-      (await this.engine.prepare(sql)).all<T>(...args),
+      this.retryBusy(async () => (await this.engine.prepare(sql)).all<T>(...args)),
     get: async <T>(sql: string, args: Params = []) =>
-      (await this.engine.prepare(sql)).get<T>(...args),
-    run: async (sql: string, args: Params = []) => (await this.engine.prepare(sql)).run(...args),
-    exec: (sql: string) => this.engine.exec(sql),
+      this.retryBusy(async () => (await this.engine.prepare(sql)).get<T>(...args)),
+    run: (sql: string, args: Params = []) =>
+      this.retryBusy(async () => (await this.engine.prepare(sql)).run(...args)),
+    exec: (sql: string) => this.retryBusy(() => this.engine.exec(sql)),
   };
+  private async retryBusy<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            /database is locked|database is busy|SQLITE_BUSY|SQLITE_LOCKED/i.test(error.message)
+          ) ||
+          attempt >= 5
+        )
+          throw error;
+        await delay(10 * (attempt + 1));
+      }
+    }
+  }
   prepare(sql: string): Promise<Statement> {
     return Promise.resolve({
       all: <T>(...args: Params) => this.connectionOperation(() => this.raw.all<T>(sql, args)),
@@ -96,6 +132,8 @@ export interface SyncClient {
   lastPullAt: number | null;
   verified?: boolean;
   beforePush?: () => Promise<void>;
+  afterPull?: () => Promise<void>;
+  blockedReason?: string;
 }
 export class LocalSyncClient implements SyncClient {
   lastPullAt: number | null = Date.now();
@@ -142,6 +180,7 @@ export async function openDatabases(
       }
     },
     pull() {
+      if (this.blockedReason) return Promise.reject(new Error(this.blockedReason));
       if (pullFlight) return pullFlight;
       pullFlight = this.probe!()
         .then(async (reachable) => {
@@ -149,9 +188,10 @@ export async function openDatabases(
           // Turso's native engine coordinates pull with local statements. The app mutex
           // covers SQL statements only: a network pull must not queue local reads or
           // writes behind it. The single-flight promise prevents concurrent pulls.
-          return remote.pull();
+          return retrySyncBusy(() => remote.pull());
         })
-        .then((changed) => {
+        .then(async (changed) => {
+          await this.afterPull?.();
           this.lastPullAt = Date.now();
           return changed;
         })
@@ -162,10 +202,10 @@ export async function openDatabases(
     },
     async push() {
       await this.beforePush?.();
-      await waypoint.connectionOperation(() => remote.push());
+      await remote.push();
     },
     checkpoint() {
-      return waypoint.connectionOperation(() => remote.checkpoint());
+      return remote.checkpoint();
     },
   };
   return { waypoint, queue, syncClient };

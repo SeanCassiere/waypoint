@@ -612,6 +612,8 @@ describe("errors and MIME", () => {
       head_path_ambiguous: 400,
       blob_missing: 422,
       blob_hash_mismatch: 422,
+      bucket_corrupt: 502,
+      bucket_unavailable: 503,
       blob_too_large: 413,
       revision_too_large: 413,
       clock_skew: 400,

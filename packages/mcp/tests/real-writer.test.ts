@@ -558,6 +558,7 @@ it("keeps a URL base path and rejects unsafe base URLs", async () => {
     return Promise.resolve(
       new Response(
         JSON.stringify({
+          environment: "dev",
           queue: {
             pending_collections: 0,
             pending_revisions: 0,
@@ -571,11 +572,17 @@ it("keeps a URL base path and rejects unsafe base URLs", async () => {
           },
           oldest_pending_age_ms: null,
           failed_items: [],
+          pending_items: [],
+          sync_enabled: false,
+          queue_errors: [],
           last_upload_at: null,
           last_push_at: null,
           last_pull_at: null,
           last_error: null,
           sync_verified: false,
+          sync_blocked: false,
+          account_paused: false,
+          account_error: null,
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),

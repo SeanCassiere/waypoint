@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, stat, unlink, open, readdir } from "node:fs/promises";
+import { mkdir, rename, stat, unlink, open, readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -112,7 +112,7 @@ export class BlobStore {
         } finally {
           await folder.close();
         }
-      }
+      } else await utimes(dest, new Date(), new Date());
       return { hash, size };
     } finally {
       await unlink(temp).catch(() => undefined);
