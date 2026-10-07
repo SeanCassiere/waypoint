@@ -55,6 +55,8 @@ export function bindGallery(): void {
       dialog.showModal();
     }),
   );
+  // Closing returns focus to the thumbnail of the image on screen, not the one first opened.
+  dialog.addEventListener("close", () => shots[index]?.focus());
   $("[data-lbx-prev]", dialog)?.addEventListener("click", () => show(index - 1));
   $("[data-lbx-next]", dialog)?.addEventListener("click", () => show(index + 1));
   dialog.addEventListener("keydown", (event) => {

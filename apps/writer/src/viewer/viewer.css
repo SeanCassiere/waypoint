@@ -821,10 +821,13 @@ a.chip.public:hover {
 .rmenu .rv {
   margin: 0;
 }
+/* A manual popover (top layer, above modal dialogs); reset the UA popover box. */
 .toast {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
+  inset: auto auto 24px 50%;
+  margin: 0;
+  border: 0;
+  overflow: visible;
   transform: translateX(-50%);
   background: var(--ink);
   color: var(--paper);

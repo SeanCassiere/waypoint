@@ -44,7 +44,7 @@ export function Layout(props: {
         />
         <KeysDialog />
         <ConfirmDialog />
-        <div class="toast" role="status" aria-live="polite" data-toast hidden />
+        <div class="toast" role="status" aria-live="polite" data-toast popover="manual" />
         <script src={clientAsset.url} defer />
         {pageScript ? <script src={pagesAsset.url} defer /> : null}
       </body>
