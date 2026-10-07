@@ -88,11 +88,11 @@ export async function mcpPage(
           ) : (
             <CodeBlock label="MCP client config (JSON)" text={commands.json} what="config" />
           )}
-          <h3 class="sec">Teach the agent how to use it (skill)</h3>
+          <h2 class="sec">Teach the agent how to use it (skill)</h2>
           <CodeBlock label="Terminal" text={commands.skills} what="commands" />
-          <h3 class="sec">
+          <h2 class="sec">
             Machines that have published <span class="n">from revision metadata</span>
-          </h3>
+          </h2>
           <div class="rows">
             {facets.hosts.length ? (
               facets.hosts.map((host) => (

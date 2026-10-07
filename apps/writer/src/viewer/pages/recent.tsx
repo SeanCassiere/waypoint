@@ -218,7 +218,7 @@ export function NeedsAttention(props: { health: Health; now: number }) {
   if (!rows.length) return null;
   return (
     <section class="attn" aria-labelledby="attn">
-      <h3 id="attn">Needs attention</h3>
+      <h2 id="attn">Needs attention</h2>
       {rows.slice(0, 3)}
       {rows.length > 3 ? (
         <div class="more">
@@ -288,7 +288,7 @@ export function RecentBody(props: {
       <aside class="side hide-sm" aria-label="Browse">
         {props.projects.length ? (
           <>
-            <h3>Projects</h3>
+            <h2>Projects</h2>
             {props.projects.map((facet) => (
               <a
                 class="facet"
@@ -302,7 +302,7 @@ export function RecentBody(props: {
         ) : null}
         {props.publicNow ? (
           <>
-            <h3>Public now</h3>
+            <h2>Public now</h2>
             {props.publicNow.map((item) => (
               <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
                 {item.title}

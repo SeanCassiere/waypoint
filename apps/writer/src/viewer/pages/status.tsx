@@ -242,9 +242,9 @@ export async function statusPage(
               </div>
             </div>
           </div>
-          <h3 class="sec">
+          <h2 class="sec">
             Failed revisions <span class="n">{health.failed.length}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {health.failed.length ? (
               health.failed.map((item) => (
@@ -279,9 +279,9 @@ export async function statusPage(
               <div class="empty">No failed revisions.</div>
             )}
           </div>
-          <h3 class="sec">
+          <h2 class="sec">
             Uploading <span class="n">{plural(health.pending.length, "revision")}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {health.pending.length ? (
               health.pending.map((item) => (
@@ -313,9 +313,9 @@ export async function statusPage(
           </div>
           {extras.watchers ? (
             <>
-              <h3 class="sec">
+              <h2 class="sec">
                 Agents watching <span class="n">{watchers.length}</span>
-              </h3>
+              </h2>
               <div class="rows" data-watchers>
                 {watchers.length ? (
                   watchers.map((watcher) => {
@@ -349,9 +349,9 @@ export async function statusPage(
               </div>
             </>
           ) : null}
-          <h3 class="sec">
+          <h2 class="sec">
             Background queue errors <span class="n">{status.queue_errors.length}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {status.queue_errors.length ? (
               status.queue_errors.map((row) => (
@@ -371,7 +371,7 @@ export async function statusPage(
               <div class="empty">No snapshot, delete, or purge errors.</div>
             )}
           </div>
-          <h3 class="sec">Writer</h3>
+          <h2 class="sec">Writer</h2>
           <div class="rows">
             <div class="r">
               <span class="t mono">{chrome.host}</span>

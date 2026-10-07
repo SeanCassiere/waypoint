@@ -42,7 +42,7 @@ kbd {
 }
 mark {
   background: var(--pending-bg);
-  color: inherit;
+  color: var(--ink);
   border-radius: 3px;
 }
 [hidden] {
@@ -570,17 +570,17 @@ a.chip.public:hover {
   font-weight: 600;
   color: var(--ink);
 }
-.side h3 {
+.side h2 {
   font: 600 11.5px/1 var(--sans);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--faint);
   margin: 0 0 10px;
 }
-.side h3 + * {
+.side h2 + * {
   margin-top: 0;
 }
-.side .facet + h3 {
+.side .facet + h2 {
   margin-top: 24px;
 }
 .card {
@@ -638,7 +638,7 @@ a.chip.public:hover {
   margin: 0 0 20px;
   overflow: hidden;
 }
-.attn h3 {
+.attn h2 {
   margin: 0;
   padding: 10px 14px 6px;
   font: 650 12px/1 var(--sans);
@@ -654,7 +654,7 @@ a.chip.public:hover {
   align-items: center;
   border-top: 1px solid var(--failed-line);
 }
-.attn h3 + .ar {
+.attn h2 + .ar {
   border-top: 0;
 }
 .attn .ar .t {
@@ -2297,14 +2297,14 @@ dialog.lbx::backdrop {
 .stat.bad .n {
   color: var(--failed);
 }
-h3.sec {
+h2.sec {
   font: 650 13px/1 var(--sans);
   margin: 28px 0 10px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-h3.sec .n {
+h2.sec .n {
   color: var(--faint);
   font-weight: 500;
 }
