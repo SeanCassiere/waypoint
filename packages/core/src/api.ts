@@ -159,6 +159,11 @@ export interface QueueCounts {
   failed_revisions: number;
   pending_blobs: number;
   pending_renditions: number;
+  /**
+   * Queued renditions no queued revision references (the `rerender` backlog). Unlike
+   * `pending_renditions`, it doesn't count renditions waiting on a pending or failed revision.
+   */
+  rerender_pending?: number | undefined;
   pending_snapshots: number;
   pending_r2_deletes: number;
   pending_purges: number;

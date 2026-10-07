@@ -273,7 +273,7 @@ describe("rerender", () => {
     });
     const dryLines = formatRerenderSummary(dry).split("\n");
     expect(JSON.parse(dryLines[0]!)).toEqual(dry);
-    expect(dryLines[1]).toBe("remaining: 2 (dry run)");
+    expect(dryLines.slice(1)).toEqual(["missing: 0", "failed: 0", "remaining: 2 (dry run)"]);
     const run = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
     expect(formatRerenderSummary(run).split("\n").at(-1)).toBe("remaining: 0");
   });
@@ -348,7 +348,8 @@ describe("rerender", () => {
     );
     spy.mockRestore();
     expect(summary.missing).toEqual([notes]);
-    expect(summary).toMatchObject({ queued: 2, remaining: 1 });
+    // A missing source isn't "remaining": another run can't fix it.
+    expect(summary).toMatchObject({ queued: 2, remaining: 0 });
     expect(await blobs.has(readme)).toBe(true);
     const offline = await rerender(waypoint, queue, blobs, new FakeRenderer(2), { dryRun: false });
     expect(offline.missing).toEqual([notes]);
@@ -590,5 +591,65 @@ describe("rerender", () => {
           [source],
         ),
       ).toBe(1);
+  });
+
+  it("excludes missing and failed sources from remaining, and they don't use up --limit", async () => {
+    const { readme, notes, shared } = await seed();
+    await blobs.delete(notes);
+    // Rendering `# Shared` fails; the others render.
+    const v2 = new FakeRenderer(2);
+    const render = v2.render.bind(v2);
+    v2.render = (source, mime) =>
+      new TextDecoder().decode(source) === "# Shared"
+        ? Promise.resolve(null)
+        : render(source, mime);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const all = await rerender(waypoint, queue, blobs, v2, { dryRun: true });
+    expect(all).toMatchObject({ queued: 3, remaining: 0 });
+    // The runbook's loop: repeat while remaining > 0. Each run queues one renderable source.
+    const runs: string[] = [];
+    let last;
+    do {
+      last = await rerender(waypoint, queue, blobs, v2, { dryRun: false, limit: 1 });
+      runs.push(formatRerenderSummary(last));
+    } while (last.remaining > 0 && runs.length < 5);
+    spy.mockRestore();
+    // Only one source can be rendered, so the loop ends within two runs: the one that queues it,
+    // and at most one more that finds only the missing and failed sources.
+    expect(runs.length).toBeLessThanOrEqual(2);
+    expect(last).toMatchObject({ remaining: 0, missing: [notes], failed: [shared] });
+    expect(runs.at(-1)!.split("\n").slice(1)).toEqual(["missing: 1", "failed: 1", "remaining: 0"]);
+    expect(
+      (await queue.all<{ source_hash: string }>("SELECT source_hash FROM pending_renditions")).map(
+        (row) => row.source_hash,
+      ),
+    ).toEqual([readme]);
+  });
+
+  it("counts only standalone renditions as rerender_pending, so a failed revision can't block the loop", async () => {
+    await seed();
+    const sources = await backlog(3);
+    const app = createApp({ waypoint, queue, blobs, reads, ingest });
+    const status = async (): Promise<unknown> => (await app.request("/api/status")).json();
+    // A revision that failed with its own (ingest-time) rendition queued.
+    const stuck = await ingest.create({
+      title: "Stuck",
+      files: [{ path: "stuck.md", hash: await put("# Stuck") }],
+    });
+    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [stuck.revision_id]);
+    expect(await status()).toMatchObject({
+      queue: { pending_renditions: 4, rerender_pending: 3 },
+    });
+    // The failed revision never commits, so its rendition stays queued...
+    await commitAll();
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_revisions")).toBe(1);
+    // ...but the standalone backlog drains, which is what the runbook waits for.
+    expect(await status()).toMatchObject({
+      queue: { pending_renditions: 1, rerender_pending: 0 },
+    });
+    const committed = await waypoint.all<{ source_hash: string }>(
+      "SELECT source_hash FROM renditions WHERE renderer_version=2 ORDER BY source_hash",
+    );
+    expect(committed.map((row) => row.source_hash)).toEqual(sources.toSorted());
   });
 });

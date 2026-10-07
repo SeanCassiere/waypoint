@@ -26,7 +26,10 @@ export type RerenderOptions = {
   /** A collection ID or public ID; undefined means every collection. */
   collection?: string;
   dryRun: boolean;
-  /** Maximum number of renditions to generate in this run. */
+  /**
+   * Maximum number of renditions to generate in this run. Sources that turn out missing or fail
+   * to render don't count, so every run with renderable sources left makes progress.
+   */
   limit?: number;
   timeoutMs?: number;
   now?: () => number;
@@ -42,7 +45,10 @@ export type RerenderSummary = {
   current: number;
   /** Renditions queued by this run (in a dry run: that would be queued). */
   queued: number;
-  /** Sources still lacking a current-version rendition after this run (--limit, missing, failed). */
+  /**
+   * Sources this run didn't reach because of --limit. Excludes `missing` and `failed`, which
+   * another run won't fix, so a loop that repeats while this is above 0 ends.
+   */
   remaining: number;
   /** Sources whose blob is neither in the local store nor fetchable from the bucket. */
   missing: string[];
@@ -51,13 +57,16 @@ export type RerenderSummary = {
 };
 
 /**
- * The command's output: the JSON summary, then one plain `remaining: N` line, so a loop can stop
- * when it reads `remaining: 0`. In a dry run N is what a real run with the same options would
- * leave.
+ * The command's output: the JSON summary, then plain `missing: X` and `failed: Y` counts (their
+ * hashes are in the JSON), then a last `remaining: N` line, so a loop can stop when it reads
+ * `remaining: 0`. In a dry run nothing is fetched or rendered, so missing and failed are 0 and N
+ * counts every source past --limit.
  */
 export function formatRerenderSummary(summary: RerenderSummary): string {
   return [
     JSON.stringify(summary),
+    `missing: ${summary.missing.length}`,
+    `failed: ${summary.failed.length}`,
     `remaining: ${summary.remaining}${summary.dry_run ? " (dry run)" : ""}`,
   ].join("\n");
 }
@@ -189,7 +198,7 @@ export async function rerender(
       ));
     if (!existing) needed.push(hash);
   });
-  const batch = needed.slice(0, options.limit ?? needed.length);
+  const limit = options.limit ?? needed.length;
   const summary: RerenderSummary = {
     renderer: renderer.rendererName,
     renderer_version: renderer.rendererVersion,
@@ -203,11 +212,16 @@ export async function rerender(
     failed: [],
   };
   if (options.dryRun) {
-    summary.queued = batch.length;
-    summary.remaining = needed.length - batch.length;
+    summary.queued = Math.min(limit, needed.length);
+    summary.remaining = needed.length - summary.queued;
     return summary;
   }
-  await inSeries(batch, async (hash) => {
+  // Attempt sources in order until `limit` are queued; missing and failed ones don't use up the
+  // limit, so a run never stalls on sources that can't be rendered.
+  let attempted = 0;
+  await inSeries(needed, async (hash) => {
+    if (summary.queued >= limit) return;
+    attempted++;
     if (!(await blobs.has(hash))) {
       // A writer bootstrapped from the cloud fetches blobs lazily; get the source like the viewer would.
       const stored = await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash]);
@@ -259,6 +273,6 @@ export async function rerender(
     });
     summary.queued++;
   });
-  summary.remaining = needed.length - summary.queued;
+  summary.remaining = needed.length - attempted;
   return summary;
 }

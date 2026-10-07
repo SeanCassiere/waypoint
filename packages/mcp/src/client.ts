@@ -169,6 +169,7 @@ const statusResult = z.looseObject({
     failed_revisions: z.number(),
     pending_blobs: z.number(),
     pending_renditions: z.number(),
+    rerender_pending: z.number().optional(),
     pending_snapshots: z.number(),
     pending_r2_deletes: z.number(),
     pending_purges: z.number(),

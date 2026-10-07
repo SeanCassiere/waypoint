@@ -32,7 +32,7 @@ Read responses use the types exported by `@waypoint/core` (`api.ts`). They conta
 - `RevisionDetail`: a revision summary plus `files`, an array of `{ path, hash, mime, size, url }`. Each file URL is pinned to that revision's raw route.
 - `GET /api/collections` returns `{ collections: CollectionSummary[] }`; `GET /api/collections/:id` returns `CollectionDetail`; `GET /api/collections/:id/revisions` returns `{ revisions: RevisionSummary[] }`; `GET /api/revisions/:id` returns `RevisionDetail`.
 - `POST /api/resolve` returns `{ collection_id, revision_id?, path? }`.
-- `GET /api/status` returns `queue` counts, `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, and `sync_verified`. Timestamps are Unix milliseconds or `null`.
+- `GET /api/status` returns `queue` counts (`rerender_pending` counts queued renditions no queued revision references, the `rerender` backlog), `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, and `sync_verified`. Timestamps are Unix milliseconds or `null`.
 - `PATCH /api/collections/:id`, `DELETE /api/collections/:id`, and `POST /api/collections/:id/undelete` return `CollectionDetail`.
 - `POST /api/collections/:id/purge` returns `{ purged: true }` for a pending collection or `{ queued: true }` for a committed one, with status 202.
 - `POST /api/queue/:revision_id/retry` returns `{ retried: string[] }`; `DELETE /api/queue/:revision_id` returns `{ dropped: string[] }`.

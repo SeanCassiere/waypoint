@@ -125,12 +125,25 @@ queued. The writer uploads it after it starts again, a batch of 50 renditions
 at a time between new revisions, so a large backlog never holds up agents.
 
 Run everything from the repository root on agent-1. `$C` is the compose
-prefix; the example uses version 2, which must match the deployed
-`RENDERER_VERSION`.
+prefix. Every command passes `--version 2`, which must match the deployed
+`RENDERER_VERSION`; change it if the deploy bumped to a different version.
 
 ```bash
 C="docker compose -p waypoint -f deploy/compose.yaml"
+S=https://waypoint.tail7aca06.ts.net/api/status
 ```
+
+Before starting:
+
+- Note the baseline, so you can tell what this procedure changed:
+
+  ```bash
+  curl -fsS "$S" | jq '{queue, failed: (.failed_items | length)}'
+  ```
+
+- If **Status** (`/status`) lists failed revisions, retry or drop them there
+  first. Their own renditions stay queued until they commit or are dropped, so
+  they show in `pending_renditions` but not in `rerender_pending`.
 
 1. Stop the deploy runner, so no deploy can recreate the writer during the
    window:
@@ -154,8 +167,10 @@ C="docker compose -p waypoint -f deploy/compose.yaml"
    sg docker -c "$C ps -a writer"
    ```
 
-4. Preview, then render one batch. Each run prints its JSON summary followed by
-   a `remaining: N` line (sources still without a current-version rendition).
+4. Preview, then render one batch. Each run prints its JSON summary, then
+   `missing: X`, `failed: Y` and a last `remaining: N` line. `remaining`
+   counts sources this run didn't reach because of `--limit`; it excludes
+   missing and failed sources, which another run won't fix.
 
    ```bash
    sg docker -c "$C run --rm --no-deps -T writer node dist/main.js rerender --all --renderer markdown --version 2 --dry-run"
@@ -170,14 +185,16 @@ C="docker compose -p waypoint -f deploy/compose.yaml"
    ```
 
 6. Check it through the tailnet, then wait for the queued renditions to upload
-   (`pending_renditions` reaches 0):
+   (`rerender_pending` reaches 0). Don't wait on `pending_renditions`: it also
+   counts renditions of queued revisions, which commit with their revision.
 
    ```bash
    curl -fsS https://waypoint.tail7aca06.ts.net/healthz
-   until [ "$(curl -fsS https://waypoint.tail7aca06.ts.net/api/status | jq .queue.pending_renditions)" = 0 ]; do sleep 10; done
+   until [ "$(curl -fsS "$S" | jq .queue.rerender_pending)" = 0 ]; do sleep 10; done
    ```
 
-7. If step 4 printed `remaining:` above 0, repeat steps 3 to 6.
+7. If step 4 printed `remaining:` above 0, repeat steps 3 to 6. Stop once it
+   prints `remaining: 0`, whatever `missing` and `failed` say.
 
 8. Restart the deploy runner:
 
@@ -185,17 +202,25 @@ C="docker compose -p waypoint -f deploy/compose.yaml"
    systemctl --user start waypoint-gh-runner.service
    ```
 
+9. If any run reported `missing` or `failed` above 0, investigate the hashes
+   listed in that run's JSON summary (`missing`, `failed`). A missing source is
+   in neither the local blob cache nor R2; a failed one made the renderer
+   return nothing or time out, as it would at ingest. Those documents keep
+   their previous rendition. A later run retries them.
+
 If anything fails, start the writer (step 5) and the runner (step 8) before
 investigating. Every step is safe to repeat: sources that already have a
 current-version rendition, committed or queued, are skipped.
 
-The summary's fields are `sources`, `current`, `queued`, `remaining`,
-`missing` and `failed`. `--collection <id or public id>` limits the scope. A
-source blob missing from the local cache is fetched from R2. `--renderer
-markdown --version <n>` is a guard: it fails if the image renders a different
-version. `docker compose run` reuses the writer service's env file, data volume
-and user, so no secrets are loaded in your shell. `-T` keeps the output
-plain for scripts.
+The summary's fields are `sources`, `current`, `queued`, `remaining`, and the
+`missing` and `failed` source hashes. `--limit` caps the renditions queued per
+run; missing and failed sources don't count toward it, so each run with
+renderable sources left makes progress. `--collection <id or public id>`
+limits the scope. A source blob missing from the local cache is fetched from
+R2. `--renderer markdown --version <n>` is a guard: it fails if the image
+renders a different version. `docker compose run` reuses the writer service's
+env file, data volume and user, so no secrets are loaded in your shell. `-T`
+keeps the output plain for scripts.
 
 ## Public reader Workers
 
