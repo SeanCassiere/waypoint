@@ -87,13 +87,15 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
   - Never add a workflow that runs untrusted code (for example from forks) on the `waypoint-deploy` runner.
 - **PR previews run unreviewed PR code on the same runner** (D49). The Preview workflow ([preview.yml](../.github/workflows/preview.yml)) checks out each PR's head commit on the `waypoint-deploy` runner, uploads it as a Worker Preview of the prod reader with the prod **read-only** reader credentials, and deletes it when the PR closes. GitHub runs a `pull_request` workflow **from the PR's own branch**, so whoever can push a branch to this repository can change the workflow in that branch and run anything on the runner, with everything in `~/.config/waypoint/`, before any review.
   - **That's acceptable only because only the owner can push branches.** If anyone else ever gets write access (a collaborator, a deploy key, or an app or bot that can push branches), remove the Preview workflow or move previews off the self-hosted runner first.
-  - **Fork PRs never reach the runner.** Every self-hosted job has `if: head.repo.full_name == github.repository`, so fork PRs skip it.
+  - **Fork PRs never reach the runner because fork-PR workflows are off.** The repository is private, and its Actions setting "Run workflows from fork pull requests" is off (`run_workflows_from_fork_pull_requests: false`, checked 2026-10-08). **It must stay off.** A fork PR would run the fork's own copy of `preview.yml`, so the workflow's `if: head.repo.full_name == github.repository` conditions can't stop forks; they only prevent mistakes.
   - **A guard job runs first, on a GitHub-hosted runner.** It fails unless the head repo is this repo and both `github.actor` and `github.triggering_actor` are on its allow list (only `SeanCassiere`; bots only after review). The self-hosted jobs `need` it.
+  - The self-hosted jobs' own `if:` conditions repeat the same checks, because re-running only `up` reuses the guard's earlier success.
   - The guard is defense in depth against mistakes, not against a malicious branch, which could edit the guard too. The real control is who can push.
   - **Never use `pull_request_target`.** It would run with this repo's permissions for fork PRs.
   - The preview jobs get a read-only `GITHUB_TOKEN`. Only the comment job, on a GitHub-hosted runner with no checkout, can write PR comments.
 - **Previews are owner-only.** Cloudflare Access (app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f`, one Allow policy for the owner) covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. Those are the prod Worker's `workers.dev` route, its version URLs and every preview.
-  - The preview script fails, and deletes the preview, unless both its URLs answer 302 to the Access login.
+  - The preview script fails closed. Once it has started uploading, anything short of both URLs answering 302 to the Access login deletes the preview: an upload error, unexpected output, another redirect, an error status, no response, a timeout or a cancelled run.
+  - Every prod reader deploy also requires `waypoint-reader.seancassiere.workers.dev` to redirect to Access, and rolls back if it doesn't.
   - Previews are never enabled on `waypoint.pingstash.com`, which stays public, production only, and without Access. Its route pins `previews_enabled: false`.
   - A preview can read everything the prod reader can (all prod metadata and blobs, not just shared ones), and it can't write.
 - Dependencies: Dependabot alerts are triaged. Lockfiles are frozen in CI. pnpm's `minimumReleaseAge` delays brand-new package versions.
@@ -106,7 +108,7 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 | A leaked share URL grants access until revoked or expired | Capability-URL model. Revoke it in the writer; it takes effect within about 60 s. Passwords and audience grants are planned to narrow this. |
 | Malicious agent HTML in the tailnet viewer can call the writer API | D23. The agents are the owner's own. |
 | Turso or Cloudflare can read stored content | Accepted provider trust. There's no client-side encryption. |
-| A pushed branch can run code on the deploy runner, with production credentials, before review | Only the owner can push (D49). The Preview workflow runs the PR branch's own workflow file there. |
+| A pushed branch can run any code on the deploy runner before review | The Preview workflow runs the PR branch's own workflow file there (D49). It's accepted only because only the owner can push, and that "owner" includes every agent, token and tool that pushes as `SeanCassiere`. Such code can reach far more than the reader credentials. The runner runs as `agent-1`, which is in the `docker`, `lxd` and `sudo` groups, so it is effectively root on agent-1. That includes every secret in `~/.config/waypoint/` (writer, Turso, R2 and Cloudflare), T3 Code and the other agent workloads, and the host's `gh` and git credentials. The runner is persistent: a job could leave behind files, Docker images or tool caches that a later deploy picks up. |
 | Losing the R2 bucket loses content | The bucket is the durability floor; see [write-path-and-sync.md](write-path-and-sync.md#restore--disaster-recovery). |
 
 ## Related decisions

@@ -237,7 +237,7 @@ bash deploy/deploy-reader.sh dev
 bash deploy/deploy-reader.sh prod
 ```
 
-The script records the current Worker version, uploads secrets, deploys, then retries `/healthz`, `/healthz/deep`, an unknown share URL, and `/robots.txt` for up to 120 seconds by default. On smoke failure it calls `wrangler rollback` with the recorded version when one exists and exits nonzero. For a manual rollback, inspect versions and select the prior known-good version:
+The script records the current Worker version, uploads secrets, deploys, then retries `/healthz`, `/healthz/deep`, an unknown share URL, and `/robots.txt` for up to 120 seconds by default. For prod it also requires `https://waypoint-reader.seancassiere.workers.dev/healthz` to answer 302 to the Cloudflare Access login, because the prod Worker's `workers.dev` route and previews are on ([PR previews](#pr-previews)). On smoke failure it calls `wrangler rollback` with the recorded version when one exists and exits nonzero. For a manual rollback, inspect versions and select the prior known-good version:
 
 ```bash
 cd apps/reader
@@ -280,14 +280,16 @@ A newer push cancels an in-flight `up`. `closed` waits for it and then deletes t
    wrangler preview --env prod --name pr-<number> --secrets-file <file> --json --ignore-base-config
    ```
 
-   That creates or updates the preview and uploads a deployment with those values as its secrets. The file is deleted immediately after. Preview secrets are never inherited from production, so every deployment carries the current prod values. `--ignore-base-config` keeps the dashboard's Preview base config out of it: the `previews` block in `wrangler.jsonc` is the whole configuration. That block binds `ACCESS_LOG` to the separate Analytics Engine dataset `waypoint_access_preview`, and `TOKEN_MISS_LIMITER` to its own rate-limit namespace `1003`.
+   That creates or updates the preview and uploads a deployment with those values as its secrets. The file is deleted immediately after. Preview secrets are never inherited from production, so every deployment carries the current prod values. `--ignore-base-config` applies only when the preview is created (a PR's first push); every deployment sends its full runtime env anyway, so the `previews` block in `wrangler.jsonc` and the secrets file are the whole configuration. Keep the dashboard's Preview base config empty. That block binds `ACCESS_LOG` to the separate Analytics Engine dataset `waypoint_access_preview`, and `TOKEN_MISS_LIMITER` to its own rate-limit namespace `1003`.
 3. It checks that both URLs are `workers.dev` hostnames of `waypoint-reader`, and that the preview's latest deployment is the one just uploaded.
-4. It retries for up to 120 s (`SMOKE_TIMEOUT_SECONDS`) until `/healthz` on both the preview URL and the deployment URL answers 302 to the Access login for its own hostname. If either ever answers 2xx (served without Access), it deletes the preview at once and fails. The deep health check can't run, because it would need to get past Access.
+4. It retries for up to 120 s (`SMOKE_TIMEOUT_SECONDS`) until `/healthz` on both the preview URL and the deployment URL answers 302 to the Access login for its own hostname. A 2xx (served without Access) stops it at once. The deep health check can't run, because it would need to get past Access.
 5. It prints the URLs and writes them to `$GITHUB_OUTPUT`.
+
+It **fails closed**. From the moment `wrangler preview` starts until step 4 passes, any failure deletes the preview on exit (an `EXIT` trap, which also runs on SIGINT and SIGTERM). That covers a failed or partial upload, unusable Wrangler output, unexpected URLs, a deployment mismatch, a 2xx, a redirect elsewhere, an error status, no response, a timeout and a cancelled run. If the delete itself fails, the log says so; delete it by hand (see Cleanup). A failed push therefore takes down that PR's previous preview too, until the next successful push.
 
 `down` deletes the preview with `wrangler preview delete --skip-confirmation`, and confirms through the API that it's gone. It succeeds if the preview was already gone.
 
-`DRY_RUN=1 bash deploy/preview-reader.sh 1 up` (and `down`) checks the script's local stages without reading secrets or calling Wrangler. CI runs both, plus a smoke failure that must fail.
+`DRY_RUN=1 bash deploy/preview-reader.sh 1 up` (and `down`) runs the script against a fake Wrangler and fake responses, without reading secrets or using the network. [preview-reader-check.sh](preview-reader-check.sh) runs `up` and `down`, then makes each stage fail in turn (`DRY_RUN_FAIL=wrangler|json|urls|served|redirect|error|unreachable`, plus a SIGTERM mid-smoke). Each one must exit nonzero after deleting the preview. CI's `build-reader` job runs it, and so does the Preview workflow before every upload.
 
 **Manual use** from the checked-out branch on agent-1, after `pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint` and `pnpm --filter @waypoint/reader build`:
 
