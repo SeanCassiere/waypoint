@@ -2,7 +2,7 @@
 import type { Child } from "hono/jsx";
 
 import type { Health } from "../health.js";
-import { clientAsset, cssAsset } from "./assets.js";
+import { clientAsset, cssAsset, pagesAsset } from "./assets.js";
 import { HealthPill, HealthPopover, LogoMark } from "./components.js";
 
 const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#1b1a17"/><path d="M14 20l10 26 8-17 8 17 10-26" fill="none" stroke="#fcfbf9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>')}`;
@@ -21,6 +21,7 @@ export function Layout(props: {
   children: Child;
   page: string;
 }) {
+  const pageScript = props.page === "changes" || props.page === "gallery";
   return (
     <html lang="en">
       <head>
@@ -45,6 +46,7 @@ export function Layout(props: {
         <ConfirmDialog />
         <div class="toast" role="status" aria-live="polite" data-toast hidden />
         <script src={clientAsset.url} defer />
+        {pageScript ? <script src={pagesAsset.url} defer /> : null}
       </body>
     </html>
   );

@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 
 import type { HttpServices } from "../http.js";
-import { clientAsset, cssAsset } from "./assets.js";
+import { clientAsset, cssAsset, pagesAsset } from "./assets.js";
 import { getChrome } from "./chrome.js";
 import { collectionPage, notFound } from "./pages/collection.js";
 import { recentPage } from "./pages/recent.js";
@@ -14,7 +14,7 @@ export type { ViewerExtras } from "./pages/status.js";
 
 export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
   const app = new Hono();
-  for (const asset of [clientAsset, cssAsset])
+  for (const asset of [clientAsset, cssAsset, pagesAsset])
     app.get(
       asset.url,
       () =>

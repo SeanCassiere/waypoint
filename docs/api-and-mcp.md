@@ -7,6 +7,10 @@ Conventions:
 - Responses include URLs.
 - `resolve_url` turns a pasted URL back into IDs.
 
+## Viewer routes
+
+`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]`, `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links`, `/trash`, `/status`, and `/mcp` (HTML for browsers; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
+
 ## Request safety
 
 Part of the [trust model](trust-model.md).
@@ -235,6 +239,8 @@ curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
 ### Queue & status
 | Method & path | Purpose |
 |---|---|
+| `GET /api/watchers` | `{ watchers: [{ collection_id, after, since, client }] }`: agents long-polling `wait_for_revision` right now (in memory, cleared on restart). `client` comes from the `X-Waypoint-Client: <agent>/<host>` header the MCP server bundle sends. |
+| `GET /api/facets` | `{ projects, tags, hosts: [{ value, count, last_written_at }] }` from collection and revision metadata; cached for 30 s. |
 | `GET /api/status` | Same data as the `waypoint_status` tool, plus `cloud_last_ok_at` (last successful push or pull) and `cloud_error` (the sync loop's error while its latest attempt is failing). The viewer shows **Offline** when the latest attempt failed and the last success is more than 2 minutes old. |
 | `POST /api/queue/:revision_id/retry` | Re-queue a failed revision and its failed descendants |
 | `GET /api/queue/:revision_id/descendants` | `{ ids, display_numbers }`: the revisions a drop would remove (the revision itself first), so a confirmation can name them |

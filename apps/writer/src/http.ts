@@ -53,6 +53,7 @@ import {
 import { getStatus } from "./status-data.js";
 import type { SyncLoop } from "./sync-loop.js";
 import { viewerApp } from "./viewer/index.js";
+import { mcpPage } from "./viewer/pages/mcp.js";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;
@@ -176,6 +177,12 @@ export function createApp(s: HttpServices): Hono {
   const app = new Hono();
   const revisionEvents = s.reads.revisionEvents;
   let waiters = 0;
+  /** Agents long-polling for a new revision (B5). In memory only; cleared on restart. */
+  const watchers = new Map<
+    number,
+    { collection_id: string; after: string; since: number; client: string | null }
+  >();
+  let watcherSeq = 0;
   const tarballPath =
     s.mcpTarballPath ??
     fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
@@ -304,12 +311,19 @@ export function createApp(s: HttpServices): Hono {
     await next();
   });
   app.get("/healthz", (c) => c.json({ ok: true }));
-  app.get("/mcp", () => {
+  const mcpMarkdown = () => {
     const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
     const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");
     const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing. Set WAYPOINT_MCP_PIN=embedded for debugging.\n\nClaude Code:\n\n\`\`\`sh\nclaude mcp add waypoint --env WAYPOINT_URL=${s.reads.baseUrl} -- npx --prefer-offline -y ${tarballUrl}\n\`\`\`\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["--prefer-offline","-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["--prefer-offline", "-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n\nInstall the Waypoint skill:\n\n\`\`\`sh\nmkdir -p ~/.codex/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.codex/skills/waypoint/SKILL.md\nmkdir -p ~/.claude/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.claude/skills/waypoint/SKILL.md\n\`\`\`\n`;
     return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
-  });
+  };
+  app.get("/mcp.md", () => mcpMarkdown());
+  // Browsers get the Connect an agent page; agents and curl keep the markdown.
+  app.get("/mcp", async (c) =>
+    (c.req.header("accept") ?? "").includes("text/html")
+      ? mcpPage(s, c, (await serverBundle)?.hash.slice(0, 7) ?? null)
+      : mcpMarkdown(),
+  );
   app.get("/mcp/server.mjs", async (c) => {
     const loaded = await serverBundle;
     if (!loaded) return new Response("MCP server bundle not built", { status: 404 });
@@ -980,6 +994,7 @@ export function createApp(s: HttpServices): Hono {
     c.req.raw.signal.addEventListener("abort", onAbort);
     s.shutdownSignal?.addEventListener("abort", onAbort);
     let counted = false;
+    let watcher: number | undefined;
     try {
       let revisions = await list();
       if (notified && !revisions.length) {
@@ -997,6 +1012,14 @@ export function createApp(s: HttpServices): Hono {
       }
       waiters++;
       counted = true;
+      const header = c.req.header("x-waypoint-client") ?? "";
+      watcher = ++watcherSeq;
+      watchers.set(watcher, {
+        collection_id: id,
+        after,
+        since: Date.now(),
+        client: /^[\w.@+-]{1,60}\/[\w.@+-]{1,60}$/.test(header) ? header : null,
+      });
       const deadline = Date.now() + waitSeconds * 1000;
       while (
         !revisions.length &&
@@ -1024,6 +1047,7 @@ export function createApp(s: HttpServices): Hono {
       return c.json({ changed: revisions.length > 0, revisions });
     } finally {
       if (counted) waiters--;
+      if (watcher !== undefined) watchers.delete(watcher);
       revisionEvents.off("revision", onRevision);
       c.req.raw.signal.removeEventListener("abort", onAbort);
       s.shutdownSignal?.removeEventListener("abort", onAbort);
@@ -1155,6 +1179,8 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));
+  app.get("/api/facets", async (c) => c.json(await s.reads.facets()));
+  app.get("/api/watchers", (c) => c.json({ watchers: [...watchers.values()] }));
   app.post("/api/queue/:revision_id/retry", async (c) => {
     const id = c.req.param("revision_id");
     const root = await s.queue.get<{ collection_id: string }>(
@@ -1244,6 +1270,7 @@ export function createApp(s: HttpServices): Hono {
     viewerApp(s, {
       serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
       fileDiff,
+      watchers: () => [...watchers.values()],
     }),
   );
   return app;

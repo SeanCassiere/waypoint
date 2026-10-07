@@ -121,11 +121,20 @@ export function bindReadMarks(): void {
         line.replaceChildren(segment, el("span", { class: "grow" }), changes, dismiss);
         line.className = "status1 info";
       } else {
-        line.prepend(
-          segment,
-          el("span", { class: "sepdot", text: "·", attrs: { "aria-hidden": "true" } }),
-        );
+        // Spec order: failed, uploading, public, then new since last read, then older revision.
+        const older = $("[data-older-segment]", line)?.closest(".seg1");
+        const anchor = older ?? $(".grow", line);
+        const separator = el("span", {
+          class: "sepdot",
+          text: "·",
+          attrs: { "aria-hidden": "true" },
+        });
+        if (older) older.before(segment, separator);
+        else anchor?.before(separator, segment);
+        // One primary action per line: See changes only when the line has none yet.
+        if (!line.querySelector(".btn")) line.append(changes);
         line.append(dismiss);
+        dismiss.addEventListener("click", () => separator.remove());
       }
       line.hidden = false;
     }

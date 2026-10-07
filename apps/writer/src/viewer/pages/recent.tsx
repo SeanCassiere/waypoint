@@ -1,10 +1,12 @@
 /** @jsxImportSource hono/jsx */
-import type { CollectionSearchResult } from "@waypoint/core";
+import { WaypointError, type CollectionSearchResult } from "@waypoint/core";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
 import { STUCK_AFTER_MS, type Health } from "../../health.js";
 import type { HttpServices } from "../../http.js";
+import { parseSearch } from "../../search-query.js";
+import { shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import { Chg, Globe, revisionHref, Time } from "../components.js";
 import { plural, projectAndTags } from "../format.js";
@@ -315,6 +317,7 @@ export function SearchBody(props: {
   items: CollectionSearchResult[];
   nextCursor: string | null;
   freeText: string;
+  trash?: boolean;
 }) {
   const { items, q, chrome } = props;
   return (
@@ -344,7 +347,22 @@ export function SearchBody(props: {
         <span class="mono">is:pending</span> <span class="mono">in:trash</span>
       </p>
       {items.length ? (
-        items.map((item) => <CollectionRow item={item} now={chrome.now} query={props.freeText} />)
+        items.map((item) =>
+          props.trash ? (
+            <a class="item" href="/trash">
+              <span class="t">
+                <span class="tt">{highlight(item.title, props.freeText)}</span>
+              </span>
+              <span class="when">
+                <Time at={item.updated_at} now={chrome.now} />
+              </span>
+              <span class="msg">In Trash. Restore it from Trash to read it again.</span>
+              <span class="rn" />
+            </a>
+          ) : (
+            <CollectionRow item={item} now={chrome.now} query={props.freeText} />
+          ),
+        )
       ) : (
         <p>
           <a class="btn" href="/">
@@ -381,16 +399,45 @@ export function EmptyHome() {
   );
 }
 
-function projectFacets(items: CollectionSearchResult[]): Facet[] {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const { project } = projectAndTags(item.metadata);
-    if (project) counts.set(project, (counts.get(project) ?? 0) + 1);
+/** An exact collection or revision ID, public ID, or Waypoint URL resolves to a page (B6). */
+export async function exactTarget(s: HttpServices, q: string): Promise<string | null> {
+  const value = q.trim();
+  try {
+    if (/^col_[0-9a-z]{26}$/i.test(value)) {
+      const collection = await s.reads.collection(value.toLowerCase());
+      return collection ? `/c/${collection.public_id}/` : null;
+    }
+    if (/^rev_[0-9a-z]{26}$/i.test(value)) {
+      const revision = await s.reads.revision(value.toLowerCase());
+      const collection = revision ? await s.reads.collection(revision.collection_id) : undefined;
+      return revision && collection ? `/c/${collection.public_id}/r/${revision.public_id}/` : null;
+    }
+    if (/^[0-9a-hjkmnp-tv-z]{12}$/i.test(value)) {
+      const collection = await s.reads.collectionByPublicId(value);
+      if (collection) return `/c/${collection.public_id}/`;
+      const resolved = await s.reads.resolve(`/raw/r/${value.toLowerCase()}/x`);
+      const owner = await s.reads.collection(resolved.collection_id);
+      return owner ? `/c/${owner.public_id}/r/${value.toLowerCase()}/` : null;
+    }
+    if (/^https?:\/\//i.test(value) || /^\/(?:c|raw)\//.test(value)) {
+      const resolved = await s.reads.resolve(value);
+      const collection = await s.reads.collection(resolved.collection_id);
+      if (!collection) return null;
+      const revision = resolved.revision_id
+        ? await s.reads.revision(resolved.revision_id)
+        : undefined;
+      return shellPath(
+        collection.public_id,
+        revision?.public_id ?? "",
+        resolved.path ?? "",
+        Boolean(revision),
+      );
+    }
+  } catch (error) {
+    if (error instanceof WaypointError) return null;
+    throw error;
   }
-  return [...counts]
-    .map(([value, count]) => ({ value, count }))
-    .toSorted((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-    .slice(0, 12);
+  return null;
 }
 
 /** "Public now": collections with live links, most links first (three queries). */
@@ -412,8 +459,25 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
   const q = (c.req.query("q") ?? "").trim();
   const cursor = c.req.query("cursor");
   const now = Date.now();
+  if (q && !cursor) {
+    const target = await exactTarget(s, q);
+    if (target) return noStore(c.redirect(target, 302));
+  }
+  const parsed = parseSearch(q);
   const [search, chrome, publicNow] = await Promise.all([
-    s.reads.searchCollections({ query: q, limit: 50, cursor }),
+    s.reads.searchCollections({
+      query: parsed.text,
+      limit: 50,
+      cursor,
+      ...(parsed.project ? { metadata: { project: parsed.project } } : {}),
+      ...(parsed.tags.length ? { tags: parsed.tags } : {}),
+      ...(parsed.host ? { host: parsed.host } : {}),
+      shared: parsed.shared,
+      unsynced: parsed.unsynced,
+      pending: parsed.pending,
+      only_deleted: parsed.trash,
+      projects: !q,
+    }),
     getChrome(s, now),
     q || !s.publicBaseUrl ? Promise.resolve(null) : loadPublicNow(s),
   ]);
@@ -445,7 +509,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
             chrome={chrome}
             items={items}
             nextCursor={search.next_cursor}
-            projects={projectFacets(items)}
+            projects={(search.projects ?? []).slice(0, 12)}
             publicNow={publicNow}
           />
         ) : (

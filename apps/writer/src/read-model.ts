@@ -97,6 +97,15 @@ export interface SearchOptions {
   limit?: number | undefined;
   cursor?: string | undefined;
   include_deleted?: boolean | undefined;
+  /** Viewer search tokens (B6). */
+  only_deleted?: boolean | undefined;
+  /** Also count live collections per metadata.project from the rows already loaded. */
+  projects?: boolean | undefined;
+  tags?: string[] | undefined;
+  host?: string | undefined;
+  shared?: boolean | undefined;
+  unsynced?: boolean | undefined;
+  pending?: boolean | undefined;
 }
 function containsValue(value: unknown, query: string): boolean {
   if (typeof value === "string") return value.toLowerCase().includes(query);
@@ -196,6 +205,16 @@ export function sourceHost(metadataJson: string | undefined): string | null {
     return null;
   }
   return null;
+}
+function ranked(map: Map<string, number>): { value: string; count: number }[] {
+  return [...map]
+    .map(([value, count]) => ({ value, count }))
+    .toSorted((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+export interface Facets {
+  projects: { value: string; count: number }[];
+  tags: { value: string; count: number }[];
+  hosts: { value: string; count: number; last_written_at: number }[];
 }
 export class ReadModel {
   readonly revisionEvents = new EventEmitter().setMaxListeners(220);
@@ -321,6 +340,63 @@ export class ReadModel {
         deleted: row.deleted_at != null,
       });
     return found;
+  }
+  private facetCache: { at: number; value: Facets } | undefined;
+  /** Projects, tags and writing hosts with counts (B6), cached for 30 s. */
+  async facets(now = Date.now()): Promise<Facets> {
+    if (this.facetCache && now - this.facetCache.at < 30_000) return this.facetCache.value;
+    const [committed, pending, tombstones, revisions, queued] = await Promise.all([
+      this.waypoint.all<{ id: string; metadata: string }>("SELECT id,metadata FROM collections"),
+      this.queue.all<{ id: string; metadata: string; deleted_at: number | null }>(
+        "SELECT id,metadata,deleted_at FROM pending_collections",
+      ),
+      this.waypoint.all<{ collection_id: string }>(
+        "SELECT collection_id FROM collection_tombstones",
+      ),
+      this.waypoint.all<{ metadata: string; created_at: number }>(
+        "SELECT metadata,created_at FROM revisions",
+      ),
+      this.queue.all<{ metadata: string; created_at: number }>(
+        "SELECT metadata,created_at FROM pending_revisions",
+      ),
+    ]);
+    const gone = new Set(tombstones.map((row) => row.collection_id));
+    const projects = new Map<string, number>();
+    const tags = new Map<string, number>();
+    const live = [
+      ...committed.filter((row) => !gone.has(row.id)),
+      ...pending.filter((row) => row.deleted_at === null),
+    ];
+    for (const row of live) {
+      let meta: Record<string, unknown>;
+      try {
+        meta = metadata(row.metadata);
+      } catch {
+        continue;
+      }
+      if (typeof meta.project === "string" && meta.project)
+        projects.set(meta.project, (projects.get(meta.project) ?? 0) + 1);
+      for (const tag of Array.isArray(meta.tags) ? meta.tags : [meta.tags])
+        if (typeof tag === "string" && tag) tags.set(tag, (tags.get(tag) ?? 0) + 1);
+    }
+    const hosts = new Map<string, { count: number; last: number }>();
+    for (const row of [...revisions, ...queued]) {
+      const host = sourceHost(row.metadata);
+      if (!host) continue;
+      const entry = hosts.get(host) ?? { count: 0, last: 0 };
+      entry.count++;
+      entry.last = Math.max(entry.last, row.created_at);
+      hosts.set(host, entry);
+    }
+    const result: Facets = {
+      projects: ranked(projects),
+      tags: ranked(tags),
+      hosts: [...hosts]
+        .map(([host, entry]) => ({ value: host, count: entry.count, last_written_at: entry.last }))
+        .toSorted((a, b) => b.last_written_at - a.last_written_at),
+    };
+    this.facetCache = { at: now, value: result };
+    return result;
   }
   /** Active (unrevoked, unexpired) link counts per collection (B4); one query. */
   async shareSummary(
@@ -620,7 +696,9 @@ export class ReadModel {
       })),
     };
   }
-  async searchCollections(options: SearchOptions = {}): Promise<SearchCollectionsResponse> {
+  async searchCollections(
+    options: SearchOptions = {},
+  ): Promise<SearchCollectionsResponse & { projects?: { value: string; count: number }[] }> {
     const query = options.query?.trim().toLowerCase() ?? "";
     const limit = options.limit ?? 20;
     const sort = options.sort ?? "updated";
@@ -717,6 +795,7 @@ export class ReadModel {
           ...row,
           sync_state: pendingIds.has(row.id) || unpushedIds.has(row.id) ? "committed" : "synced",
         });
+    const shared = options.shared ? new Set((await this.shareSummary()).keys()) : null;
     const grouped = new Map<string, RevisionRow[]>();
     for (const row of revisions.values()) {
       const group = grouped.get(row.collection_id) ?? [];
@@ -728,7 +807,9 @@ export class ReadModel {
       if (row.created_at > ceiling || (row.created_at === ceiling && !ceilingIds.has(row.id)))
         continue;
       const isDeleted = (row.deleted_at ?? deleted.get(row.id) ?? null) !== null;
-      if (isDeleted && !options.include_deleted) continue;
+      if (isDeleted && !options.include_deleted && !options.only_deleted) continue;
+      if (options.only_deleted && !isDeleted) continue;
+      if (shared && !shared.has(row.id)) continue;
       const meta = metadata(row.metadata);
       if (
         options.metadata &&
@@ -752,6 +833,23 @@ export class ReadModel {
       );
       const latest = history.findLast((revision) => revision.sync_state !== "failed");
       const updatedAt = latest?.created_at ?? row.created_at;
+      if (options.tags?.length) {
+        const tags = meta.tags;
+        const list = (Array.isArray(tags) ? tags : [tags]).map((tag) => String(tag).toLowerCase());
+        if (!options.tags.every((tag) => list.includes(tag.toLowerCase()))) continue;
+      }
+      if (options.host) {
+        const wanted = options.host.toLowerCase();
+        const hosts = [
+          ...history.map((revision) => sourceHost(revision.metadata)),
+          sourceHost(row.metadata),
+        ];
+        if (!hosts.some((host) => host?.toLowerCase() === wanted)) continue;
+      }
+      if (options.unsynced && !history.some((revision) => revision.sync_state !== "synced"))
+        continue;
+      if (options.pending && !history.some((revision) => revision.sync_state === "pending"))
+        continue;
       if (options.updated_after !== undefined && (!latest || updatedAt <= options.updated_after))
         continue;
       const numbers = displayNumbers(history.map((revision) => parseId(revision.id, "rev")));
@@ -799,7 +897,21 @@ export class ReadModel {
       if (this.searchSnapshots.size > 32)
         this.searchSnapshots.delete(this.searchSnapshots.keys().next().value ?? "");
     }
-    return this.searchPage(results, limit, snapshotId, sort);
+    const page = await this.searchPage(results, limit, snapshotId, sort);
+    if (!options.projects || query) return page;
+    // Projects facet for Recent: counted from rows this search already loaded (no queries).
+    const projects = new Map<string, number>();
+    for (const row of rows.values()) {
+      if ((row.deleted_at ?? deleted.get(row.id) ?? null) !== null) continue;
+      try {
+        const project = metadata(row.metadata).project;
+        if (typeof project === "string" && project)
+          projects.set(project, (projects.get(project) ?? 0) + 1);
+      } catch {
+        continue;
+      }
+    }
+    return { ...page, projects: ranked(projects) };
   }
   private async searchPage(
     results: CollectionSearchResult[],

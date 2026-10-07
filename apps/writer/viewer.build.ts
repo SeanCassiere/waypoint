@@ -18,6 +18,17 @@ await build({
   logLevel: "info",
 });
 
+await build({
+  entryPoints: [at("src/viewer-pages.browser.ts")],
+  outfile: at("dist/viewer-pages.browser.js"),
+  bundle: true,
+  platform: "browser",
+  format: "iife",
+  target: "es2022",
+  minify: true,
+  logLevel: "info",
+});
+
 // The shared Folio tokens come first so the shell and the public reader can't drift apart.
 await build({
   stdin: {

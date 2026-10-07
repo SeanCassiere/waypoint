@@ -104,7 +104,17 @@ export function bindFrameSync(): void {
   window.addEventListener("message", (event) => {
     if (!frame || event.source !== frame.contentWindow) return;
     const href = frameLocationHref(event.data);
-    if (href) fromUrl(href);
+    if (!href) return;
+    // Renditions report path + fragment only. On the writer the frame is same-origin, so its
+    // live location (with the query string) is authoritative; otherwise resolve the report
+    // against the frame's own URL.
+    let live: string | null = null;
+    try {
+      live = frame.contentWindow?.location.href ?? null;
+    } catch {
+      live = null;
+    }
+    fromUrl(live ?? new URL(href, frame.src).href);
   });
   window.addEventListener("popstate", () => {
     const prefix = shellPath(collection, revision, "", pinned);

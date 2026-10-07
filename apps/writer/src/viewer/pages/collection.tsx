@@ -30,6 +30,7 @@ import { bytes, ext, projectAndTags } from "../format.js";
 import { Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
 import { changesPage, CompareDialog } from "./changes.js";
+import { galleryPage } from "./gallery.js";
 import { publicPreview } from "./public-preview.js";
 import { isLive, LinksPanel, previewHref, publicSegment, ShareDialog } from "./share.js";
 import type { ViewerExtras } from "./status.js";
@@ -813,6 +814,7 @@ export function statusSegments(ctx: CollectionContext): {
       tone: "info",
       body: (
         <span>
+          <span data-older-segment hidden />
           You're viewing #{viewing}, not the latest.{" "}
           <a href={`/c/${collection.public_id}/`}>Latest is #{latest.display_number} →</a>
           {later ? (
@@ -1055,6 +1057,12 @@ export async function collectionPage(
   // "changes" names the Changes page unless the revision has a root file called "changes".
   if (match && (match[2] === "changes" || match[2] === "changes/") && !ctx.manifest.files.changes)
     return changesPage(s, c, ctx, extras);
+  if (match?.[2]?.startsWith("gallery/") && match[2].endsWith("/")) {
+    const dir = decodePath(match[2].slice("gallery/".length, -1), "");
+    const page = dir ? await galleryPage(s, c, ctx, `${dir}/`) : null;
+    if (page) return page;
+    return notFound(c, ctx.chrome, url.pathname, `/c/${collection.public_id}/`);
+  }
   const encoded = match ? (match[2] ?? "") : after;
   const path = decodePath(encoded, revision.head_path);
   if (path === null) return notFound(c, ctx.chrome, url.pathname, `/c/${collection.public_id}/`);

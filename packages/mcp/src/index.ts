@@ -158,6 +158,10 @@ export interface LauncherInfo {
 
 export function createServer(client: WaypointClient, launcher?: LauncherInfo): McpServer {
   const server = new McpServer({ name: "waypoint-mcp", version: manifest.version });
+  // Lets the writer's Status page say which agent is waiting (B5); server bundle only.
+  server.server.oninitialized = () => {
+    client.clientName = server.server.getClientVersion()?.name ?? null;
+  };
   function register(
     name: string,
     description: string,

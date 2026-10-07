@@ -23,6 +23,13 @@ export interface ViewerExtras {
   watchers?(): { collection_id: string; after: string; since: number; client: string | null }[];
 }
 
+function describeClient(client: string | null): string {
+  if (!client) return "An agent";
+  const [agent, host] = client.split("/");
+  const name = (agent ?? "agent").replace(/-mcp-client$|-client$/, "");
+  return `${name} on ${host ?? "an unknown machine"}`;
+}
+
 function Hero(props: { tone: "bad" | "warn" | "ok" | "off"; title: Child; body?: Child }) {
   return (
     <div class={`hero ${props.tone}`} role={props.tone === "bad" ? "alert" : undefined}>
@@ -166,6 +173,11 @@ export async function statusPage(
       );
   }
   const watchers = extras.watchers?.() ?? [];
+  const watchedIds = [...new Set(watchers.map((watcher) => watcher.collection_id))];
+  const [watchedCollections, watchedRevisions] = await Promise.all([
+    s.reads.collectionsById(watchedIds),
+    s.reads.revisionIndex(watchedIds),
+  ]);
   const pushAgo =
     status.last_push_at === null ? "never" : formatTime(status.last_push_at, "ago", now, true);
   const pullAgo =
@@ -301,22 +313,31 @@ export async function statusPage(
               </h3>
               <div class="rows" data-watchers>
                 {watchers.length ? (
-                  watchers.map((watcher) => (
-                    <div class="r">
-                      <span class="watch">
-                        <span class="pulse" aria-hidden="true" />
-                        <span>
-                          <b>{watcher.client ?? "An agent"}</b> is waiting for a new revision of{" "}
-                          <span data-watch-collection={watcher.collection_id}>
-                            {watcher.collection_id}
+                  watchers.map((watcher) => {
+                    const collection = watchedCollections.get(watcher.collection_id);
+                    const after = watchedRevisions
+                      .get(watcher.collection_id)
+                      ?.find((row) => row.id === watcher.after)?.display_number;
+                    return (
+                      <div class="r">
+                        <span class="watch">
+                          <span class="pulse" aria-hidden="true" />
+                          <span>
+                            <b>{describeClient(watcher.client)}</b> is waiting for a new revision of{" "}
+                            {collection ? (
+                              <a href={`/c/${collection.public_id}/`}>{collection.title}</a>
+                            ) : (
+                              <span class="mono">{watcher.collection_id}</span>
+                            )}
+                            {after ? ` after #${after}` : ""}
                           </span>
                         </span>
-                      </span>
-                      <span class="aside">
-                        since <Time at={watcher.since} now={now} />
-                      </span>
-                    </div>
-                  ))
+                        <span class="aside">
+                          since <Time at={watcher.since} now={now} />
+                        </span>
+                      </div>
+                    );
+                  })
                 ) : (
                   <div class="empty">No agent is waiting for a revision right now.</div>
                 )}

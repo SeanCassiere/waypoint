@@ -1,7 +1,6 @@
-import { $, $$, shellRoot } from "./dom.js";
-import { onCommand } from "./keys.js";
+import { $, shellRoot } from "./dom.js";
 
-/** Changes page: j/k move between changes, Esc returns to the document; the Compare… picker. */
+/** The revision menu's Compare… picker (the dialog itself opens natively). */
 export function bindCompare(): void {
   const dialog = $("#compare", HTMLDialogElement);
   const form = dialog ? $("form", HTMLFormElement, dialog) : null;
@@ -21,29 +20,4 @@ export function bindCompare(): void {
     }
     location.assign(`/c/${root.dataset.collection ?? ""}/r/${head}/changes?base=${base}`);
   });
-  const page = $(".cmp");
-  if (!page) return;
-  const done = page.dataset.done;
-  onCommand("escape", () => {
-    if (done) location.assign(done);
-  });
-  const step = (direction: 1 | -1) => {
-    const changes = $$("[data-change]").filter((node) => node.offsetParent !== null);
-    if (!changes.length) return;
-    const top = page.getBoundingClientRect().top + 8;
-    const index = changes.findIndex((node) => node.getBoundingClientRect().top > top + 1);
-    const current =
-      document.activeElement instanceof HTMLElement ? changes.indexOf(document.activeElement) : -1;
-    const next =
-      current >= 0
-        ? Math.min(changes.length - 1, Math.max(0, current + direction))
-        : direction === 1
-          ? Math.max(0, index)
-          : Math.max(0, (index < 0 ? changes.length : index) - 1);
-    const target = changes[next];
-    target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ block: "center" });
-  };
-  onCommand("next-change", () => step(1));
-  onCommand("previous-change", () => step(-1));
 }

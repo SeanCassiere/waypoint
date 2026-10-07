@@ -1065,6 +1065,29 @@ a.chip.public:hover {
   background: var(--surface);
   flex-wrap: wrap;
 }
+/* One line: segments truncate; on narrower screens their long explanations give way. */
+@media (max-width: 1100px) {
+  .status1:has(.sepdot) .long,
+  .status1 .seg1:has(> .long:only-child),
+  .status1 .sepdot:has(+ .seg1 > .long:only-child) {
+    display: none;
+  }
+}
+.status1 {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.status1 .seg1 {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+/* Short state segments (failed, uploading) keep their words; explanations truncate. */
+.status1 .seg1:has(.long) {
+  flex-shrink: 1;
+}
 .status1 .seg1 {
   display: inline-flex;
   align-items: center;
@@ -2766,6 +2789,10 @@ h3.sec .n {
 .revbtn {
   view-transition-name: rev-pill;
 }
+/* Transitions must never delay interaction: clicks pass through the transition overlay. */
+::view-transition {
+  pointer-events: none;
+}
 /* Agent documents are never animated: the frame swaps instantly. */
 .frame {
   view-transition-name: doc-frame;
@@ -2813,4 +2840,50 @@ h3.sec .n {
     display: block;
     height: auto;
   }
+}
+
+/* gallery lightbox: view modes are radio inputs styled as a segmented control (:has(), no script) */
+#lightbox .slider {
+  display: none;
+}
+#lightbox:has(input[value="slider"]:checked) .pair {
+  display: none;
+}
+#lightbox:has(input[value="slider"]:checked) .slider {
+  display: grid;
+}
+#lightbox:has(input[value="only"]:checked) [data-lbx-before],
+#lightbox.single [data-lbx-before],
+#lightbox.single .seg {
+  display: none;
+}
+#lightbox:has(input[value="only"]:checked) .pair,
+#lightbox.single .pair {
+  grid-template-columns: 1fr;
+}
+.lbx .seg label {
+  padding: 4px 10px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+}
+.lbx .seg label:has(input:checked) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+  font-weight: 600;
+}
+.lbx .seg label:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.lbx .seg input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.slider .stack img.after {
+  clip-path: inset(0 0 0 var(--cut, 50%));
 }

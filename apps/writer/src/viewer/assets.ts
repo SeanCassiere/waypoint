@@ -15,3 +15,4 @@ export const clientAsset = asset(
   "text/javascript; charset=utf-8",
 );
 export const cssAsset = asset("viewer.css", "css", "text/css; charset=utf-8");
+export const pagesAsset = asset("viewer-pages.browser.js", "js", "text/javascript; charset=utf-8");

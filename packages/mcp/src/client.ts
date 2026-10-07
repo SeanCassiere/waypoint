@@ -266,6 +266,7 @@ function retryAfter(value: string | null): number | undefined {
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
+const headerSafe = (value: string) => value.replace(/[^\w.@+-]/g, "").slice(0, 60);
 export class WaypointClient {
   readonly base: string;
   private readonly ids = new Map<string, CachedIds>();
@@ -273,6 +274,8 @@ export class WaypointClient {
     string,
     Promise<{ ids: CachedIds; selected: CollectionDetail }>
   >();
+  /** The MCP client's name (for example "claude-code"), learned at initialization (B5). */
+  clientName: string | null = null;
   constructor(
     base: string,
     readonly sourceHost: string,
@@ -283,6 +286,10 @@ export class WaypointClient {
   ) {
     withBase(base, "/api/status");
     this.base = base;
+  }
+  /** "agent/host" for X-Waypoint-Client, so Status can show who is waiting (B5). */
+  clientLabel(): string {
+    return `${headerSafe(this.clientName ?? "") || "agent"}/${headerSafe(this.sourceHost) || "unknown"}`;
   }
   private url(path: string): string {
     const [route, query] = path.split("?", 2);
@@ -307,7 +314,9 @@ export class WaypointClient {
       let response: Response;
       try {
         const options = typeof init === "function" ? init() : init;
-        response = await this.fetcher(this.url(path), { ...options, signal: combined });
+        const headers = new Headers(options.headers);
+        headers.set("X-Waypoint-Client", this.clientLabel());
+        response = await this.fetcher(this.url(path), { ...options, headers, signal: combined });
       } catch (error) {
         abortIfNeeded(signal);
         if (Date.now() >= deadline || attempt >= 10)

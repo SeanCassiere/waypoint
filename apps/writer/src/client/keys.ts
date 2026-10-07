@@ -9,8 +9,6 @@ export type Command =
   | "changes"
   | "older"
   | "newer"
-  | "next-change"
-  | "previous-change"
   | "escape";
 const handlers = new Map<Command, () => void>();
 export function onCommand(command: Command, handler: () => void): void {
@@ -130,12 +128,6 @@ export function bindKeys(): void {
         return;
       case "s":
         run("share");
-        return;
-      case "j":
-        run("next-change");
-        return;
-      case "k":
-        run("previous-change");
         return;
       default:
         return;
