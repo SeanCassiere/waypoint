@@ -1,7 +1,7 @@
 import { shellPath } from "../viewer-paths.js";
 import { plural } from "../viewer/format.js";
 import { api, field } from "./api.js";
-import { copyText } from "./copy.js";
+import { copyText, showCopied } from "./copy.js";
 import { bindForm, confirmDialog } from "./dialogs.js";
 import { $, $$, el, run, shellRoot } from "./dom.js";
 import { readMark } from "./lastread.js";
@@ -193,7 +193,7 @@ async function restore(element: HTMLElement): Promise<void> {
     {},
     `This brings back ${plural(Number(element.dataset.revisions ?? 0), "revision")} and ${plural(Number(element.dataset.files ?? 0), "file")}, and `,
     el("b", { text: `reactivates ${plural(active.length, "public link")}` }),
-    ` (${describe}). ${active.length === 1 ? "It works" : "They work"} again for anyone who has ${active.length === 1 ? "it" : "them"} within about a minute.`,
+    ` (${describe}). ${active.length === 1 ? "It works" : "They work"} again for anyone who has ${active.length === 1 ? "it" : "them"} within seconds.`,
   );
   const ok = await confirmDialog({
     title: `Restore “${element.dataset.title ?? "this collection"}”?`,
@@ -283,9 +283,10 @@ registerAction("copy-link", (element) =>
   element.dataset.kind === "pinned" ? copyPinned() : copyLatest(),
 );
 registerAction("copy-handoff", () => copyHandoff());
-registerAction("copy-text", (element) =>
-  copyText(element.dataset.text ?? "", element.dataset.label ?? "text"),
-);
+registerAction("copy-text", async (element) => {
+  await copyText(element.dataset.text ?? "", element.dataset.label ?? "text");
+  if (element.classList.contains("btn")) showCopied(element);
+});
 registerAction("copy-raw", () => {
   const raw = $("[data-download]", HTMLAnchorElement)?.href;
   return raw ? copyText(raw, "raw URL") : undefined;
@@ -330,7 +331,11 @@ export function bindActions(): void {
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
     const action = target ? actions.get(target.dataset.action ?? "") : undefined;
     if (!target || !action) return;
+    // preventDefault also cancels the item's popovertargetaction="hide", so a menu item
+    // closes its own menu before acting (focus may move to what the action shows).
     event.preventDefault();
+    const menu = target.closest<HTMLElement>("[popover]");
+    if (menu?.matches(":popover-open") && menu.popover === "auto") menu.hidePopover();
     run(async () => {
       await action(target);
     }, toast);

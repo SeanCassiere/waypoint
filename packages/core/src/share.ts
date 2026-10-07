@@ -9,11 +9,73 @@ export function isShareToken(token: string): boolean {
   return tokenPattern.test(token);
 }
 
-export function newShareToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
+function base64url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `wps_${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/** A random token. Writers now derive tokens with deriveShareToken; this remains for tests. */
+export function newShareToken(): string {
+  return `wps_${base64url(crypto.getRandomValues(new Uint8Array(32)))}`;
+}
+
+/** 32 bytes as canonical base64url: 43 characters, with one trailing "=" tolerated. */
+const shareTokenKeyPattern = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]=?$/;
+
+/**
+ * Parses WAYPOINT_SHARE_TOKEN_KEY: exactly 32 bytes, base64url-encoded (43 characters, an
+ * optional single "=" of padding, no whitespace). The error message never contains the value.
+ */
+export function parseShareTokenKey(text: string): Uint8Array {
+  if (!shareTokenKeyPattern.test(text))
+    throw new WaypointError(
+      "validation_failed",
+      "Share token key must be 32 bytes, base64url-encoded (43 characters)",
+    );
+  const binary = atob(text.replace(/=$/, "").replaceAll("-", "+").replaceAll("_", "/") + "=");
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+type HmacKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>;
+const hmacKeys = new WeakMap<Uint8Array, Promise<HmacKey>>();
+function hmacKey(key: Uint8Array): Promise<HmacKey> {
+  let imported = hmacKeys.get(key);
+  if (!imported) {
+    imported = crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(key),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    hmacKeys.set(key, imported);
+  }
+  return imported;
+}
+
+/**
+ * Domain separation for the HMAC input, so the share token key can never produce a value
+ * that means something else (D50). A new version would mint different tokens.
+ */
+export const SHARE_TOKEN_LABEL = "waypoint/share-token/v1\n";
+
+/**
+ * The share token of a link: `wps_` + base64url(HMAC-SHA256(key, utf8(SHARE_TOKEN_LABEL +
+ * shareLinkId))). Any
+ * writer holding the key can reproduce a link's URL from its ID; the database stores only
+ * hashShareToken(token).
+ */
+export async function deriveShareToken(key: Uint8Array, shareLinkId: string): Promise<string> {
+  if (key.byteLength !== 32)
+    throw new WaypointError("validation_failed", "Share token key must be 32 bytes");
+  if (!shareLinkId) throw new WaypointError("validation_failed", "Share link ID is required");
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(key),
+    new TextEncoder().encode(SHARE_TOKEN_LABEL + shareLinkId),
+  );
+  return `wps_${base64url(new Uint8Array(mac))}`;
 }
 
 export async function hashShareToken(token: string): Promise<string> {

@@ -1,5 +1,4 @@
 import { $, $$, storage } from "./dom.js";
-import { withTransition } from "./motion.js";
 
 // The panel docks at ≥ 1100px (spec §3.3) and is an overlay sheet below that.
 const WIDE = "(min-width: 1100px)";
@@ -29,6 +28,7 @@ export function setPanel(open: boolean): void {
     root.classList.toggle("closed", !open);
     storage()?.setItem("wp:panel", open ? "open" : "closed");
     syncToggle();
+    if (open) revealRevision();
     return;
   }
   const was = root.classList.contains("open");
@@ -39,6 +39,7 @@ export function setPanel(open: boolean): void {
   root.classList.toggle("open", open);
   setBackdrop(open);
   syncToggle();
+  if (open) revealRevision();
   if (open) {
     $('#panel [role=tab][aria-selected="true"]')?.focus();
     return;
@@ -62,8 +63,58 @@ export function selectTab(id: string, focus = false): boolean {
     item.tabIndex = selected ? 0 : -1;
   }
   for (const panel of $$("#panel [role=tabpanel]")) panel.hidden = panel.dataset.tabpanel !== id;
+  // Remember the tab in the URL so reloads, copied tailnet links and revision steps keep it.
+  const url = new URL(location.href);
+  if (id === "files") url.searchParams.delete("panel");
+  else url.searchParams.set("panel", id);
+  if (url.href !== location.href) history.replaceState(history.state, "", url);
   if (focus) tab.focus();
+  revealRevision();
   return true;
+}
+/** Scrolls the current revision into view in the History tab, if the panel shows it. */
+function revealRevision(): void {
+  if (!panelOpen()) return;
+  $('#tp-history:not([hidden]) .rv[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
+const SHEET = "wp:sheet";
+function session(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+/**
+ * Called before navigating to another revision. If the overlay side sheet is open (600 px
+ * and wider, iPad mini included), the next page reopens it. Below 600 px the panel is a
+ * bottom sheet covering most of the document, so it stays closed and only the tab is kept.
+ * `focusRevision` returns keyboard focus to the current revision.
+ */
+export function rememberSheet(focusRevision: boolean): void {
+  const store = session();
+  if (!store) return;
+  const reopen = !wide() && panelOpen() && window.matchMedia("(min-width: 600px)").matches;
+  if (reopen || focusRevision) store.setItem(SHEET, JSON.stringify({ reopen, focusRevision }));
+  else store.removeItem(SHEET);
+}
+function restoreSheet(): void {
+  const store = session();
+  const raw = store?.getItem(SHEET);
+  if (!raw) return;
+  store?.removeItem(SHEET);
+  let state: unknown;
+  try {
+    state = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  const flag = (key: string) =>
+    Boolean(state && typeof state === "object" && key in state && Reflect.get(state, key));
+  if (flag("reopen") && !wide()) setPanel(true);
+  if (flag("focusRevision") || flag("reopen"))
+    $('#panel [role=tabpanel]:not([hidden]) .rv[aria-current="true"] a')?.focus();
 }
 export function showTab(id: string): void {
   if (!selectTab(id)) return;
@@ -79,13 +130,7 @@ export function bindPanel(): void {
   for (const tab of tabs) {
     tab.addEventListener("click", (event) => {
       event.preventDefault();
-      const id = tab.dataset.tab ?? "files";
-      void withTransition(() => selectTab(id));
-      // Remember the tab in the URL so reloads and copied tailnet links keep it.
-      const url = new URL(location.href);
-      if (id === "files") url.searchParams.delete("panel");
-      else url.searchParams.set("panel", id);
-      history.replaceState(history.state, "", url);
+      selectTab(tab.dataset.tab ?? "files");
     });
     tab.addEventListener("keydown", (event) => {
       const index = tabs.indexOf(tab);
@@ -130,4 +175,7 @@ export function bindPanel(): void {
     syncToggle();
   });
   syncToggle();
+  restoreSheet();
+  // The current revision is in view in the History tab after stepping to it.
+  revealRevision();
 }

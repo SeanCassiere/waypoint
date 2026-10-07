@@ -6,6 +6,7 @@ import type { Child } from "hono/jsx";
 import { STUCK_AFTER_MS, type Health } from "../../health.js";
 import type { HttpServices } from "../../http.js";
 import { parseSearch } from "../../search-query.js";
+import { linksEnabled } from "../../shares.js";
 import { shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import { Chg, Globe, revisionHref, Time } from "../components.js";
@@ -75,11 +76,7 @@ export function CollectionRow(props: {
       data-n={latest ? String(latest.display_number) : undefined}
     >
       <span class="t">
-        <span
-          class="tt"
-          id={`it-${item.public_id}`}
-          style={`view-transition-name:col-${item.public_id}`}
-        >
+        <span class="tt" id={`it-${item.public_id}`}>
           {highlight(item.title, query)}
         </span>
       </span>
@@ -495,7 +492,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
       projects: !q,
     }),
     getChrome(s, now),
-    q || !s.publicBaseUrl ? Promise.resolve(null) : loadPublicNow(s),
+    q || !linksEnabled(s) ? Promise.resolve(null) : loadPublicNow(s),
   ]);
   const items = search.collections;
   if (q)

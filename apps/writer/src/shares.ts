@@ -1,15 +1,88 @@
-import { WaypointError, type ShareLink } from "@waypoint/core";
+import {
+  deriveShareToken,
+  hashShareToken,
+  shareShellUrl,
+  WaypointError,
+  type ShareLink,
+} from "@waypoint/core";
 
 import type { HttpServices } from "./http.js";
 import type { RevisionRow } from "./read-model.js";
+
+type SharingServices = Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">;
+/**
+ * Links exist for the reader at WAYPOINT_PUBLIC_BASE_URL. Listing, revoking and extending
+ * them needs only that; creating links and showing their URLs also needs the key that
+ * derives tokens (D50). Without the base URL every share-link endpoint answers 409.
+ */
+export function linksEnabled(s: SharingServices): boolean {
+  return Boolean(s.publicBaseUrl);
+}
+/** Whether new links can be created (and URLs shown): the base URL and the token key. */
+export function sharingEnabled(s: SharingServices): boolean {
+  return sharingConfig(s) !== undefined;
+}
+function sharingConfig(s: SharingServices): { base: string; key: Uint8Array } | undefined {
+  return s.publicBaseUrl && s.shareTokenKey
+    ? { base: s.publicBaseUrl, key: s.shareTokenKey }
+    : undefined;
+}
+/** Answers 409 conflict unless share links are configured (list, revoke, extend). */
+export function requireLinks(s: SharingServices): void {
+  if (!linksEnabled(s)) throw new WaypointError("conflict", "Sharing is not configured");
+}
+/** Answers 409 conflict unless links can be created (create, and a link's URL). */
+export function requireSharing(s: SharingServices): { base: string; key: Uint8Array } {
+  const sharing = sharingConfig(s);
+  if (!sharing)
+    throw new WaypointError(
+      "conflict",
+      s.publicBaseUrl
+        ? "Sharing is not configured: WAYPOINT_SHARE_TOKEN_KEY is not set"
+        : "Sharing is not configured",
+    );
+  return sharing;
+}
+/** Why a link has no URL (the 409 from /url and the viewer's tooltip). */
+export const URL_UNAVAILABLE =
+  "URL unavailable: this link was created before links became copyable, or under a different share token key. It still works for whoever has it. Create a new link to get a copyable URL.";
+/**
+ * A link's stable public URL, without a file path (the reader opens the head file). Null when
+ * the token derived from the link ID doesn't hash to the stored token_hash: the link predates
+ * deterministic tokens, or the key changed since.
+ */
+async function recoverUrl(
+  sharing: { base: string; key: Uint8Array },
+  row: ShareRow,
+  tokenHash: string | undefined,
+  collectionPublicId: string | undefined,
+  pinnedPublicId: string | undefined,
+): Promise<string | null> {
+  if (!tokenHash || !collectionPublicId || (row.revision_id && !pinnedPublicId)) return null;
+  const token = await deriveShareToken(sharing.key, row.id);
+  if ((await hashShareToken(token)) !== tokenHash) return null;
+  return shareShellUrl(
+    sharing.base,
+    token,
+    collectionPublicId,
+    row.revision_id ? pinnedPublicId : undefined,
+  );
+}
 
 export type ShareRow = Pick<
   ShareLink,
   "id" | "collection_id" | "revision_id" | "label" | "expires_at" | "revoked_at" | "created_at"
 >;
 export const SHARE_COLUMNS = "id,collection_id,revision_id,label,expires_at,revoked_at,created_at";
-/** The reader caches link lookups for up to 30 s and the writer pushes about once a minute. */
-export const SETTLE_MS = 60_000;
+/**
+ * How long a revocation stays "revoking" after the push that carried it finished: the reader
+ * caches a live link for at most 5 s (denials are never cached), so 10 s covers it.
+ */
+export const SETTLE_MS = 10_000;
+/** When a change committed at a time reached the cloud (SyncLoop.pushedAt). */
+export interface PushTimes {
+  pushedAt(at: number): number | null;
+}
 export interface ShareCollection {
   id: string;
   public_id: string;
@@ -18,65 +91,119 @@ export interface ShareCollection {
 }
 export type ShareView = ShareLink & { collection: ShareCollection };
 
-/** Derived lifecycle state (B3). */
+/**
+ * Derived lifecycle state (B3). "activating" until a push that started after the link was
+ * created has finished; "revoking" until a push that started after the revocation has
+ * finished and SETTLE_MS more have passed.
+ */
 export function shareState(
   row: ShareRow,
-  lastPushAt: number | null,
+  pushes: PushTimes | undefined,
   now: number,
 ): ShareLink["state"] {
-  if (row.revoked_at !== null)
-    return lastPushAt === null || lastPushAt < row.revoked_at || now - row.revoked_at < SETTLE_MS
-      ? "revoking"
-      : "revoked";
+  if (row.revoked_at !== null) {
+    const pushed = pushes?.pushedAt(row.revoked_at) ?? null;
+    return pushed === null || now - pushed < SETTLE_MS ? "revoking" : "revoked";
+  }
   if (row.expires_at !== null && row.expires_at <= now) return "expired";
-  return lastPushAt === null || row.created_at > lastPushAt ? "activating" : "active";
+  return (pushes?.pushedAt(row.created_at) ?? null) === null ? "activating" : "active";
 }
 
-/** Views for any number of links in five queries (B3). */
-export async function shareViews(s: HttpServices, rows: readonly ShareRow[]): Promise<ShareView[]> {
+/** Link IDs per token-hash query, well under SQLite's bound-parameter limit. */
+const HASH_CHUNK = 500;
+/** The stored token hashes of these links only (never every link of a collection). */
+async function tokenHashesOf(
+  s: HttpServices,
+  rows: readonly ShareRow[],
+): Promise<{ id: string; token_hash: string }[]> {
+  const chunks: ShareRow[][] = [];
+  for (let at = 0; at < rows.length; at += HASH_CHUNK) chunks.push(rows.slice(at, at + HASH_CHUNK));
+  const found = await Promise.all(
+    chunks.map((chunk) =>
+      s.waypoint.all<{ id: string; token_hash: string }>(
+        `SELECT id,token_hash FROM share_links WHERE id IN (${chunk.map(() => "?").join(",")})`,
+        chunk.map((row) => row.id),
+      ),
+    ),
+  );
+  return found.flat();
+}
+
+/**
+ * Views for any number of links in six queries (B3): five for revisions and collections, and
+ * one per 500 links for the stored token hashes that decide whether each link's URL is
+ * recoverable. The hashes never leave this function. Callers that don't show URLs (bulk
+ * revoke, Trash) pass `urls: false` and skip the hashes and HMACs (url is then null).
+ */
+export async function shareViews(
+  s: HttpServices,
+  rows: readonly ShareRow[],
+  options: { urls?: boolean } = {},
+): Promise<ShareView[]> {
   if (!rows.length) return [];
   const ids = [...new Set(rows.map((row) => row.collection_id))];
-  const [index, collections] = await Promise.all([
+  const sharing = options.urls === false ? undefined : sharingConfig(s);
+  const [index, collections, hashes] = await Promise.all([
     s.reads.revisionIndex(ids),
     s.reads.collectionsById(ids),
+    sharing ? tokenHashesOf(s, rows) : Promise.resolve([]),
   ]);
+  const tokenHashes = new Map(hashes.map((row) => [row.id, row.token_hash]));
   const now = Date.now();
-  const lastPushAt = s.syncLoop?.lastPushAt ?? null;
-  return rows.map((row) => {
-    const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
-    const collection = collections.get(row.collection_id);
-    const deleted = collection?.deleted ?? true;
-    const pinned = row.revision_id
-      ? revisions.find((item) => item.id === row.revision_id)
-      : undefined;
-    const latest = revisions.findLast((item) => item.sync_state !== "failed");
-    const newestSynced = revisions.findLast((item) => item.sync_state === "synced");
-    const status: ShareLink["status"] =
-      row.revoked_at !== null
-        ? "revoked"
-        : row.expires_at !== null && row.expires_at <= now
-          ? "expired"
-          : "active";
-    const target = row.revision_id ? pinned : latest;
-    const sees = row.revision_id
-      ? pinned?.sync_state === "synced"
-        ? pinned
-        : undefined
-      : newestSynced;
-    return {
-      ...row,
-      mode: row.revision_id ? "pinned" : "latest",
-      status,
-      publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
-      state: shareState(row, lastPushAt, now),
-      revision_display_number: pinned?.display_number ?? null,
-      public_sees:
-        status === "active" && !deleted && sees
-          ? { revision_id: sees.id, display_number: sees.display_number ?? 0 }
+  const pushes = s.syncLoop;
+  return Promise.all(
+    rows.map(async (row): Promise<ShareView> => {
+      const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
+      const collection = collections.get(row.collection_id);
+      const deleted = collection?.deleted ?? true;
+      const pinned = row.revision_id
+        ? revisions.find((item) => item.id === row.revision_id)
+        : undefined;
+      const latest = revisions.findLast((item) => item.sync_state !== "failed");
+      const newestSynced = revisions.findLast((item) => item.sync_state === "synced");
+      const status: ShareLink["status"] =
+        row.revoked_at !== null
+          ? "revoked"
+          : row.expires_at !== null && row.expires_at <= now
+            ? "expired"
+            : "active";
+      const target = row.revision_id ? pinned : latest;
+      const sees = row.revision_id
+        ? pinned?.sync_state === "synced"
+          ? pinned
+          : undefined
+        : newestSynced;
+      return {
+        ...row,
+        mode: row.revision_id ? "pinned" : "latest",
+        status,
+        publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
+        state: shareState(row, pushes, now),
+        revocation_pushed:
+          row.revoked_at === null ? null : (pushes?.pushedAt(row.revoked_at) ?? null) !== null,
+        revision_display_number: pinned?.display_number ?? null,
+        public_sees:
+          status === "active" && !deleted && sees
+            ? { revision_id: sees.id, display_number: sees.display_number ?? 0 }
+            : null,
+        url: sharing
+          ? await recoverUrl(
+              sharing,
+              row,
+              tokenHashes.get(row.id),
+              collection?.public_id,
+              pinned?.public_id,
+            )
           : null,
-      collection: collection ?? { id: row.collection_id, public_id: "", title: "", deleted: true },
-    };
-  });
+        collection: collection ?? {
+          id: row.collection_id,
+          public_id: "",
+          title: "",
+          deleted: true,
+        },
+      };
+    }),
+  );
 }
 export function withoutCollection(view: ShareView): ShareLink {
   const { collection, ...link } = view;
@@ -141,7 +268,7 @@ function decodeLinkCursor(cursor: string): [number, string] | undefined {
 }
 /**
  * One page of links in a filter, newest first, with every filter's count: four queries plus
- * shareViews' five for the page, whatever the number of links.
+ * shareViews' six for the page, whatever the number of links.
  */
 export async function linkPage(
   s: HttpServices,
@@ -190,7 +317,7 @@ export const API_LINKS_DEFAULT = 50;
 export const API_LINKS_MAX = 200;
 /**
  * One page of links for the API, newest first, optionally in one filter: two queries plus
- * shareViews' five, whatever the number of links. An unreadable cursor is a validation error.
+ * shareViews' six, whatever the number of links. An unreadable cursor is a validation error.
  */
 export async function listLinks(
   s: HttpServices,
@@ -216,12 +343,14 @@ export async function listLinks(
     next: rows.length > options.limit && last ? encodeLinkCursor(last) : null,
   };
 }
+/** Every link without URLs (bulk revoke only needs states and collections). */
 export async function allLinks(s: HttpServices): Promise<ShareView[]> {
   return shareViews(
     s,
     await s.waypoint.all<ShareRow>(
       `SELECT ${SHARE_COLUMNS} FROM share_links ORDER BY created_at DESC`,
     ),
+    { urls: false },
   );
 }
 

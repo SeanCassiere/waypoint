@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,6 +11,7 @@ import {
   type RevisionId,
   type WaypointErrorLike,
   contentHashHex,
+  deriveShareToken,
   displayNumbers,
   ERROR_STATUS,
   findCaseConflicts,
@@ -20,6 +21,7 @@ import {
   inferMime,
   isContentHash,
   isMarkdown,
+  isShareToken,
   isTextMime,
   isWaypointError,
   latestCollectionUrl,
@@ -728,6 +730,25 @@ function runGuard(directory: string) {
     encoding: "utf8",
   });
 }
+describe("deterministic share tokens against node:crypto", () => {
+  it("equals wps_ + base64url(HMAC-SHA256(key, label + link ID)) for random keys and IDs", async () => {
+    const cases = Array.from({ length: 100 }, () => ({
+      key: randomBytes(32),
+      id: newId("shl"),
+    }));
+    const derived = await Promise.all(
+      cases.map(({ key, id }) => deriveShareToken(new Uint8Array(key), id)),
+    );
+    expect(derived).toEqual(
+      cases.map(
+        ({ key, id }) =>
+          `wps_${createHmac("sha256", key).update(`waypoint/share-token/v1\n${id}`, "utf8").digest("base64url")}`,
+      ),
+    );
+    expect(derived.every(isShareToken)).toBe(true);
+  });
+});
+
 describe("core import guard", () => {
   it("accepts the real core source", () => {
     const result = runGuard("packages/core/src");

@@ -36,6 +36,40 @@ export class SyncLoop {
   private stopController = new AbortController();
   private nativePush: Promise<void> | undefined;
   lastPushAt: number | null = null;
+  /**
+   * Successful pushes, oldest first (the last 200): a push carries everything committed
+   * before it started, and the cloud has it once the push finished.
+   */
+  private pushes: { started: number; finished: number }[] = [];
+  /**
+   * Seeds the push log from queue.db, so after a restart everything committed before the
+   * last successful push counts as pushed at its finish time (instead of "not yet pushed"
+   * until the next push succeeds).
+   */
+  async load(): Promise<void> {
+    const row = await this.queue.get<{ started_at: number; finished_at: number }>(
+      "SELECT started_at,finished_at FROM last_push WHERE id=1",
+    );
+    if (row && !this.pushes.length) this.recordPush(row.started_at, row.finished_at);
+  }
+  /** Records a successful push (pushOnce, and tests standing in for one). */
+  recordPush(started: number, finished: number): void {
+    this.pushes.push({ started, finished });
+    if (this.pushes.length > 200) this.pushes.splice(0, this.pushes.length - 200);
+    this.lastPushAt = finished;
+  }
+  /**
+   * When a change committed at `at` reached the cloud: the finish of the first push that
+   * started after it, or null while no such push has succeeded. (A push started in the same
+   * millisecond may have read the database just before the change, so it doesn't count.)
+   * A change older than the log counts as pushed at the earliest recorded finish.
+   */
+  pushedAt(at: number): number | null {
+    let first: number | null = null;
+    for (const push of this.pushes)
+      if (push.started > at && (first === null || push.finished < first)) first = push.finished;
+    return first;
+  }
   lastError: string | null = null;
   blocked = false;
   /** Last successful push or pull, for offline detection (B6b). */
@@ -143,6 +177,7 @@ export class SyncLoop {
     for (const waiter of this.waiting.splice(0)) waiter.reject(new Error("Sync loop stopped"));
   }
   private async pushOnce(): Promise<void> {
+    const started = this.now();
     const watermark =
       (await this.queue.get<{ seq: number }>("SELECT MAX(seq) AS seq FROM unpushed"))?.seq ?? 0;
     const rows = watermark
@@ -199,7 +234,15 @@ export class SyncLoop {
           }
         }
       if (watermark) await this.queue.run("DELETE FROM unpushed WHERE seq<=?", [watermark]);
-      this.lastPushAt = this.now();
+      const finished = this.now();
+      this.recordPush(started, finished);
+      // Best effort: losing it only means "not yet pushed" until the next push after a restart.
+      await this.queue
+        .run(
+          "INSERT INTO last_push (id,started_at,finished_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,finished_at=excluded.finished_at",
+          [started, finished],
+        )
+        .catch(() => undefined);
       this.lastOkAt = this.lastPushAt;
       this.lastAttemptFailed = false;
       this.lastError = null;

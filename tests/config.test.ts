@@ -57,4 +57,26 @@ describe("writer config", () => {
       }),
     ).toThrow("WAYPOINT_PUBLIC_BASE_URL");
   });
+  it("parses an optional share token key and never echoes an invalid one", () => {
+    const base = { WAYPOINT_ENV: "dev", WAYPOINT_SYNC: "off" };
+    expect(loadConfig(base).shareTokenKey).toBeUndefined();
+    expect(loadConfig({ ...base, WAYPOINT_SHARE_TOKEN_KEY: "" }).shareTokenKey).toBeUndefined();
+    const key = Buffer.alloc(32, 7);
+    const parsed = loadConfig({ ...base, WAYPOINT_SHARE_TOKEN_KEY: key.toString("base64url") });
+    expect(parsed.shareTokenKey && Buffer.from(parsed.shareTokenKey)).toEqual(key);
+    for (const secret of [
+      Buffer.alloc(31, 9).toString("base64url"),
+      Buffer.alloc(33, 9).toString("base64url"),
+      `${key.toString("base64url").slice(0, -2)}+/`,
+    ]) {
+      let message = "";
+      try {
+        loadConfig({ ...base, WAYPOINT_SHARE_TOKEN_KEY: secret });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toBe("WAYPOINT_SHARE_TOKEN_KEY must be 32 bytes, base64url-encoded");
+      expect(message).not.toContain(secret);
+    }
+  });
 });

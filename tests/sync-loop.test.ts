@@ -244,3 +244,58 @@ describe("sync loop", () => {
     ).toBeTruthy();
   });
 });
+describe("push log (share-link states)", () => {
+  it("takes the start time before client.push() and records nothing when a push fails", async () => {
+    let clock = 100;
+    let fail = true;
+    const client: SyncClient = {
+      lastPullAt: null,
+      pull: () => Promise.resolve(false),
+      push: () => {
+        // Anything committed from here on may not be in this push.
+        clock += 50;
+        return fail ? Promise.reject(new Error("offline")) : Promise.resolve();
+      },
+      checkpoint: () => {
+        clock += 50;
+        return Promise.resolve();
+      },
+    };
+    const loop = new SyncLoop(queue, client, () => clock);
+    await expect(loop.push()).rejects.toThrow("offline");
+    expect(loop.pushedAt(50)).toBeNull();
+    expect(loop.lastPushAt).toBeNull();
+    expect(await queue.get("SELECT * FROM last_push")).toBeUndefined();
+    fail = false;
+    clock = 300;
+    await loop.push();
+    // Started at 300, before client.push() moved the clock to 350; finished at 400.
+    expect(loop.pushedAt(299)).toBe(400);
+    expect(loop.pushedAt(300)).toBeNull();
+    expect(loop.pushedAt(320)).toBeNull();
+    expect(await queue.get("SELECT started_at,finished_at FROM last_push")).toEqual({
+      started_at: 300,
+      finished_at: 400,
+    });
+  });
+  it("survives a restart: changes before the last push read as pushed at its finish", async () => {
+    let clock = 1_000;
+    const client: SyncClient = {
+      lastPullAt: null,
+      pull: () => Promise.resolve(false),
+      push: () => Promise.resolve(),
+      checkpoint: () => {
+        clock = 1_500;
+        return Promise.resolve();
+      },
+    };
+    await new SyncLoop(queue, client, () => clock).push();
+    // A new process: nothing in memory until load().
+    const restarted = new SyncLoop(queue, client, () => clock);
+    expect(restarted.pushedAt(900)).toBeNull();
+    await restarted.load();
+    expect(restarted.pushedAt(900)).toBe(1_500);
+    expect(restarted.pushedAt(1_000)).toBeNull();
+    expect(restarted.lastPushAt).toBe(1_500);
+  });
+});

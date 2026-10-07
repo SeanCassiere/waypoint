@@ -68,6 +68,7 @@ beforeAll(async () => {
     reads,
     ingest: new IngestService(waypoint, queue, blobs, reads, opened.syncClient),
     publicBaseUrl: "https://reader.example.test",
+    shareTokenKey: new Uint8Array(32).fill(42),
   });
   // One collection, 300 revisions of 300 files, each changing three files of its parent.
   await waypoint.transaction(async (tx) => {

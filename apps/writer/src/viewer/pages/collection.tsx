@@ -14,7 +14,7 @@ import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
 import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.js";
-import { collectionLinks, type ShareView } from "../../shares.js";
+import { collectionLinks, linksEnabled, sharingEnabled, type ShareView } from "../../shares.js";
 import { rawPath, shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import {
@@ -55,8 +55,9 @@ export interface CollectionContext {
   byId: Map<string, TimelineRow>;
   publicSees: RevisionRow | undefined;
   url: URL;
-  /** Share links (any state); empty when sharing isn't configured. */
+  /** Share links (any state); empty without WAYPOINT_PUBLIC_BASE_URL. */
   links: ShareView[];
+  /** Whether links can be created and copied (the token key is set too). */
   sharing: boolean;
 }
 
@@ -146,7 +147,7 @@ export async function loadCollection(
   const [manifest, changes, links] = await Promise.all([
     s.reads.manifestOf(revision),
     s.reads.changesFor([...new Set(shown)]),
-    s.publicBaseUrl ? collectionLinks(s, collection.id) : Promise.resolve([]),
+    linksEnabled(s) ? collectionLinks(s, collection.id) : Promise.resolve([]),
   ]);
   const timeline: TimelineRow[] = rows.map((row) => ({
     id: row.id,
@@ -186,7 +187,7 @@ export async function loadCollection(
       publicSees: rows.findLast((row) => row.sync_state === "synced"),
       url: new URL(c.req.raw.url),
       links,
-      sharing: Boolean(s.publicBaseUrl),
+      sharing: sharingEnabled(s),
     },
   };
 }
@@ -235,9 +236,7 @@ export function CollectionBar(props: {
             </span>
           </>
         ) : null}
-        <h1 data-title-text style={`view-transition-name:col-${collection.public_id}`}>
-          {collection.title}
-        </h1>
+        <h1 data-title-text>{collection.title}</h1>
       </nav>
       <button
         type="button"
@@ -299,36 +298,38 @@ export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
   const recent = ctx.timeline.toReversed().slice(0, 8);
   return (
     <div id="rev-menu" class="menu rmenu" popover="auto" role="dialog" aria-label="Revisions">
-      <div class="lbl">Revisions · newest first</div>
-      <Timeline
-        rows={recent}
-        pub={ctx.collection.public_id}
-        currentId={ctx.revision.id}
-        latestId={ctx.latest?.id ?? null}
-        now={ctx.chrome.now}
-        path={props.path}
-        compact
-        byId={ctx.byId}
-        changesHref={changesHref(ctx)}
-      />
-      <hr />
-      <button type="button" class="mi" commandfor="compare" command="show-modal">
-        <span aria-hidden="true">⇄</span>
-        <span>Compare…</span>
-        <small>Choose any two revisions</small>
-      </button>
-      <button
-        type="button"
-        class="mi"
-        data-action="panel-tab"
-        data-tab="history"
-        popovertarget="rev-menu"
-        popovertargetaction="hide"
-      >
-        <span aria-hidden="true">◷</span>
-        <span>Open History panel</span>
-        <kbd>h</kbd>
-      </button>
+      <div class="mbox">
+        <div class="lbl">Revisions · newest first</div>
+        <Timeline
+          rows={recent}
+          pub={ctx.collection.public_id}
+          currentId={ctx.revision.id}
+          latestId={ctx.latest?.id ?? null}
+          now={ctx.chrome.now}
+          path={props.path}
+          compact
+          byId={ctx.byId}
+          changesHref={changesHref(ctx)}
+        />
+        <hr />
+        <button type="button" class="mi" commandfor="compare" command="show-modal">
+          <span aria-hidden="true">⇄</span>
+          <span>Compare…</span>
+          <small>Choose any two revisions</small>
+        </button>
+        <button
+          type="button"
+          class="mi"
+          data-action="panel-tab"
+          data-tab="history"
+          popovertarget="rev-menu"
+          popovertargetaction="hide"
+        >
+          <span aria-hidden="true">◷</span>
+          <span>Open History panel</span>
+          <kbd>h</kbd>
+        </button>
+      </div>
     </div>
   );
 }
@@ -349,86 +350,88 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
   const pinnedUrl = pinnedRevisionUrl(base, ctx.collection.public_id, ctx.revision.public_id, path);
   return (
     <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
-      <div class="lbl">Links</div>
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="copy-menu"
-        popovertargetaction="hide"
-        data-action="copy-link"
-        data-kind="latest"
-      >
-        <span aria-hidden="true">⧉</span>
-        <span>Link to latest</span>
-        <kbd>c</kbd>
-        <small class="mono" data-copy-preview="latest">
-          {shortUrl(latestUrl)}
-        </small>
-      </button>
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="copy-menu"
-        popovertargetaction="hide"
-        data-action="copy-link"
-        data-kind="pinned"
-      >
-        <span aria-hidden="true">⧉</span>
-        <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
-        <kbd>⇧C</kbd>
-        <small class="mono" data-copy-preview="pinned">
-          {shortUrl(pinnedUrl)}
-        </small>
-      </button>
-      <hr />
-      <div class="lbl">For another agent</div>
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="copy-menu"
-        popovertargetaction="hide"
-        data-action="copy-handoff"
-      >
-        <span aria-hidden="true">⧉</span>
-        <span>Handoff block</span>
-        <kbd>a</kbd>
-        <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
-      </button>
-      <pre class="handoff" data-handoff>
-        {handoffBlock(ctx)}
-      </pre>
-      <hr />
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="copy-menu"
-        popovertargetaction="hide"
-        data-action="copy-text"
-        data-text={ctx.collection.id}
-        data-label="collection ID"
-      >
-        <span aria-hidden="true">#</span>
-        <span>Collection ID</span>
-        <small class="mono">{ctx.collection.id}</small>
-      </button>
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="copy-menu"
-        popovertargetaction="hide"
-        data-action="copy-text"
-        data-text={ctx.revision.id}
-        data-label="revision ID"
-      >
-        <span aria-hidden="true">#</span>
-        <span>Revision ID</span>
-        <small class="mono">{ctx.revision.id}</small>
-      </button>
+      <div class="mbox">
+        <div class="lbl">Links</div>
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="copy-menu"
+          popovertargetaction="hide"
+          data-action="copy-link"
+          data-kind="latest"
+        >
+          <span aria-hidden="true">⧉</span>
+          <span>Link to latest</span>
+          <kbd>c</kbd>
+          <small class="mono" data-copy-preview="latest">
+            {shortUrl(latestUrl)}
+          </small>
+        </button>
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="copy-menu"
+          popovertargetaction="hide"
+          data-action="copy-link"
+          data-kind="pinned"
+        >
+          <span aria-hidden="true">⧉</span>
+          <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
+          <kbd>⇧C</kbd>
+          <small class="mono" data-copy-preview="pinned">
+            {shortUrl(pinnedUrl)}
+          </small>
+        </button>
+        <hr />
+        <div class="lbl">For another agent</div>
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="copy-menu"
+          popovertargetaction="hide"
+          data-action="copy-handoff"
+        >
+          <span aria-hidden="true">⧉</span>
+          <span>Handoff block</span>
+          <kbd>a</kbd>
+          <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
+        </button>
+        <pre class="handoff" data-handoff>
+          {handoffBlock(ctx)}
+        </pre>
+        <hr />
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="copy-menu"
+          popovertargetaction="hide"
+          data-action="copy-text"
+          data-text={ctx.collection.id}
+          data-label="collection ID"
+        >
+          <span aria-hidden="true">#</span>
+          <span>Collection ID</span>
+          <small class="mono">{ctx.collection.id}</small>
+        </button>
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="copy-menu"
+          popovertargetaction="hide"
+          data-action="copy-text"
+          data-text={ctx.revision.id}
+          data-label="revision ID"
+        >
+          <span aria-hidden="true">#</span>
+          <span>Revision ID</span>
+          <small class="mono">{ctx.revision.id}</small>
+        </button>
+      </div>
     </div>
   );
 }
@@ -438,76 +441,78 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
   const raw = rawPath(ctx.revision.public_id, path);
   return (
     <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
-      {ctx.sharing ? (
+      <div class="mbox">
+        {ctx.sharing ? (
+          <button
+            type="button"
+            class="mi pubitem show-sm"
+            role="menuitem"
+            commandfor="share"
+            command="show-modal"
+          >
+            <Globe />
+            <span>Share…</span>
+            <kbd>s</kbd>
+          </button>
+        ) : null}
+        <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
+          <span aria-hidden="true">✎</span>
+          <span>Rename…</span>
+        </button>
+        <button type="button" class="mi" role="menuitem" commandfor="metadata" command="show-modal">
+          <span aria-hidden="true">{"{}"}</span>
+          <span>Edit metadata…</span>
+        </button>
+        <hr />
+        <a class="mi" role="menuitem" href={raw} target="_blank" rel="noopener" data-open-raw>
+          <span aria-hidden="true">↗</span>
+          <span>Open raw</span>
+        </a>
+        <a class="mi" role="menuitem" href={raw} download data-download-raw>
+          <span aria-hidden="true">↓</span>
+          <span>Download file</span>
+        </a>
         <button
           type="button"
-          class="mi pubitem show-sm"
-          role="menuitem"
-          commandfor="share"
-          command="show-modal"
-        >
-          <Globe />
-          <span>Share…</span>
-          <kbd>s</kbd>
-        </button>
-      ) : null}
-      <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
-        <span aria-hidden="true">✎</span>
-        <span>Rename…</span>
-      </button>
-      <button type="button" class="mi" role="menuitem" commandfor="metadata" command="show-modal">
-        <span aria-hidden="true">{"{}"}</span>
-        <span>Edit metadata…</span>
-      </button>
-      <hr />
-      <a class="mi" role="menuitem" href={raw} target="_blank" rel="noopener" data-open-raw>
-        <span aria-hidden="true">↗</span>
-        <span>Open raw</span>
-      </a>
-      <a class="mi" role="menuitem" href={raw} download data-download-raw>
-        <span aria-hidden="true">↓</span>
-        <span>Download file</span>
-      </a>
-      <button
-        type="button"
-        class="mi"
-        role="menuitem"
-        popovertarget="more-menu"
-        popovertargetaction="hide"
-        data-action="print"
-      >
-        <span aria-hidden="true">⎙</span>
-        <span>Print</span>
-      </button>
-      {props.previewPublic ? (
-        <a
           class="mi"
           role="menuitem"
-          href={`${shellPath(ctx.collection.public_id, ctx.revision.public_id, path, ctx.pinned, ctx.revision.head_path)}?as=public`}
-          target="_blank"
-          rel="noopener"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="print"
         >
-          <Globe />
-          <span>Preview as public ↗</span>
-        </a>
-      ) : null}
-      <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-        <span aria-hidden="true">?</span>
-        <span>Keyboard shortcuts</span>
-        <kbd>?</kbd>
-      </button>
-      <hr />
-      <button
-        type="button"
-        class="mi dangeritem"
-        role="menuitem"
-        popovertarget="more-menu"
-        popovertargetaction="hide"
-        data-action="trash"
-      >
-        <span aria-hidden="true">⌫</span>
-        <span>Move to Trash…</span>
-      </button>
+          <span aria-hidden="true">⎙</span>
+          <span>Print</span>
+        </button>
+        {props.previewPublic ? (
+          <a
+            class="mi"
+            role="menuitem"
+            href={`${shellPath(ctx.collection.public_id, ctx.revision.public_id, path, ctx.pinned, ctx.revision.head_path)}?as=public`}
+            target="_blank"
+            rel="noopener"
+          >
+            <Globe />
+            <span>Preview as public ↗</span>
+          </a>
+        ) : null}
+        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
+          <span aria-hidden="true">?</span>
+          <span>Keyboard shortcuts</span>
+          <kbd>?</kbd>
+        </button>
+        <hr />
+        <button
+          type="button"
+          class="mi dangeritem"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="trash"
+        >
+          <span aria-hidden="true">⌫</span>
+          <span>Move to Trash…</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -576,13 +581,13 @@ export function TabBar() {
         </span>
         <span>History</span>
       </button>
-      <button type="button" popovertarget="copy-menu">
+      <button type="button" popovertarget="copy-menu" aria-haspopup="menu">
         <span class="i" aria-hidden="true">
           ⧉
         </span>
         <span>Copy</span>
       </button>
-      <button type="button" popovertarget="more-menu">
+      <button type="button" popovertarget="more-menu" aria-haspopup="menu">
         <span class="i" aria-hidden="true">
           ⋯
         </span>
@@ -673,6 +678,7 @@ export function HistoryPanel(props: { ctx: CollectionContext; path: string; all:
         path={props.path}
         byId={ctx.byId}
         changesHref={changesHref(ctx)}
+        query={props.all ? "panel=history&history=all" : "panel=history"}
       />
       {shown.length < newest.length ? (
         <p class="legend">
@@ -1065,9 +1071,7 @@ function TrashBar(props: { chrome: Chrome; collection: CollectionRow; n: number 
             </span>
           </>
         ) : null}
-        <h1 data-title-text style={`view-transition-name:col-${collection.public_id}`}>
-          {collection.title}
-        </h1>
+        <h1 data-title-text>{collection.title}</h1>
       </nav>
       {props.n !== null ? (
         <span class="revbtn static">
@@ -1087,29 +1091,31 @@ function TrashBar(props: { chrome: Chrome; collection: CollectionRow; n: number 
         ⋯
       </button>
       <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="more-menu"
-          popovertargetaction="hide"
-          data-action="restore"
-          data-id={collection.id}
-          data-title={collection.title}
-          data-then="reload"
-        >
-          <span aria-hidden="true">↺</span>
-          <span>Restore…</span>
-        </button>
-        <a class="mi" role="menuitem" href="/trash">
-          <span aria-hidden="true">⌫</span>
-          <span>Open Trash</span>
-        </a>
-        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-          <span aria-hidden="true">?</span>
-          <span>Keyboard shortcuts</span>
-          <kbd>?</kbd>
-        </button>
+        <div class="mbox">
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="more-menu"
+            popovertargetaction="hide"
+            data-action="restore"
+            data-id={collection.id}
+            data-title={collection.title}
+            data-then="reload"
+          >
+            <span aria-hidden="true">↺</span>
+            <span>Restore…</span>
+          </button>
+          <a class="mi" role="menuitem" href="/trash">
+            <span aria-hidden="true">⌫</span>
+            <span>Open Trash</span>
+          </a>
+          <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
+            <span aria-hidden="true">?</span>
+            <span>Keyboard shortcuts</span>
+            <kbd>?</kbd>
+          </button>
+        </div>
       </div>
       <HealthPill health={props.chrome.health} />
     </header>

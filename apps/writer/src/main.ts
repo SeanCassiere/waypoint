@@ -99,6 +99,7 @@ try {
   );
   const bucket = config.sync ? new R2Bucket(config) : undefined;
   const syncLoop = new SyncLoop(queue, syncClient, Date.now, waypoint);
+  await syncLoop.load();
   const committer = bucket
     ? new WriterCommitter(
         waypoint,
@@ -119,10 +120,17 @@ try {
     syncLoop.start();
     committer.wake();
   }
+  if (Boolean(config.publicBaseUrl) !== Boolean(config.shareTokenKey))
+    console.error(
+      config.publicBaseUrl
+        ? "WAYPOINT_SHARE_TOKEN_KEY is not set: existing links can be listed and revoked, but new links can't be created and URLs can't be shown"
+        : "Sharing is off: WAYPOINT_PUBLIC_BASE_URL is not set",
+    );
   const shutdownController = new AbortController();
   const server = serve({
     fetch: createApp({
       ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
+      ...(config.shareTokenKey ? { shareTokenKey: config.shareTokenKey } : {}),
       waypoint,
       queue,
       blobs,
@@ -130,7 +138,9 @@ try {
       ingest,
       bucket,
       committer,
-      syncLoop,
+      // With sync off nothing reaches a cloud: no push times, so links stay "activating" or
+      // "revoking" (not yet pushed) instead of pretending the local no-op push published them.
+      ...(config.sync ? { syncLoop } : {}),
       environment: config.environment,
       port: config.port,
       shutdownSignal: shutdownController.signal,

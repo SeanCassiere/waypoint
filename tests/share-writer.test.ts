@@ -16,8 +16,16 @@ import { IngestService } from "../apps/writer/src/ingest.js";
 import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
 import { ReadModel } from "../apps/writer/src/read-model.js";
 import { restore } from "../apps/writer/src/restore.js";
+import { URL_UNAVAILABLE } from "../apps/writer/src/shares.js";
 import { SyncLoop } from "../apps/writer/src/sync-loop.js";
-import { hashShareToken, mintRevisionId, newId, publicIdFor } from "../packages/core/src/index.js";
+import {
+  deriveShareToken,
+  hashShareToken,
+  mintRevisionId,
+  newId,
+  newShareToken,
+  publicIdFor,
+} from "../packages/core/src/index.js";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
   method: "POST",
@@ -37,6 +45,8 @@ let revisionId: string;
 let collectionPublicId: string;
 let revisionPublicId: string;
 let hash: string;
+/** A fixed test key (never a real one). */
+const shareTokenKey = new Uint8Array(32).fill(42);
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "waypoint-share-"));
   const config: Config = {
@@ -68,6 +78,7 @@ beforeEach(async () => {
     reads,
     ingest,
     publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    shareTokenKey,
   });
   const bytes = new TextEncoder().encode("hello public");
   hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex")}`;
@@ -141,8 +152,8 @@ describe("writer share links", () => {
     expect(stored?.token_hash).toBe(await hashShareToken(data.token));
     const list = await (await app.request(`/api/collections/${collectionId}/share-links`)).text();
     expect(list).toContain(id);
-    expect(list).not.toContain(data.token);
     expect(list).not.toContain(stored?.token_hash);
+    expect(list).not.toContain("token_hash");
     await worker.drain();
     const chunks: Uint8Array[] = [];
     for await (const chunk of await bucket.get(`collections/${collectionId}.json`))
@@ -150,6 +161,15 @@ describe("writer share links", () => {
     const snapshot = Buffer.concat(chunks).toString("utf8");
     expect(snapshot).toContain(stored?.token_hash);
     expect(snapshot).not.toContain(data.token);
+    // Snapshots carry the stored columns only: never the token or the derived URL.
+    const parsed = z
+      .object({ share_links: z.array(z.record(z.string(), z.unknown())) })
+      .parse(JSON.parse(snapshot));
+    expect(parsed.share_links).toHaveLength(1);
+    for (const link of parsed.share_links) {
+      expect(link).not.toHaveProperty("url");
+      expect(link).not.toHaveProperty("token");
+    }
     const revoked = await app.request(`/api/share-links/${id}/revoke`, json({}));
     expect(revoked.status).toBe(200);
     const first: unknown = await revoked.json();
@@ -511,6 +531,175 @@ describe("writer share links", () => {
   });
 });
 
+describe("deterministic share-link tokens (D50)", () => {
+  const base = "https://waypoint-dev.pingstash.com";
+  const links = z.object({
+    share_links: z.array(z.object({ id: z.string(), url: z.string().nullable() })),
+  });
+  it("stores the hash of the token derived from the link ID", async () => {
+    const created = z
+      .object({
+        share_link: z.object({ id: z.string(), url: z.string() }),
+        url: z.string(),
+        token: z.string(),
+      })
+      .parse(await jsonBody(await create()));
+    const token = await deriveShareToken(shareTokenKey, created.share_link.id);
+    expect(created.token).toBe(token);
+    const stored = await waypoint.get<{ token_hash: string }>(
+      "SELECT token_hash FROM share_links WHERE id=?",
+      [created.share_link.id],
+    );
+    expect(stored?.token_hash).toBe(await hashShareToken(token));
+    // A stable URL without a file path: the reader opens the head file.
+    expect(created.url).toBe(`${base}/s/${token}/c/${collectionPublicId}/`);
+    expect(created.share_link.url).toBe(created.url);
+    const pinned = z
+      .object({ share_link: z.object({ url: z.string() }), url: z.string(), token: z.string() })
+      .parse(await jsonBody(await create({ revision_id: revisionId })));
+    expect(pinned.url).toBe(
+      `${base}/s/${pinned.token}/c/${collectionPublicId}/r/${revisionPublicId}/`,
+    );
+    expect(pinned.share_link.url).toBe(pinned.url);
+  });
+  it("reports the same URL on every share-link response, never the stored hash", async () => {
+    const created = z
+      .object({ share_link: z.object({ id: z.string() }), url: z.string() })
+      .parse(await jsonBody(await create({ expires_at: Date.now() + 3_600_000 })));
+    const { id } = created.share_link;
+    const { url } = created;
+    const single = z.object({ share_link: z.object({ url: z.string().nullable() }) });
+    const responses = [
+      await app.request(`/api/collections/${collectionId}/share-links`),
+      await app.request("/api/share-links"),
+      await app.request(`/api/share-links/${id}`),
+      await app.request(`/api/share-links/${id}/url`),
+      await app.request(
+        `/api/share-links/${id}/extend`,
+        json({ expires_at: Date.now() + 7_200_000 }),
+      ),
+      await app.request(`/api/share-links/${id}/revoke`, json({})),
+    ];
+    const bodies = await Promise.all(responses.map((response) => response.text()));
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200]);
+    for (const body of bodies) expect(body).not.toContain("token_hash");
+    const [collection, all, get, direct, extended, revoked] = bodies.map((body): unknown =>
+      JSON.parse(body ?? "null"),
+    );
+    expect(links.parse(collection).share_links[0]?.url).toBe(url);
+    expect(links.parse(all).share_links[0]?.url).toBe(url);
+    expect(single.parse(get).share_link.url).toBe(url);
+    expect(direct).toEqual({ url });
+    expect(single.parse(extended).share_link.url).toBe(url);
+    // Revoke answers with the link itself, still carrying its URL.
+    expect(z.object({ url: z.string().nullable() }).parse(revoked).url).toBe(url);
+  });
+  it("reports null and 409 for links created before deterministic tokens", async () => {
+    const legacy = await legacyLink();
+    const current = await createdId(await create());
+    const list = links.parse(
+      await jsonBody(await app.request(`/api/collections/${collectionId}/share-links`)),
+    );
+    expect(list.share_links.find((link) => link.id === legacy)?.url).toBeNull();
+    expect(list.share_links.find((link) => link.id === current)?.url).toMatch(/^https:/);
+    const get = await jsonBody(await app.request(`/api/share-links/${legacy}`));
+    expect(get.share_link).toMatchObject({ url: null });
+    const response = await app.request(`/api/share-links/${legacy}/url`);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "conflict",
+        message: URL_UNAVAILABLE,
+      },
+    });
+    expect((await app.request("/api/share-links/shl_missing/url")).status).toBe(404);
+    // A different key can't reproduce existing links' URLs.
+    const rotated = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      publicBaseUrl: base,
+      shareTokenKey: new Uint8Array(32).fill(7),
+    });
+    expect((await rotated.request(`/api/share-links/${current}/url`)).status).toBe(409);
+  });
+  it("needs the key only to create links and show URLs; the public URL for everything", async () => {
+    const id = await createdId(await create());
+    const services = {
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+    };
+    // Without a public URL nothing about links works.
+    for (const partial of [createApp({ ...services, shareTokenKey }), createApp(services)]) {
+      for (const response of [
+        await partial.request(`/api/collections/${collectionId}/share-links`, json({})),
+        await partial.request(`/api/collections/${collectionId}/share-links`),
+        await partial.request("/api/share-links"),
+        await partial.request(`/api/share-links/${id}`),
+        await partial.request(`/api/share-links/${id}/url`),
+        await partial.request(`/api/share-links/${id}/revoke`, json({})),
+      ]) {
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({
+          error: { code: "conflict", message: "Sharing is not configured" },
+        });
+      }
+    }
+    // Without the key, existing links can still be listed, extended and revoked (with
+    // url: null); only creating links and showing URLs need it.
+    const keyless = createApp({ ...services, publicBaseUrl: base });
+    for (const response of [
+      await keyless.request(`/api/collections/${collectionId}/share-links`, json({})),
+      await keyless.request(`/api/share-links/${id}/url`),
+    ]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: "conflict",
+          message: "Sharing is not configured: WAYPOINT_SHARE_TOKEN_KEY is not set",
+        },
+      });
+    }
+    const listed = await jsonBody(
+      await keyless.request(`/api/collections/${collectionId}/share-links`),
+    );
+    expect(listed.share_links).toEqual([expect.objectContaining({ id, url: null })]);
+    expect((await keyless.request("/api/share-links")).status).toBe(200);
+    expect(await jsonBody(await keyless.request(`/api/share-links/${id}`))).toMatchObject({
+      share_link: { id, url: null },
+    });
+    const later = await create({ expires_at: Date.now() + 3_600_000 });
+    const expiring = await createdId(later);
+    expect(
+      (
+        await keyless.request(
+          `/api/share-links/${expiring}/extend`,
+          json({ expires_at: Date.now() + 7_200_000 }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await keyless.request(`/api/share-links/${id}/revoke`, json({}))).status).toBe(200);
+    expect(
+      (await keyless.request(`/api/collections/${collectionId}/share-links/revoke-all`, json({})))
+        .status,
+    ).toBe(200);
+  });
+});
+
+/** Inserts a link the way writers did before D50: a random token's hash. */
+async function legacyLink(): Promise<string> {
+  const id = newId("shl");
+  await waypoint.run(
+    "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    [id, await hashShareToken(newShareToken()), collectionId, null, "old", null, null, Date.now()],
+  );
+  return id;
+}
 async function jsonBody(response: Response): Promise<Record<string, unknown>> {
   const value: unknown = await response.json();
   if (!value || typeof value !== "object") throw new Error("Expected an object");
@@ -549,6 +738,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
       ingest,
       syncLoop: loop,
       publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      shareTokenKey,
     });
     const pinned = await createdId(await create({ revision_id: revisionId, label: "pinned" }));
     const latest = await createdId(await create({ expires_at: Date.now() + 3_600_000 }));
@@ -559,7 +749,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
       revision_display_number: 1,
       public_sees: { revision_id: revisionId, display_number: 1 },
     });
-    loop.lastPushAt = Date.now() + 1;
+    loop.recordPush(Date.now() + 1, Date.now() + 2);
     expect(await get(latest)).toMatchObject({
       state: "active",
       revision_display_number: null,
@@ -580,16 +770,112 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(await get(latest)).toMatchObject({ public_sees: { display_number: 1 } });
     await queue.run("DELETE FROM unpushed");
     expect(await get(latest)).toMatchObject({ public_sees: { display_number: 2 } });
+    // Pushes are recorded by hand from here on, so the test decides when the cloud has it.
+    vi.spyOn(loop, "triggerPush").mockImplementation(() => undefined);
     expect((await live.request(`/api/share-links/${pinned}/revoke`, json({}))).status).toBe(200);
-    expect(await get(pinned)).toMatchObject({ state: "revoking", public_sees: null });
+    // Not pushed yet: revoking, and the reader still serves it.
+    expect(await get(pinned)).toMatchObject({
+      state: "revoking",
+      revocation_pushed: false,
+      public_sees: null,
+    });
+    const revoked = await waypoint.get<{ revoked_at: number }>(
+      "SELECT revoked_at FROM share_links WHERE id=?",
+      [pinned],
+    );
+    const revokedAt = revoked?.revoked_at ?? 0;
+    // A push that started before the revocation doesn't carry it, even if it finishes after.
+    loop.recordPush(revokedAt - 5, revokedAt + 5);
+    expect(await get(pinned)).toMatchObject({ state: "revoking", revocation_pushed: false });
+    // Pushed long after the revocation, but only just: the settle window runs from the push.
+    loop.recordPush(revokedAt + 60_000, Date.now() - 1_000);
+    expect(await get(pinned)).toMatchObject({ state: "revoking", revocation_pushed: true });
+    // 10 s (SETTLE_MS) after the push that carried it: revoked.
     await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [
-      Date.now() - 120_000,
+      Date.now() - 60_000,
       pinned,
     ]);
-    expect(await get(pinned)).toMatchObject({ state: "revoked" });
+    loop.recordPush(Date.now() - 59_000, Date.now() - 11_000);
+    expect(await get(pinned)).toMatchObject({ state: "revoked", revocation_pushed: true });
     await waypoint.run("UPDATE share_links SET expires_at=? WHERE id=?", [Date.now() - 1, latest]);
     expect(await get(latest)).toMatchObject({ state: "expired", public_sees: null });
     expect((await live.request("/api/share-links/shl_missing")).status).toBe(404);
+  });
+  it("chunks the token-hash lookup and skips it where URLs aren't shown", async () => {
+    const made = await createdId(await create({ label: "derived" }));
+    const now = Date.now();
+    await waypoint.transaction(async (tx) => {
+      for (let index = 0; index < 1_200; index++)
+        await tx.run(
+          "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+          [
+            newId("shl"),
+            `sha256:${index.toString(16).padStart(64, "0")}`,
+            collectionId,
+            null,
+            null,
+            null,
+            null,
+            now,
+          ],
+        );
+    });
+    const spy = vi.spyOn(waypoint, "all");
+    const listed = await jsonBody(
+      await app.request(`/api/collections/${collectionId}/share-links`),
+    );
+    const lookups = spy.mock.calls.filter(([sql]) =>
+      sql.startsWith("SELECT id,token_hash FROM share_links WHERE id IN"),
+    );
+    expect(lookups).toHaveLength(3);
+    expect(lookups.every(([, args]) => Array.isArray(args) && args.length <= 500)).toBe(true);
+    const links = z
+      .array(z.object({ id: z.string(), url: z.string().nullable() }))
+      .parse(listed.share_links);
+    expect(links).toHaveLength(1_201);
+    expect(links.find((link) => link.id === made)?.url).toMatch(/^https:/);
+    spy.mockClear();
+    expect((await app.request(`/api/share-links/revoke-all?state=active`, json({}))).status).toBe(
+      200,
+    );
+    expect((await app.request("/trash")).status).toBe(200);
+    expect(
+      spy.mock.calls.some(([sql]) =>
+        sql.startsWith("SELECT id,token_hash FROM share_links WHERE id IN"),
+      ),
+    ).toBe(false);
+    spy.mockRestore();
+  });
+  it("after a restart, a revocation pushed before it reads as pushed and settled", async () => {
+    const id = await createdId(await create({ label: "before restart" }));
+    expect((await app.request(`/api/share-links/${id}/revoke`, json({}))).status).toBe(200);
+    const now = Date.now();
+    await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [now - 60_000, id]);
+    // The previous process pushed it (queue.db keeps the last successful push).
+    await queue.run("INSERT OR REPLACE INTO last_push (id,started_at,finished_at) VALUES (1,?,?)", [
+      now - 50_000,
+      now - 30_000,
+    ]);
+    const restarted = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    await restarted.load();
+    const after = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      syncLoop: restarted,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      shareTokenKey,
+    });
+    expect(
+      (await jsonBody(await after.request(`/api/share-links/${id}`))).share_link,
+    ).toMatchObject({ state: "revoked", revocation_pushed: true });
+    const card = await viewerHtml(`/c/${collectionPublicId}/?panel=links`, after);
+    expect(card).not.toContain("not yet pushed");
+    // Without the persisted push it would have read "not yet pushed".
+    const cold = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    expect(cold.pushedAt(now - 60_000)).toBeNull();
   });
   it("lists every link with its collection, filters by state, and revokes in bulk", async () => {
     const a = await createdId(await create({ label: "a" }));
@@ -712,7 +998,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
     expect(html).toContain('class="chip public hide-sm"');
     expect(html).toContain("follows latest");
-    expect(html).toContain("Revoke all 2…");
+    expect(html).toContain("Revoke all 2 links…");
     expect(html).toContain('aria-selected="true"');
     expect(html).toMatch(/id="tab-links"[^>]*aria-selected="true"/);
     const recent = await (await app.request("/")).text();
@@ -817,5 +1103,96 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const links = await (await app.request("/links")).text();
     expect(links).toContain("Shared 7");
     expect(links).toContain("Second");
+  });
+});
+
+async function viewerHtml(path: string, client = app): Promise<string> {
+  return (await client.request(path)).text();
+}
+describe("owner feedback 1: copyable links, calm Links tab, History state", () => {
+  it("offers Copy URL and Open on active links, and explains links whose URL is gone", async () => {
+    const response = await create({ label: "Priya" });
+    const created = await jsonBody(response.clone());
+    const url = String(created.url);
+    const id = await createdId(response);
+    const legacy = await legacyLink();
+    const tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    const card = (linkId: string) =>
+      tab.slice(tab.indexOf(`data-link="${linkId}"`)).split("</details>")[0];
+    const fresh = card(id);
+    expect(fresh).toContain(`data-text="${url}"`);
+    expect(fresh).toContain("Copy URL");
+    expect(fresh).toMatch(new RegExp(`href="${url.replace(/[.?/]/g, "\\$&")}"[^>]*data-open-url`));
+    const old = card(legacy);
+    expect(old).toContain("URL unavailable");
+    expect(old).toContain("or under a different share token key");
+    expect(old).not.toContain("Copy URL");
+    // The same on /links.
+    const linksHtml = await viewerHtml("/links");
+    expect(linksHtml).toContain(`data-text="${url}"`);
+    expect(linksHtml).toContain("URL unavailable");
+    expect(tab).not.toContain("token_hash");
+  });
+  it("keeps the Links tab calm: one primary action, Revoke all only for two or more", async () => {
+    const one = await createdId(await create({ label: "one" }));
+    let tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    expect(tab).toContain("New public link");
+    expect(tab).toMatch(/class="txtbtn"[^>]*>Preview as public ↗/);
+    expect(tab).not.toContain("Revoke all");
+    // Revoke… is a quiet text action, not a red button.
+    expect(tab).toContain('<summary class="txtbtn danger">Revoke…</summary>');
+    expect(tab).not.toContain('<summary class="btn sm danger">');
+    await create({ label: "two" });
+    tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    expect(tab).toMatch(/class="txtbtn danger"[^>]*data-action="revoke-all"/);
+    expect(tab).toContain("Revoke all 2 links…");
+    expect(await viewerHtml("/links")).toContain("Revoke all 2 active links…");
+    // A revocation reads Revoked at once, with a note while the reader catches up.
+    expect((await app.request(`/api/share-links/${one}/revoke`, json({}))).status).toBe(200);
+    tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
+    const card = tab.slice(tab.indexOf(`data-link="${one}"`));
+    expect(card).toMatch(/data-link-state="revoking">Revoked</);
+    // Sync is off in this harness, so the revocation hasn't been pushed: say so.
+    expect(card).toContain("Revoked, not yet pushed. Public access continues until it syncs.");
+    expect(card).not.toContain("Public access stops within seconds.");
+    expect(tab).not.toContain("Revoking");
+  });
+  it("without the token key, shows and revokes links but can't create or copy them", async () => {
+    await create({ label: "made with a key" });
+    const keyless = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    });
+    const shell = await viewerHtml(`/c/${collectionPublicId}/?panel=links`, keyless);
+    expect(shell).not.toContain('commandfor="share"');
+    expect(shell).not.toContain('id="share"');
+    expect(shell).toContain('id="tab-links"');
+    expect(shell).toContain('data-action="revoke-link"');
+    expect(shell).not.toContain("Copy URL");
+    expect(shell).not.toContain("URL unavailable");
+    const links = await viewerHtml("/links", keyless);
+    expect(links).toContain("WAYPOINT_SHARE_TOKEN_KEY isn&#39;t set on this writer");
+    expect(links).not.toContain("Copy URL");
+    expect(links).not.toContain("URL unavailable");
+    expect((await keyless.request(`/api/collections/${collectionId}/share-links`)).status).toBe(
+      200,
+    );
+  });
+  it("keeps the History tab when picking a revision", async () => {
+    const shell = await viewerHtml(`/c/${collectionPublicId}/?panel=history`);
+    const history = shell.slice(shell.indexOf('id="tp-history"'));
+    expect(history).toMatch(/href="[^"]*\/r\/[^"]*\?fallback=head&amp;panel=history"/);
+    expect(shell).toMatch(/id="tab-history"[^>]*aria-selected="true"/);
+    // Stepping keeps it: the revision page renders History selected.
+    const pinned = await viewerHtml(
+      `/c/${collectionPublicId}/r/${revisionPublicId}/index.txt?panel=history`,
+    );
+    expect(pinned).toMatch(/id="tab-history"[^>]*aria-selected="true"/);
+    expect(pinned).toMatch(/id="tp-history"[^>]*>/);
+    expect(pinned).not.toMatch(/id="tp-history"[^>]*hidden/);
   });
 });

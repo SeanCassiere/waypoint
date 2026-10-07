@@ -2,23 +2,103 @@ import { plural } from "../viewer/format.js";
 import { fullDate } from "../viewer/timefmt.js";
 import { registerAction } from "./actions.js";
 import { api, field } from "./api.js";
-import { copyText } from "./copy.js";
+import { copyText, showCopied } from "./copy.js";
 import { confirmDialog } from "./dialogs.js";
 import { $, $$, el, run, shellRoot } from "./dom.js";
 import { onCommand } from "./keys.js";
-import { withTransition } from "./motion.js";
 import { toast } from "./toast.js";
 
 const DAY = 86_400_000;
+/** Keep in step with STOPS_SOON and NOT_PUSHED in viewer/pages/share.tsx. */
+const STOPS_SOON = "Public access stops within seconds.";
+const NOT_PUSHED = "Revoked, not yet pushed. Public access continues until it syncs.";
 
 function linkState(value: unknown): string {
   const state = field(field(value, "share_link"), "state");
   return typeof state === "string" ? state : "";
 }
 
+/** The revocation note on a card (Links tab) or row (/links): pushed yet, or not. */
+function setRevokeNote(holder: HTMLElement, pushed: boolean | null): void {
+  let note = $("[data-stops]", holder);
+  if (pushed === null) {
+    note?.remove();
+    return;
+  }
+  if (!note) {
+    const meta = $(":scope > .s", holder);
+    note = el(meta ? "span" : "p", { class: meta ? "stops" : "note stops" });
+    if (meta) meta.append(note);
+    else holder.append(note);
+  }
+  note.dataset.stops = String(pushed);
+  note.textContent = pushed ? STOPS_SOON : NOT_PUSHED;
+}
+
+function bump(node: HTMLElement | null, by: number): void {
+  if (node) node.textContent = String(Math.max(0, Number(node.textContent ?? "0") + by));
+}
+/** One fewer active link: the Links tab count, /links segment counts and Revoke all. */
+function countRevoked(): void {
+  bump($("#tab-links .n"), -1);
+  bump($('[data-count-of="active"]'), -1);
+  bump($('[data-count-of="revoked"]'), 1);
+  const all = $("[data-action=revoke-all]");
+  if (!all) return;
+  const left = Number(all.dataset.count ?? "0") - 1;
+  if (left < 2) {
+    (all.closest(".lnk-foot") ?? all).remove();
+    return;
+  }
+  all.dataset.count = String(left);
+  all.textContent = `Revoke all ${left} ${all.dataset.noun ?? "links"}…`;
+}
+
+/**
+ * Shows a link as revoked the moment the writer has recorded it: the card (Links tab) or row
+ * (/links) loses its actions and its chip reads Revoked. Its note says whether the
+ * revocation has reached the cloud yet (until then the public reader still serves the link),
+ * and follows it until it has. No reload, so nothing else on the page moves.
+ */
+function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
+  holder.classList.add("dead");
+  const chip = $("[data-link-state]", holder);
+  if (chip) {
+    chip.className = holder.classList.contains("r") ? "chip xs" : "chip";
+    chip.dataset.linkState = "revoking";
+    chip.replaceChildren("Revoked");
+  }
+  for (const node of $$(".row, .acts, [data-url-missing]", holder))
+    if (node.parentElement === holder) node.remove();
+  // Expiry no longer applies (/links rows).
+  for (const node of $$("[data-live]", holder)) node.remove();
+  setRevokeNote(holder, pushed);
+  countRevoked();
+  holder.tabIndex = -1;
+  holder.focus();
+  const started = Date.now();
+  const check = () => {
+    api(`/api/share-links/${encodeURIComponent(id)}`)
+      .then((value) => {
+        const link = field(value, "share_link");
+        const state = field(link, "state");
+        if (state === "revoked") {
+          setRevokeNote(holder, null);
+          return;
+        }
+        setRevokeNote(holder, field(link, "revocation_pushed") === true);
+        if (Date.now() - started < 120_000) setTimeout(check, 2000);
+      })
+      .catch(() => {
+        if (Date.now() - started < 120_000) setTimeout(check, 2000);
+      });
+  };
+  setTimeout(check, 1000);
+}
+
 /**
  * The share flow (spec §4.15–4.16). The dialog opens natively (commandfor); script submits
- * the JSON request, shows the one-time link, guards closing before copying, and polls
+ * the JSON request, shows the link (copyable again later from the Links tab), and polls
  * activation every 5 s for up to 3 minutes.
  */
 export function bindShare(): void {
@@ -32,36 +112,23 @@ export function bindShare(): void {
   bindInlineConfirms();
   registerAction("revoke-link", async (element) => {
     const id = element.dataset.id ?? "";
+    let pushed = false;
     const revoke = async () => {
-      await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
+      const result = await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
+      pushed = field(result, "revocation_pushed") === true;
     };
     if (element.dataset.confirm === "true") {
       const ok = await confirmDialog({
         title: "Revoke this link?",
-        body: "People using it lose access within about a minute. You can't undo this.",
+        body: "People using it lose access within seconds. You can't undo this.",
         ok: "Revoke link",
         run: revoke,
       });
       if (!ok) return;
     } else await revoke();
-    toast("Revoking. It stops working within a minute.");
-    const card = element.closest<HTMLElement>("[data-link]");
-    // The update removes the focused button, so focus moves to the card once it has run.
-    await withTransition(() => {
-      const chip = card ? $("[data-link-state]", card) : null;
-      chip?.replaceChildren(
-        el("span", { class: "spin", attrs: { "aria-hidden": "true" } }),
-        "Revoking",
-      );
-      if (chip) chip.className = "chip";
-      card?.classList.add("dead");
-      card?.querySelector(".row")?.remove();
-    });
-    if (card) {
-      card.tabIndex = -1;
-      card.focus();
-    }
-    setTimeout(() => location.reload(), 900);
+    toast("Link revoked");
+    const holder = element.closest<HTMLElement>("[data-link]");
+    if (holder) markRevoked(holder, id, pushed);
   });
   registerAction("revoke-all", async (element) => {
     const count = Number(element.dataset.count ?? "0");
@@ -70,7 +137,7 @@ export function bindShare(): void {
       title: collection
         ? `Revoke all ${plural(count, "link")}?`
         : `Revoke all ${plural(count, "active link")}?`,
-      body: `Everyone using ${count === 1 ? "it" : "them"} loses access within about a minute. You can't undo this.`,
+      body: `Everyone using ${count === 1 ? "it" : "them"} loses access within seconds. You can't undo this.`,
       ok: count === 1 ? "Revoke link" : "Revoke all",
       run: async () => {
         await api(
@@ -124,8 +191,8 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   const created = $('[data-share-step="created"]', dialog);
   const error = $("[data-share-error]", dialog);
   const copyButton = $("[data-share-copy]", HTMLButtonElement, dialog);
-  const uncopied = $("[data-share-uncopied]", dialog);
-  if (!form || !create || !created || !copyButton || !uncopied) return;
+  const open = $("[data-share-open]", HTMLAnchorElement, dialog);
+  if (!form || !create || !created || !copyButton) return;
   onCommand("share", () => {
     if (!dialog.open) dialog.showModal();
   });
@@ -138,43 +205,21 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   )
     sees.open = false;
   let url = "";
-  let copied = false;
   let poll: ReturnType<typeof setTimeout> | undefined;
-  const finish = () => {
+  // Once a link exists, closing the dialog (Done, Esc) shows it in the Links tab, where its
+  // URL can be copied again.
+  dialog.addEventListener("close", () => {
+    if (!url) return;
     if (poll) clearTimeout(poll);
     const target = new URL(location.href);
     target.searchParams.set("panel", "links");
     location.assign(target.href);
-  };
-  const guard = () => {
-    if (!url) return false;
-    if (copied) {
-      finish();
-      return true;
-    }
-    uncopied.hidden = false;
-    $("[data-share-back]", uncopied)?.focus();
-    return true;
-  };
-  dialog.addEventListener("cancel", (event) => {
-    if (url) {
-      event.preventDefault();
-      guard();
-    }
   });
-  $("[data-share-done]", dialog)?.addEventListener("click", () => guard());
-  $("[data-share-back]", uncopied)?.addEventListener("click", () => {
-    uncopied.hidden = true;
-    copyButton.focus();
-  });
-  $("[data-share-force]", uncopied)?.addEventListener("click", finish);
+  $("[data-share-done]", dialog)?.addEventListener("click", () => dialog.close());
   copyButton.addEventListener("click", () =>
     run(async () => {
       await copyText(url, "link");
-      copied = true;
-      uncopied.hidden = true;
-      copyButton.textContent = "✓ Copied";
-      copyButton.classList.add("done");
+      showCopied(copyButton);
     }, toast),
   );
   const paintState = (state: string) => {
@@ -189,7 +234,7 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   const setState = (state: string) => {
     if (state === painted) return;
     painted = state;
-    void withTransition(() => paintState(state));
+    paintState(state);
   };
   form.addEventListener("submit", (event) => {
     if (event.submitter?.getAttribute("formmethod") === "dialog") return;
@@ -232,14 +277,13 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
           set("[data-share-label]", label || "(no label)");
           set("[data-share-shows]", target === "only" ? `Only #${dialogN}` : "Latest revision");
           set("[data-share-expires]", expiresAt === null ? "Never" : fullDate(expiresAt, false));
+          if (open) open.href = url;
           painted = linkState(result);
-          // Copy only exists once the transition's update has run (spec §4.16: Copy has focus).
-          await withTransition(() => {
-            create.hidden = true;
-            created.hidden = false;
-            dialog.setAttribute("aria-labelledby", "share-created-title");
-            paintState(painted);
-          });
+          create.hidden = true;
+          created.hidden = false;
+          dialog.setAttribute("aria-labelledby", "share-created-title");
+          paintState(painted);
+          // Spec §4.16: Copy has focus once the link exists.
           copyButton.focus();
           const started = Date.now();
           const check = () => {
