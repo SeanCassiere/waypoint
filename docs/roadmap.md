@@ -24,6 +24,13 @@ Also in phase 0:
 
 ## Phase 1: MVP (tailnet writer + cloud durability)
 
+> **Done, 2026-10-07.** Production writer: `https://waypoint.tail7aca06.ts.net`. Verified:
+> - **End to end:** the MCP server, installed via `npx` from the production writer, ran `create_collection` with a `source_dir`, then `add_revision` (merge), then `read_file`.
+> - **Live:** writes against dev and prod R2 and Turso reach `synced`. Bucket garbage collection after purge works against real R2.
+> - **Disaster recovery:** wiping a writer's data directory and restarting restored every collection, revision, public ID and sync state identically. Content was refetched from R2.
+> - **Deploys:** automatic, via the self-hosted runner after CI on `main`, with health checks and rollback. agent-1's host Tailscale config and T3 Code are untouched.
+> - **Still open:** setting up the MCP server on the MacBook Air needs a local step there (see `/mcp` on the writer). Turso Sync on macOS arm64 is still untested (only relevant if the Mac ever runs a writer).
+
 - **Writer:**
   - Data directory: `waypoint.db`, `queue.db`, and the local blob store
   - Environment guard, startup migrations
