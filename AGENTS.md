@@ -81,6 +81,10 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 - Specs live in [docs/](docs/). Update them in the same PR when behavior changes; [docs/decisions.md](docs/decisions.md) records why things are the way they are.
 - Lint config is `oxlint.config.ts`; formatting is `oxfmt.config.ts`. No blanket lint disables.
 
+## Provisioning
+
+How to create or rotate every external credential (Turso, R2, Cloudflare, Tailscale), for the local writer and the cloud reader: [docs/provisioning.md](docs/provisioning.md).
+
 ## Secrets
 
 - Never print, log, commit, or bake into images anything from `~/.config/waypoint/`. Load env files only inside the command that needs them (`set -a; . file; set +a`).

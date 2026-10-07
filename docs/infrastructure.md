@@ -4,6 +4,8 @@ Two environments, **dev** and **prod**, kept fully separate: different cloud DB,
 
 ## Setup checklist
 
+How to obtain each item, step by step: [provisioning.md](provisioning.md).
+
 Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed for the public reader.
 
 ### Turso
@@ -12,7 +14,7 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
   `turso db create waypoint-<env> --tursodb --location aws-ap-southeast-2 --group waypoint --wait`
   - Their URLs use the `turso://` scheme. For the HTTP API, swap it for `https://`.
 - [x] **(P1)** A full-access token per DB for the writer(s), created with `turso db tokens create <db> --expiration never`.
-- [ ] **(P2)** A read-only token for `waypoint-prod`, used by the reader: `turso db tokens create waypoint-prod --read-only`.
+- [x] **(P2)** Read-only tokens for `waypoint-prod` and `waypoint-dev`, used by the readers: `turso db tokens create waypoint-<env> --read-only --expiration never`. Verified: reads succeed, writes are `BLOCKED`.
 
 ### Cloudflare R2
 - [x] **(P1)** R2 enabled on the account. This needs a payment method, even on the free plan.
@@ -21,13 +23,15 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 - [x] **(P1)** A billing budget alert at $1, alongside the default $10 alert. Cloudflare has no hard spending cap, and alerts arrive by email about once a day.
 
 ### Cloudflare Workers (P2)
-- [ ] **(P2)** A Worker `waypoint-reader` with:
-  - an R2 binding `BUCKET` to `waypoint-prod`
+- [x] **(P2)** Read-only R2 tokens `waypoint-reader-prod` and `waypoint-reader-dev` (**Object Read only**, each scoped to its own bucket). Verified: list succeeds, put is denied (403), the other bucket is denied (403).
+- [x] **(P2)** Deploy token `waypoint-reader-deploy` (custom token; permissions in [provisioning.md](provisioning.md#23-cloudflare-deploy-api-token)), scoped to this account and the `pingstash.com` zone only. Verified with a throwaway Worker on a custom domain, which was then deleted.
+- [x] **(P2)** Workers Analytics Engine enabled. Account is on the Workers **Free** plan.
+- [x] **(P2)** `waypoint.pingstash.com`, `waypoint-dev.pingstash.com` and `*.pingstash.com` have no existing DNS records, and no zone rules match them.
+- [ ] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`), with `workers_dev: false`. Each has:
+  - secrets from `~/.config/waypoint/reader-<env>.env`: the Turso read-only token and R2 read-only keys. Blobs are read over the S3 API, **not** an R2 binding (decision D38).
   - an Analytics Engine binding `ACCESS_LOG`
   - a Rate Limiting binding `TOKEN_MISS_LIMITER`
-  - secrets `TURSO_DATABASE_URL` and `TURSO_READONLY_TOKEN`
-- [ ] **(P2)** A custom domain **`waypoint.pingstash.com`** attached to the Worker. The `pingstash.com` zone is already on Cloudflare. Attaching it creates the DNS record and certificate automatically.
-- [ ] **(P2)** The `workers.dev` route turned off once the custom domain works.
+- [ ] **(P2)** Custom domains attached to those Workers. Attaching them creates the DNS records and certificates.
 
 ### Tailscale
 - [x] **(P1)** The tag owner `tag:waypoint` is in the tailnet policy (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`). The policy is otherwise allow-all.
