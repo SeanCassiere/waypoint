@@ -801,6 +801,82 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(await get(latest)).toMatchObject({ state: "expired", public_sees: null });
     expect((await live.request("/api/share-links/shl_missing")).status).toBe(404);
   });
+  it("chunks the token-hash lookup and skips it where URLs aren't shown", async () => {
+    const made = await createdId(await create({ label: "derived" }));
+    const now = Date.now();
+    await waypoint.transaction(async (tx) => {
+      for (let index = 0; index < 1_200; index++)
+        await tx.run(
+          "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+          [
+            newId("shl"),
+            `sha256:${index.toString(16).padStart(64, "0")}`,
+            collectionId,
+            null,
+            null,
+            null,
+            null,
+            now,
+          ],
+        );
+    });
+    const spy = vi.spyOn(waypoint, "all");
+    const listed = await jsonBody(
+      await app.request(`/api/collections/${collectionId}/share-links`),
+    );
+    const lookups = spy.mock.calls.filter(([sql]) =>
+      sql.startsWith("SELECT id,token_hash FROM share_links WHERE id IN"),
+    );
+    expect(lookups).toHaveLength(3);
+    expect(lookups.every(([, args]) => Array.isArray(args) && args.length <= 500)).toBe(true);
+    const links = z
+      .array(z.object({ id: z.string(), url: z.string().nullable() }))
+      .parse(listed.share_links);
+    expect(links).toHaveLength(1_201);
+    expect(links.find((link) => link.id === made)?.url).toMatch(/^https:/);
+    spy.mockClear();
+    expect((await app.request(`/api/share-links/revoke-all?state=active`, json({}))).status).toBe(
+      200,
+    );
+    expect((await app.request("/trash")).status).toBe(200);
+    expect(
+      spy.mock.calls.some(([sql]) =>
+        sql.startsWith("SELECT id,token_hash FROM share_links WHERE id IN"),
+      ),
+    ).toBe(false);
+    spy.mockRestore();
+  });
+  it("after a restart, a revocation pushed before it reads as pushed and settled", async () => {
+    const id = await createdId(await create({ label: "before restart" }));
+    expect((await app.request(`/api/share-links/${id}/revoke`, json({}))).status).toBe(200);
+    const now = Date.now();
+    await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [now - 60_000, id]);
+    // The previous process pushed it (queue.db keeps the last successful push).
+    await queue.run("INSERT OR REPLACE INTO last_push (id,started_at,finished_at) VALUES (1,?,?)", [
+      now - 50_000,
+      now - 30_000,
+    ]);
+    const restarted = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    await restarted.load();
+    const after = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      syncLoop: restarted,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      shareTokenKey,
+    });
+    expect(
+      (await jsonBody(await after.request(`/api/share-links/${id}`))).share_link,
+    ).toMatchObject({ state: "revoked", revocation_pushed: true });
+    const card = await viewerHtml(`/c/${collectionPublicId}/?panel=links`, after);
+    expect(card).not.toContain("not yet pushed");
+    // Without the persisted push it would have read "not yet pushed".
+    const cold = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    expect(cold.pushedAt(now - 60_000)).toBeNull();
+  });
   it("lists every link with its collection, filters by state, and revokes in bulk", async () => {
     const a = await createdId(await create({ label: "a" }));
     await createdId(await create({ label: "b", revision_id: revisionId }));

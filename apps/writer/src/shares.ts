@@ -109,25 +109,44 @@ export function shareState(
   return (pushes?.pushedAt(row.created_at) ?? null) === null ? "activating" : "active";
 }
 
+/** Link IDs per token-hash query, well under SQLite's bound-parameter limit. */
+const HASH_CHUNK = 500;
+/** The stored token hashes of these links only (never every link of a collection). */
+async function tokenHashesOf(
+  s: HttpServices,
+  rows: readonly ShareRow[],
+): Promise<{ id: string; token_hash: string }[]> {
+  const chunks: ShareRow[][] = [];
+  for (let at = 0; at < rows.length; at += HASH_CHUNK) chunks.push(rows.slice(at, at + HASH_CHUNK));
+  const found = await Promise.all(
+    chunks.map((chunk) =>
+      s.waypoint.all<{ id: string; token_hash: string }>(
+        `SELECT id,token_hash FROM share_links WHERE id IN (${chunk.map(() => "?").join(",")})`,
+        chunk.map((row) => row.id),
+      ),
+    ),
+  );
+  return found.flat();
+}
+
 /**
  * Views for any number of links in six queries (B3): five for revisions and collections, and
- * one for the stored token hashes that decide whether each link's URL is recoverable. The
- * hashes never leave this function.
+ * one per 500 links for the stored token hashes that decide whether each link's URL is
+ * recoverable. The hashes never leave this function. Callers that don't show URLs (bulk
+ * revoke, Trash) pass `urls: false` and skip the hashes and HMACs (url is then null).
  */
-export async function shareViews(s: HttpServices, rows: readonly ShareRow[]): Promise<ShareView[]> {
+export async function shareViews(
+  s: HttpServices,
+  rows: readonly ShareRow[],
+  options: { urls?: boolean } = {},
+): Promise<ShareView[]> {
   if (!rows.length) return [];
   const ids = [...new Set(rows.map((row) => row.collection_id))];
-  const sharing = sharingConfig(s);
+  const sharing = options.urls === false ? undefined : sharingConfig(s);
   const [index, collections, hashes] = await Promise.all([
     s.reads.revisionIndex(ids),
     s.reads.collectionsById(ids),
-    // Only this page's links: never every link of a collection.
-    sharing
-      ? s.waypoint.all<{ id: string; token_hash: string }>(
-          `SELECT id,token_hash FROM share_links WHERE id IN (${rows.map(() => "?").join(",")})`,
-          rows.map((row) => row.id),
-        )
-      : Promise.resolve([]),
+    sharing ? tokenHashesOf(s, rows) : Promise.resolve([]),
   ]);
   const tokenHashes = new Map(hashes.map((row) => [row.id, row.token_hash]));
   const now = Date.now();
@@ -324,12 +343,14 @@ export async function listLinks(
     next: rows.length > options.limit && last ? encodeLinkCursor(last) : null,
   };
 }
+/** Every link without URLs (bulk revoke only needs states and collections). */
 export async function allLinks(s: HttpServices): Promise<ShareView[]> {
   return shareViews(
     s,
     await s.waypoint.all<ShareRow>(
       `SELECT ${SHARE_COLUMNS} FROM share_links ORDER BY created_at DESC`,
     ),
+    { urls: false },
   );
 }
 

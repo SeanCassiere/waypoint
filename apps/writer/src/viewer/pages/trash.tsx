@@ -117,7 +117,7 @@ export async function trashLinks(s: HttpServices, ids: string[]): Promise<Map<st
     `SELECT ${SHARE_COLUMNS} FROM share_links WHERE collection_id IN (${ids.map(() => "?").join(",")})`,
     ids,
   );
-  for (const view of await shareViews(s, rows)) {
+  for (const view of await shareViews(s, rows, { urls: false })) {
     const entry = result.get(view.collection_id) ?? { active: [], total: 0 };
     entry.total++;
     if (view.status === "active")

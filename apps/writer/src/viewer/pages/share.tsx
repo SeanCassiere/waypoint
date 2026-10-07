@@ -308,7 +308,7 @@ export function publicSegment(
   const who = following.label ? `“${following.label}”` : "A link";
   return {
     tone: "public",
-    text: `Public: ${plural(live.length, "active link")}. ${who} follows latest, so new revisions become public about a minute after they sync.`,
+    text: `Public: ${plural(live.length, "active link")}. ${who} follows latest, so new revisions become public within seconds of syncing.`,
     brief: `Public: ${who} follows latest`,
     body: (
       <span>
@@ -316,7 +316,7 @@ export function publicSegment(
           <Globe /> Public
         </span>{" "}
         {plural(live.length, "active link")}. <b>{who} follows latest</b>
-        <span class="long">, so new revisions become public about a minute after they sync.</span>
+        <span class="long">, so new revisions become public within seconds of syncing.</span>
       </span>
     ),
   };
@@ -488,8 +488,8 @@ export function ShareDialog(props: {
                 </span>
                 <span>
                   <b>Every future revision</b>, by any agent on{" "}
-                  <span class="mono">{hosts.length ? hosts.join(", ") : "any machine"}</span>, about
-                  a minute after it syncs, with no review step
+                  <span class="mono">{hosts.length ? hosts.join(", ") : "any machine"}</span>,
+                  within seconds of syncing, with no review step
                 </span>
               </div>
               <div class="row when-never">
