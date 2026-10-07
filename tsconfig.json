@@ -21,7 +21,8 @@
     "oxfmt.config.ts",
     "vitest.config.ts",
     "packages/mcp/scripts/**/*.ts",
-    "packages/mcp/esbuild.config.ts"
+    "packages/mcp/esbuild.config.ts",
+    "apps/writer/viewer.build.ts"
   ],
   "exclude": ["tests/fixtures/core-denied-import/**"]
 }

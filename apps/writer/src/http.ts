@@ -34,7 +34,7 @@ import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
 import { getStatus } from "./status-data.js";
 import type { SyncLoop } from "./sync-loop.js";
-import { viewerApp } from "./viewer.js";
+import { viewerApp } from "./viewer/index.js";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;

@@ -16,6 +16,7 @@
     "@tursodatabase/sync": "0.8.2",
     "@waypoint/core": "workspace:*",
     "@waypoint/render": "workspace:*",
+    "@waypoint/ui": "workspace:*",
     "busboy": "^1.6.0",
     "hono": "^4.13.13",
     "zod": "^4.6.5"

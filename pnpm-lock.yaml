@@ -50,6 +50,9 @@ importers:
       '@waypoint/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@waypoint/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       aws4fetch:
         specifier: ^1.0.20
         version: 1.0.20
@@ -84,6 +87,9 @@ importers:
       '@waypoint/render':
         specifier: workspace:*
         version: link:../../packages/render
+      '@waypoint/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       busboy:
         specifier: ^1.6.0
         version: 1.6.0
@@ -168,6 +174,8 @@ importers:
       '@types/hast':
         specifier: 3.0.5
         version: 3.0.5
+
+  packages/ui: {}
 
 packages:
 

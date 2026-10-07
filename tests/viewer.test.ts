@@ -177,10 +177,14 @@ describe("viewer routes", () => {
     expect(list.headers.get("cache-control")).toBe("no-store");
     const html = await list.text();
     expect(html).toContain("#2");
-    expect(html).toContain(
-      '<style>:root{font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI"',
-    );
-    expect(html).not.toContain("&quot;Segoe UI&quot;");
+    const stylesheet = /<link rel="stylesheet" href="(\/assets\/viewer\/[0-9a-f]{16}\.css)"/.exec(
+      html,
+    )?.[1];
+    expect(stylesheet).toBeTruthy();
+    const css = await app.request(stylesheet ?? "");
+    expect(css.headers.get("content-type")).toBe("text/css; charset=utf-8");
+    expect(css.headers.get("cache-control")).toContain("immutable");
+    expect(await css.text()).toContain("prefers-color-scheme");
     expect(html).toContain('rel="icon"');
     expect(html).toContain("2 files");
     expect(html.indexOf("Newest")).toBeLessThan(html.indexOf("Alpha"));

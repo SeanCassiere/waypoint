@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/render" },
+    { "path": "packages/ui" },
     { "path": "packages/mcp" },
     { "path": "apps/writer" },
     { "path": "apps/reader" }

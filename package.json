@@ -11,7 +11,7 @@
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "core:guard": "node scripts/check-core-imports.mjs",
     "format:check": "oxfmt --check .",
-    "viewer:build": "tsc -p apps/writer/tsconfig.browser.json && esbuild apps/writer/src/viewer-client.browser.ts --bundle --platform=browser --format=iife --minify --outfile=apps/writer/dist/viewer-client.browser.js",
+    "viewer:build": "tsc -p apps/writer/tsconfig.browser.json && node apps/writer/viewer.build.ts",
     "test:browser": "node --experimental-strip-types tests/viewer-browser.ts"
   },
   "devDependencies": {
