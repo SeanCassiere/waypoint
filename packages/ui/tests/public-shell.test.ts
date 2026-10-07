@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  encodePathSegments,
   formatShellTime,
   publicShellCss,
   publicShellScript,
@@ -141,5 +142,20 @@ describe("public shell", () => {
     });
     expect(card).not.toContain("<iframe");
     expect(card).toContain("<p>application/zip · can&#39;t be previewed in the browser</p>");
+  });
+});
+describe("encodePathSegments", () => {
+  it("matches per-segment encodeURIComponent", () => {
+    for (const path of [
+      "a/b c/d.md",
+      "%2F/x%2fy",
+      "café/ü?#&=+.md",
+      "a//b",
+      "/lead",
+      "x/y/",
+      "A-z_0.9~/b",
+      "it's (1)!*.md",
+    ])
+      expect(encodePathSegments(path)).toBe(path.split("/").map(encodeURIComponent).join("/"));
   });
 });

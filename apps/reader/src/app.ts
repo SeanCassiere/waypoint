@@ -6,7 +6,12 @@ import {
   shareShellUrl,
   validatePath,
 } from "@waypoint/core";
-import { publicShellCss, publicShellScript, renderPublicShell } from "@waypoint/ui";
+import {
+  encodePathSegments,
+  publicShellCss,
+  publicShellScript,
+  renderPublicShell,
+} from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
 import { deniedPage, rootPage, staticCss } from "./pages.js";
@@ -101,7 +106,6 @@ const denied = async (): Promise<Response> =>
   });
 /** Content the sandboxed iframe can show; anything else gets the download card. */
 const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
-const encodeSegments = (path: string): string => path.split("/").map(encodeURIComponent).join("/");
 const linkSql =
   "SELECT s.id,s.collection_id,s.revision_id,s.expires_at,s.revoked_at,c.public_id,c.title,t.deleted_at,pr.public_id AS pinned_public_id,pr.head_path AS pinned_head_path,pr.created_at AS pinned_created_at FROM share_links s JOIN collections c ON c.id=s.collection_id LEFT JOIN collection_tombstones t ON t.collection_id=c.id LEFT JOIN revisions pr ON pr.id=s.revision_id AND pr.collection_id=s.collection_id WHERE ";
 function decodeRawPath(encoded: string): string {
@@ -398,13 +402,15 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         link.public_id,
         link.revision_id ? revision.public_id : undefined,
       );
+      const linkPrefix = new URL(prefix).pathname;
       const cap = await rawCap(env.RAW_CAP_KEY, link.id, revision.public_id);
       const html = renderPublicShell({
         title: link.title,
         files,
         head: revision.head_path,
         current: path,
-        fileHref: (item) => prefix + encodeSegments(item),
+        // Root-relative links keep a 2,000-file shell small.
+        fileHref: (item) => linkPrefix + encodePathSegments(item),
         frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
         updatedAt: link.revision_id ? null : revision.created_at,
         snapshotAt: link.revision_id ? revision.created_at : null,

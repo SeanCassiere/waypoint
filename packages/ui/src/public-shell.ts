@@ -108,7 +108,7 @@ export const publicShellCss = tokensCss + shellCss;
  *   and name a file already linked in the shell. The shell then moves `aria-current` and
  *   replaces its URL with that link's own server-rendered href, never with message data.
  */
-export const publicShellScript = `(()=>{const o={day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"};for(const t of document.querySelectorAll("time[datetime]")){const d=new Date(t.dateTime);if(!isNaN(d.getTime()))t.textContent=d.toLocaleString(undefined,o)}const f=document.getElementById("doc");if(!f||!f.dataset.base)return;const b=new URL(f.dataset.base,location.href);const base=b.origin+b.pathname;const links=()=>document.querySelectorAll("a[data-p]");addEventListener("message",e=>{if(e.source!==f.contentWindow)return;const m=e.data;if(!m||typeof m!=="object"||m.type!=="waypoint:location"||typeof m.href!=="string"||m.href.length>8192)return;let p;try{const u=new URL(m.href);const h=u.origin+u.pathname;if(!h.startsWith(base))return;p=h.slice(base.length).split("/").map(decodeURIComponent).join("/").normalize("NFC")}catch{return}let hit=null;for(const a of links())if(a.dataset.p===p){hit=a;break}if(!hit)return;for(const a of links())if(a.dataset.p===p)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current");f.title=p;const c=document.querySelector(".pfiles .cur");if(c)c.textContent=p;if(hit.href!==location.href)history.replaceState(null,"",hit.href)})})()`;
+export const publicShellScript = `(()=>{const o={day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"};for(const t of document.querySelectorAll("time[datetime]")){const d=new Date(t.dateTime);if(!isNaN(d.getTime()))t.textContent=d.toLocaleString(undefined,o)}const f=document.getElementById("doc");if(!f||!f.dataset.base)return;const b=new URL(f.dataset.base,location.href);const base=b.origin+b.pathname;const links=()=>document.querySelectorAll("a[data-p]");addEventListener("message",e=>{if(e.source!==f.contentWindow)return;const m=e.data;if(!m||typeof m!=="object"||m.type!=="waypoint:location"||typeof m.href!=="string"||m.href.length>8192)return;let p;try{const u=new URL(m.href,f.src);const h=u.origin+u.pathname;if(!h.startsWith(base))return;p=h.slice(base.length).split("/").map(decodeURIComponent).join("/").normalize("NFC")}catch{return}let hit=null;for(const a of links())if(a.dataset.p===p){hit=a;break}if(!hit||hit.hasAttribute("aria-current"))return;for(const a of links())if(a.dataset.p===p)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current");f.title=p;const c=document.querySelector(".pfiles .cur");if(c)c.textContent=p;if(hit.href!==location.href)history.replaceState(null,"",hit.href)})})()`;
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "7 Oct 2026, 22:08 UTC": the no-script fallback; the script localizes it. */
@@ -130,17 +130,23 @@ function extension(path: string): string {
   return index > 0 ? name.slice(index) : name.slice(0, 6);
 }
 
-const encodeSegments = (path: string): string => path.split("/").map(encodeURIComponent).join("/");
+const special = /[&<>"']/;
+/** escapeHtml with a fast path: most paths and URLs need no escaping. */
+const esc = (value: string): string => (special.test(value) ? escapeHtml(value) : value);
 
-function link(
-  options: PublicShellOptions,
-  path: string,
-  label: string,
-  className?: string,
-): string {
+const unreserved = /^[A-Za-z0-9._~/-]*$/;
+/**
+ * Per-segment encodeURIComponent, cheaply: most paths need no encoding, and otherwise `%2F` can
+ * only come from `/`, since a literal `%` becomes `%25`.
+ */
+export const encodePathSegments = (path: string): string =>
+  unreserved.test(path) ? path : encodeURIComponent(path).replaceAll("%2F", "/");
+
+function link(options: PublicShellOptions, path: string, label: string): string {
   const current = path === options.current ? ' aria-current="page"' : "";
-  const cls = className ? ` class="${className}"` : "";
-  return `<a${cls} href="${escapeHtml(options.fileHref(path))}" data-p="${escapeHtml(path)}"${current}>${escapeHtml(label)}</a>`;
+  // The label is the path or a suffix of it, so one test covers both.
+  const clean = !special.test(path);
+  return `<a href="${esc(options.fileHref(path))}" data-p="${clean ? path : escapeHtml(path)}"${current}>${clean ? label : escapeHtml(label)}</a>`;
 }
 
 /** Tree of every file but the head, in one pass over the sorted paths. */
@@ -149,23 +155,30 @@ function tree(options: PublicShellOptions, paths: readonly string[]): string {
   const stack: string[] = [];
   const currentDir = options.current.slice(0, options.current.lastIndexOf("/") + 1);
   const openAll = paths.length <= OPEN_FOLDERS_LIMIT;
+  let previousDir: string | null = null;
   for (const path of paths) {
-    const parts = path.split("/");
-    const dirs = parts.length - 1;
-    let shared = 0;
-    while (shared < stack.length && shared < dirs && stack[shared] === parts[shared]) shared++;
-    while (stack.length > shared) {
-      stack.pop();
-      out.push("</div></details>");
+    const slash = path.lastIndexOf("/");
+    const dir = path.slice(0, slash + 1);
+    // Fast path: most files share their folder with the previous one.
+    if (dir !== previousDir) {
+      previousDir = dir;
+      const parts = slash < 0 ? [] : dir.slice(0, -1).split("/");
+      let shared = 0;
+      while (shared < stack.length && shared < parts.length && stack[shared] === parts[shared])
+        shared++;
+      while (stack.length > shared) {
+        stack.pop();
+        out.push("</div></details>");
+      }
+      while (stack.length < parts.length) {
+        const name = parts[stack.length] ?? "";
+        stack.push(name);
+        const prefix = `${stack.join("/")}/`;
+        const open = openAll || currentDir.startsWith(prefix) ? " open" : "";
+        out.push(`<details${open}><summary>${esc(name)}/</summary><div class="in">`);
+      }
     }
-    while (stack.length < dirs) {
-      const name = parts[stack.length] ?? "";
-      stack.push(name);
-      const prefix = `${stack.join("/")}/`;
-      const open = openAll || currentDir.startsWith(prefix) ? " open" : "";
-      out.push(`<details${open}><summary>${escapeHtml(name)}/</summary><div class="in">`);
-    }
-    out.push(link(options, path, parts[dirs] ?? path));
+    out.push(link(options, path, path.slice(slash + 1)));
   }
   for (let i = 0; i < stack.length; i++) out.push("</div></details>");
   return out.join("");
@@ -174,7 +187,10 @@ function tree(options: PublicShellOptions, paths: readonly string[]): string {
 function files(options: PublicShellOptions): string {
   const all = options.files.map((file) => file.path);
   if (all.length <= 1) return "";
-  all.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  // Callers usually pass paths in order already (SQL ORDER BY path); sort only if not.
+  let sorted = true;
+  for (let i = 1; i < all.length && sorted; i++) sorted = (all[i - 1] ?? "") < (all[i] ?? "");
+  if (!sorted) all.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const hasHead = all.includes(options.head);
   const rest = hasHead ? all.filter((path) => path !== options.head) : all;
   if (all.length <= PUBLIC_SHELL_TAB_LIMIT) {
@@ -198,7 +214,7 @@ function note(options: PublicShellOptions): string {
 }
 
 function documentArea(options: PublicShellOptions): string {
-  const src = options.frameBase + encodeSegments(options.current);
+  const src = options.frameBase + encodePathSegments(options.current);
   if (options.download) {
     const { mime, size } = options.download;
     const name = options.current.slice(options.current.lastIndexOf("/") + 1);

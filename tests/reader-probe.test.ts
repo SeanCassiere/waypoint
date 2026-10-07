@@ -8,7 +8,7 @@ import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/s
 import { deniedPage } from "../apps/reader/src/pages.js";
 import { waypointMigrations } from "../apps/writer/src/migrations.js";
 import { hashShareToken, newShareToken } from "../packages/core/src/index.js";
-import { renderPublicShell } from "../packages/ui/src/index.js";
+import { encodePathSegments, renderPublicShell } from "../packages/ui/src/index.js";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",
@@ -356,15 +356,19 @@ describe("adversarial reader probes", () => {
         files: paths,
         head: "index.html",
         current: "dir7/file-7.html",
-        fileHref: (path) => prefix + path.split("/").map(encodeURIComponent).join("/"),
+        fileHref: (path) => prefix + encodePathSegments(path),
         frameBase: "https://waypoint.pingstash.com/x/shl_x.cap/r/a2a2a2a2a2a2/",
         updatedAt: 1,
         snapshotAt: null,
       });
-    render();
-    const start = performance.now();
+    // CPU time of this thread (what the Worker CPU limit counts), not wall time, which other
+    // processes on a busy machine inflate. Warm isolates serve most requests, so measure after a
+    // short warm-up: the mean of 10 renders, as before, in milliseconds.
+    for (let i = 0; i < 5; i++) render();
+    const cpu = process.threadCpuUsage();
     for (let i = 0; i < 10; i++) render();
-    const overhead = (performance.now() - start) / 10;
+    const used = process.threadCpuUsage(cpu);
+    const overhead = (used.user + used.system) / 1000 / 10;
     expect(overhead).toBeLessThan(5);
   });
 });
