@@ -29,6 +29,7 @@ export function bindShare(): void {
     const details = element.closest("details");
     if (details) details.open = false;
   });
+  bindInlineConfirms();
   registerAction("revoke-link", async (element) => {
     const id = element.dataset.id ?? "";
     const revoke = async () => {
@@ -44,8 +45,9 @@ export function bindShare(): void {
       if (!ok) return;
     } else await revoke();
     toast("Revoking. It stops working within a minute.");
-    const card = element.closest("[data-link]");
-    withTransition(() => {
+    const card = element.closest<HTMLElement>("[data-link]");
+    // The update removes the focused button, so focus moves to the card once it has run.
+    await withTransition(() => {
       const chip = card ? $("[data-link-state]", card) : null;
       chip?.replaceChildren(
         el("span", { class: "spin", attrs: { "aria-hidden": "true" } }),
@@ -55,6 +57,10 @@ export function bindShare(): void {
       card?.classList.add("dead");
       card?.querySelector(".row")?.remove();
     });
+    if (card) {
+      card.tabIndex = -1;
+      card.focus();
+    }
     setTimeout(() => location.reload(), 900);
   });
   registerAction("revoke-all", async (element) => {
@@ -86,6 +92,30 @@ export function bindShare(): void {
     toast(`Extended by ${days} days`);
     location.reload();
   });
+}
+
+/**
+ * Inline confirmations on link cards (Revoke…, Extend…) are <details> whose summary hides
+ * while open. Focus follows: into the confirmation when it opens, back to the summary when
+ * it closes (Keep, Keep as is, Esc).
+ */
+function bindInlineConfirms(): void {
+  for (const details of $$(".lnk details.act", HTMLDetailsElement)) {
+    const summary = $("summary", details);
+    details.addEventListener("toggle", () => {
+      if (details.open) {
+        $(".pop button", details)?.focus();
+        return;
+      }
+      const active = document.activeElement;
+      if (!active || active === document.body || details.contains(active)) summary?.focus();
+    });
+    details.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !details.open) return;
+      event.preventDefault();
+      details.open = false;
+    });
+  }
 }
 
 function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
@@ -159,7 +189,7 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   const setState = (state: string) => {
     if (state === painted) return;
     painted = state;
-    withTransition(() => paintState(state));
+    void withTransition(() => paintState(state));
   };
   form.addEventListener("submit", (event) => {
     if (event.submitter?.getAttribute("formmethod") === "dialog") return;
@@ -203,7 +233,8 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
           set("[data-share-shows]", target === "only" ? `Only #${dialogN}` : "Latest revision");
           set("[data-share-expires]", expiresAt === null ? "Never" : fullDate(expiresAt, false));
           painted = linkState(result);
-          withTransition(() => {
+          // Copy only exists once the transition's update has run (spec §4.16: Copy has focus).
+          await withTransition(() => {
             create.hidden = true;
             created.hidden = false;
             dialog.setAttribute("aria-labelledby", "share-created-title");

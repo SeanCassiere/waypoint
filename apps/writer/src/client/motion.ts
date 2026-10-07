@@ -2,13 +2,17 @@ import { $, $$ } from "./dom.js";
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** Runs a DOM update inside a same-document view transition when supported and wanted. */
-export function withTransition(update: () => void): void {
+/**
+ * Runs a DOM update inside a same-document view transition when supported and wanted. The
+ * update runs asynchronously inside a transition, so callers that move focus to something the
+ * update reveals must wait for the returned promise (it settles once the update has run).
+ */
+export function withTransition(update: () => void): Promise<void> {
   if (reduced() || typeof document.startViewTransition !== "function") {
     update();
-    return;
+    return Promise.resolve();
   }
-  document.startViewTransition(update);
+  return document.startViewTransition(update).updateCallbackDone;
 }
 
 /**
@@ -39,7 +43,8 @@ export function bindMotion(): void {
       const details = summary.parentElement;
       if (!(details instanceof HTMLDetailsElement) || reduced()) return;
       event.preventDefault();
-      withTransition(() => {
+      // The summary stays in place, so focus needs no help here.
+      void withTransition(() => {
         details.open = !details.open;
       });
     });

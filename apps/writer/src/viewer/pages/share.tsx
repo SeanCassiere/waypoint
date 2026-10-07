@@ -111,11 +111,14 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
           {soon ? (
             <details class="act">
               <summary class="btn sm">Extend…</summary>
-              <div class="pop neutral">
+              <div class="pop neutral" role="group" aria-label="Extend this link">
                 <span>
                   Keep this link working longer. The new expiry reaches viewers within a minute.
                 </span>
                 <span class="row">
+                  <button type="button" class="btn sm" data-action="close-details">
+                    Keep as is
+                  </button>
                   <button
                     type="button"
                     class="btn sm"
