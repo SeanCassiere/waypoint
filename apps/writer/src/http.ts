@@ -23,6 +23,8 @@ import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
+import { getStatus } from "./status-data.js";
+import { viewerApp } from "./viewer.js";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;
@@ -557,46 +559,7 @@ export function createApp(s: HttpServices): Hono {
       c.req.header("if-none-match"),
     );
   });
-  app.get("/api/status", async (c) => {
-    const rows = await s.queue.all<{
-      id: string;
-      state: string;
-      created_at: number;
-      last_error: string | null;
-    }>("SELECT id,state,created_at,last_error FROM pending_revisions");
-    const pending = rows.filter((x) => x.state === "pending");
-    return c.json({
-      queue: {
-        pending_collections: (await s.queue.all("SELECT id FROM pending_collections")).length,
-        pending_revisions: pending.length,
-        failed_revisions: rows.length - pending.length,
-        pending_blobs: (await s.queue.all("SELECT hash FROM pending_blobs")).length,
-        pending_renditions: (await s.queue.all("SELECT source_hash FROM pending_renditions"))
-          .length,
-        pending_snapshots: (await s.queue.all("SELECT collection_id FROM pending_snapshots"))
-          .length,
-        pending_r2_deletes: (await s.queue.all("SELECT key FROM pending_r2_deletes")).length,
-        pending_purges: (await s.queue.all("SELECT collection_id FROM pending_purges")).length,
-        unpushed: (await s.queue.all("SELECT revision_id FROM unpushed")).length,
-      },
-      oldest_pending_age_ms: pending.length
-        ? Date.now() - Math.min(...pending.map((x) => x.created_at))
-        : null,
-      failed_items: rows
-        .filter((x) => x.state === "failed")
-        .map((x) => ({ id: x.id, created_at: x.created_at, last_error: x.last_error })),
-      last_upload_at: null,
-      last_push_at: null,
-      last_pull_at: s.ingest.sync.lastPullAt,
-      last_error:
-        rows
-          .filter((row) => row.last_error !== null)
-          .toSorted(
-            (a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
-          )[0]?.last_error ?? null,
-      sync_verified: Boolean(s.ingest.sync.verified),
-    });
-  });
+  app.get("/api/status", async (c) => c.json(await getStatus(s)));
   app.post("/api/queue/:revision_id/retry", async (c) => {
     const id = c.req.param("revision_id");
     const root = await s.queue.get<{ collection_id: string }>(
@@ -666,6 +629,7 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
+  app.route("/", viewerApp(s));
   return app;
 }
 async function prunePendingStorage(tx: DbHandle): Promise<string[]> {
