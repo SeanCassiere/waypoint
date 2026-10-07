@@ -1,58 +1,96 @@
+import { frameLocationHref } from "@waypoint/ui";
+
 import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.js";
-import { report } from "./actions.js";
+import { $, $$, el, shellRoot } from "./dom.js";
+
+/** Shows (or replaces) the "document left Waypoint" segment in the status line. */
+function frameNotice(message: string | null, back?: { href: string; label: string }): void {
+  const line = $("[data-status]");
+  if (!line) return;
+  $("[data-frame-notice]", line)?.remove();
+  if (!message) {
+    if (!line.querySelector(".seg1")) line.hidden = true;
+    return;
+  }
+  const segment = el("span", { class: "seg1", attrs: { "data-frame-notice": "" } }, message);
+  if (back) segment.append(" ", el("a", { text: back.label, attrs: { href: back.href } }));
+  line.prepend(segment);
+  line.hidden = false;
+}
 
 export function bindFrameSync(): void {
-  const root = document.querySelector<HTMLElement>("[data-viewer]");
-  if (!root) return;
-  if (matchMedia("(max-width: 720px)").matches)
-    document.querySelector("[data-tree]")?.removeAttribute("open");
-  const frame = document.querySelector<HTMLIFrameElement>("[data-frame]");
-  const links = [...document.querySelectorAll<HTMLAnchorElement>("[data-file]")];
+  const root = shellRoot();
+  const frame = $("[data-frame]", HTMLIFrameElement);
+  if (!root || root.dataset.mode !== "document") return;
+  const links = $$("#tp-files a[data-file]", HTMLAnchorElement);
   const collection = root.dataset.collection ?? "";
   const revision = root.dataset.revision ?? "";
   const pinned = root.dataset.pinned === "true";
   const head = root.dataset.head ?? "";
-  const notice = document.querySelector<HTMLElement>("[data-frame-notice]");
+  let keyboardOpen = false;
   function update(path: string, search: string, hash: string, fromFrame: boolean): void {
     root!.dataset.path = path;
     const matched = links.find((link) => link.dataset.file === path);
-    links.forEach((link) => {
-      link.classList.toggle("current", link === matched);
+    for (const link of links)
       if (link === matched) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
-    });
-    if (notice) notice.textContent = matched ? "" : "This file is not in the revision.";
+    frameNotice(matched ? null : "This file isn't in this revision.");
     const raw = rawPath(revision, path) + search + hash;
-    const open = document.querySelector<HTMLAnchorElement>("[data-open-raw]");
-    if (open) open.href = raw;
-    const download = document.querySelector<HTMLAnchorElement>("[data-download]");
-    if (download) download.href = raw;
-    if (
-      frame &&
-      !fromFrame &&
-      frame.contentWindow?.location.href !== new URL(raw, location.href).href
-    )
-      frame.src = raw;
+    for (const link of $$("[data-open-raw],[data-download-raw],[data-download]", HTMLAnchorElement))
+      link.href = raw;
+    const latest = $("[data-copy-preview=latest]");
+    if (latest) latest.textContent = `…${shellPath(collection, revision, path, false, head)}`;
+    const pinnedPreview = $("[data-copy-preview=pinned]");
+    if (pinnedPreview)
+      pinnedPreview.textContent = `…${shellPath(collection, revision, path, true)}`;
+    if (frame) {
+      frame.title = path;
+      if (!fromFrame && frame.contentWindow?.location.href !== new URL(raw, location.href).href)
+        frame.src = raw;
+    }
     history.replaceState(
       null,
       "",
       shellPath(collection, revision, path, pinned, head, search, hash),
     );
   }
+  function fromUrl(href: string): boolean {
+    const url = new URL(href, location.href);
+    if (url.origin !== location.origin) return false;
+    const path = pathFromRaw(url.pathname, revision);
+    if (!path) return false;
+    const matched = links.find((link) => link.dataset.file === path);
+    if (matched?.dataset.embed === "false") {
+      location.assign(matched.href);
+      return true;
+    }
+    update(path, url.search, url.hash, true);
+    return true;
+  }
   frame?.addEventListener("load", () => {
     try {
-      const frameUrl = new URL(frame.contentWindow?.location.href ?? frame.src);
-      const path = pathFromRaw(frameUrl.pathname, revision);
-      if (!path) return;
-      const matched = links.find((link) => link.dataset.file === path);
-      if (matched?.dataset.embed === "false") {
-        location.assign(matched.href);
-        return;
-      }
-      update(path, frameUrl.search, frameUrl.hash, true);
+      const href = frame.contentWindow?.location.href ?? frame.src;
+      if (!fromUrl(href)) throw new Error("left");
+      // Same-origin documents: Esc inside the document returns focus to the shell.
+      frame.contentDocument?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") $("#tp-files a[aria-current]")?.focus();
+      });
+      if (keyboardOpen) frame.focus();
+      keyboardOpen = false;
     } catch {
-      report("The document left this origin.");
+      const current = links.find((link) => link.getAttribute("aria-current") === "page");
+      frameNotice("The document navigated away from Waypoint.", {
+        href: current?.href ?? location.href,
+        label: `Back to ${current?.dataset.file ?? "the document"}`,
+      });
     }
+  });
+  // Renditions also report their location by postMessage (needed for the public reader's
+  // sandboxed frames; redundant but harmless here). Only the frame's own window is trusted.
+  window.addEventListener("message", (event) => {
+    if (!frame || event.source !== frame.contentWindow) return;
+    const href = frameLocationHref(event.data);
+    if (href) fromUrl(href);
   });
   window.addEventListener("popstate", () => {
     const prefix = shellPath(collection, revision, "", pinned);
@@ -62,17 +100,18 @@ export function bindFrameSync(): void {
       const path = encoded ? encoded.split("/").map(decodeURIComponent).join("/") : head;
       update(path, location.search, location.hash, false);
     } catch {
-      report("Invalid file URL.");
+      frameNotice("Invalid file URL.");
     }
   });
-  links.forEach((link) =>
+  for (const link of links)
     link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
       event.preventDefault();
       if (!frame || link.dataset.embed === "false") {
         location.assign(link.href);
         return;
       }
+      keyboardOpen = event.detail === 0;
       frame.src = rawPath(revision, link.dataset.file ?? "");
-    }),
-  );
+    });
 }

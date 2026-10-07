@@ -1,134 +1,369 @@
 /** @jsxImportSource hono/jsx */
+import { MCP_LAUNCHER_API } from "@waypoint/core";
 import type { Context } from "hono";
+import type { Child } from "hono/jsx";
 
+import type { HealthItem } from "../../health.js";
 import type { HttpServices } from "../../http.js";
 import { getStatus } from "../../status-data.js";
-import { badge, fmtDate } from "../components.js";
-import { ago } from "../format.js";
-import { Layout } from "../layout.js";
+import { getChrome } from "../chrome.js";
+import { revisionHref, Time } from "../components.js";
+import { plural, shortId } from "../format.js";
+import { HomeBar, Layout } from "../layout.js";
 import { noStore } from "../respond.js";
+import { formatTime } from "../timefmt.js";
 
-export async function statusPage(s: HttpServices, c: Context): Promise<Response> {
-  const status = await getStatus(s);
-  const syncState = !status.sync_enabled
-    ? "off"
-    : status.account_paused
-      ? "paused"
-      : status.sync_blocked
-        ? "blocked"
-        : status.sync_verified
-          ? "verified"
-          : "unverified";
+export interface ViewerExtras {
+  /** Short hash of the MCP server bundle the writer serves, if built. */
+  serverBundle(): Promise<string | null>;
+  /** Agents currently long-polling for a new revision (B5). */
+  watchers?(): { collection_id: string; after: string; since: number; client: string | null }[];
+}
+
+function Hero(props: { tone: "bad" | "warn" | "ok" | "off"; title: Child; body?: Child }) {
+  return (
+    <div class={`hero ${props.tone}`} role={props.tone === "bad" ? "alert" : undefined}>
+      <span class="dot" aria-hidden="true" />
+      <div>
+        <b>{props.title}</b>
+        {props.body ? <span>{props.body}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function revisionLink(item: HealthItem) {
+  return (
+    <>
+      <a href={revisionHref(item)}>{item.collection_title ?? "Untitled collection"}</a>{" "}
+      <span class="mono muted">#{item.display_number ?? "?"}</span>
+    </>
+  );
+}
+
+export async function statusPage(
+  s: HttpServices,
+  c: Context,
+  extras: ViewerExtras,
+): Promise<Response> {
+  const now = Date.now();
+  const [status, chrome, bundle] = await Promise.all([
+    getStatus(s),
+    getChrome(s, now),
+    extras.serverBundle(),
+  ]);
+  const health = chrome.health;
+  const heroes: Child[] = [];
+  if (health.blockedReason)
+    heroes.push(
+      <Hero
+        tone="bad"
+        title={
+          status.account_paused
+            ? `Bucket account paused: ${status.account_error ?? ""}`
+            : "Sync is blocked."
+        }
+        body={
+          <>
+            {status.account_paused ? null : (
+              <>
+                <span class="mono">{health.blockedReason}</span>.{" "}
+              </>
+            )}
+            Writes still work and are queued; nothing reaches the cloud until this is fixed.
+          </>
+        }
+      />,
+    );
+  if (health.state === "offline")
+    heroes.push(
+      <Hero
+        tone="warn"
+        title={
+          <>
+            Can't reach the cloud database.
+            {health.cloudLastOkAt !== null ? (
+              <>
+                {" "}
+                Last success <Time at={health.cloudLastOkAt} fmt="ago" now={now} />.
+              </>
+            ) : null}
+          </>
+        }
+        body={
+          <>
+            Writes still work and are queued here. Nothing reaches other machines or public links
+            until the connection is back.
+            {health.cloudError ? (
+              <>
+                {" "}
+                Last error: <span class="mono">{health.cloudError}</span>
+              </>
+            ) : null}
+          </>
+        }
+      />,
+    );
+  if (health.failed.length)
+    heroes.push(
+      <Hero
+        tone="bad"
+        title={`${heroes.length ? "Also: " : ""}${plural(health.failed.length, "revision")} failed to sync.`}
+        body={
+          <>
+            {health.failed.length === 1 ? "It's" : "They're"} still readable on this writer, but
+            other machines and public links can't see {health.failed.length === 1 ? "it" : "them"}{" "}
+            until {health.failed.length === 1 ? "it's" : "they're"} retried.
+            {health.pending.length
+              ? ` ${plural(health.pending.length, "other revision")} ${health.pending.length === 1 ? "is" : "are"} uploading normally.`
+              : ""}
+          </>
+        }
+      />,
+    );
+  if (!heroes.length) {
+    if (!health.syncEnabled)
+      heroes.push(
+        <Hero
+          tone="off"
+          title="Sync off."
+          body="This writer runs with WAYPOINT_SYNC=off: revisions stay here and nothing reaches the cloud."
+        />,
+      );
+    else if (health.pending.length)
+      heroes.push(
+        <Hero
+          tone="warn"
+          title={`${plural(health.pending.length, "revision")} ${health.pending.length === 1 ? "is" : "are"} uploading.`}
+          body={
+            health.oldestPendingAt !== null ? (
+              <>
+                The oldest started <Time at={health.oldestPendingAt} fmt="ago" now={now} />.
+              </>
+            ) : undefined
+          }
+        />,
+      );
+    else
+      heroes.push(
+        <Hero
+          tone="ok"
+          title={
+            <>
+              Everything is synced.
+              {status.last_push_at !== null ? (
+                <>
+                  {" "}
+                  Last push <Time at={status.last_push_at} fmt="ago" now={now} />.
+                </>
+              ) : null}
+            </>
+          }
+        />,
+      );
+  }
+  const watchers = extras.watchers?.() ?? [];
+  const pushAgo =
+    status.last_push_at === null ? "never" : formatTime(status.last_push_at, "ago", now, true);
+  const pullAgo =
+    status.last_pull_at === null ? "never" : formatTime(status.last_pull_at, "ago", now, true);
   return noStore(
     c.html(
-      <Layout title="Status">
-        <main class="wrap">
-          <h1>Status</h1>
-          <p>
-            {badge(syncState)}{" "}
-            <span class="muted">
-              Sync {syncState} · {status.environment}
-            </span>
-          </p>
-          {status.account_paused ? (
-            <p class="error">Bucket account paused: {status.account_error}</p>
-          ) : null}
-          <div class="stats">
-            {Object.entries(status.queue).map(([name, value]) => (
-              <div class="stat">
-                <strong>{value}</strong>
-                {name.replaceAll("_", " ")}
-              </div>
-            ))}
+      <Layout title="Status" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="status">
+        <main class="wrap" id="main">
+          <div class="ph">
+            <div>
+              <h2>Status</h2>
+              <p>
+                Writer <span class="mono">{chrome.host}</span> · environment{" "}
+                <span class="mono">{status.environment}</span>
+                {bundle ? (
+                  <>
+                    {" "}
+                    · server bundle <span class="mono">{bundle}</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
           </div>
-          <p>
-            Oldest pending:{" "}
-            {status.oldest_pending_age_ms === null
-              ? "None"
-              : ago(Date.now() - status.oldest_pending_age_ms)}
-          </p>
-          <p>
-            Last upload: {fmtDate(status.last_upload_at)} · Last push:{" "}
-            {fmtDate(status.last_push_at)} · Last pull: {fmtDate(status.last_pull_at)}
-          </p>
-          <p>Last error: {status.last_error ?? "None"}</p>
-          <h2>Queue errors</h2>
-          <div class="list">
+          {heroes}
+          <div class="grid3">
+            <div class={`stat ${health.failed.length ? "bad" : "zero"}`}>
+              <div class="n">{health.failed.length}</div>
+              <div class="l">failed {health.failed.length === 1 ? "revision" : "revisions"}</div>
+            </div>
+            <div class={`stat ${health.pending.length ? "" : "zero"}`}>
+              <div class="n">{health.pending.length}</div>
+              <div class="l">
+                {health.pending.length === 1 ? "revision" : "revisions"} uploading
+                {health.oldestPendingAt !== null ? (
+                  <>
+                    {" · oldest "}
+                    <Time at={health.oldestPendingAt} fmt="ago" now={now} />
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div class={`stat ${health.cloudLastOkAt === null ? "zero" : ""}`}>
+              <div class="n">
+                {!health.syncEnabled ? (
+                  "Off"
+                ) : health.cloudLastOkAt === null ? (
+                  "Never"
+                ) : (
+                  <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
+                )}
+              </div>
+              <div class="l">
+                last cloud sync (push {pushAgo} · pull {pullAgo})
+                {status.last_push_at !== null ? (
+                  <span class="sr">
+                    Last push{" "}
+                    <time datetime={new Date(status.last_push_at).toISOString()}>
+                      {new Date(status.last_push_at).toISOString()}
+                    </time>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <h3 class="sec">
+            Failed revisions <span class="n">{health.failed.length}</span>
+          </h3>
+          <div class="rows">
+            {health.failed.length ? (
+              health.failed.map((item) => (
+                <div class="r" id={item.id}>
+                  <span class="t">{revisionLink(item)}</span>
+                  <span class="acts">
+                    <button type="button" class="btn sm" data-action="retry" data-ids={item.id}>
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      class="btn sm danger"
+                      data-action="drop"
+                      data-id={item.id}
+                    >
+                      Drop…
+                    </button>
+                  </span>
+                  <span class="s">
+                    {item.message ? <span>“{item.message}”</span> : null}
+                    {item.source_host ? <span class="mono">{item.source_host}</span> : null}
+                    <Time at={item.created_at} now={now} />
+                    <span class="mono" title={item.id}>
+                      {shortId(item.id, 12)}
+                    </span>
+                    <span>error: {item.error_kind ?? "unknown kind"}</span>
+                  </span>
+                  <span class="e">{item.last_error ?? "No error detail"}</span>
+                </div>
+              ))
+            ) : (
+              <div class="empty">No failed revisions.</div>
+            )}
+          </div>
+          <h3 class="sec">
+            Uploading <span class="n">{plural(health.pending.length, "revision")}</span>
+          </h3>
+          <div class="rows">
+            {health.pending.length ? (
+              health.pending.map((item) => (
+                <div class="r" id={item.id}>
+                  <span class="t">{revisionLink(item)}</span>
+                  <span class="acts">
+                    <button type="button" class="btn sm ghost" data-action="drop" data-id={item.id}>
+                      Drop…
+                    </button>
+                  </span>
+                  <span class="s">
+                    {item.message ? <span>“{item.message}”</span> : null}
+                    {item.source_host ? <span class="mono">{item.source_host}</span> : null}
+                    <span>
+                      started <Time at={item.created_at} now={now} />
+                    </span>
+                    {!health.syncEnabled ? <span>waits here while sync is off</span> : null}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div class="empty">Nothing is uploading.</div>
+            )}
+          </div>
+          {extras.watchers ? (
+            <>
+              <h3 class="sec">
+                Agents watching <span class="n">{watchers.length}</span>
+              </h3>
+              <div class="rows" data-watchers>
+                {watchers.length ? (
+                  watchers.map((watcher) => (
+                    <div class="r">
+                      <span class="watch">
+                        <span class="pulse" aria-hidden="true" />
+                        <span>
+                          <b>{watcher.client ?? "An agent"}</b> is waiting for a new revision of{" "}
+                          <span data-watch-collection={watcher.collection_id}>
+                            {watcher.collection_id}
+                          </span>
+                        </span>
+                      </span>
+                      <span class="aside">
+                        since <Time at={watcher.since} now={now} />
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div class="empty">No agent is waiting for a revision right now.</div>
+                )}
+              </div>
+            </>
+          ) : null}
+          <h3 class="sec">
+            Background queue errors <span class="n">{status.queue_errors.length}</span>
+          </h3>
+          <div class="rows">
             {status.queue_errors.length ? (
               status.queue_errors.map((row) => (
-                <div class="row fail">
-                  <strong>{row.kind}</strong>
-                  <span class="row-title">{row.id}</span>
-                  <span class="error">{row.last_error}</span>
-                </div>
-              ))
-            ) : (
-              <div class="row muted">No queue errors.</div>
-            )}
-          </div>
-          <h2>Pending revisions</h2>
-          <div class="list">
-            {status.pending_items.length ? (
-              status.pending_items.map((row) => (
-                <div class="row">
-                  <span class="row-title">
-                    {row.collection_public_id ? (
-                      <a href={`/c/${row.collection_public_id}/`}>{row.id}</a>
-                    ) : (
-                      row.id
-                    )}
+                <div class="r">
+                  <span class="t">
+                    {row.kind === "bucket_delete"
+                      ? "Bucket delete"
+                      : row.kind === "purge"
+                        ? "Purge"
+                        : "Snapshot"}{" "}
+                    <span class="mono muted">{row.id}</span>
                   </span>
-                  <button
-                    class="danger"
-                    data-action="drop"
-                    data-id={row.id}
-                    aria-label={`Drop ${row.id}`}
-                  >
-                    Drop
-                  </button>
+                  <span class="e">{row.last_error}</span>
                 </div>
               ))
             ) : (
-              <div class="row muted">No pending revisions.</div>
+              <div class="empty">No snapshot, delete, or purge errors.</div>
             )}
           </div>
-          <h2>Failed revisions</h2>
-          <p class="error" data-error role="alert"></p>
-          <div class="list">
-            {status.failed_items.length ? (
-              status.failed_items.map((row) => (
-                <div class="row fail">
-                  <div class="row-title">
-                    <strong>
-                      {row.collection_public_id ? (
-                        <a href={`/c/${row.collection_public_id}/`}>{row.id}</a>
-                      ) : (
-                        row.id
-                      )}
-                    </strong>
-                    <br />
-                    <small>
-                      {fmtDate(row.created_at)} · {row.error_kind ?? "Unknown kind"}
-                    </small>
-                    <br />
-                    {row.last_error ?? "No error detail"}
-                  </div>
-                  <button data-action="retry" data-id={row.id} aria-label={`Retry ${row.id}`}>
-                    Retry
-                  </button>
-                  <button
-                    class="danger"
-                    data-action="drop"
-                    data-id={row.id}
-                    aria-label={`Drop ${row.id}`}
-                  >
-                    Drop
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div class="row muted">No failed revisions.</div>
-            )}
+          <h3 class="sec">Writer</h3>
+          <div class="rows">
+            <div class="r">
+              <span class="t mono">{chrome.host}</span>
+              <span class="s">
+                <span>environment {status.environment}</span>
+                <span>
+                  Sync{" "}
+                  {health.syncEnabled ? (status.sync_verified ? "verified" : "unverified") : "off"}
+                </span>
+                {bundle ? <span>server bundle {bundle}</span> : null}
+                <span>launcher API {MCP_LAUNCHER_API}</span>
+                <span>
+                  last upload{" "}
+                  {status.last_upload_at === null ? (
+                    "never"
+                  ) : (
+                    <Time at={status.last_upload_at} fmt="ago" now={now} />
+                  )}
+                </span>
+              </span>
+            </div>
           </div>
         </main>
       </Layout>,

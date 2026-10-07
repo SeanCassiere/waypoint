@@ -104,15 +104,25 @@ try {
     if (request.url().includes("/raw/r/")) rawRequests.push(request.url());
   });
   await page.goto(`${base}${latest}`);
+  // Landmarks and the skip link (spec §7).
+  assert.equal(await page.locator("header.bar").count(), 1);
+  assert.equal(await page.locator("aside#panel").count(), 1);
+  assert.equal(await page.locator("main#main").count(), 1);
+  assert.equal(await page.locator("a.skip").getAttribute("href"), "#main");
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await page.locator("[data-share-dialog]").waitFor({ state: "visible" });
-  assert.equal(await page.locator('[data-share-form] input[name="label"]').count(), 1);
-  assert.equal(await page.locator('[data-share-form] input[name="expires"]').count(), 1);
-  await page.locator("[data-share-close]").click();
+  await page.keyboard.press("Escape");
   assert.notEqual(
     await page.locator("body").evaluate("element => getComputedStyle(element).fontFamily"),
     "Times New Roman",
   );
+  // Copy menu: the handoff block names the collection and revision for another agent.
+  await page.getByRole("button", { name: "Copy ▾" }).click();
+  await page.locator("#copy-menu").waitFor({ state: "visible" });
+  const handoff = (await page.locator("[data-handoff]").textContent()) ?? "";
+  assert.match(handoff, /collection_id: col_/);
+  assert.match(handoff, /Watch: wait_for_revision/);
+  await page.keyboard.press("Escape");
   assert.equal(new URL(page.url()).pathname, latest);
   await page.frameLocator("iframe").getByRole("link", { name: "Notes" }).click();
   await page.waitForURL(`**${latest}notes/b.md`);
@@ -120,6 +130,10 @@ try {
     rawRequests.filter((url) => url.endsWith("/notes/b.md")).length,
     1,
     "in-frame navigation fetched twice",
+  );
+  assert.equal(
+    await page.locator('#tp-files a[aria-current="page"]').getAttribute("data-file"),
+    "notes/b.md",
   );
   await page.goto(`${base}${latest}`);
   const beforeHistory = Number(await page.evaluate("history.length"));
@@ -143,34 +157,41 @@ try {
       url.pathname.endsWith("notes/b.md") && url.search === "?source" && url.hash === "#hello",
   );
   assert.equal(new URL(page.url()).pathname, `${pinned}notes/b.md`);
+  // "]" steps to the newer revision and keeps the current file.
   await page.goto(`${base}${pinned}notes/b.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(second.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
+  await page.locator("body").press("]");
   await page.waitForURL(`**${secondPinned}notes/b.md`);
-  assert.equal(new URL(page.url()).pathname, `${secondPinned}notes/b.md`);
+  // The panel's History tab lists both revisions, newest first.
+  await page.locator("body").press("h");
+  await page.locator("#tp-history").waitFor({ state: "visible" });
+  assert.deepEqual(await page.locator("#tp-history .rv .h b").allTextContents(), ["#2", "#1"]);
   const third = await api(`/api/collections/${first.collection_id}/revisions`, {
     message: "Third",
     mode: "replace",
     files: [await write("index.md", "# Third\n")],
   });
   const thirdPinned = new URL(third.url).pathname;
+  // A file missing from the target revision falls back to its head.
   await page.goto(`${base}${secondPinned}notes/b.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(third.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
+  await page.locator("body").press("]");
   await page.waitForURL(`**${thirdPinned}`);
   assert.equal(new URL(page.url()).pathname, `${thirdPinned}index.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(second.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
-  await page.waitForURL(`**${secondPinned}index.md`);
-  assert.equal(new URL(page.url()).pathname, `${secondPinned}index.md`);
+  // The revision menu opens with "r" and its entries keep the current file.
+  await page.goto(`${base}${secondPinned}notes/b.md`);
+  await page.getByRole("button", { name: /^Revision 2/ }).click();
+  await page.locator("#rev-menu").waitFor({ state: "visible" });
+  await page.locator("#rev-menu").getByRole("link", { name: "Revision 1" }).click();
+  await page.waitForURL(`**${pinned}notes/b.md`);
+  // Keyboard shortcuts dialog and the disable toggle.
+  await page.locator("body").press("?");
+  await page.locator("#keys").waitFor({ state: "visible" });
+  await page.locator("[data-keys-off]").check();
+  await page.keyboard.press("Escape");
+  await page.locator("body").press("h");
+  assert.equal(await page.locator("#tp-history").isVisible(), false, "shortcuts stay off");
+  await page.evaluate('localStorage.removeItem("wp:keys")');
   console.log(
-    "Chromium viewer share dialog, navigation, history, source/hash, picker, and font: passed",
+    "Chromium viewer: landmarks, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts: passed",
   );
 } finally {
   await browser?.close();

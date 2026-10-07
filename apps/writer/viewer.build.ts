@@ -1,5 +1,8 @@
 // Bundles the viewer's browser script and stylesheet. The writer hashes both at startup and
 // serves them from /assets/viewer/<hash>.{js,css} with an immutable cache.
+import { readFile } from "node:fs/promises";
+
+import { tokensCss } from "@waypoint/ui";
 import { build } from "esbuild";
 
 const at = (path: string): string => new URL(path, import.meta.url).pathname;
@@ -15,8 +18,14 @@ await build({
   logLevel: "info",
 });
 
+// The shared Folio tokens come first so the shell and the public reader can't drift apart.
 await build({
-  entryPoints: [at("src/viewer/viewer.css")],
+  stdin: {
+    contents: tokensCss + (await readFile(at("src/viewer/viewer.css"), "utf8")),
+    loader: "css",
+    resolveDir: at("src/viewer"),
+    sourcefile: "viewer.css",
+  },
   outfile: at("dist/viewer.css"),
   bundle: true,
   minify: true,

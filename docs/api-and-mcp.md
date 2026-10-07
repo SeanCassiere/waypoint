@@ -197,7 +197,7 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 |---|---|
 | `POST /api/collections` | Create a collection and its first revision. Body: `{ collection_id?, revision_id?, title, head_path?, message?, metadata?, files: [{ path, hash, mime? }] }`. Every hash must already be present. Returns `WriteResult`. |
 | `POST /api/collections/:id/revisions` | Add a revision. Body: `{ revision_id?, parent_revision_id?, mode?, head_path?, message?, metadata?, files?: [{ path, hash, mime? }], remove?: string[] }`. Returns `WriteResult`. |
-| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }` |
+| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }`. Each result's `latest_revision` also carries `changes` and `source_host`, and `queue: { pending, failed }` counts its uncommitted revisions. |
 | `GET /api/collections/:id` | Collection + latest revision summary. `:id` may be a `col_` ID or a public ID. `?include_head=1` adds the head document's text. |
 | `PATCH /api/collections/:id` | Edit `title` and/or `metadata` |
 | `DELETE /api/collections/:id` | Soft delete |
@@ -206,7 +206,7 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 | `POST /api/collections/:id/share-links` `{ revision_id?, label?, expires_at? }` | Create a link. Omit `revision_id` to follow latest. The token and URL appear only in this 201 response. `expires_at` is a future Unix millisecond timestamp. Requires `WAYPOINT_PUBLIC_BASE_URL`; otherwise 409 `conflict`. |
 | `GET /api/collections/:id/share-links` | List links without tokens or hashes. |
 | `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
-| `GET /api/collections/:id/revisions` | List revisions. With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones. |
+| `GET /api/collections/:id/revisions` | List revisions. Each summary includes `changes: { added, modified, removed }` against its parent (file counts; a root revision counts every file as added). With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones (without `changes`). |
 | `GET /api/revisions/:id` | Revision + full manifest |
 | `GET /api/revisions/:id/files/*path` | Raw file content. Markdown returns its rendition; add `?source` for the original. |
 | `POST /api/resolve` `{ url }` | URL → IDs |
@@ -228,8 +228,9 @@ curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
 ### Queue & status
 | Method & path | Purpose |
 |---|---|
-| `GET /api/status` | Same data as the `waypoint_status` tool |
+| `GET /api/status` | Same data as the `waypoint_status` tool, plus `cloud_last_ok_at` (last successful push or pull) and `cloud_error` (the sync loop's error while its latest attempt is failing). The viewer shows **Offline** when the latest attempt failed and the last success is more than 2 minutes old. |
 | `POST /api/queue/:revision_id/retry` | Re-queue a failed revision and its failed descendants |
+| `GET /api/queue/:revision_id/descendants` | `{ ids, display_numbers }`: the revisions a drop would remove (the revision itself first), so a confirmation can name them |
 | `DELETE /api/queue/:revision_id` | Drop a pending or failed revision and its descendants, and queue deletion of their DR manifests |
 
 ### Errors

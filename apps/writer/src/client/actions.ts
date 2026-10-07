@@ -1,222 +1,341 @@
 import { shellPath } from "../viewer-paths.js";
-import { errorMessage, mutate } from "./api.js";
+import { api, field } from "./api.js";
+import { copyText } from "./copy.js";
+import { confirmDialog, formDialog } from "./dialogs.js";
+import { $, $$, el, run, shellRoot } from "./dom.js";
+import { openKeys } from "./keys.js";
+import { readMark } from "./lastread.js";
+import { setPanel, showTab } from "./panel.js";
+import { toast } from "./toast.js";
 
-export function report(message: string): void {
-  const error = document.querySelector<HTMLElement>("[data-error]");
-  if (error) error.textContent = message;
-  const shareStatus = document.querySelector<HTMLElement>("[data-share-availability]");
-  if (shareStatus?.closest("dialog[open]")) shareStatus.textContent = message;
+type Action = (element: HTMLElement) => Promise<void> | void;
+const actions = new Map<string, Action>();
+export function registerAction(name: string, action: Action): void {
+  actions.set(name, action);
+}
+const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count} ${count === 1 ? one : many}`;
+
+function busy(button: HTMLElement, label: string): () => void {
+  const original = [...button.childNodes];
+  button.setAttribute("aria-busy", "true");
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  button.replaceChildren(el("span", { class: "spin", attrs: { "aria-hidden": "true" } }), label);
+  // Drop stays disabled while a retry settles (spec §5.8).
+  const siblings = $$(
+    "[data-action=drop]",
+    HTMLButtonElement,
+    button.parentElement ?? document.body,
+  );
+  for (const sibling of siblings) sibling.disabled = true;
+  return () => {
+    button.removeAttribute("aria-busy");
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+    button.replaceChildren(...original);
+    for (const sibling of siblings) sibling.disabled = false;
+  };
 }
 
-export function bindActions(): void {
-  const root = document.querySelector<HTMLElement>("[data-viewer]");
-  document.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void (async () => {
-        const action = button.dataset.action;
-        const id = button.dataset.id;
-        try {
-          if ((action === "copy-latest" || action === "copy-pinned") && root) {
-            const path = root.dataset.path ?? "";
-            const link = shellPath(
-              root.dataset.collection ?? "",
-              root.dataset.revision ?? "",
-              path,
-              action === "copy-pinned",
-              root.dataset.head,
-              location.search,
-              location.hash,
-            );
-            await navigator.clipboard.writeText(new URL(link, location.href).href);
-            const original = button.textContent;
-            button.textContent = "Copied";
-            setTimeout(() => {
-              button.textContent = original;
-            }, 2000);
-          } else if (action === "rename" && id) {
-            const title = document.querySelector<HTMLInputElement>("[data-title]")?.value.trim();
-            if (!title) throw new Error("Enter a title");
-            await mutate(`/api/collections/${encodeURIComponent(id)}`, "PATCH", { title });
-            document.title = `${title} · Waypoint`;
-            report("Saved");
-          } else if (action === "delete" && id) {
-            if (confirm("Move this collection to Trash?")) {
-              await mutate(`/api/collections/${encodeURIComponent(id)}`, "DELETE");
-              location.assign("/");
-            }
-          } else if (action === "undelete" && id) {
-            await mutate(`/api/collections/${encodeURIComponent(id)}/undelete`, "POST");
-            location.assign("/");
-          } else if (action === "purge" && id) {
-            if (prompt(`Type ${id} to permanently purge this collection`) !== id) return;
-            await mutate(`/api/collections/${encodeURIComponent(id)}/purge`, "POST", {
-              confirm: id,
-            });
-            location.reload();
-          } else if (action === "retry" && id) {
-            await mutate(`/api/queue/${encodeURIComponent(id)}/retry`, "POST");
-            location.reload();
-          } else if (action === "drop" && id) {
-            if (confirm("Drop this revision and its descendants?")) {
-              await mutate(`/api/queue/${encodeURIComponent(id)}`, "DELETE");
-              location.reload();
-            }
-          } else if (action === "go-revision" && root) {
-            const picker = document.querySelector<HTMLSelectElement>("[data-picker]");
-            if (!picker) return;
-            const params = new URLSearchParams(location.search);
-            params.set("fallback", "head");
-            const path = root.dataset.path ?? root.dataset.head ?? "";
-            const target = shellPath(
-              root.dataset.collection ?? "",
-              picker.value || root.dataset.revision || "",
-              path,
-              Boolean(picker.value),
-              undefined,
-              `?${params}`,
-              location.hash,
-            );
-            location.assign(target);
-          } else if (action === "share") {
-            document.querySelector<HTMLDialogElement>("[data-share-dialog]")?.showModal();
-            await loadShareLinks();
-          }
-        } catch (cause) {
-          report(cause instanceof Error ? cause.message : "Request failed");
-        }
-      })();
-    });
-  });
-  if (!root) return;
-  type Link = {
-    id: string;
-    label: string | null;
-    mode: string;
-    status: string;
-    created_at: number;
-    publicly_available: boolean;
+export function links(): { latest: string; pinned: string } | null {
+  const root = shellRoot();
+  if (!root) return null;
+  const collection = root.dataset.collection ?? "";
+  const revision = root.dataset.revision ?? "";
+  const path = root.dataset.path ?? "";
+  const base = root.dataset.base ?? location.origin;
+  return {
+    latest: new URL(shellPath(collection, revision, path, false, root.dataset.head), base).href,
+    pinned: new URL(shellPath(collection, revision, path, true), base).href,
   };
-  const dialog = document.querySelector<HTMLDialogElement>("[data-share-dialog]");
-  dialog?.addEventListener("close", () => {
-    const created = dialog.querySelector<HTMLElement>("[data-share-created]");
-    if (created) created.hidden = true;
-    const input = dialog.querySelector<HTMLInputElement>("[data-share-url]");
-    if (input) input.value = "";
-  });
-  const collectionId =
-    document.querySelector<HTMLButtonElement>('[data-action="delete"]')?.dataset.id;
-  async function loadShareLinks(): Promise<void> {
-    if (!collectionId) return;
-    const response = await fetch(
-      `/api/collections/${encodeURIComponent(collectionId)}/share-links`,
-    );
-    if (!response.ok)
-      throw new Error(errorMessage((await response.json()) as unknown, response.status));
-    const value: unknown = await response.json();
-    if (
-      !value ||
-      typeof value !== "object" ||
-      !("share_links" in value) ||
-      !Array.isArray(value.share_links)
-    )
-      throw new Error("Invalid share-link response");
-    const items: unknown[] = value.share_links;
-    const links: Link[] = [];
-    for (const item of items) {
-      if (
-        !item ||
-        typeof item !== "object" ||
-        !("id" in item) ||
-        typeof item.id !== "string" ||
-        !("mode" in item) ||
-        typeof item.mode !== "string" ||
-        !("status" in item) ||
-        typeof item.status !== "string" ||
-        !("created_at" in item) ||
-        typeof item.created_at !== "number" ||
-        !("publicly_available" in item) ||
-        typeof item.publicly_available !== "boolean" ||
-        !("label" in item) ||
-        (item.label !== null && typeof item.label !== "string")
-      )
-        throw new Error("Invalid share link");
-      links.push({
-        id: item.id,
-        label: item.label,
-        mode: item.mode,
-        status: item.status,
-        created_at: item.created_at,
-        publicly_available: item.publicly_available,
-      });
-    }
-    const list = document.querySelector<HTMLElement>("[data-share-list]");
-    if (!list) return;
-    list.replaceChildren();
-    for (const link of links) {
-      const row = document.createElement("p");
-      row.textContent = `${link.label ?? "Untitled"} · ${link.mode} · ${link.status} · ${new Date(link.created_at).toLocaleString()}${link.publicly_available ? "" : " · waiting for sync"} `;
-      if (link.status === "active") {
-        const revoke = document.createElement("button");
-        revoke.textContent = "Revoke";
-        revoke.addEventListener("click", () => {
-          void (async () => {
-            await mutate(`/api/share-links/${encodeURIComponent(link.id)}/revoke`, "POST");
-            await loadShareLinks();
-          })().catch((cause: unknown) =>
-            report(cause instanceof Error ? cause.message : "Request failed"),
-          );
-        });
-        row.append(revoke);
-      }
-      list.append(row);
-    }
-  }
-  dialog
-    ?.querySelector<HTMLButtonElement>("[data-share-close]")
-    ?.addEventListener("click", () => dialog.close());
-  dialog?.querySelector<HTMLButtonElement>("[data-share-copy]")?.addEventListener("click", () => {
-    const url = dialog.querySelector<HTMLInputElement>("[data-share-url]")?.value;
-    if (url) void navigator.clipboard.writeText(url);
-  });
-  dialog
-    ?.querySelector<HTMLFormElement>("[data-share-form]")
-    ?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void (async () => {
-        if (!collectionId) return;
-        const form = event.currentTarget;
-        if (!(form instanceof HTMLFormElement)) return;
-        const label = form.querySelector<HTMLInputElement>('[name="label"]')?.value.trim() ?? "";
-        const expiry = form.querySelector<HTMLInputElement>('[name="expires"]')?.value ?? "";
-        const body = {
-          ...(root.dataset.pinned === "true" ? { revision_id: root.dataset.revision } : {}),
-          ...(label ? { label } : {}),
-          ...(expiry ? { expires_at: new Date(expiry).valueOf() } : {}),
-        };
-        const response = await fetch(
-          `/api/collections/${encodeURIComponent(collectionId)}/share-links`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
-        const value: unknown = await response.json();
-        if (!value || typeof value !== "object") throw new Error("Invalid share-link response");
-        const data = value as { url?: string; share_link?: Link };
-        if (!response.ok || !data.url) throw new Error(errorMessage(data, response.status));
-        const created = dialog.querySelector<HTMLElement>("[data-share-created]");
-        if (created) created.hidden = false;
-        const input = dialog.querySelector<HTMLInputElement>("[data-share-url]");
-        if (input) input.value = data.url;
-        const availability = dialog.querySelector<HTMLElement>("[data-share-availability]");
-        if (availability)
-          availability.textContent = data.share_link?.publicly_available
-            ? "Available publicly now"
-            : "The target is not synced yet. This URL becomes available once it syncs.";
-        await loadShareLinks();
-      })().catch((cause: unknown) =>
-        report(cause instanceof Error ? cause.message : "Request failed"),
+}
+export function handoffText(): string {
+  const root = shellRoot();
+  const block = $("[data-handoff]")?.textContent?.trim() ?? "";
+  if (!root) return block;
+  const mark = readMark(root.dataset.collection ?? "");
+  if (!mark) return block;
+  let revisions: [string, number, string][] = [];
+  try {
+    const parsed: unknown = JSON.parse(root.dataset.revisions ?? "[]");
+    if (Array.isArray(parsed))
+      revisions = parsed.flatMap((item: unknown) =>
+        Array.isArray(item) &&
+        typeof item[0] === "string" &&
+        typeof item[1] === "number" &&
+        typeof item[2] === "string"
+          ? [[item[0], item[1], item[2]] satisfies [string, number, string]]
+          : [],
       );
+  } catch {
+    revisions = [];
+  }
+  const newer = revisions.filter(([, n]) => n > mark.n).map(([, n]) => `#${n}`);
+  const line = `Owner last reviewed #${mark.n}; ${newer.length ? `new since then: ${newer.join(", ")}.` : "nothing newer since then."}`;
+  return block.replace(/\nRead: /, `\n${line}\nRead: `);
+}
+export async function copyLatest(): Promise<void> {
+  const value = links();
+  if (value) await copyText(value.latest, "link to latest");
+}
+export async function copyPinned(): Promise<void> {
+  const value = links();
+  if (value) await copyText(value.pinned, "link to this revision");
+}
+export async function copyHandoff(): Promise<void> {
+  await copyText(handoffText(), "handoff block");
+}
+
+async function retry(element: HTMLElement): Promise<void> {
+  const ids = (element.dataset.ids ?? "").split(",").filter(Boolean);
+  const done = busy(element, "Retrying…");
+  try {
+    for (const id of ids)
+      try {
+        await api(`/api/queue/${encodeURIComponent(id)}/retry`, "POST");
+      } catch (error) {
+        // A descendant retried with its root is no longer failed; that's fine.
+        if (!(error instanceof Error && /not failed|not found/i.test(error.message))) throw error;
+      }
+    toast(ids.length === 1 ? "Retrying" : `Retrying ${ids.length} revisions`);
+    location.reload();
+  } catch (error) {
+    done();
+    throw error;
+  }
+}
+async function drop(element: HTMLElement): Promise<void> {
+  const id = element.dataset.id ?? "";
+  const details = await api(`/api/queue/${encodeURIComponent(id)}/descendants`);
+  const numbers = field(details, "display_numbers");
+  const list = Array.isArray(numbers)
+    ? numbers.map((n: unknown) => (typeof n === "number" ? `#${n}` : "?"))
+    : [];
+  const self = list[0] ?? "this revision";
+  const others = list.slice(1);
+  const ok = await confirmDialog({
+    title: "",
+    band: {
+      title: `Drop ${self}${others.length ? ` and its ${plural(others.length, "descendant")} (${others.join(", ")})` : ""}?`,
+      body: `${others.length ? "They're" : "It's"} removed from this writer's queue and never ${others.length ? "reach" : "reaches"} the cloud.`,
+    },
+    body: "Numbers of later revisions may shift. This can't be undone.",
+    ok: "Drop",
+    okClass: "danger-solid",
+    run: async () => {
+      await api(`/api/queue/${encodeURIComponent(id)}`, "DELETE");
+    },
+  });
+  if (ok) location.reload();
+}
+async function trash(): Promise<void> {
+  const root = shellRoot();
+  if (!root) return;
+  const linkCount = Number(root.dataset.links ?? "0");
+  const ok = await confirmDialog({
+    title: `Move “${root.dataset.title ?? "this collection"}” to Trash?`,
+    body: `Hide this collection everywhere.${linkCount ? ` Its ${plural(linkCount, "public link")} stop working until you restore it.` : ""} You can restore it from Trash.`,
+    ok: "Move to Trash",
+    okClass: "danger",
+    run: async () => {
+      await api(
+        `/api/collections/${encodeURIComponent(root.dataset.collectionId ?? "")}`,
+        "DELETE",
+      );
+    },
+  });
+  if (ok) location.assign("/trash");
+}
+async function restore(element: HTMLElement): Promise<void> {
+  const id = element.dataset.id ?? "";
+  const after = () => (element.dataset.then === "reload" ? location.reload() : location.reload());
+  let active: { id: string; label: string | null; revision_display_number: number | null }[] = [];
+  try {
+    const parsed: unknown = JSON.parse(element.dataset.links ?? "[]");
+    if (Array.isArray(parsed))
+      active = parsed.flatMap((item: unknown) => {
+        const linkId = field(item, "id");
+        const label = field(item, "label");
+        const number = field(item, "revision_display_number");
+        return typeof linkId === "string"
+          ? [
+              {
+                id: linkId,
+                label: typeof label === "string" ? label : null,
+                revision_display_number: typeof number === "number" ? number : null,
+              },
+            ]
+          : [];
+      });
+  } catch {
+    active = [];
+  }
+  const undelete = async () => {
+    await api(`/api/collections/${encodeURIComponent(id)}/undelete`, "POST");
+  };
+  if (!active.length) {
+    const done = busy(element, "Restoring…");
+    try {
+      await undelete();
+      toast("Restored");
+      after();
+    } catch (error) {
+      done();
+      throw error;
+    }
+    return;
+  }
+  const describe = active
+    .map(
+      (link) =>
+        `${link.revision_display_number === null ? "Latest" : `Only #${link.revision_display_number}`}${link.label ? `, “${link.label}”` : ""}`,
+    )
+    .join("; ");
+  const body = el(
+    "p",
+    {},
+    `This brings back ${plural(Number(element.dataset.revisions ?? 0), "revision")} and ${plural(Number(element.dataset.files ?? 0), "file")}, and `,
+    el("b", { text: `reactivates ${plural(active.length, "public link")}` }),
+    ` (${describe}). ${active.length === 1 ? "It works" : "They work"} again for anyone who has ${active.length === 1 ? "it" : "them"} within about a minute.`,
+  );
+  const ok = await confirmDialog({
+    title: `Restore “${element.dataset.title ?? "this collection"}”?`,
+    body,
+    ok: "Restore",
+    okClass: "primary",
+    alt: {
+      label: active.length === 1 ? "Restore, revoke the link" : "Restore, revoke the links",
+      run: async () => {
+        await api(`/api/collections/${encodeURIComponent(id)}/share-links/revoke-all`, "POST");
+        await undelete();
+      },
+    },
+    run: undelete,
+  });
+  if (ok) after();
+}
+async function purge(element: HTMLElement): Promise<void> {
+  const id = element.dataset.id ?? "";
+  const title = element.dataset.title ?? "";
+  const linkCount = Number(element.dataset.linkCount ?? "0");
+  const body = el(
+    "div",
+    { class: "sees" },
+    el("h3", { text: "Will be erased" }),
+    el(
+      "div",
+      { class: "row" },
+      el("span", { class: "no", text: "✕", attrs: { "aria-hidden": "true" } }),
+      el(
+        "span",
+        {},
+        el("b", { text: title }),
+        `: ${plural(Number(element.dataset.revisions ?? 0), "revision")}, ${plural(Number(element.dataset.files ?? 0), "file")}${linkCount ? `, ${plural(linkCount, "share link")}` : ""}`,
+      ),
+    ),
+    el(
+      "div",
+      { class: "row" },
+      el("span", { class: "no", text: "✕", attrs: { "aria-hidden": "true" } }),
+      el("span", { text: "Blobs that no other collection uses" }),
+    ),
+  );
+  const ok = await confirmDialog({
+    title: "",
+    band: {
+      title: "Permanently purge this collection?",
+      body: "This erases every revision and file from this writer, the cloud database, and the bucket. It can't be undone.",
+    },
+    body,
+    typed: {
+      expect: title,
+      label: "Type the collection's title to confirm",
+      hint: "Purge stays disabled until the title matches exactly.",
+    },
+    note: "Purges are queued and finish in the background; Status shows progress.",
+    ok: "Purge permanently",
+    okClass: "danger-solid",
+    run: async () => {
+      await api(`/api/collections/${encodeURIComponent(id)}/purge`, "POST", { confirm: id });
+    },
+  });
+  if (ok) location.reload();
+}
+
+registerAction("retry", retry);
+registerAction("drop", drop);
+registerAction("trash", trash);
+registerAction("restore", restore);
+registerAction("purge", purge);
+registerAction("keys", () => openKeys());
+registerAction("panel-tab", (element) => showTab(element.dataset.tab ?? "files"));
+registerAction("panel-close", () => setPanel(false));
+registerAction("print", () => {
+  const frame = $("[data-frame]", HTMLIFrameElement);
+  try {
+    if (frame?.contentWindow) {
+      frame.contentWindow.print();
+      return;
+    }
+  } catch {
+    // Cross-origin documents can't be printed from the shell; print the page instead.
+  }
+  window.print();
+});
+registerAction("copy-link", (element) =>
+  element.dataset.kind === "pinned" ? copyPinned() : copyLatest(),
+);
+registerAction("copy-handoff", () => copyHandoff());
+registerAction("copy-text", (element) =>
+  copyText(element.dataset.text ?? "", element.dataset.label ?? "text"),
+);
+registerAction("copy-raw", () => {
+  const raw = $("[data-download]", HTMLAnchorElement)?.href;
+  return raw ? copyText(raw, "raw URL") : undefined;
+});
+registerAction("rename", () =>
+  formDialog("rename", async (form) => {
+    const title = new FormData(form).get("title");
+    if (typeof title !== "string" || !title.trim()) throw new Error("Enter a title");
+    const root = shellRoot();
+    await api(`/api/collections/${encodeURIComponent(root?.dataset.collectionId ?? "")}`, "PATCH", {
+      title: title.trim(),
     });
+    for (const node of $$("[data-title-text]")) node.textContent = title.trim();
+    if (root) root.dataset.title = title.trim();
+    document.title = `${title.trim()} · Waypoint`;
+    toast("Renamed");
+  }),
+);
+registerAction("metadata", () =>
+  formDialog("metadata", async (form) => {
+    const raw = new FormData(form).get("metadata");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(typeof raw === "string" ? raw : "");
+    } catch {
+      throw new Error("Metadata must be valid JSON");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("Metadata must be a JSON object");
+    await api(
+      `/api/collections/${encodeURIComponent(shellRoot()?.dataset.collectionId ?? "")}`,
+      "PATCH",
+      { metadata: parsed },
+    );
+    toast("Metadata saved");
+    location.reload();
+  }),
+);
+
+export function bindActions(): void {
+  document.addEventListener("click", (event) => {
+    const target =
+      event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
+    const action = target ? actions.get(target.dataset.action ?? "") : undefined;
+    if (!target || !action) return;
+    event.preventDefault();
+    run(async () => {
+      await action(target);
+    }, toast);
+  });
 }

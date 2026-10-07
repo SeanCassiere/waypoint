@@ -105,5 +105,15 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     sync_enabled: !(s.ingest.sync instanceof LocalSyncClient),
     account_paused: Boolean(s.committer?.accountError),
     account_error: s.committer?.accountError ?? null,
+    cloud_last_ok_at: cloudLastOkAt(s),
+    cloud_error: s.syncLoop?.lastAttemptFailed ? s.syncLoop.lastError : null,
   };
+}
+
+/** The last successful push or pull, from the sync loop or the sync client's pull time. */
+export function cloudLastOkAt(s: HttpServices): number | null {
+  const times = [s.syncLoop?.lastOkAt, s.syncLoop?.lastPushAt, s.ingest.sync.lastPullAt].filter(
+    (value): value is number => typeof value === "number",
+  );
+  return times.length ? Math.max(...times) : null;
 }

@@ -9,6 +9,7 @@ import { MemoryBucket } from "../apps/writer/src/bucket.js";
 import { WriterCommitter } from "../apps/writer/src/committer.js";
 import type { Config } from "../apps/writer/src/config.js";
 import { openDatabases, type Db } from "../apps/writer/src/db.js";
+import { getHealth } from "../apps/writer/src/health.js";
 import { createApp, type HttpServices } from "../apps/writer/src/http.js";
 import { IngestService } from "../apps/writer/src/ingest.js";
 import {
@@ -186,12 +187,12 @@ describe("viewer routes", () => {
     expect(css.headers.get("cache-control")).toContain("immutable");
     expect(await css.text()).toContain("prefers-color-scheme");
     expect(html).toContain('rel="icon"');
-    expect(html).toContain("2 files");
+    expect(html).toContain('<span class="m">~1</span>');
     expect(html.indexOf("Newest")).toBeLessThan(html.indexOf("Alpha"));
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(await (await app.request("/?q=absent")).text()).toContain("No collections found");
-    expect(await (await app.request("/?q=alpha")).text()).toContain("2 files");
+    expect(await (await app.request("/?q=absent")).text()).toContain("No collections match");
+    expect(await (await app.request("/?q=alpha")).text()).toContain("<mark>Alpha</mark>");
   });
   it("shows latest and pinned shells with pinned raw frames and nested paths", async () => {
     const latest = new URL(first.latest_url).pathname;
@@ -242,7 +243,7 @@ describe("viewer routes", () => {
     expect((await app.request("/status")).headers.get("cache-control")).toBe("no-store");
     await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" });
     expect(await (await app.request("/trash")).text()).toContain("Purge");
-    expect(await (await app.request("/")).text()).toContain("No collections found");
+    expect(await (await app.request("/")).text()).toContain("Nothing here yet");
   });
   it("shares live committer and sync status between the API and status page", async () => {
     await queue.run(
@@ -290,7 +291,7 @@ describe("viewer routes", () => {
     expect(trash).toContain("Later 204");
     const deleted = await app.request(new URL(first.latest_url).pathname);
     expect(deleted.status).toBe(410);
-    expect(await deleted.text()).toContain("In Trash");
+    expect(await deleted.text()).toContain("is in Trash");
   });
   it("keeps list and shell query counts constant as history grows", async () => {
     await Promise.all(
@@ -355,7 +356,7 @@ describe("viewer routes", () => {
     ]);
     const path = new URL(first.latest_url).pathname;
     const html = await (await app.request(path)).text();
-    expect(html).toContain("Every revision of this collection failed to sync");
+    expect(html).toContain("Nothing in this collection has synced");
     expect(html).toContain("failed");
     expect((await app.request(`${path}notes%2Fb.md`)).status).toBe(404);
     expect(
@@ -429,7 +430,7 @@ describe("viewer routes", () => {
     expect((await app.request(latest.toUpperCase().replace("/C/", "/c/"))).status).toBe(200);
     const unknown = await app.request("/totally-unknown");
     expect(unknown.status).toBe(404);
-    expect(await unknown.text()).toContain("Page not found");
+    expect(await unknown.text()).toContain("Not found");
   });
   it("shows a download page for binary files", async () => {
     const binary = writeResult(
@@ -447,6 +448,101 @@ describe("viewer routes", () => {
     const html = await (await app.request(new URL(binary.url).pathname)).text();
     expect(html).toContain("Download file");
     expect(html).not.toContain("<iframe");
+  });
+});
+
+async function queryCount(path: string): Promise<number> {
+  const spies = [
+    vi.spyOn(queue, "all"),
+    vi.spyOn(queue, "get"),
+    vi.spyOn(waypoint, "all"),
+    vi.spyOn(waypoint, "get"),
+  ];
+  await app.request(path);
+  const total = spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+  spies.forEach((spy) => spy.mockRestore());
+  return total;
+}
+describe("Folio shell", () => {
+  it("renders landmarks, the skip link and the health pill on every page", async () => {
+    for (const path of ["/", "/status", "/trash", new URL(first.latest_url).pathname]) {
+      const html = await (await app.request(path)).text();
+      expect(html).toContain('class="skip" href="#main"');
+      expect(html).toMatch(/<header class="bar/);
+      expect(html).toContain('id="main"');
+      expect(html).toContain('popovertarget="health-pop"');
+      expect(html).toContain('id="health-pop"');
+    }
+    const shell = await (await app.request(new URL(first.latest_url).pathname)).text();
+    expect(shell).toContain('<nav class="crumbs" aria-label="Breadcrumb">');
+    expect(shell).toContain('<aside class="panel" id="panel" aria-label="Collection panel">');
+    expect(shell).toContain('role="tablist"');
+    expect(shell).toContain('id="copy-menu"');
+    expect(shell).toContain("Watch: wait_for_revision");
+    expect(shell).toContain('<nav class="tabbar" aria-label="Collection">');
+  });
+  it("orders the health pill blocked > failed > offline > off > uploading > synced", async () => {
+    const syncLoop = new SyncLoop(queue, services.ingest.sync, Date.now, waypoint);
+    const cloud = {
+      lastPullAt: 0,
+      verified: true,
+      pull: () => Promise.resolve(false),
+      push: () => Promise.resolve(),
+      checkpoint: () => Promise.resolve(),
+    };
+    const live = {
+      ...services,
+      syncLoop,
+      ingest: new IngestService(waypoint, queue, services.blobs, services.reads, cloud),
+    };
+    expect((await getHealth(services)).state).toBe("off");
+    const now = Date.now();
+    expect((await getHealth(live, now)).state).toBe("uploading");
+    syncLoop.lastAttemptFailed = true;
+    syncLoop.lastOkAt = now - 3 * 60_000;
+    expect((await getHealth(live, now)).state).toBe("offline");
+    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [second.revision_id]);
+    const failed = await getHealth(live, now);
+    expect(failed.state).toBe("failed");
+    expect(failed.label).toBe("1 failed");
+    expect(failed.failed[0]?.display_number).toBe(2);
+    expect(failed.failed[0]?.collection_public_id).toBeTruthy();
+    syncLoop.blocked = true;
+    syncLoop.lastError = "Environment mismatch";
+    expect((await getHealth(live, now)).label).toBe("Sync blocked");
+    await queue.run("DELETE FROM pending_revisions");
+    syncLoop.blocked = false;
+    syncLoop.lastAttemptFailed = false;
+    expect((await getHealth(live, now)).state).toBe("synced");
+  });
+  it("names a dropped revision's descendants (B7)", async () => {
+    const third = writeResult(
+      await (
+        await app.request(
+          `/api/collections/${first.collection_id}/revisions`,
+          json({ message: "Third", files: [await upload("c.md", "C")] }),
+        )
+      ).json(),
+    );
+    const response = await app.request(`/api/queue/${second.revision_id}/descendants`);
+    expect(await response.json()).toEqual({
+      ids: [second.revision_id, third.revision_id],
+      display_numbers: [2, 3],
+    });
+    expect((await app.request("/api/queue/rev_missing/descendants")).status).toBe(404);
+  });
+  it("keeps Status and Trash query counts constant", async () => {
+    await seedPendingCollection("Gone", Date.now() + 500, true);
+    const status = await queryCount("/status");
+    const trash = await queryCount("/trash");
+    await Promise.all(
+      Array.from({ length: 25 }, (_, i) =>
+        seedPendingCollection(`Gone ${i}`, Date.now() + i + 1000, true),
+      ),
+    );
+    expect(await queryCount("/status")).toBe(status);
+    expect(await queryCount("/trash")).toBe(trash);
+    expect(trash).toBeLessThan(20);
   });
 });
 

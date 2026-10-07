@@ -20,6 +20,7 @@ import {
   type ResolveResponse,
   type CollectionSearchResult,
   type SearchCollectionsResponse,
+  type RevisionChanges,
 } from "@waypoint/core";
 import { z } from "zod";
 
@@ -83,6 +84,8 @@ export interface RevisionRow {
   created_at: number;
   manifest_json?: string;
   state?: "pending" | "failed";
+  last_error?: string | null;
+  error_kind?: string | null;
   sync_state?: SyncState | undefined;
   display_number?: number | undefined;
 }
@@ -162,6 +165,38 @@ function decodeCursor(value: string): {
     throw new WaypointError("validation_failed", "Invalid cursor");
   }
 }
+function placeholders(values: readonly unknown[]): string {
+  return values.map(() => "?").join(",");
+}
+function diffManifests(
+  parent: ReadonlyMap<string, string> | undefined,
+  child: ReadonlyMap<string, string>,
+): RevisionChanges {
+  const changes = { added: 0, modified: 0, removed: 0 };
+  for (const [path, hash] of child) {
+    const before = parent?.get(path);
+    if (before === undefined) changes.added++;
+    else if (before !== hash) changes.modified++;
+  }
+  for (const path of parent?.keys() ?? []) if (!child.has(path)) changes.removed++;
+  return changes;
+}
+function hashesOf(manifest: Manifest): Map<string, string> {
+  return new Map(Object.entries(manifest.files).map(([path, entry]) => [path, entry.hash]));
+}
+export function sourceHost(metadataJson: string | undefined): string | null {
+  if (!metadataJson) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadataJson);
+    if (parsed && typeof parsed === "object" && "source_host" in parsed) {
+      const host = parsed.source_host;
+      if (typeof host === "string" && host.trim()) return host.trim().slice(0, 120);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 export class ReadModel {
   readonly revisionEvents = new EventEmitter().setMaxListeners(220);
   private readonly searchSnapshots = new Map<
@@ -215,17 +250,54 @@ export class ReadModel {
     ]);
     return [...pending, ...committed].toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
   }
+  /** Revision and newest-revision file counts for Trash rows; four queries for any number. */
+  async trashDetails(
+    collectionIds: string[],
+  ): Promise<Map<string, { revisions: number; files: number; latest: string | null }>> {
+    const details = new Map<string, { revisions: number; files: number; latest: string | null }>();
+    if (!collectionIds.length) return details;
+    const marks = placeholders(collectionIds);
+    const [committed, pending] = await Promise.all([
+      this.waypoint.all<{ id: string; collection_id: string }>(
+        `SELECT id,collection_id FROM revisions WHERE collection_id IN (${marks})`,
+        collectionIds,
+      ),
+      this.queue.all<{ id: string; collection_id: string; state: string }>(
+        `SELECT id,collection_id,state FROM pending_revisions WHERE collection_id IN (${marks})`,
+        collectionIds,
+      ),
+    ]);
+    for (const id of collectionIds) {
+      const ids = new Set([
+        ...committed.filter((row) => row.collection_id === id).map((row) => row.id),
+        ...pending.filter((row) => row.collection_id === id).map((row) => row.id),
+      ]);
+      const failed = new Set(pending.filter((row) => row.state === "failed").map((row) => row.id));
+      const sorted = [...ids].toSorted();
+      details.set(id, {
+        revisions: ids.size,
+        files: 0,
+        latest: sorted.findLast((rev) => !failed.has(rev)) ?? sorted.at(-1) ?? null,
+      });
+    }
+    const counts = await this.fileCounts(
+      [...details.values()].flatMap((detail) => (detail.latest ? [detail.latest] : [])),
+    );
+    for (const detail of details.values())
+      if (detail.latest) detail.files = counts.get(detail.latest) ?? 0;
+    return details;
+  }
   async fileCounts(revisionIds: string[]): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
     if (!revisionIds.length) return counts;
-    const placeholders = revisionIds.map(() => "?").join(",");
+    const marks = placeholders(revisionIds);
     const [committed, pending] = await Promise.all([
       this.waypoint.all<{ revision_id: string; count: number }>(
-        `SELECT revision_id,COUNT(*) AS count FROM revision_files WHERE revision_id IN (${placeholders}) GROUP BY revision_id`,
+        `SELECT revision_id,COUNT(*) AS count FROM revision_files WHERE revision_id IN (${marks}) GROUP BY revision_id`,
         revisionIds,
       ),
       this.queue.all<{ id: string; manifest_json: string }>(
-        `SELECT id,manifest_json FROM pending_revisions WHERE id IN (${placeholders})`,
+        `SELECT id,manifest_json FROM pending_revisions WHERE id IN (${marks})`,
         revisionIds,
       ),
     ]);
@@ -305,6 +377,121 @@ export class ReadModel {
       manifest: { headPath: committed.head_path, files },
     };
   }
+  /** The manifest of a revision row from {@link revisions}; at most one query. */
+  async manifestOf(row: RevisionRow): Promise<Manifest> {
+    if (row.manifest_json !== undefined) return parseManifest(row.manifest_json);
+    const rows = await this.waypoint.all<{
+      path: string;
+      blob_hash: string;
+      mime: string;
+      size: number;
+    }>("SELECT path,blob_hash,mime,size FROM revision_files WHERE revision_id=?", [row.id]);
+    const files: Manifest["files"] = {};
+    Object.setPrototypeOf(files, null);
+    for (const file of rows) {
+      if (!isContentHash(file.blob_hash)) throw new Error("Invalid stored blob hash");
+      Object.defineProperty(files, file.path, {
+        value: { hash: file.blob_hash, mime: file.mime, size: file.size },
+        enumerable: true,
+      });
+    }
+    if (!rows.length) {
+      const pending = await this.queue.get<{ manifest_json: string }>(
+        "SELECT manifest_json FROM pending_revisions WHERE id=?",
+        [row.id],
+      );
+      if (pending) return parseManifest(pending.manifest_json);
+    }
+    return { headPath: row.head_path, files };
+  }
+  /**
+   * Change counts against each revision's parent (B2). Committed revisions use one grouped
+   * self-join over revision_files; queued revisions are diffed in memory from their manifests.
+   * At most three queries regardless of how many revisions are passed.
+   */
+  async changesFor(
+    rows: readonly Pick<
+      RevisionRow,
+      "id" | "parent_revision_id" | "sync_state" | "manifest_json"
+    >[],
+  ): Promise<Map<string, RevisionChanges>> {
+    const result = new Map<string, RevisionChanges>();
+    if (!rows.length) return result;
+    const queued = (row: Pick<RevisionRow, "sync_state">) =>
+      row.sync_state === "pending" || row.sync_state === "failed";
+    const committed = rows.filter((row) => !queued(row)).map((row) => row.id);
+    const pending = rows.filter(queued);
+    const manifests = new Map<string, Map<string, string>>();
+    for (const row of pending)
+      if (row.manifest_json !== undefined)
+        manifests.set(row.id, hashesOf(parseManifest(row.manifest_json)));
+    const missing = pending.filter((row) => !manifests.has(row.id)).map((row) => row.id);
+    const [grouped, loaded] = await Promise.all([
+      committed.length
+        ? this.waypoint.all<{ id: string; added: number; modified: number; removed: number }>(
+            `SELECT r.id AS id,SUM(CASE WHEN p.path IS NULL THEN 1 ELSE 0 END) AS added,SUM(CASE WHEN p.path IS NOT NULL AND p.blob_hash<>f.blob_hash THEN 1 ELSE 0 END) AS modified,0 AS removed FROM revisions r JOIN revision_files f ON f.revision_id=r.id LEFT JOIN revision_files p ON p.revision_id=r.parent_revision_id AND p.path=f.path WHERE r.id IN (${placeholders(committed)}) GROUP BY r.id UNION ALL SELECT r.id AS id,0 AS added,0 AS modified,COUNT(*) AS removed FROM revisions r JOIN revision_files p ON p.revision_id=r.parent_revision_id LEFT JOIN revision_files f ON f.revision_id=r.id AND f.path=p.path WHERE r.id IN (${placeholders(committed)}) AND f.path IS NULL GROUP BY r.id`,
+            [...committed, ...committed],
+          )
+        : Promise.resolve([]),
+      missing.length
+        ? this.queue.all<{ id: string; manifest_json: string }>(
+            `SELECT id,manifest_json FROM pending_revisions WHERE id IN (${placeholders(missing)})`,
+            missing,
+          )
+        : Promise.resolve([]),
+    ]);
+    for (const row of grouped) {
+      const current = result.get(row.id) ?? { added: 0, modified: 0, removed: 0 };
+      current.added += row.added;
+      current.modified += row.modified;
+      current.removed += row.removed;
+      result.set(row.id, current);
+    }
+    for (const row of loaded) manifests.set(row.id, hashesOf(parseManifest(row.manifest_json)));
+    const parentIds = [
+      ...new Set(
+        pending.flatMap((row) =>
+          row.parent_revision_id && !manifests.has(row.parent_revision_id)
+            ? [row.parent_revision_id]
+            : [],
+        ),
+      ),
+    ];
+    if (parentIds.length) {
+      const [files, queuedParents] = await Promise.all([
+        this.waypoint.all<{ revision_id: string; path: string; blob_hash: string }>(
+          `SELECT revision_id,path,blob_hash FROM revision_files WHERE revision_id IN (${placeholders(parentIds)})`,
+          parentIds,
+        ),
+        this.queue.all<{ id: string; manifest_json: string }>(
+          `SELECT id,manifest_json FROM pending_revisions WHERE id IN (${placeholders(parentIds)})`,
+          parentIds,
+        ),
+      ]);
+      // A committed parent can still have a queue row until cleanup; the committed files win.
+      for (const row of queuedParents)
+        manifests.set(row.id, hashesOf(parseManifest(row.manifest_json)));
+      const committedParents = new Map<string, Map<string, string>>();
+      for (const file of files) {
+        const map = committedParents.get(file.revision_id) ?? new Map<string, string>();
+        map.set(file.path, file.blob_hash);
+        committedParents.set(file.revision_id, map);
+      }
+      for (const [id, map] of committedParents) manifests.set(id, map);
+    }
+    for (const row of pending) {
+      const own = manifests.get(row.id);
+      if (!own) continue;
+      result.set(
+        row.id,
+        diffManifests(
+          row.parent_revision_id ? manifests.get(row.parent_revision_id) : undefined,
+          own,
+        ),
+      );
+    }
+    return result;
+  }
   async latest(collectionId: string): Promise<RevisionRow | undefined> {
     return (await this.revisions(collectionId)).findLast((r) => r.sync_state !== "failed");
   }
@@ -328,13 +515,19 @@ export class ReadModel {
       url: pinnedRevisionUrl(this.baseUrl, collection.public_id, row.public_id),
     };
   }
-  async listRevisions(collectionId: string): Promise<ListRevisionsResponse> {
+  async listRevisions(
+    collectionId: string,
+    options: { changes?: boolean } = {},
+  ): Promise<ListRevisionsResponse> {
     const collection = await this.collection(collectionId);
     if (!collection) throw new WaypointError("collection_not_found", "Collection not found");
+    const rows = await this.revisions(collectionId);
+    const changes = options.changes ? await this.changesFor(rows) : undefined;
     return {
-      revisions: (await this.revisions(collectionId)).map((row) =>
-        this.summaryFor(row, collection),
-      ),
+      revisions: rows.map((row) => ({
+        ...this.summaryFor(row, collection),
+        ...(changes ? { changes: changes.get(row.id) } : {}),
+      })),
     };
   }
   async searchCollections(options: SearchOptions = {}): Promise<SearchCollectionsResponse> {
@@ -490,10 +683,15 @@ export class ReadModel {
               sync_state: latest.sync_state ?? "synced",
               head_path: latest.head_path,
               file_count: 0,
+              source_host: sourceHost(latest.metadata),
             }
           : null,
         latest_url: latestCollectionUrl(this.baseUrl, row.public_id),
         match,
+        queue: {
+          pending: history.filter((revision) => revision.sync_state === "pending").length,
+          failed: history.filter((revision) => revision.sync_state === "failed").length,
+        },
       });
     }
     results.sort((a, b) => {
@@ -519,18 +717,47 @@ export class ReadModel {
     snapshotId: string,
     sort: "updated" | "created",
   ): Promise<SearchCollectionsResponse> {
-    // File counts are fetched once for the page, regardless of its size.
     const page = results.slice(0, limit).map((item) => ({
       ...item,
       latest_revision: item.latest_revision ? { ...item.latest_revision } : null,
     }));
-    const counts = await this.fileCounts(
-      page.flatMap((item) => (item.latest_revision ? [item.latest_revision.id] : [])),
+    // File counts and change summaries are fetched once for the page, regardless of its size.
+    const ids = page.flatMap((item) => (item.latest_revision ? [item.latest_revision.id] : []));
+    const [committedCounts, queued] = ids.length
+      ? await Promise.all([
+          this.waypoint.all<{ revision_id: string; count: number }>(
+            `SELECT revision_id,COUNT(*) AS count FROM revision_files WHERE revision_id IN (${placeholders(ids)}) GROUP BY revision_id`,
+            ids,
+          ),
+          this.queue.all<{
+            id: string;
+            parent_revision_id: string | null;
+            manifest_json: string;
+            state: "pending" | "failed";
+          }>(
+            `SELECT id,parent_revision_id,manifest_json,state FROM pending_revisions WHERE id IN (${placeholders(ids)})`,
+            ids,
+          ),
+        ])
+      : [[], []];
+    const counts = new Map(committedCounts.map((row) => [row.revision_id, row.count]));
+    const queuedById = new Map(queued.map((row) => [row.id, row]));
+    for (const row of queued)
+      counts.set(row.id, Object.keys(parseManifest(row.manifest_json).files).length);
+    const changes = await this.changesFor(
+      ids.map((id) => {
+        const row = queuedById.get(id);
+        return row
+          ? { ...row, sync_state: row.state }
+          : { id, parent_revision_id: null, sync_state: "synced" as const };
+      }),
     );
     for (const item of page)
-      if (item.latest_revision)
+      if (item.latest_revision) {
         item.latest_revision.file_count =
           counts.get(item.latest_revision.id) ?? item.latest_revision.file_count;
+        item.latest_revision.changes = changes.get(item.latest_revision.id) ?? null;
+      }
     const last = page.at(-1);
     return {
       collections: page,

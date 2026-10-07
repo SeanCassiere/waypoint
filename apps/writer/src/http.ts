@@ -866,7 +866,7 @@ export function createApp(s: HttpServices): Hono {
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
     const after = c.req.query("after");
-    if (!after) return c.json(await s.reads.listRevisions(id));
+    if (!after) return c.json(await s.reads.listRevisions(id, { changes: true }));
     const seconds = Number(c.req.query("wait") ?? 0);
     if (!Number.isFinite(seconds)) throw new WaypointError("validation_failed", "Invalid wait");
     const waitSeconds = Math.max(0, Math.min(seconds, 50));
@@ -1065,6 +1065,20 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
+  // B7: lets a Drop confirmation name every revision the drop removes.
+  app.get("/api/queue/:revision_id/descendants", async (c) => {
+    const id = c.req.param("revision_id");
+    const root = await s.queue.get<{ collection_id: string }>(
+      "SELECT collection_id FROM pending_revisions WHERE id=?",
+      [id],
+    );
+    if (!root) throw new WaypointError("not_found", "Queue revision not found");
+    const ids = await descendantsOf(s.queue, id);
+    const numbers = new Map(
+      (await s.reads.revisions(root.collection_id)).map((row) => [row.id, row.display_number]),
+    );
+    return c.json({ ids, display_numbers: ids.map((item) => numbers.get(item) ?? null) });
+  });
   app.delete("/api/queue/:revision_id", async (c) => {
     const id = c.req.param("revision_id");
     const root = await s.queue.get<{ collection_id: string }>(
@@ -1105,7 +1119,12 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
-  app.route("/", viewerApp(s));
+  app.route(
+    "/",
+    viewerApp(s, {
+      serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
+    }),
+  );
   return app;
 }
 async function prunePendingStorage(tx: DbHandle, waypoint: Db): Promise<string[]> {

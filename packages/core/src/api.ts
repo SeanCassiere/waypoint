@@ -49,6 +49,12 @@ export interface AddRevisionRequest {
   files?: RequestFile[];
   remove?: string[];
 }
+/** File-level change counts relative to the parent revision (all files are "added" for a root). */
+export interface RevisionChanges {
+  added: number;
+  modified: number;
+  removed: number;
+}
 export interface RevisionSummary {
   id: string;
   public_id: string;
@@ -61,6 +67,7 @@ export interface RevisionSummary {
   created_at: number;
   sync_state: SyncState;
   url: string;
+  changes?: RevisionChanges | undefined;
 }
 export interface ManifestFileEntry {
   path: string;
@@ -109,10 +116,18 @@ export interface CollectionSearchResult {
     | (Pick<
         RevisionSummary,
         "id" | "display_number" | "message" | "created_at" | "sync_state" | "head_path"
-      > & { file_count: number })
+      > & {
+        file_count: number;
+        changes?: RevisionChanges | null | undefined;
+        source_host?: string | null | undefined;
+      })
     | null;
   latest_url: string;
   match: "id" | "title" | "metadata" | null;
+  /** Queue counts for the collection's revisions that haven't committed yet. */
+  queue?: { pending: number; failed: number } | undefined;
+  /** Active public links (B4). Null when the collection has none. */
+  share?: { active: number; follows_latest: boolean } | null | undefined;
 }
 export interface SearchCollectionsResponse {
   collections: CollectionSearchResult[];
@@ -162,6 +177,10 @@ export interface StatusResponse {
   sync_blocked: boolean;
   account_paused: boolean;
   account_error: string | null;
+  /** Last successful cloud push or pull (B6b). */
+  cloud_last_ok_at?: number | null | undefined;
+  /** Last sync-loop error while the most recent attempt is failing. */
+  cloud_error?: string | null | undefined;
 }
 export const MCP_LAUNCHER_API = 1;
 export interface McpVersionResponse {

@@ -1,75 +1,961 @@
-import { validatePath } from "@waypoint/core";
 /** @jsxImportSource hono/jsx */
+import {
+  latestCollectionUrl,
+  pinnedRevisionUrl,
+  rawUrl,
+  validatePath,
+  type Manifest,
+  type ManifestFileEntry,
+  type RevisionChanges,
+} from "@waypoint/core";
 import type { Context } from "hono";
+import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
+import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.js";
 import { rawPath, shellPath } from "../../viewer-paths.js";
-import { fileTree, isEmbeddable } from "../components.js";
-import { shortMessage } from "../format.js";
-import { ErrorPage, Layout } from "../layout.js";
+import { getChrome } from "../chrome.js";
+import {
+  FileTree,
+  Globe,
+  isEmbeddable,
+  LogoMark,
+  HealthPill,
+  Timeline,
+  type Glyph,
+  type TimelineRow,
+} from "../components.js";
+import { bytes, ext, projectAndTags } from "../format.js";
+import { Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
 
-export async function collectionPage(s: HttpServices, c: Context): Promise<Response> {
-  const pub = c.req.param("pub") ?? "";
-  const collection = await s.reads.collectionByPublicId(pub);
-  if (!collection) return noStore(c.html(<ErrorPage />, 404));
-  if (collection.deleted_at !== null)
-    return noStore(
-      c.html(
-        <Layout title="In Trash">
-          <main class="wrap">
-            <h1>In Trash</h1>
-            <p>{collection.title} is deleted.</p>
-            <p class="error" data-error role="alert"></p>
-            <button data-action="undelete" data-id={collection.id}>
-              Undelete {collection.title}
+const HISTORY_PAGE = 50;
+const shortUrl = (url: string) => `…${new URL(url).pathname}`;
+
+/** Everything the collection shell (and its sibling pages) needs, loaded with constant queries. */
+export interface CollectionContext {
+  s: HttpServices;
+  chrome: Chrome;
+  collection: CollectionRow & { metadataObject: Record<string, unknown> };
+  rows: RevisionRow[];
+  latest: RevisionRow | undefined;
+  revision: RevisionRow;
+  pinned: boolean;
+  manifest: Manifest;
+  files: ManifestFileEntry[];
+  changes: Map<string, RevisionChanges>;
+  timeline: TimelineRow[];
+  byId: Map<string, TimelineRow>;
+  publicSees: RevisionRow | undefined;
+  url: URL;
+}
+
+export function filesOf(manifest: Manifest): ManifestFileEntry[] {
+  return Object.entries(manifest.files)
+    .map(([path, entry]) => ({
+      path,
+      hash: entry.hash,
+      mime: entry.mime,
+      size: entry.size,
+      url: "",
+    }))
+    .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+export function glyphsAgainst(
+  manifest: Manifest,
+  parent: Manifest | undefined,
+): Map<string, Glyph> {
+  const glyphs = new Map<string, Glyph>();
+  for (const [path, entry] of Object.entries(manifest.files)) {
+    const before = parent?.files[path];
+    glyphs.set(path, !before ? "+" : before.hash !== entry.hash ? "~" : "·");
+  }
+  return glyphs;
+}
+
+function revisionLabel(ctx: Pick<CollectionContext, "revision" | "latest">): {
+  text: string;
+  tone: string;
+} {
+  const { revision, latest } = ctx;
+  if (revision.sync_state === "failed") return { text: "failed", tone: "failed" };
+  if (revision.id === latest?.id)
+    return revision.sync_state === "pending"
+      ? { text: "latest · uploading", tone: "pending" }
+      : { text: "latest", tone: "" };
+  if (revision.sync_state === "pending") return { text: "uploading", tone: "pending" };
+  return { text: "not latest", tone: "" };
+}
+
+export function handoffBlock(ctx: CollectionContext): string {
+  const { collection, revision, files, latest, s } = ctx;
+  const base = s.reads.baseUrl;
+  const paths = files.map((file) => file.path);
+  const shown = paths.slice(0, 8).join(", ");
+  const { project, tags } = projectAndTags(collection.metadataObject);
+  const meta = [project ? `project: ${project}` : "", tags.length ? `tags: ${tags.join(", ")}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return [
+    `Waypoint collection "${collection.title}"`,
+    `collection_id: ${collection.id}`,
+    `revision: #${revision.display_number ?? "?"} ${revision.id} (${revision.id === latest?.id ? "latest" : "not latest"}, ${revision.sync_state ?? "synced"})`,
+    `head: ${revision.head_path} · files: ${shown}${paths.length > 8 ? `, … +${paths.length - 8} more` : ""}`,
+    `url: ${ctx.pinned ? pinnedRevisionUrl(base, collection.public_id, revision.public_id) : latestCollectionUrl(base, collection.public_id)}`,
+    `raw head: ${rawUrl(base, revision.public_id, revision.head_path)}`,
+    ...(meta ? [meta] : []),
+    `Read: get_collection("${collection.id}", include_head: true)`,
+    `Watch: wait_for_revision(after_revision_id: "${revision.id}")`,
+  ].join("\n");
+}
+
+export async function loadCollection(
+  s: HttpServices,
+  c: Context,
+  options: { pub: string; rpub?: string | undefined; now: number },
+): Promise<
+  | { kind: "missing"; chrome: Chrome }
+  | { kind: "deleted"; chrome: Chrome; collection: CollectionRow }
+  | { kind: "no-revision"; chrome: Chrome; collection: CollectionRow }
+  | { kind: "ok"; ctx: CollectionContext }
+> {
+  const [collection, chrome] = await Promise.all([
+    s.reads.collectionByPublicId(options.pub),
+    getChrome(s, options.now),
+  ]);
+  if (!collection) return { kind: "missing", chrome };
+  if (collection.deleted_at != null) return { kind: "deleted", chrome, collection };
+  const rows = await s.reads.revisions(collection.id);
+  const latest = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
+  const revision = options.rpub ? rows.find((row) => row.public_id === options.rpub) : latest;
+  if (!revision) return { kind: "no-revision", chrome, collection };
+  const [manifest, changes] = await Promise.all([
+    s.reads.manifestOf(revision),
+    s.reads.changesFor(rows),
+  ]);
+  const timeline: TimelineRow[] = rows.map((row) => ({
+    id: row.id,
+    public_id: row.public_id,
+    parent_revision_id: row.parent_revision_id,
+    display_number: row.display_number ?? 0,
+    message: row.message,
+    created_at: row.created_at,
+    sync_state: row.sync_state ?? "synced",
+    host: sourceHost(row.metadata),
+    changes: changes.get(row.id),
+    last_error: row.last_error ?? null,
+  }));
+  let metadataObject: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(collection.metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      metadataObject = Object.fromEntries(Object.entries(parsed));
+  } catch {
+    metadataObject = {};
+  }
+  return {
+    kind: "ok",
+    ctx: {
+      s,
+      chrome,
+      collection: { ...collection, metadataObject },
+      rows,
+      latest,
+      revision,
+      pinned: Boolean(options.rpub),
+      manifest,
+      files: filesOf(manifest),
+      changes,
+      timeline,
+      byId: new Map(timeline.map((row) => [row.id, row])),
+      publicSees: rows.findLast((row) => row.sync_state === "synced"),
+      url: new URL(c.req.raw.url),
+    },
+  };
+}
+
+export function CollectionBar(props: {
+  ctx: CollectionContext;
+  mode?: "document" | "changes" | "gallery";
+  pill?: string | undefined;
+  doneHref?: string | undefined;
+}) {
+  const { ctx } = props;
+  const { collection, revision, chrome } = ctx;
+  const { project } = projectAndTags(collection.metadataObject);
+  const label = revisionLabel(ctx);
+  return (
+    <header class="bar cbar">
+      <a class="iconbtn back" href="/" aria-label="Back to Recent">
+        ‹
+      </a>
+      <a class="logo" href="/" aria-label="Waypoint, Recent">
+        <LogoMark />
+      </a>
+      <nav class="crumbs" aria-label="Breadcrumb">
+        {project ? (
+          <>
+            <a
+              class="hide-sm"
+              href={`/?${new URLSearchParams({ q: `project:${project}` }).toString()}`}
+            >
+              {project}
+            </a>
+            <span class="sep hide-sm" aria-hidden="true">
+              /
+            </span>
+          </>
+        ) : null}
+        <h1 data-title-text>{collection.title}</h1>
+      </nav>
+      <button
+        type="button"
+        class="revbtn"
+        popovertarget="rev-menu"
+        aria-haspopup="dialog"
+        title="Revisions  [ ]"
+        aria-label={`Revision ${revision.display_number ?? "?"}, ${props.pill ?? label.text}. Open revisions`}
+      >
+        #{revision.display_number ?? "?"}
+        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>▾
+      </button>
+      {props.doneHref ? (
+        <a class="btn sm ghost hide-sm" href={props.doneHref} data-done>
+          Done <kbd>Esc</kbd>
+        </a>
+      ) : null}
+      <span class="grow" />
+      <button
+        type="button"
+        class="btn ghost hide-sm"
+        popovertarget="copy-menu"
+        aria-haspopup="menu"
+      >
+        Copy ▾
+      </button>
+      <button type="button" class="btn public hide-sm" data-action="share">
+        <Globe />
+        Share
+      </button>
+      <button
+        type="button"
+        class="iconbtn"
+        popovertarget="more-menu"
+        aria-haspopup="menu"
+        aria-label="More actions"
+        title="Rename · Open raw · Print · Move to Trash · Shortcuts"
+      >
+        ⋯
+      </button>
+      <HealthPill health={chrome.health} />
+    </header>
+  );
+}
+
+export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
+  const { ctx } = props;
+  const recent = ctx.timeline.toReversed().slice(0, 8);
+  return (
+    <div id="rev-menu" class="menu rmenu" popover="auto" role="dialog" aria-label="Revisions">
+      <div class="lbl">Revisions · newest first</div>
+      <Timeline
+        rows={recent}
+        pub={ctx.collection.public_id}
+        currentId={ctx.revision.id}
+        latestId={ctx.latest?.id ?? null}
+        now={ctx.chrome.now}
+        path={props.path}
+        compact
+        byId={ctx.byId}
+        changesHref={changesHref(ctx)}
+      />
+      <hr />
+      <button type="button" class="mi" data-action="compare">
+        <span aria-hidden="true">⇄</span>
+        <span>Compare…</span>
+        <small>Choose any two revisions</small>
+      </button>
+      <button type="button" class="mi" data-action="panel-tab" data-tab="history">
+        <span aria-hidden="true">◷</span>
+        <span>Open History panel</span>
+        <kbd>h</kbd>
+      </button>
+    </div>
+  );
+}
+
+export function changesHref(ctx: CollectionContext) {
+  return (row: TimelineRow, base: TimelineRow): string =>
+    `${shellPath(ctx.collection.public_id, row.public_id, "", true)}changes${row.parent_revision_id === base.id ? "" : `?base=${base.public_id}`}`;
+}
+
+export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
+  const { ctx, path } = props;
+  const base = ctx.s.reads.baseUrl;
+  const latestUrl = latestCollectionUrl(
+    base,
+    ctx.collection.public_id,
+    path === ctx.revision.head_path ? undefined : path,
+  );
+  const pinnedUrl = pinnedRevisionUrl(base, ctx.collection.public_id, ctx.revision.public_id, path);
+  return (
+    <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
+      <div class="lbl">Links</div>
+      <button type="button" class="mi" role="menuitem" data-action="copy-link" data-kind="latest">
+        <span aria-hidden="true">⧉</span>
+        <span>Link to latest</span>
+        <kbd>c</kbd>
+        <small class="mono" data-copy-preview="latest">
+          {shortUrl(latestUrl)}
+        </small>
+      </button>
+      <button type="button" class="mi" role="menuitem" data-action="copy-link" data-kind="pinned">
+        <span aria-hidden="true">⧉</span>
+        <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
+        <kbd>⇧C</kbd>
+        <small class="mono" data-copy-preview="pinned">
+          {shortUrl(pinnedUrl)}
+        </small>
+      </button>
+      <hr />
+      <div class="lbl">For another agent</div>
+      <button type="button" class="mi" role="menuitem" data-action="copy-handoff">
+        <span aria-hidden="true">⧉</span>
+        <span>Handoff block</span>
+        <kbd>a</kbd>
+        <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
+      </button>
+      <pre class="handoff" data-handoff>
+        {handoffBlock(ctx)}
+      </pre>
+      <hr />
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        data-action="copy-text"
+        data-text={ctx.collection.id}
+        data-label="collection ID"
+      >
+        <span aria-hidden="true">#</span>
+        <span>Collection ID</span>
+        <small class="mono">{ctx.collection.id}</small>
+      </button>
+      <button
+        type="button"
+        class="mi"
+        role="menuitem"
+        data-action="copy-text"
+        data-text={ctx.revision.id}
+        data-label="revision ID"
+      >
+        <span aria-hidden="true">#</span>
+        <span>Revision ID</span>
+        <small class="mono">{ctx.revision.id}</small>
+      </button>
+    </div>
+  );
+}
+
+export function MoreMenu(props: { ctx: CollectionContext; path: string; previewPublic?: boolean }) {
+  const { ctx, path } = props;
+  const raw = rawPath(ctx.revision.public_id, path);
+  return (
+    <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
+      <button type="button" class="mi pubitem show-sm" role="menuitem" data-action="share">
+        <Globe />
+        <span>Share…</span>
+        <kbd>s</kbd>
+      </button>
+      <button type="button" class="mi" role="menuitem" data-action="rename">
+        <span aria-hidden="true">✎</span>
+        <span>Rename…</span>
+      </button>
+      <button type="button" class="mi" role="menuitem" data-action="metadata">
+        <span aria-hidden="true">{"{}"}</span>
+        <span>Edit metadata…</span>
+      </button>
+      <hr />
+      <a class="mi" role="menuitem" href={raw} target="_blank" rel="noopener" data-open-raw>
+        <span aria-hidden="true">↗</span>
+        <span>Open raw</span>
+      </a>
+      <a class="mi" role="menuitem" href={raw} download data-download-raw>
+        <span aria-hidden="true">↓</span>
+        <span>Download file</span>
+      </a>
+      <button type="button" class="mi" role="menuitem" data-action="print">
+        <span aria-hidden="true">⎙</span>
+        <span>Print</span>
+      </button>
+      {props.previewPublic ? (
+        <a
+          class="mi"
+          role="menuitem"
+          href={`${shellPath(ctx.collection.public_id, ctx.revision.public_id, path, ctx.pinned, ctx.revision.head_path)}?as=public`}
+          target="_blank"
+          rel="noopener"
+        >
+          <Globe />
+          <span>Preview as public ↗</span>
+        </a>
+      ) : null}
+      <button type="button" class="mi" role="menuitem" data-action="keys">
+        <span aria-hidden="true">?</span>
+        <span>Keyboard shortcuts</span>
+        <kbd>?</kbd>
+      </button>
+      <hr />
+      <button type="button" class="mi dangeritem" role="menuitem" data-action="trash">
+        <span aria-hidden="true">⌫</span>
+        <span>Move to Trash…</span>
+      </button>
+    </div>
+  );
+}
+
+export function CollectionDialogs(props: { ctx: CollectionContext }) {
+  const { ctx } = props;
+  return (
+    <>
+      <dialog class="dlg narrow" id="rename" aria-labelledby="rename-title">
+        <form data-form="rename">
+          <div class="bd">
+            <h2 id="rename-title">Rename collection</h2>
+            <label class="fl">
+              Title
+              <input name="title" value={ctx.collection.title} required maxLength={300} />
+            </label>
+          </div>
+          <p class="alert" role="alert" data-form-error />
+          <div class="ft">
+            <button type="button" class="btn" data-close>
+              Cancel
             </button>
-          </main>
-        </Layout>,
-        410,
+            <button class="btn primary">Save</button>
+          </div>
+        </form>
+      </dialog>
+      <dialog class="dlg" id="metadata" aria-labelledby="metadata-title">
+        <form data-form="metadata">
+          <div class="bd">
+            <h2 id="metadata-title">Edit metadata</h2>
+            <label class="fl">
+              Collection metadata (JSON object)
+              <textarea name="metadata" spellcheck={false}>
+                {JSON.stringify(ctx.collection.metadataObject, null, 2)}
+              </textarea>
+              <small>
+                Used for search and the Projects list. Revision metadata isn't affected.
+              </small>
+            </label>
+          </div>
+          <p class="alert" role="alert" data-form-error />
+          <div class="ft">
+            <button type="button" class="btn" data-close>
+              Cancel
+            </button>
+            <button class="btn primary">Save</button>
+          </div>
+        </form>
+      </dialog>
+    </>
+  );
+}
+
+export function TabBar() {
+  return (
+    <nav class="tabbar" aria-label="Collection">
+      <button type="button" data-action="panel-tab" data-tab="files">
+        <span class="i" aria-hidden="true">
+          ☰
+        </span>
+        <span>Files</span>
+      </button>
+      <button type="button" data-action="panel-tab" data-tab="history">
+        <span class="i" aria-hidden="true">
+          ◷
+        </span>
+        <span>History</span>
+      </button>
+      <button type="button" popovertarget="copy-menu">
+        <span class="i" aria-hidden="true">
+          ⧉
+        </span>
+        <span>Copy</span>
+      </button>
+      <button type="button" popovertarget="more-menu">
+        <span class="i" aria-hidden="true">
+          ⋯
+        </span>
+        <span>More</span>
+      </button>
+    </nav>
+  );
+}
+
+export type PanelTab = "files" | "history" | "links";
+export function Panel(props: {
+  ctx: CollectionContext;
+  tab: PanelTab;
+  files: Child;
+  history: Child;
+  links?: Child;
+  linkCount?: number | undefined;
+}) {
+  const { ctx } = props;
+  const tabs: { id: PanelTab; label: string; count: number; body: Child }[] = [
+    { id: "files", label: "Files", count: ctx.files.length, body: props.files },
+    { id: "history", label: "History", count: ctx.rows.length, body: props.history },
+  ];
+  if (props.links !== undefined)
+    tabs.push({ id: "links", label: "Links", count: props.linkCount ?? 0, body: props.links });
+  return (
+    <aside class="panel" id="panel" aria-label="Collection panel">
+      <nav class="ptabs" role="tablist" aria-label="Panel">
+        {tabs.map((tab) => (
+          <a
+            href={`?panel=${tab.id}`}
+            role="tab"
+            id={`tab-${tab.id}`}
+            class={tab.id === "links" ? "pub" : undefined}
+            aria-selected={tab.id === props.tab ? "true" : "false"}
+            aria-controls={`tp-${tab.id}`}
+            tabindex={tab.id === props.tab ? 0 : -1}
+            data-tab={tab.id}
+          >
+            {tab.label}
+            <span class="n">{tab.count}</span>
+          </a>
+        ))}
+        <button
+          type="button"
+          class="iconbtn x show-sm"
+          data-action="panel-close"
+          aria-label="Close panel"
+        >
+          ✕
+        </button>
+      </nav>
+      {tabs.map((tab) => (
+        <div
+          class="pbody"
+          role="tabpanel"
+          id={`tp-${tab.id}`}
+          aria-labelledby={`tab-${tab.id}`}
+          hidden={tab.id !== props.tab}
+          data-tabpanel={tab.id}
+        >
+          {tab.body}
+        </div>
+      ))}
+      <div class="pfoot">
+        <span>
+          Panel <kbd>.</kbd>
+        </span>
+        <span>
+          Revisions <kbd>[</kbd>
+          <kbd>]</kbd>
+        </span>
+        <span>
+          Shortcuts <kbd>?</kbd>
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+export function HistoryPanel(props: { ctx: CollectionContext; path: string; all: boolean }) {
+  const { ctx } = props;
+  const newest = ctx.timeline.toReversed();
+  const shown = props.all ? newest : newest.slice(0, HISTORY_PAGE);
+  return (
+    <>
+      <Timeline
+        rows={shown}
+        pub={ctx.collection.public_id}
+        currentId={ctx.revision.id}
+        latestId={ctx.latest?.id ?? null}
+        now={ctx.chrome.now}
+        path={props.path}
+        byId={ctx.byId}
+        changesHref={changesHref(ctx)}
+      />
+      {shown.length < newest.length ? (
+        <p class="legend">
+          <a href="?panel=history&history=all">Show all {newest.length}</a>
+        </p>
+      ) : null}
+      <p class="legend">
+        Latest = newest revision that hasn't failed. Numbers are positions and can shift if a fork
+        arrives late.
+      </p>
+    </>
+  );
+}
+
+export function FilesPanel(props: {
+  ctx: CollectionContext;
+  path: string | null;
+  glyphs: Map<string, Glyph> | null;
+}) {
+  const { ctx } = props;
+  const parent = ctx.revision.parent_revision_id
+    ? ctx.byId.get(ctx.revision.parent_revision_id)
+    : undefined;
+  const used = new Set(props.glyphs?.values() ?? []);
+  return (
+    <>
+      <FileTree
+        files={ctx.files}
+        head={ctx.revision.head_path}
+        pub={ctx.collection.public_id}
+        rpub={ctx.revision.public_id}
+        pinned={ctx.pinned}
+        current={props.path}
+        glyphs={props.glyphs}
+        galleryHref={(dir) =>
+          `${shellPath(ctx.collection.public_id, ctx.revision.public_id, "", true)}gallery/${dir.split("/").filter(Boolean).map(encodeURIComponent).join("/")}/`
+        }
+      />
+      <p class="legend">
+        {parent
+          ? [used.has("+") ? "+ added" : "", used.has("~") ? "~ changed" : ""]
+              .filter(Boolean)
+              .join(" · ") || "No file changes"
+          : "Everything is new"}{" "}
+        in #{ctx.revision.display_number ?? "?"}
+        {parent ? `, compared with its parent #${parent.display_number}` : " (first revision)"}
+      </p>
+    </>
+  );
+}
+
+interface Segment {
+  tone: "failed" | "pending" | "public" | "info";
+  body: Child;
+}
+export function statusSegments(ctx: CollectionContext): {
+  segments: Segment[];
+  action: Child | null;
+} {
+  const { rows, revision, latest, publicSees, collection } = ctx;
+  const segments: Segment[] = [];
+  let action: Child | null = null;
+  const failed = rows.filter((row) => row.sync_state === "failed");
+  const pending = rows.filter((row) => row.sync_state === "pending");
+  const sees = publicSees ? `#${publicSees.display_number}` : "nothing yet";
+  if (rows.length && failed.length === rows.length) {
+    segments.push({
+      tone: "failed",
+      body: (
+        <span>
+          <span class="f">! Nothing in this collection has synced.</span>{" "}
+          <span class="long">It exists only on this writer.</span>
+        </span>
       ),
+    });
+    action = (
+      <button
+        type="button"
+        class="btn sm"
+        data-action="retry"
+        data-ids={failed.map((row) => row.id).join(",")}
+      >
+        Retry all
+      </button>
     );
+    return { segments, action };
+  }
+  if (revision.sync_state === "failed") {
+    segments.push({
+      tone: "failed",
+      body: (
+        <span>
+          <span class="f">! #{revision.display_number} failed to sync</span>
+          <span class="long">
+            : {revision.last_error ?? "unknown error"}. Readable on this writer only.
+          </span>
+        </span>
+      ),
+    });
+    action = (
+      <>
+        <button type="button" class="btn sm" data-action="retry" data-ids={revision.id}>
+          Retry
+        </button>
+        <button type="button" class="btn sm ghost" data-action="drop" data-id={revision.id}>
+          Drop…
+        </button>
+      </>
+    );
+  } else if (failed.length) {
+    const first = failed.at(-1)!;
+    segments.push({
+      tone: "failed",
+      body: (
+        <span class="f">
+          ! {failed.map((row) => `#${row.display_number}`).join(", ")} failed to sync
+        </span>
+      ),
+    });
+    action = (
+      <button type="button" class="btn sm" data-action="retry" data-ids={first.id}>
+        Retry #{first.display_number}
+      </button>
+    );
+  }
+  if (revision.sync_state === "pending")
+    segments.push({
+      tone: "pending",
+      body: (
+        <span>
+          <span class="p">◌ #{revision.display_number} is uploading.</span>{" "}
+          <span class="long">Readable here; other machines and public links see {sees}.</span>
+        </span>
+      ),
+    });
+  else if (pending.length)
+    segments.push({
+      tone: "pending",
+      body: (
+        <span class="p">
+          ◌ {pending.map((row) => `#${row.display_number}`).join(", ")} uploading
+        </span>
+      ),
+    });
+  if ((failed.length || pending.length) && revision.sync_state !== "pending")
+    segments.push({
+      tone: "info",
+      body: <span class="long">Other machines and public links see {sees}.</span>,
+    });
+  if (ctx.pinned && latest && revision.id !== latest.id && revision.sync_state !== "failed") {
+    const viewing = revision.display_number ?? 0;
+    const later = (latest.display_number ?? 0) > viewing;
+    segments.push({
+      tone: "info",
+      body: (
+        <span>
+          You're viewing #{viewing}, not the latest.{" "}
+          <a href={`/c/${collection.public_id}/`}>Latest is #{latest.display_number} →</a>
+          {later ? (
+            <span class="long">
+              {" · "}
+              <a
+                href={`${shellPath(collection.public_id, latest.public_id, "", true)}changes?base=${revision.public_id}`}
+              >
+                See changes since #{viewing}
+              </a>
+            </span>
+          ) : null}
+        </span>
+      ),
+    });
+  }
+  return { segments, action };
+}
+
+export function StatusLine(props: { ctx: CollectionContext; extra?: Segment[] }) {
+  const { segments, action } = statusSegments(props.ctx);
+  const all = [...segments, ...(props.extra ?? [])];
+  const tone = all.find((segment) => segment.tone === "failed")
+    ? "failed"
+    : all.find((segment) => segment.tone === "pending")
+      ? "pending"
+      : all.find((segment) => segment.tone === "public")
+        ? "public"
+        : "info";
+  return (
+    <div class={`status1 ${tone}`} data-status role="status" hidden={!all.length}>
+      {all.map((segment, index) => (
+        <>
+          {index ? (
+            <span class="sepdot" aria-hidden="true">
+              ·
+            </span>
+          ) : null}
+          <span class="seg1">{segment.body}</span>
+        </>
+      ))}
+      <span class="grow" />
+      {action}
+    </div>
+  );
+}
+
+function DownloadCard(props: { path: string; size: number; mime: string; raw: string }) {
+  return (
+    <div class="scroll">
+      <div class="dl">
+        <div class="ic">{ext(props.path)}</div>
+        <h2>{props.path}</h2>
+        <p class="muted">
+          {bytes(props.size)} · {props.mime} · can't be previewed in the browser
+        </p>
+        <div class="btns center">
+          <a class="btn primary" href={props.raw} download data-download>
+            Download
+          </a>
+          <button type="button" class="btn" data-action="copy-raw">
+            Copy raw URL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ShellRoot(props: {
+  ctx: CollectionContext;
+  path: string;
+  children: Child;
+  mode: string;
+}) {
+  const { ctx } = props;
+  const index = ctx.rows.findIndex((row) => row.id === ctx.revision.id);
+  return (
+    <div
+      class="shell"
+      id="shell"
+      data-viewer
+      data-mode={props.mode}
+      data-collection={ctx.collection.public_id}
+      data-collection-id={ctx.collection.id}
+      data-title={ctx.collection.title}
+      data-revision={ctx.revision.public_id}
+      data-revision-id={ctx.revision.id}
+      data-n={String(ctx.revision.display_number ?? 0)}
+      data-latest={ctx.latest?.public_id}
+      data-latest-id={ctx.latest?.id}
+      data-latest-n={ctx.latest ? String(ctx.latest.display_number ?? 0) : undefined}
+      data-latest-synced={ctx.latest?.sync_state === "synced" ? "true" : "false"}
+      data-path={props.path}
+      data-head={ctx.revision.head_path}
+      data-pinned={String(ctx.pinned)}
+      data-base={ctx.s.reads.baseUrl}
+      data-older={index > 0 ? ctx.rows[index - 1]?.public_id : undefined}
+      data-newer={
+        index >= 0 && index < ctx.rows.length - 1 ? ctx.rows[index + 1]?.public_id : undefined
+      }
+      data-parent={
+        ctx.revision.parent_revision_id
+          ? ctx.byId.get(ctx.revision.parent_revision_id)?.public_id
+          : undefined
+      }
+      data-revisions={JSON.stringify(
+        ctx.timeline.map((row) => [row.public_id, row.display_number, row.id]),
+      )}
+      data-files={String(ctx.files.length)}
+      data-links="0"
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function decodePath(encoded: string, head: string): string | null {
+  try {
+    if (/%(?:2f|5c)/i.test(encoded)) return null;
+    return encoded ? validatePath(encoded.split("/").map(decodeURIComponent).join("/")) : head;
+  } catch {
+    return null;
+  }
+}
+
+export function notFound(
+  c: Context,
+  chrome: Chrome,
+  path: string,
+  latestHref?: string,
+  message?: Child,
+) {
+  return noStore(
+    c.html(
+      <Layout
+        title="Not found"
+        chrome={chrome}
+        bar={<HomeBarLite chrome={chrome} />}
+        page="not-found"
+      >
+        <NotFoundBody path={path} latestHref={latestHref} message={message} />
+      </Layout>,
+      404,
+    ),
+  );
+}
+function HomeBarLite(props: { chrome: Chrome }) {
+  return (
+    <header class="bar">
+      <a class="logo" href="/" aria-label="Waypoint, Recent">
+        <LogoMark />
+        <span>Waypoint</span>
+      </a>
+      <span class="grow" />
+      <HealthPill health={props.chrome.health} />
+    </header>
+  );
+}
+
+export function DeletedPage(props: { chrome: Chrome; collection: CollectionRow }) {
+  return (
+    <Layout
+      title={`${props.collection.title} (in Trash)`}
+      chrome={props.chrome}
+      bar={<HomeBarLite chrome={props.chrome} />}
+      page="deleted"
+    >
+      <main class="wrap narrow" id="main">
+        <div class="hero warn">
+          <span class="dot" aria-hidden="true" />
+          <div>
+            <b>“{props.collection.title}” is in Trash.</b>
+            <span>
+              It's hidden from lists and search, and its public links return “not found”. Restoring
+              it brings everything back, links included.
+            </span>
+          </div>
+        </div>
+        <div class="btns">
+          <button
+            type="button"
+            class="btn primary"
+            data-action="restore"
+            data-id={props.collection.id}
+            data-title={props.collection.title}
+            data-then="reload"
+          >
+            Restore…
+          </button>
+          <a class="btn" href="/trash">
+            Open Trash
+          </a>
+        </div>
+      </main>
+    </Layout>
+  );
+}
+
+export async function collectionPage(s: HttpServices, c: Context): Promise<Response> {
+  const pub = (c.req.param("pub") ?? "").toLowerCase();
+  const now = Date.now();
   const url = new URL(c.req.raw.url);
   const after = url.pathname.slice(`/c/${pub}/`.length);
   const match = /^r\/([^/]+)(?:\/(.*))?$/.exec(after);
-  const pinned = Boolean(match);
   const rpub = match?.[1]?.toLowerCase();
-  const revisions = (await s.reads.listRevisions(collection.id)).revisions;
-  const revision = pinned
-    ? revisions.find((item) => item.public_id === rpub)
-    : (revisions.findLast((item) => item.sync_state !== "failed") ?? revisions.at(-1));
-  if (!revision) return noStore(c.html(<ErrorPage />, 404));
-  const encoded = pinned ? (match?.[2] ?? "") : after;
-  let path: string;
-  try {
-    if (/%(?:2f|5c)/i.test(encoded)) throw new Error("Encoded separator");
-    path = encoded
-      ? validatePath(encoded.split("/").map(decodeURIComponent).join("/"))
-      : revision.head_path;
-  } catch {
-    return noStore(c.html(<ErrorPage />, 404));
-  }
-  const detail = await s.reads.getRevision(revision.id);
-  const file = detail.files.find((entry) => entry.path === path);
-  if (!file) {
-    if (url.searchParams.get("fallback") === "head") {
-      url.searchParams.delete("fallback");
-      return noStore(
-        c.redirect(
-          shellPath(
-            collection.public_id,
-            revision.public_id,
-            "",
-            pinned,
-            revision.head_path,
-            url.search,
-          ),
-          302,
-        ),
-      );
-    }
-    return noStore(c.html(<ErrorPage />, 404));
-  }
+  const loaded = await loadCollection(s, c, { pub, rpub, now });
+  if (loaded.kind === "missing") return notFound(c, loaded.chrome, url.pathname);
+  if (loaded.kind === "deleted")
+    return noStore(
+      c.html(<DeletedPage chrome={loaded.chrome} collection={loaded.collection} />, 410),
+    );
+  if (loaded.kind === "no-revision")
+    return notFound(c, loaded.chrome, url.pathname, `/c/${loaded.collection.public_id}/`);
+  const { ctx } = loaded;
+  const { collection, revision } = ctx;
+  const encoded = match ? (match[2] ?? "") : after;
+  const path = decodePath(encoded, revision.head_path);
+  if (path === null) return notFound(c, ctx.chrome, url.pathname, `/c/${collection.public_id}/`);
+  const file = ctx.manifest.files[path];
   if (url.searchParams.get("fallback") === "head") {
     url.searchParams.delete("fallback");
     return noStore(
@@ -77,8 +963,8 @@ export async function collectionPage(s: HttpServices, c: Context): Promise<Respo
         shellPath(
           collection.public_id,
           revision.public_id,
-          path,
-          pinned,
+          file ? path : "",
+          ctx.pinned,
           revision.head_path,
           url.search,
         ),
@@ -86,123 +972,114 @@ export async function collectionPage(s: HttpServices, c: Context): Promise<Respo
       ),
     );
   }
-  const raw = rawPath(revision.public_id, path) + url.search;
-  const selected = pinned ? revision.public_id : "";
-  const latestRevision = revisions.findLast((item) => item.sync_state !== "failed");
-  // Pending is the normal state before a commit, so only flag collections whose every revision failed.
-  const allRevisionsFailed =
-    revisions.length > 0 && revisions.every((item) => item.sync_state === "failed");
+  if (!file)
+    return notFound(
+      c,
+      ctx.chrome,
+      url.pathname,
+      `/c/${collection.public_id}/`,
+      <>
+        This file isn't in #{revision.display_number}: <span class="mono">{path}</span>.{" "}
+        <a
+          href={shellPath(
+            collection.public_id,
+            revision.public_id,
+            "",
+            ctx.pinned,
+            revision.head_path,
+          )}
+        >
+          Open its head file
+        </a>
+        .
+      </>,
+    );
+  const parentRow = revision.parent_revision_id
+    ? ctx.rows.find((row) => row.id === revision.parent_revision_id)
+    : undefined;
+  const parentManifest = parentRow ? await s.reads.manifestOf(parentRow) : undefined;
+  const glyphs = glyphsAgainst(ctx.manifest, parentManifest);
+  const tab: PanelTab = c.req.query("panel") === "history" ? "history" : "files";
+  const raw =
+    rawPath(revision.public_id, path) + url.search.replace(/[?&](?:panel|history)=[^&]*/g, "");
   return noStore(
     c.html(
-      <Layout title={collection.title}>
-        <div
-          class="shell"
-          data-viewer
-          data-collection={collection.public_id}
-          data-revision={revision.public_id}
-          data-path={path}
-          data-head={revision.head_path}
-          data-pinned={String(pinned)}
-        >
-          <div class="shell-head">
-            <input aria-label="Collection title" data-title value={collection.title} />
-            <button data-action="rename" data-id={collection.id}>
-              Save title
-            </button>
-            <select aria-label="Revision" data-picker>
-              <option value="" selected={!pinned}>
-                Latest · #{latestRevision?.display_number ?? revision.display_number}
-              </option>
-              {revisions.toReversed().map((item, index, reversed) => {
-                const previous = reversed[index + 1];
-                const fork =
-                  item.parent_revision_id && previous && item.parent_revision_id !== previous.id;
-                return (
-                  <option
-                    value={item.public_id}
-                    selected={selected === item.public_id}
-                  >{`#${item.display_number} · ${shortMessage(item.message)} · ${new Date(item.created_at).toISOString()} · ${item.sync_state}${fork ? " · fork" : ""}`}</option>
-                );
-              })}
-            </select>
-            <button data-action="go-revision">Go</button>
-            <button data-action="copy-latest">Copy latest link</button>
-            <button data-action="copy-pinned">Copy this revision link</button>
-            <button data-action="share">Share</button>
-            <a class="button" data-open-raw href={raw} target="_blank" rel="noopener">
-              Open raw
-            </a>
-            <button class="danger" data-action="delete" data-id={collection.id}>
-              Delete
-            </button>
-            <span class="error" data-error role="alert"></span>
-          </div>
-          <dialog data-share-dialog>
-            <h2>Share collection</h2>
-            <p class="muted">
-              Anyone with a share URL can view this{" "}
-              {pinned ? "snapshot" : "collection's latest revision"}.
-            </p>
-            <form data-share-form>
-              <label>
-                Label <input name="label" maxLength={200} placeholder="Optional" />
-              </label>
-              <label>
-                Expires <input name="expires" type="datetime-local" />
-              </label>
-              <button type="submit">Create link</button>
-              <button type="button" data-share-close>
-                Close
-              </button>
-            </form>
-            <p data-share-availability role="status"></p>
-            <div data-share-created hidden>
-              <p>Copy this URL now. You won't see it again.</p>
-              <input data-share-url readonly aria-label="New share URL" />
-              <button data-share-copy>Copy URL</button>
-            </div>
-            <h3>Existing links</h3>
-            <div data-share-list></div>
-          </dialog>
-          {allRevisionsFailed && (
-            <p class="notice" role="status">
-              Every revision of this collection failed to sync. They are still viewable here; retry
-              them from <a href="/status">Status</a>.
-            </p>
-          )}
-          <p data-frame-notice class="error" role="status"></p>
-          <div class="shell-main">
-            <aside class="sidebar">
-              <details data-tree open>
-                <summary>
-                  Files <span class="muted">({detail.files.length})</span>
-                </summary>
-                {fileTree(
-                  detail.files,
-                  revision.head_path,
-                  collection.public_id,
-                  revision.public_id,
-                  pinned,
-                  path,
-                )}
-              </details>
-            </aside>
-            <main class="content">
-              {isEmbeddable(file.mime) ? (
-                <iframe title={path} data-frame src={raw} />
-              ) : (
-                <div class="download">
-                  <h2>{path}</h2>
-                  <p>This file is available as a download.</p>
-                  <a class="button" data-download href={raw} download>
-                    Download file
-                  </a>
-                </div>
-              )}
-            </main>
-          </div>
-        </div>
+      <Layout
+        title={collection.title}
+        chrome={ctx.chrome}
+        bar={<CollectionBar ctx={ctx} />}
+        page="collection"
+      >
+        <ShellRoot ctx={ctx} path={path} mode="document">
+          <Panel
+            ctx={ctx}
+            tab={tab}
+            files={<FilesPanel ctx={ctx} path={path} glyphs={glyphs} />}
+            history={<HistoryPanel ctx={ctx} path={path} all={c.req.query("history") === "all"} />}
+          />
+          <main class="main" id="main" tabindex={-1}>
+            <StatusLine ctx={ctx} />
+            {isEmbeddable(file.mime) ? (
+              <iframe
+                class={`frame${file.mime.startsWith("image/") ? " img" : ""}`}
+                title={path}
+                data-frame
+                src={raw}
+              />
+            ) : (
+              <DownloadCard path={path} size={file.size} mime={file.mime} raw={raw} />
+            )}
+          </main>
+        </ShellRoot>
+        <div class="panel-scrim" data-action="panel-close" />
+        <TabBar />
+        <RevisionMenu ctx={ctx} path={path} />
+        <CopyMenu ctx={ctx} path={path} />
+        <MoreMenu ctx={ctx} path={path} />
+        <CollectionDialogs ctx={ctx} />
+        <LegacyShareDialog pinned={ctx.pinned} />
       </Layout>,
     ),
+  );
+}
+
+/** Phase-2 share dialog, kept until the Folio share flow replaces it (plan step 5). */
+function LegacyShareDialog(props: { pinned: boolean }) {
+  return (
+    <dialog class="dlg" data-share-dialog aria-labelledby="share-title">
+      <div class="bd">
+        <h2 id="share-title">Share collection</h2>
+        <p class="muted">
+          Anyone with a share URL can view this{" "}
+          {props.pinned ? "snapshot" : "collection's latest revision"}.
+        </p>
+        <form data-share-form class="fields">
+          <label class="fl">
+            Label <input name="label" maxLength={200} placeholder="Optional" />
+          </label>
+          <label class="fl">
+            Expires <input name="expires" type="datetime-local" />
+          </label>
+          <div class="btns">
+            <button type="submit" class="btn public-solid">
+              Create link
+            </button>
+            <button type="button" class="btn" data-share-close>
+              Close
+            </button>
+          </div>
+        </form>
+        <p data-share-availability role="status" />
+        <div data-share-created hidden>
+          <p>Copy this URL now. You won't see it again.</p>
+          <input data-share-url readonly aria-label="New share URL" class="confirm-input" />
+          <button type="button" class="btn" data-share-copy>
+            Copy URL
+          </button>
+        </div>
+        <h3>Existing links</h3>
+        <div data-share-list />
+      </div>
+    </dialog>
   );
 }

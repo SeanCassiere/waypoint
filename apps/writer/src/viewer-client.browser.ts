@@ -1,7 +1,22 @@
 import { bindActions } from "./client/actions.js";
+import { bindCollection } from "./client/collection.js";
 import { bindFrameSync } from "./client/frame-sync.js";
+import { bindKeys } from "./client/keys.js";
+import { bindReadMarks, bindRecentMarks } from "./client/lastread.js";
+import { bindLegacyShare } from "./client/legacy-share.js";
+import { bindMenus } from "./client/menus.js";
+import { bindPanel } from "./client/panel.js";
+import { bindSearch } from "./client/search.js";
 import { localizeTimes } from "./client/time.js";
 
 localizeTimes();
+bindMenus();
 bindActions();
+bindKeys();
+bindSearch();
+bindPanel();
+bindRecentMarks();
+bindCollection();
 bindFrameSync();
+bindReadMarks();
+bindLegacyShare();
