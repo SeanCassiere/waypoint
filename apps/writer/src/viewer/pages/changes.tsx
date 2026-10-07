@@ -39,7 +39,16 @@ import type { ViewerExtras } from "./status.js";
 const RENDER_FIRST = 5;
 const ADDED_PREVIEW = 20;
 const ADDED_LIMIT = 200;
+/** Unchanged runs up to this long are inlined on the no-script `?folds=open` view. */
 const FOLD_RENDER_LIMIT = 30;
+/** Unchanged runs up to this long load on demand when opened; longer ones stay a note. */
+export const FOLD_LOAD_LIMIT = 200;
+/** Blocks (or source lines) one file card shows at a time, and the whole page's budget. A
+ * file past its window links to the next one, so no Changes page is megabytes of HTML. */
+export const FILE_BLOCKS = 300;
+export const PAGE_BLOCKS = 600;
+export const FILE_LINES = 1500;
+export const PAGE_LINES = 3000;
 /** Code blocks diff line by line with an LCS table; past this many cells, lines show as removed
  * then added. */
 const CODE_LCS_CELLS = 250_000;
@@ -72,6 +81,8 @@ function Words(props: { words: readonly WordOp[] }) {
 class Fragments {
   private readonly sources: string[] = [];
   private readonly fallbacks: Child[] = [];
+  /** Whether rendering likely ran out of time (see fill). */
+  fellBack = false;
   add(markdown: string, fallback: Child): number {
     this.sources.push(markdown);
     this.fallbacks.push(fallback);
@@ -82,6 +93,9 @@ class Fragments {
     render: (sources: string[]) => Promise<(string | null)[]>,
   ): Promise<string> {
     const rendered = await render(this.sources);
+    // The worker's time budget runs out at the end of the list, so a missing last fragment
+    // means this rendering may be incomplete; a single oversized block shows as source anyway.
+    this.fellBack = rendered.length > 0 && typeof rendered.at(-1) !== "string";
     const fallbacks = await Promise.all(
       this.fallbacks.map(async (fallback, index) => {
         if (typeof rendered[index] === "string") return "";
@@ -314,30 +328,75 @@ function UnitView(props: { unit: Unit; frags: Fragments }) {
     <BlockView op={props.unit.block} frags={props.frags} />
   );
 }
-function Fold(props: { units: Unit[]; where: "above" | "below" | "between"; frags: Fragments }) {
-  const count = props.units.reduce((sum, unit) => sum + ("table" in unit ? 1 : 1), 0);
+/** Where a file's folded runs load from (the compare API's HTML format) and its no-script view. */
+interface FoldLinks {
+  url: (from: number, to: number) => string;
+  /** The no-script view of the file with short runs inlined, at the window holding `start`. */
+  openHref: (start: number) => string;
+}
+function Fold(props: {
+  units: Unit[];
+  start: number;
+  where: "above" | "below" | "between";
+  frags: Fragments;
+  fold: FoldLinks | null;
+  open: boolean;
+}) {
+  const count = props.units.length;
   const label = `Show ${plural(count, "unchanged block")}${props.where === "between" ? "" : ` ${props.where}`}`;
-  if (count > FOLD_RENDER_LIMIT)
+  // The no-script full view inlines short runs, as the page always did.
+  if (props.open && count <= FOLD_RENDER_LIMIT)
+    return (
+      <details class="folded">
+        <summary class="fold">{label}</summary>
+        {props.units.map((unit) => (
+          <UnitView unit={unit} frags={props.frags} />
+        ))}
+      </details>
+    );
+  if (!props.fold || props.open || count > FOLD_LOAD_LIMIT)
     return (
       <div class="fold" role="note">
         {plural(count, "unchanged block")} {props.where === "between" ? "" : props.where}
       </div>
     );
+  // The text isn't on the page: opening the fold fetches it (client/folds.ts).
   return (
-    <details class="folded">
+    <details class="folded" data-fold={props.fold.url(props.start, props.start + count)}>
       <summary class="fold">{label}</summary>
-      {props.units.map((unit) => (
-        <UnitView unit={unit} frags={props.frags} />
-      ))}
+      <div class="note" data-fold-body>
+        <a href={props.fold.openHref(props.start)}>{label}</a>
+      </div>
     </details>
   );
 }
-/** Renders block ops with unchanged runs folded behind <details> (one block of context kept). */
-function BlockDiff(props: { ops: readonly DiffBlock[]; limit?: number; frags: Fragments }) {
+/**
+ * Renders block ops with unchanged runs folded (one block of context kept). `from` and `limit`
+ * window the units; fold ranges are unit indices into the whole file.
+ */
+function BlockDiff(props: {
+  ops: readonly DiffBlock[];
+  from?: number;
+  limit?: number;
+  frags: Fragments;
+  fold: FoldLinks | null;
+  foldsOpen: boolean;
+}) {
   const { frags } = props;
   const all = units(props.ops);
-  const shown = props.limit ? all.slice(0, props.limit) : all;
+  const offset = props.from ?? 0;
+  const shown = all.slice(offset, props.limit === undefined ? undefined : offset + props.limit);
   const out: Child[] = [];
+  const fold = (run: Unit[], start: number, where: "above" | "below" | "between") => (
+    <Fold
+      units={run}
+      start={offset + start}
+      where={where}
+      frags={frags}
+      fold={props.fold}
+      open={props.foldsOpen}
+    />
+  );
   let index = 0;
   while (index < shown.length) {
     if (!unchanged(shown[index]!)) {
@@ -352,21 +411,92 @@ function BlockDiff(props: { ops: readonly DiffBlock[]; limit?: number; frags: Fr
     const atEnd = end === shown.length;
     if (run.length <= 2 && !atStart && !atEnd)
       run.forEach((unit) => out.push(<UnitView unit={unit} frags={frags} />));
-    else if (atStart && atEnd) out.push(<Fold units={run} where="between" frags={frags} />);
+    else if (atStart && atEnd) out.push(fold(run, index, "between"));
     else if (atStart) {
-      if (run.length > 1) out.push(<Fold units={run.slice(0, -1)} where="above" frags={frags} />);
+      if (run.length > 1) out.push(fold(run.slice(0, -1), index, "above"));
       out.push(<UnitView unit={run.at(-1)!} frags={frags} />);
     } else if (atEnd) {
       out.push(<UnitView unit={run[0]!} frags={frags} />);
-      if (run.length > 1) out.push(<Fold units={run.slice(1)} where="below" frags={frags} />);
+      if (run.length > 1) out.push(fold(run.slice(1), index + 1, "below"));
     } else {
       out.push(<UnitView unit={run[0]!} frags={frags} />);
-      out.push(<Fold units={run.slice(1, -1)} where="between" frags={frags} />);
+      out.push(fold(run.slice(1, -1), index + 1, "between"));
       out.push(<UnitView unit={run.at(-1)!} frags={frags} />);
     }
     index = end;
   }
   return <>{out}</>;
+}
+/** Number of display units (table rows grouped) in a block diff. */
+export function unitCount(ops: readonly DiffBlock[]): number {
+  return units(ops).length;
+}
+
+/**
+ * Rendered HTML of diff bodies, keyed by content and view, bounded by size. Rendering a large
+ * diff's Markdown fragments takes hundreds of milliseconds, so a repeat view reuses it.
+ */
+class HtmlCache {
+  private readonly entries = new Map<string, string>();
+  private bytes = 0;
+  constructor(private readonly maxBytes: number) {}
+  get(key: string): string | undefined {
+    const value = this.entries.get(key);
+    if (value === undefined) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    return value;
+  }
+  set(key: string, value: string): void {
+    if (value.length * 2 > this.maxBytes / 4) return;
+    const old = this.entries.get(key);
+    if (old !== undefined) this.bytes -= old.length * 2;
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    this.bytes += value.length * 2;
+    for (const [oldest, html] of this.entries) {
+      if (this.bytes <= this.maxBytes) break;
+      this.entries.delete(oldest);
+      this.bytes -= html.length * 2;
+    }
+  }
+}
+const bodies = new HtmlCache(48 * 1024 * 1024);
+async function cachedHtml(
+  key: string,
+  build: (frags: Fragments) => Child,
+  render: (sources: string[]) => Promise<(string | null)[]>,
+): Promise<string> {
+  const cached = bodies.get(key);
+  if (cached !== undefined) return cached;
+  const frags = new Fragments();
+  const node = <>{build(frags)}</>;
+  const html = await frags.fill((await node).toString(), render);
+  // A rendering cut short by the time budget may complete next time: don't keep it.
+  if (!frags.fellBack) bodies.set(key, html);
+  return html;
+}
+
+/** HTML for units [from, to) of a block diff: what an opened fold loads. */
+export function foldFragment(
+  diff: FileDiff,
+  from: number,
+  to: number,
+  render: (sources: string[]) => Promise<(string | null)[]>,
+  key: string,
+): Promise<string> {
+  const range = units(diff.ops).slice(from, to);
+  return cachedHtml(
+    `fold|${key}|${from}|${to}`,
+    (frags) => (
+      <>
+        {range.map((unit) => (
+          <UnitView unit={unit} frags={frags} />
+        ))}
+      </>
+    ),
+    render,
+  );
 }
 function LineDiff(props: { rows: readonly LineDiffRow[] }) {
   return (
@@ -423,6 +553,150 @@ const TRUNCATED: Record<TruncatedReason, string> = {
 };
 const truncatedReason = (diff: FileDiff): string => TRUNCATED[diff.truncated_reason ?? "size"];
 
+/** One file card's window of blocks or lines, and the page budget it draws from. */
+interface Window {
+  from: number;
+  limit: number;
+}
+function WindowNote(props: {
+  unit: "block" | "line";
+  total: number;
+  window: Window;
+  focused: boolean;
+  href: (from: number) => string;
+}) {
+  const { total, window, unit } = props;
+  const step = unit === "line" ? FILE_LINES : FILE_BLOCKS;
+  const end = Math.min(total, window.from + window.limit);
+  if (window.from === 0 && end >= total) return null;
+  const noun = `${unit}s`;
+  return (
+    <div class="note" data-window={`${window.from}-${end}`}>
+      Showing {noun} {window.from + 1}–{end} of {total.toLocaleString("en-US")}.{" "}
+      {window.from > 0 && props.focused ? (
+        <a href={props.href(Math.max(0, window.from - step))}>Previous {noun}</a>
+      ) : null}
+      {window.from > 0 && props.focused && end < total ? " · " : null}
+      {end < total ? (
+        <a href={props.href(end)}>
+          {props.focused
+            ? `Next ${noun}`
+            : `Show the other ${(total - end).toLocaleString("en-US")}`}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+/**
+ * The rendered body of a text diff: a window of its blocks (folded runs load on demand) or
+ * lines, cached as HTML.
+ */
+function textBody(options: {
+  ctx: CollectionContext;
+  file: CompareFile;
+  diff: FileDiff;
+  baseId: string | null;
+  window: Window;
+  focused: boolean;
+  foldsOpen: boolean;
+  href: (params: Record<string, string>) => string;
+  render: (sources: string[]) => Promise<(string | null)[]>;
+}): Promise<string> {
+  const { ctx, file, diff, window, href } = options;
+  const at = (from: number) => href({ file: file.path, from: String(from) });
+  const key = [
+    ctx.collection.public_id,
+    ctx.revision.id,
+    options.baseId ?? "-",
+    file.path,
+    file.base?.hash ?? "-",
+    file.head?.hash ?? "-",
+    diff.lines ? "lines" : "blocks",
+    window.from,
+    window.limit,
+    options.focused ? 1 : 0,
+    options.foldsOpen ? 1 : 0,
+  ].join("|");
+  if (diff.lines) {
+    const rows = diff.lines;
+    return cachedHtml(
+      key,
+      () => (
+        <>
+          <LineDiff rows={rows.slice(window.from, window.from + window.limit)} />
+          <WindowNote
+            unit="line"
+            total={rows.length}
+            window={window}
+            focused={options.focused}
+            href={at}
+          />
+        </>
+      ),
+      options.render,
+    );
+  }
+  if (file.status === "added" && diff.ops.length > ADDED_LIMIT) {
+    const openHead = shellPath(ctx.collection.public_id, ctx.revision.public_id, file.path, true);
+    return cachedHtml(
+      key,
+      (frags) => (
+        <>
+          <BlockDiff ops={diff.ops} limit={ADDED_PREVIEW} frags={frags} fold={null} foldsOpen />
+          <div class="note">
+            Showing the first {ADDED_PREVIEW} of {diff.ops.length} blocks.{" "}
+            <a href={openHead}>
+              Open #{ctx.revision.display_number ?? 0}/{file.path}
+            </a>
+          </div>
+        </>
+      ),
+      options.render,
+    );
+  }
+  const encoded = file.path.split("/").map(encodeURIComponent).join("/");
+  const fold: FoldLinks | null = options.baseId
+    ? {
+        url: (from, to) =>
+          `/api/revisions/${ctx.revision.id}/compare/${encoded}?${new URLSearchParams({
+            base: options.baseId!,
+            format: "html",
+            from: String(from),
+            to: String(to),
+          }).toString()}`,
+        openHref: (start) =>
+          href({
+            file: file.path,
+            folds: "open",
+            from: String(start - (start % FILE_BLOCKS)),
+          }),
+      }
+    : null;
+  return cachedHtml(
+    key,
+    (frags) => (
+      <>
+        <BlockDiff
+          ops={diff.ops}
+          from={window.from}
+          limit={window.limit}
+          frags={frags}
+          fold={fold}
+          foldsOpen={options.foldsOpen}
+        />
+        <WindowNote
+          unit="block"
+          total={unitCount(diff.ops)}
+          window={window}
+          focused={options.focused}
+          href={at}
+        />
+      </>
+    ),
+    options.render,
+  );
+}
+
 function FileCard(props: {
   ctx: CollectionContext;
   file: CompareFile;
@@ -432,7 +706,8 @@ function FileCard(props: {
   basePub: string | null;
   view: "rendered" | "source";
   href: (params: Record<string, string>) => string;
-  frags: Fragments;
+  /** The text diff's rendered body (see textBody). */
+  text: string | null;
 }) {
   const { ctx, file, diff } = props;
   const headN = ctx.revision.display_number ?? 0;
@@ -517,20 +792,7 @@ function FileCard(props: {
         </a>
       </div>
     );
-  else if (diff.lines) body = <LineDiff rows={diff.lines} />;
-  else if (file.status === "added" && diff.ops.length > ADDED_LIMIT)
-    body = (
-      <>
-        <BlockDiff ops={diff.ops} limit={ADDED_PREVIEW} frags={props.frags} />
-        <div class="note">
-          Showing the first {ADDED_PREVIEW} of {diff.ops.length} blocks.{" "}
-          <a href={openHead}>
-            Open #{headN}/{file.path}
-          </a>
-        </div>
-      </>
-    );
-  else body = <BlockDiff ops={diff.ops} frags={props.frags} />;
+  else body = raw(props.text ?? "");
   return (
     <section class="fd" id={`f-${props.index}`} aria-label={file.path} data-file-diff={file.path}>
       <header>
@@ -583,13 +845,6 @@ export async function changesPage(
       (file) => file.path,
     ),
   );
-  const diffs = new Map<string, FileDiff>();
-  for (const file of changed)
-    if (rendered.has(file.path) && file.status !== "removed")
-      diffs.set(file.path, await extras.fileDiff(file, view === "source" ? "lines" : "blocks"));
-  const baseN = baseRow?.display_number ?? null;
-  const headN = revision.display_number ?? 0;
-  const crossFork = Boolean(baseRow && baseRow.id !== revision.parent_revision_id);
   const page = `${shellPath(collection.public_id, revision.public_id, "", true)}changes`;
   const href = (params: Record<string, string>) => {
     const merged: Record<string, string> = {
@@ -602,6 +857,53 @@ export async function changesPage(
     ).toString();
     return `${page}${text ? `?${text}` : ""}`;
   };
+  const diffs = new Map<string, FileDiff>();
+  for (const file of changed)
+    if (rendered.has(file.path) && file.status !== "removed")
+      diffs.set(file.path, await extras.fileDiff(file, view === "source" ? "lines" : "blocks"));
+  // Each card shows a window of its blocks or lines, drawn from a page-wide budget; a file with
+  // nothing left in the budget shows a "Show diff" link like the files past RENDER_FIRST.
+  const focused = Boolean(only);
+  const start = focused ? Math.max(0, Math.floor(Number(c.req.query("from") ?? 0)) || 0) : 0;
+  const foldsOpen = focused && c.req.query("folds") === "open";
+  const budget = { block: PAGE_BLOCKS, line: PAGE_LINES };
+  const texts = new Map<string, string>();
+  for (const file of changed) {
+    const diff = diffs.get(file.path);
+    if (!diff || diff.truncated || diff.kind !== "text") continue;
+    const unit = diff.lines ? "line" : "block";
+    const limit = Math.min(unit === "line" ? FILE_LINES : FILE_BLOCKS, budget[unit]);
+    if (limit <= 0 && !focused) {
+      diffs.delete(file.path);
+      continue;
+    }
+    const window = {
+      from: start,
+      limit: focused ? (unit === "line" ? FILE_LINES : FILE_BLOCKS) : limit,
+    };
+    budget[unit] -= diff.lines
+      ? Math.min(window.limit, diff.lines.length)
+      : file.status === "added" && diff.ops.length > ADDED_LIMIT
+        ? ADDED_PREVIEW
+        : Math.min(window.limit, unitCount(diff.ops));
+    texts.set(
+      file.path,
+      await textBody({
+        ctx,
+        file,
+        diff,
+        baseId: baseRow?.id ?? null,
+        window,
+        focused,
+        foldsOpen,
+        href,
+        render: (sources) => extras.renderFragments(sources),
+      }),
+    );
+  }
+  const baseN = baseRow?.display_number ?? null;
+  const headN = revision.display_number ?? 0;
+  const crossFork = Boolean(baseRow && baseRow.id !== revision.parent_revision_id);
   const done =
     revision.id === ctx.latest?.id
       ? `/c/${collection.public_id}/`
@@ -655,7 +957,6 @@ export async function changesPage(
       </p>
     </>
   );
-  const frags = new Fragments();
   const cardList = (
     <>
       {(only ? changed.filter((file) => file.path === only) : changed).map((file) => (
@@ -668,14 +969,12 @@ export async function changesPage(
           basePub={baseRow?.public_id ?? null}
           view={view}
           href={href}
-          frags={frags}
+          text={texts.get(file.path) ?? null}
         />
       ))}
     </>
   );
-  const cards = await frags.fill((await cardList).toString(), (sources) =>
-    extras.renderFragments(sources),
-  );
+  const cards = (await cardList).toString();
   const chips: Child[] = [];
   if (compare.counts.modified)
     chips.push(

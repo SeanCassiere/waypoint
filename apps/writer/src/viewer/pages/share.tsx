@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
-import { allLinks, inFilter, type LinkFilter, type ShareView } from "../../shares.js";
+import { linkPage, LINKS_PAGE, type LinkFilter, type ShareView } from "../../shares.js";
 import { shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import { Globe, Spinner, Time } from "../components.js";
@@ -515,14 +515,14 @@ export function ShareDialog(props: {
 export async function linksPage(s: HttpServices, c: Context): Promise<Response> {
   const now = Date.now();
   const raw = c.req.query("state");
-  const filter: LinkFilter = raw === "expired" || raw === "revoked" ? raw : "active";
-  const [views, chrome] = await Promise.all([allLinks(s), getChrome(s, now)]);
-  const counts = {
-    active: views.filter((view) => inFilter(view, "active")).length,
-    expired: views.filter((view) => inFilter(view, "expired")).length,
-    revoked: views.filter((view) => inFilter(view, "revoked")).length,
-  };
-  const shown = views.filter((view) => inFilter(view, filter));
+  const filter: LinkFilter =
+    raw === "expired" || raw === "revoked" || raw === "inactive" ? raw : "active";
+  // One page at a time, counted in SQL: prod-sized link lists made this page megabytes.
+  const [{ views: shown, counts, remaining, next }, chrome] = await Promise.all([
+    linkPage(s, filter, c.req.query("after"), now),
+    getChrome(s, now),
+  ]);
+  const inactive = counts.expired + counts.revoked;
   return noStore(
     c.html(
       <Layout title="Public links" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="links">
@@ -632,6 +632,19 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
               </div>
             )}
           </div>
+          {next ? (
+            <p class="legend" data-more>
+              <a href={`/links?${new URLSearchParams({ state: filter, after: next }).toString()}`}>
+                Show {Math.min(remaining, LINKS_PAGE)} more of {remaining}…
+              </a>
+            </p>
+          ) : null}
+          {filter === "active" && inactive ? (
+            <p class="legend" data-inactive>
+              <a href="/links?state=inactive">Show {plural(inactive, "inactive link")}</a> (expired
+              or revoked)
+            </p>
+          ) : null}
         </main>
       </Layout>,
     ),

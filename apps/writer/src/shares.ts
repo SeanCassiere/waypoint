@@ -91,13 +91,100 @@ export async function collectionLinks(s: HttpServices, collectionId: string): Pr
   );
   return shareViews(s, rows);
 }
-export type LinkFilter = "active" | "expired" | "revoked";
+export type LinkFilter = "active" | "expired" | "revoked" | "inactive";
 export const inFilter = (view: ShareLink, filter: LinkFilter): boolean =>
   filter === "active"
     ? view.state === "active" || view.state === "activating"
     : filter === "expired"
       ? view.state === "expired"
-      : view.state === "revoked" || view.state === "revoking";
+      : filter === "revoked"
+        ? view.state === "revoked" || view.state === "revoking"
+        : view.state !== "active" && view.state !== "activating";
+/** The same filters in SQL, at `now` (inFilter's states are derived from these columns). */
+function filterSql(filter: LinkFilter): string {
+  return filter === "active"
+    ? "revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)"
+    : filter === "expired"
+      ? "revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at<=?"
+      : filter === "revoked"
+        ? "revoked_at IS NOT NULL AND ?=?"
+        : "(revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at<=?))";
+}
+const filterArgs = (filter: LinkFilter, now: number): number[] =>
+  filter === "revoked" ? [now, now] : [now];
+/** Links per /links page. */
+export const LINKS_PAGE = 50;
+export interface LinkPage {
+  views: ShareView[];
+  counts: Record<"active" | "expired" | "revoked", number>;
+  /** Links of this filter after this page, and the cursor that shows them. */
+  remaining: number;
+  next: string | null;
+}
+function encodeLinkCursor(row: ShareRow): string {
+  return Buffer.from(JSON.stringify([row.created_at, row.id])).toString("base64url");
+}
+function decodeLinkCursor(cursor: string): [number, string] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === "number" &&
+      typeof parsed[1] === "string"
+    )
+      return [parsed[0], parsed[1]];
+  } catch {
+    // An invalid cursor shows the first page.
+  }
+  return undefined;
+}
+/**
+ * One page of links in a filter, newest first, with every filter's count: four queries plus
+ * shareViews' five for the page, whatever the number of links.
+ */
+export async function linkPage(
+  s: HttpServices,
+  filter: LinkFilter,
+  cursor: string | undefined,
+  now = Date.now(),
+): Promise<LinkPage> {
+  const after = cursor ? decodeLinkCursor(cursor) : undefined;
+  const where = filterSql(filter);
+  const args = filterArgs(filter, now);
+  const keyset = after ? " AND (created_at<? OR (created_at=? AND id<?))" : "";
+  const keyArgs = after ? [after[0], after[0], after[1]] : [];
+  const [counts, rows] = await Promise.all([
+    s.waypoint.get<{ active: number | null; expired: number | null; revoked: number | null }>(
+      "SELECT SUM(CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?) THEN 1 ELSE 0 END) AS active,SUM(CASE WHEN revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at<=? THEN 1 ELSE 0 END) AS expired,SUM(CASE WHEN revoked_at IS NOT NULL THEN 1 ELSE 0 END) AS revoked FROM share_links",
+      [now, now],
+    ),
+    s.waypoint.all<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE ${where}${keyset} ORDER BY created_at DESC,id DESC LIMIT ?`,
+      [...args, ...keyArgs, LINKS_PAGE],
+    ),
+  ]);
+  const last = rows.at(-1);
+  const remaining =
+    rows.length === LINKS_PAGE && last
+      ? ((
+          await s.waypoint.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM share_links WHERE ${where} AND (created_at<? OR (created_at=? AND id<?))`,
+            [...args, last.created_at, last.created_at, last.id],
+          )
+        )?.n ?? 0)
+      : 0;
+  return {
+    views: await shareViews(s, rows),
+    counts: {
+      active: counts?.active ?? 0,
+      expired: counts?.expired ?? 0,
+      revoked: counts?.revoked ?? 0,
+    },
+    remaining,
+    next: remaining && last ? encodeLinkCursor(last) : null,
+  };
+}
 export async function allLinks(s: HttpServices): Promise<ShareView[]> {
   return shareViews(
     s,

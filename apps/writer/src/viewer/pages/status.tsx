@@ -44,6 +44,32 @@ function Hero(props: { tone: "bad" | "warn" | "ok" | "off"; title: Child; body?:
   );
 }
 
+/** Rows per Status list; the rest are a link away (and all of them are in /api/status). */
+export const STATUS_LIST = 50;
+function listWindow(c: Context, key: string, items: readonly HealthItem[]) {
+  const asked = Math.floor(Number(c.req.query(key) ?? 0));
+  const from = Number.isSafeInteger(asked) && asked > 0 && asked < items.length ? asked : 0;
+  return { from, shown: items.slice(from, from + STATUS_LIST), total: items.length };
+}
+function ListMore(props: { param: string; from: number; shown: number; total: number }) {
+  const { from, shown, total } = props;
+  const after = total - from - shown;
+  if (from === 0 && after <= 0) return null;
+  const at = (start: number) =>
+    `/status?${new URLSearchParams({ [props.param]: String(start) }).toString()}`;
+  return (
+    <p class="legend" data-more={props.param}>
+      {from > 0 ? `Showing ${from + 1}–${from + shown} of ${total}. ` : null}
+      {after > 0 ? `and ${after} more… ` : null}
+      {from > 0 ? <a href={at(Math.max(0, from - STATUS_LIST))}>Previous {STATUS_LIST}</a> : null}
+      {from > 0 && after > 0 ? " · " : null}
+      {after > 0 ? <a href={at(from + shown)}>Next {Math.min(after, STATUS_LIST)}</a> : null}
+      {" · "}
+      <a href="/api/status">All as JSON</a>
+    </p>
+  );
+}
+
 function revisionLink(item: HealthItem) {
   return (
     <>
@@ -65,6 +91,8 @@ export async function statusPage(
     extras.serverBundle(),
   ]);
   const health = chrome.health;
+  const failedList = listWindow(c, "failed", health.failed);
+  const pendingList = listWindow(c, "pending", health.pending);
   const heroes: Child[] = [];
   if (health.blockedReason)
     heroes.push(
@@ -249,7 +277,7 @@ export async function statusPage(
           </h3>
           <div class="rows">
             {health.failed.length ? (
-              health.failed.map((item) => (
+              failedList.shown.map((item) => (
                 <div class="r" id={item.id}>
                   <span class="t">{revisionLink(item)}</span>
                   <span class="acts">
@@ -281,12 +309,18 @@ export async function statusPage(
               <div class="empty">No failed revisions.</div>
             )}
           </div>
+          <ListMore
+            param="failed"
+            from={failedList.from}
+            shown={failedList.shown.length}
+            total={failedList.total}
+          />
           <h3 class="sec">
             Uploading <span class="n">{plural(health.pending.length, "revision")}</span>
           </h3>
           <div class="rows">
             {health.pending.length ? (
-              health.pending.map((item) => (
+              pendingList.shown.map((item) => (
                 <div class="r" id={item.id}>
                   <span class="t">{revisionLink(item)}</span>
                   <span class="acts">
@@ -308,6 +342,12 @@ export async function statusPage(
               <div class="empty">Nothing is uploading.</div>
             )}
           </div>
+          <ListMore
+            param="pending"
+            from={pendingList.from}
+            shown={pendingList.shown.length}
+            total={pendingList.total}
+          />
           {extras.watchers ? (
             <>
               <h3 class="sec">
@@ -351,7 +391,7 @@ export async function statusPage(
           </h3>
           <div class="rows">
             {status.queue_errors.length ? (
-              status.queue_errors.map((row) => (
+              status.queue_errors.slice(0, STATUS_LIST).map((row) => (
                 <div class="r">
                   <span class="t">
                     {row.kind === "bucket_delete"
@@ -368,6 +408,12 @@ export async function statusPage(
               <div class="empty">No snapshot, delete, or purge errors.</div>
             )}
           </div>
+          {status.queue_errors.length > STATUS_LIST ? (
+            <p class="legend" data-more="queue-errors">
+              and {status.queue_errors.length - STATUS_LIST} more…{" "}
+              <a href="/api/status">All as JSON</a>
+            </p>
+          ) : null}
           <h3 class="sec">Writer</h3>
           <div class="rows">
             <div class="r">

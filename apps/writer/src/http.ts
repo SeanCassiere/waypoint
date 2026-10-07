@@ -53,6 +53,7 @@ import {
 import { getStatus } from "./status-data.js";
 import type { SyncLoop } from "./sync-loop.js";
 import { viewerApp } from "./viewer/index.js";
+import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.js";
 import { mcpPage } from "./viewer/pages/mcp.js";
 export interface HttpServices {
   waypoint: Db;
@@ -1108,6 +1109,30 @@ export function createApp(s: HttpServices): Hono {
     const { compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
     const file = compare.files.find((item) => item.path === path);
     if (!file) throw new WaypointError("not_found", "File not in either revision");
+    if (c.req.query("format") === "html") {
+      // A folded run of the Changes page, rendered: blocks [from, to) of the block diff.
+      const diff = await fileDiff(file, "blocks");
+      const from = Number(c.req.query("from"));
+      const to = Number(c.req.query("to"));
+      if (
+        diff.truncated ||
+        !Number.isSafeInteger(from) ||
+        !Number.isSafeInteger(to) ||
+        from < 0 ||
+        to <= from ||
+        to - from > FOLD_LOAD_LIMIT ||
+        to > unitCount(diff.ops)
+      )
+        throw new WaypointError("validation_failed", "Invalid block range");
+      const html = await foldFragment(
+        diff,
+        from,
+        to,
+        (sources) => diffWorkers.fragments(sources),
+        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}`,
+      );
+      return c.html(html, 200, { "cache-control": "private, max-age=3600" });
+    }
     const { ops, ...diff } = await fileDiff(file, mode);
     void ops;
     return c.json(diff);
