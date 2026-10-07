@@ -204,12 +204,24 @@ export function CollectionBar(props: {
       <a class="logo" href="/" aria-label="Waypoint, Recent">
         <LogoMark />
       </a>
+      <button
+        type="button"
+        class="iconbtn hide-sm"
+        data-action="panel-toggle"
+        aria-controls="panel"
+        aria-expanded="true"
+        aria-label="Files and history"
+        title="Files and history  ."
+      >
+        ☰
+      </button>
       <nav class="crumbs" aria-label="Breadcrumb">
         {project ? (
           <>
             <a
               class="hide-sm"
               href={`/?${new URLSearchParams({ q: `project:${project}` }).toString()}`}
+              title={project}
             >
               {project}
             </a>
@@ -606,12 +618,7 @@ export function Panel(props: {
             <span class="n">{tab.count}</span>
           </a>
         ))}
-        <button
-          type="button"
-          class="iconbtn x show-sm"
-          data-action="panel-close"
-          aria-label="Close panel"
-        >
+        <button type="button" class="iconbtn x" data-action="panel-close" aria-label="Close panel">
           ✕
         </button>
       </nav>

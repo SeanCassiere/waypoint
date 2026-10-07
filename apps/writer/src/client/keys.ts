@@ -1,5 +1,5 @@
 import { $, shellRoot, storage } from "./dom.js";
-import { setPanel, showTab, togglePanel, panelOpen } from "./panel.js";
+import { setPanel, showTab, togglePanel, panelOpen, wide } from "./panel.js";
 
 export type Command =
   | "copy-latest"
@@ -49,7 +49,7 @@ export function bindKeys(): void {
     }
     if (document.querySelector("dialog[open]")) return;
     if (event.key === "Escape") {
-      if (!window.matchMedia("(min-width: 1101px)").matches && panelOpen()) {
+      if (!wide() && panelOpen()) {
         setPanel(false);
         return;
       }

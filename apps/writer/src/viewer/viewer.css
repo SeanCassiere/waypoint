@@ -94,6 +94,11 @@ mark {
 }
 .crumbs a {
   text-decoration: none;
+  flex: none;
+  max-width: 18ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crumbs a:hover {
   color: var(--ink);
@@ -912,6 +917,7 @@ a.chip.public:hover {
 .ptabs .x {
   margin-left: auto;
   align-self: center;
+  display: none;
 }
 .pbody {
   flex: 1;
@@ -2502,7 +2508,7 @@ h3.sec .n {
 .panel-scrim {
   display: none;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1099.98px) {
   .shell,
   .shell.closed {
     grid-template-columns: minmax(0, 1fr);
@@ -2525,10 +2531,14 @@ h3.sec .n {
     transform: none;
     visibility: visible;
   }
+  .ptabs .x {
+    display: grid;
+  }
+  /* The scrim covers the bar and tab bar too (both are inert while the sheet is open). */
   .shell.open ~ .panel-scrim {
     display: block;
     position: fixed;
-    inset: var(--bar-h) 0 0 0;
+    inset: 0;
     background: var(--scrim);
     z-index: 29;
   }

@@ -4,7 +4,7 @@ import { copyText } from "./copy.js";
 import { bindForm, confirmDialog } from "./dialogs.js";
 import { $, $$, el, run, shellRoot } from "./dom.js";
 import { readMark } from "./lastread.js";
-import { setPanel, showTab } from "./panel.js";
+import { setPanel, showTab, togglePanel } from "./panel.js";
 import { toast } from "./toast.js";
 
 type Action = (element: HTMLElement) => Promise<void> | void;
@@ -267,6 +267,7 @@ registerAction("restore", restore);
 registerAction("purge", purge);
 registerAction("panel-tab", (element) => showTab(element.dataset.tab ?? "files"));
 registerAction("panel-close", () => setPanel(false));
+registerAction("panel-toggle", () => togglePanel());
 registerAction("print", () => {
   const frame = $("[data-frame]", HTMLIFrameElement);
   try {
