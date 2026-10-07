@@ -147,8 +147,20 @@ it("hands off a collection through MCP search, URL reading, and revision waiting
   });
   expect(found.isError).toBeFalsy();
   expect(found.structuredContent).toMatchObject({
-    collections: [{ id: created.collection_id, match: "metadata" }],
+    collections: [
+      {
+        id: created.collection_id,
+        match: "metadata",
+        latest_revision: { display_number: 1, head_path: "index.md", file_count: 1 },
+      },
+    ],
   });
+  // Compact for agents: one line, without the viewer's queue, share and change-count detail.
+  const text = z
+    .array(z.object({ type: z.literal("text"), text: z.string() }))
+    .parse(found.content)[0]!.text;
+  expect(text).not.toContain("\n");
+  for (const key of ['"queue"', '"share"', '"changes"']) expect(text).not.toContain(key);
   const latestUrl = z.object({ latest_url: z.string() }).parse(created).latest_url;
   const read = await mcp.callTool({
     name: "get_collection",
