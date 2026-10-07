@@ -143,6 +143,11 @@ try {
 
   // CSP: the shell's own script ran, injected markup didn't, nothing was refused.
   assert.doesNotMatch((await page.textContent("time")) ?? "", /UTC$/);
+  // Localized in the spec's format, "7 Oct 2026, 22:08" (any time zone).
+  assert.match(
+    (await page.textContent("time")) ?? "",
+    /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/,
+  );
   assert.equal(await json(page, `"pwned" in window`), false);
   assert.equal(
     await page.textContent("h1"),

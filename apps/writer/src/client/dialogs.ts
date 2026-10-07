@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $, $$ } from "./dom.js";
 
 export interface ConfirmOptions {
   title: string;
@@ -144,4 +144,42 @@ export function bindForm(id: string, submit: (form: HTMLFormElement) => Promise<
         }
       });
   });
+}
+
+/**
+ * Dialogs opened from a menu item (Rename…, Compare…, Move to Trash…, Edit metadata…,
+ * Keyboard shortcuts) would return focus to that item, which sits in a popover that has
+ * already closed, so focus falls to <body>. Remember the menu's own invoker (⋯ or the
+ * revision pill) and focus it when the dialog closes and nothing else has focus.
+ */
+export function bindFocusReturn(): void {
+  const invokers = new Map<string, HTMLElement>();
+  let origin: HTMLElement | null = null;
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const invoker = target.closest<HTMLElement>("[popovertarget]");
+      const targetId = invoker?.getAttribute("popovertarget") ?? "";
+      // A menu's own invoker, not the items inside it that also name it (to hide it).
+      if (invoker && targetId && !invoker.closest(`[id="${CSS.escape(targetId)}"]`))
+        invokers.set(targetId, invoker);
+      if (document.querySelector("dialog[open]")) return;
+      const control = target.closest<HTMLElement>("button, a, [tabindex]");
+      const menu = control?.closest<HTMLElement>("[popover]");
+      origin = (menu ? invokers.get(menu.id) : null) ?? control ?? null;
+    },
+    true,
+  );
+  for (const dialog of $$("dialog", HTMLDialogElement))
+    dialog.addEventListener("close", () => {
+      const back = origin;
+      setTimeout(() => {
+        if (document.querySelector("dialog[open]")) return;
+        const active = document.activeElement;
+        if (active && active !== document.body) return;
+        if (back?.isConnected && back.checkVisibility()) back.focus();
+      }, 0);
+    });
 }

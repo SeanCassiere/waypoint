@@ -34,7 +34,7 @@ export async function trashPage(
         <main class="wrap narrow" id="main">
           <div class="ph">
             <div>
-              <h2>Trash</h2>
+              <h1>Trash</h1>
               <p>
                 Deleted collections are hidden everywhere, and their public links stop working.
                 Restore brings everything back. Purge erases it permanently, everywhere.
@@ -47,7 +47,7 @@ export async function trashPage(
                 const detail = details.get(item.id);
                 const link = links.get(item.id);
                 const linkChip: Child = link?.active.length ? (
-                  <a class="chip xs public" href="/links" title="Revoke them from Public links">
+                  <a class="chip xs" href="/links" title="Revoke them from Public links">
                     <Globe />
                     {plural(link.active.length, "link")}, inactive while in Trash
                   </a>

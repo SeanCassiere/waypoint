@@ -142,7 +142,7 @@ try {
     "Times New Roman",
   );
   // Copy menu: the handoff block names the collection and revision for another agent.
-  await page.getByRole("button", { name: "Copy ▾" }).click();
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
   await page.locator("#copy-menu").waitFor({ state: "visible" });
   const handoff = (await page.locator("[data-handoff]").textContent()) ?? "";
   assert.match(handoff, /collection_id: col_/);

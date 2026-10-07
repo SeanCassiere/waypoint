@@ -240,8 +240,28 @@ export function FileTree(props: TreeOptions) {
   }
   const large = props.files.length > 200;
   const current = props.current ?? "";
+  const fileRow = (file: ManifestFileEntry, prefix: string): Child => {
+    const glyph = props.glyphs?.get(file.path) ?? "·";
+    return (
+      <a
+        data-file={file.path}
+        aria-current={file.path === current ? "page" : undefined}
+        data-embed={isEmbeddable(file.mime) ? undefined : "false"}
+        href={shellPath(props.pub, props.rpub, file.path, props.pinned, props.head)}
+        title={file.path}
+      >
+        <span class={glyphClass(glyph)} aria-label={props.glyphs ? glyphLabel(glyph) : undefined}>
+          {props.glyphs ? glyph : "·"}
+        </span>
+        <span class="nm">{file.path.slice(prefix.length)}</span>
+        {file.path === props.head ? <span class="hd">head</span> : null}
+      </a>
+    );
+  };
   const render = (node: Node, prefix: string): Child => {
     const images = node.files.filter((file) => IMAGE.test(file.mime)).length;
+    // The head file is pinned first, above its siblings' folders (as in every mockup).
+    const head = node.files.find((file) => file.path === props.head);
     return (
       <>
         {props.galleryHref && prefix && images >= 4 ? (
@@ -252,6 +272,7 @@ export function FileTree(props: TreeOptions) {
             <span class="nm">View as gallery ({images})</span>
           </a>
         ) : null}
+        {head ? fileRow(head, prefix) : null}
         {[...node.folders]
           .toSorted(([a], [b]) => a.localeCompare(b))
           .map(([name, child]) => {
@@ -263,26 +284,7 @@ export function FileTree(props: TreeOptions) {
               </details>
             );
           })}
-        {node.files.map((file) => {
-          const glyph = props.glyphs?.get(file.path) ?? "·";
-          return (
-            <a
-              data-file={file.path}
-              aria-current={file.path === current ? "page" : undefined}
-              data-embed={isEmbeddable(file.mime) ? undefined : "false"}
-              href={shellPath(props.pub, props.rpub, file.path, props.pinned, props.head)}
-            >
-              <span
-                class={glyphClass(glyph)}
-                aria-label={props.glyphs ? glyphLabel(glyph) : undefined}
-              >
-                {props.glyphs ? glyph : "·"}
-              </span>
-              <span class="nm">{file.path.slice(prefix.length)}</span>
-              {file.path === props.head ? <span class="hd">head</span> : null}
-            </a>
-          );
-        })}
+        {node.files.filter((file) => file !== head).map((file) => fileRow(file, prefix))}
       </>
     );
   };
@@ -338,6 +340,13 @@ export function Timeline(props: {
         const current = row.id === props.currentId;
         const href = `${shellPath(props.pub, row.public_id, props.path, true)}${props.path ? "?fallback=head" : ""}`;
         const state = row.sync_state;
+        // The current revision gets "Changes from #K" whatever its state (spec §4.10).
+        const changes =
+          !props.compact && current && parent && props.changesHref ? (
+            <a class="btn sm" href={props.changesHref(row, parent)}>
+              Changes from #{parent.display_number}
+            </a>
+          ) : null;
         return (
           <div
             class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}`}
@@ -390,10 +399,11 @@ export function Timeline(props: {
                 ) : null
               ) : state === "failed" ? (
                 <span class="acts">
+                  {changes}
                   <button type="button" class="btn sm" data-action="retry" data-ids={row.id}>
                     Retry
                   </button>
-                  <button type="button" class="btn sm ghost" data-action="drop" data-id={row.id}>
+                  <button type="button" class="btn sm danger" data-action="drop" data-id={row.id}>
                     Drop…
                   </button>
                   <a class="btn sm ghost" href={`/status#${row.id}`}>
@@ -402,16 +412,13 @@ export function Timeline(props: {
                 </span>
               ) : state === "pending" ? (
                 <span class="acts">
-                  <button type="button" class="btn sm ghost" data-action="drop" data-id={row.id}>
+                  {changes}
+                  <button type="button" class="btn sm danger" data-action="drop" data-id={row.id}>
                     Drop…
                   </button>
                 </span>
-              ) : current && parent && props.changesHref ? (
-                <span class="acts">
-                  <a class="btn sm" href={props.changesHref(row, parent)}>
-                    Changes from #{parent.display_number}
-                  </a>
-                </span>
+              ) : changes ? (
+                <span class="acts">{changes}</span>
               ) : null}
             </span>
           </div>

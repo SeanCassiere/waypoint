@@ -154,10 +154,17 @@ describe("markdown rendition", () => {
 
   it("frame reporter posts only the path and fragment to the parent", () => {
     type Message = { data: Record<string, unknown>; target: string };
-    function run(options: { framed: boolean; readyState: string; narrow: boolean }) {
+    function run(options: {
+      framed: boolean;
+      readyState: string;
+      narrow: boolean;
+      width?: number;
+    }) {
       const posted: Message[] = [];
+      const handlers = new Map<string, (() => void)[]>();
       const listeners = new Map<string, () => void>();
-      const toc = { open: true };
+      const toc: { open: boolean; onclick?: () => void } = { open: true };
+      const media: { matches: boolean; onchange?: () => void } = { matches: options.narrow };
       const parent = {
         postMessage(data: Record<string, unknown>, target: string) {
           posted.push({ data: structuredClone(data), target });
@@ -177,16 +184,43 @@ describe("markdown rendition", () => {
           referrer: "https://reader.example/s/wps_SHARE_TOKEN/c/col/doc.md",
           cookie: "session=secret",
           title: "Secret title",
+          documentElement: { clientWidth: options.width ?? (options.narrow ? 390 : 1100) },
           querySelector: (selector: string) => (selector === "details.toc" ? toc : null),
         },
-        matchMedia: () => ({ matches: options.narrow }),
-        addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+        matchMedia: () => media,
+        requestAnimationFrame: (callback: () => void) => callback(),
+        addEventListener: (type: string, listener: () => void) => {
+          handlers.set(type, [...(handlers.get(type) ?? []), listener]);
+          listeners.set(type, () => {
+            for (const handler of handlers.get(type) ?? []) handler();
+          });
+        },
       };
       context.window = context;
       context.parent = options.framed ? parent : context;
       runInNewContext(FRAME_REPORTER, context);
-      return { posted, listeners, toc, location };
+      return { posted, listeners, toc, location, media };
     }
+
+    // The contents block is checked after layout, not while the iframe still has its default
+    // 300px width, and follows the width until the reader toggles it.
+    const sized = run({ framed: true, readyState: "loading", narrow: true, width: 300 });
+    expect(sized.toc.open).toBe(true);
+    sized.media.matches = false;
+    sized.listeners.get("load")?.();
+    expect(sized.toc.open).toBe(true);
+    const phone = run({ framed: true, readyState: "loading", narrow: true });
+    phone.listeners.get("load")?.();
+    expect(phone.toc.open).toBe(false);
+    phone.media.matches = false;
+    phone.media.onchange?.();
+    expect(phone.toc.open).toBe(true);
+    phone.toc.onclick?.();
+    phone.media.matches = true;
+    phone.media.onchange?.();
+    expect(phone.toc.open).toBe(true);
+    const hidden = run({ framed: true, readyState: "complete", narrow: true, width: 0 });
+    expect(hidden.toc.open).toBe(true);
 
     const loaded = run({ framed: true, readyState: "loading", narrow: false });
     expect(loaded.posted).toEqual([]);
@@ -217,7 +251,7 @@ describe("markdown rendition", () => {
     const top = run({ framed: false, readyState: "complete", narrow: false });
     expect(top.posted).toEqual([]);
     expect(top.listeners.size).toBe(0);
-    expect(new TextEncoder().encode(FRAME_REPORTER).length).toBeLessThan(400);
+    expect(new TextEncoder().encode(FRAME_REPORTER).length).toBeLessThan(512);
   });
 
   it("renders GitHub alerts as callouts and leaves near misses as blockquotes", async () => {
@@ -230,20 +264,20 @@ describe("markdown rendition", () => {
     for (const kind of kinds) {
       const title = kind[0] + kind.slice(1).toLowerCase();
       expect(html).toContain(
-        `<div class="markdown-alert markdown-alert-${kind.toLowerCase()}">\n<p class="markdown-alert-title">${title}</p>\n<p>Body of <em>${kind.toLowerCase()}</em>.</p>\n</div>`,
+        `<div class="markdown-alert markdown-alert-${kind.toLowerCase()}">\n<p class="markdown-alert-title" dir="auto">${title}</p>\n<p dir="auto">Body of <em>${kind.toLowerCase()}</em>.</p>\n</div>`,
       );
     }
     expect(html).not.toContain("<blockquote>");
     const lower = body(await renderMarkdown("> [!warning]\n>\n> - one\n> - two"));
     expect(lower).toContain('<div class="markdown-alert markdown-alert-warning">');
-    expect(lower).toContain("<li>one</li>");
+    expect(lower).toContain('<li dir="auto">one</li>');
     const misses = body(
       await renderMarkdown(
         "> [!NOTE] same line\n\n> [!WARNING]\n\n> [!OTHER]\n> text\n\n> text\n> [!NOTE]\n\n<blockquote>\n\n[!TIP]\nraw\n\n</blockquote>",
       ),
     );
     expect(misses).not.toContain("markdown-alert");
-    expect(misses.match(/<blockquote>/g)).toHaveLength(5);
+    expect(misses.match(/<blockquote dir="auto">/g)).toHaveLength(5);
     const nested = body(await renderMarkdown("- item\n\n  > [!TIP]\n  > nested"));
     expect(nested).toContain('<div class="markdown-alert markdown-alert-tip">');
   });
@@ -253,7 +287,7 @@ describe("markdown rendition", () => {
     expect(three).not.toContain('class="toc"');
     const four = body(await renderMarkdown(`# Doc\n\nIntro.\n\n${h2s(4)}`));
     expect(four).toContain(
-      '</h1>\n<details class="toc" open><summary>Contents</summary><ol><li><a href="#part-1">Part 1</a></li><li><a href="#part-2">Part 2</a></li><li><a href="#part-3">Part 3</a></li><li><a href="#part-4">Part 4</a></li></ol></details>\n<p>Intro.</p>',
+      '</h1>\n<details class="toc" open><summary>Contents</summary><ol><li dir="auto"><a href="#part-1">Part 1</a></li><li dir="auto"><a href="#part-2">Part 2</a></li><li dir="auto"><a href="#part-3">Part 3</a></li><li dir="auto"><a href="#part-4">Part 4</a></li></ol></details>\n<p dir="auto">Intro.</p>',
     );
     const noH1 = body(await renderMarkdown(`---\na: b\n---\nIntro.\n\n${h2s(4)}`));
     expect(noH1).toMatch(
@@ -269,13 +303,13 @@ describe("markdown rendition", () => {
       ),
     );
     expect(html).toContain(
-      '<h1 id="hello-world"><a class="anchor" href="#hello-world" aria-hidden="true" tabindex="-1">#</a>Hello <em>world</em></h1>',
+      '<h1 id="hello-world" dir="auto"><a class="anchor" href="#hello-world" aria-hidden="true" tabindex="-1">#</a>Hello <em>world</em></h1>',
     );
     expect(html).toContain(
-      '<h3 id="deep-link"><a class="anchor" href="#deep-link" aria-hidden="true" tabindex="-1">#</a>Deep <a href="./x.md">link</a></h3>',
+      '<h3 id="deep-link" dir="auto"><a class="anchor" href="#deep-link" aria-hidden="true" tabindex="-1">#</a>Deep <a href="./x.md">link</a></h3>',
     );
-    expect(html).toContain('<h6 id="six"><a class="anchor" href="#six"');
-    expect(html).toContain('<h2 class="sr-only" id="footnote-label">Footnotes</h2>');
+    expect(html).toContain('<h6 id="six" dir="auto"><a class="anchor" href="#six"');
+    expect(html).toContain('<h2 class="sr-only" id="footnote-label" dir="auto">Footnotes</h2>');
     expect(await renderMarkdown("# Hello *world*")).toContain("<title>Hello world</title>");
   });
 
@@ -289,7 +323,7 @@ describe("markdown rendition", () => {
       html.match(/<div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>/g),
     ).toHaveLength(2);
     expect(html.match(/class="table-wrap"/g)).toHaveLength(2);
-    expect(html).toContain("<td><table>");
+    expect(html).toContain('<td dir="auto"><table>');
   });
 
   it("labels code blocks, turns lone images into figures, and keeps task lists", async () => {
@@ -307,9 +341,9 @@ describe("markdown rendition", () => {
     expect(html).toContain(
       '<figure class="image"><a href="./a.png"><img src="./a.png" alt="Linked"></a></figure>',
     );
-    expect(html).toContain('<p>Inline <img src="./i.png" alt="icon"> image.</p>');
+    expect(html).toContain('<p dir="auto">Inline <img src="./i.png" alt="icon"> image.</p>');
     expect(html).toContain(
-      '<li class="task-list-item"><input type="checkbox" checked disabled> done</li>',
+      '<li class="task-list-item" dir="auto"><input type="checkbox" checked disabled> done</li>',
     );
   });
 
@@ -431,7 +465,7 @@ describe("markdown rendition", () => {
     expect(
       await goldenHash(),
       "renderer output changed: bump RENDERER_VERSION and update the golden hash",
-    ).toBe("3ff53822f18f3616db96ca723be98ab8e2864b63ec107241256ab3a4fb6bdf49");
+    ).toBe("7277152229f0f7c7aa8a1d1f4df263d2fd963ebab5b0dd014e22cbcc64a0d055");
   });
 
   it("produces byte-identical golden output in a fresh process", async () => {

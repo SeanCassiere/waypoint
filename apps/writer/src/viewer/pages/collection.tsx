@@ -28,7 +28,7 @@ import {
   type TimelineRow,
 } from "../components.js";
 import { bytes, ext, projectAndTags } from "../format.js";
-import { Layout, NotFoundBody, type Chrome } from "../layout.js";
+import { HomeBar, Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
 import { changesPage, CompareDialog } from "./changes.js";
 import { galleryPage } from "./gallery.js";
@@ -209,12 +209,24 @@ export function CollectionBar(props: {
       <a class="logo" href="/" aria-label="Waypoint, Recent">
         <LogoMark />
       </a>
+      <button
+        type="button"
+        class="iconbtn hide-sm"
+        data-action="panel-toggle"
+        aria-controls="panel"
+        aria-expanded="true"
+        aria-label="Files and history"
+        title="Files and history  ."
+      >
+        ☰
+      </button>
       <nav class="crumbs" aria-label="Breadcrumb">
         {project ? (
           <>
             <a
               class="hide-sm"
               href={`/?${new URLSearchParams({ q: `project:${project}` }).toString()}`}
+              title={project}
             >
               {project}
             </a>
@@ -236,7 +248,10 @@ export function CollectionBar(props: {
         aria-label={`Revision ${revision.display_number ?? "?"}, ${props.pill ?? label.text}. Open revisions`}
       >
         #{revision.display_number ?? "?"}
-        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>▾
+        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>
+        <span class="caret" aria-hidden="true">
+          ▾
+        </span>
       </button>
       {ctx.links.some(isLive) ? (
         <a class="chip public hide-sm" href="?panel=links" title="Public links">
@@ -256,7 +271,7 @@ export function CollectionBar(props: {
         popovertarget="copy-menu"
         aria-haspopup="menu"
       >
-        Copy ▾
+        Copy <span aria-hidden="true">▾</span>
       </button>
       {ctx.sharing ? (
         <button type="button" class="btn public hide-sm" commandfor="share" command="show-modal">
@@ -270,7 +285,7 @@ export function CollectionBar(props: {
         popovertarget="more-menu"
         aria-haspopup="menu"
         aria-label="More actions"
-        title="Rename · Open raw · Print · Move to Trash · Shortcuts"
+        title="More actions"
       >
         ⋯
       </button>
@@ -611,12 +626,7 @@ export function Panel(props: {
             <span class="n">{tab.count}</span>
           </a>
         ))}
-        <button
-          type="button"
-          class="iconbtn x show-sm"
-          data-action="panel-close"
-          aria-label="Close panel"
-        >
+        <button type="button" class="iconbtn x" data-action="panel-close" aria-label="Close panel">
           ✕
         </button>
       </nav>
@@ -714,9 +724,15 @@ export function FilesPanel(props: {
   );
 }
 
-interface Segment {
+export interface Segment {
   tone: "failed" | "pending" | "public" | "info";
   body: Child;
+  /** Plain text of the segment: the phone line's one tap target speaks it (spec §4.12). */
+  text: string;
+  /** The segment without its long explanation: what the phone line shows. */
+  brief?: string;
+  /** The "older revision" segment, which goes last (spec order). */
+  older?: boolean;
 }
 export function statusSegments(ctx: CollectionContext): {
   segments: Segment[];
@@ -731,6 +747,8 @@ export function statusSegments(ctx: CollectionContext): {
   if (rows.length && failed.length === rows.length) {
     segments.push({
       tone: "failed",
+      text: "! Nothing in this collection has synced. It exists only on this writer.",
+      brief: "! Nothing in this collection has synced.",
       body: (
         <span>
           <span class="f">! Nothing in this collection has synced.</span>{" "}
@@ -751,14 +769,16 @@ export function statusSegments(ctx: CollectionContext): {
     return { segments, action };
   }
   if (revision.sync_state === "failed") {
+    // The raw error lives in the History row and on Status; the line stays short (§4.12).
     segments.push({
       tone: "failed",
+      text: `! #${revision.display_number} failed to sync. Readable on this writer only.`,
+      brief: `! #${revision.display_number} failed to sync.`,
       body: (
         <span>
-          <span class="f">! #{revision.display_number} failed to sync</span>
-          <span class="long">
-            : {revision.last_error ?? "unknown error"}. Readable on this writer only.
-          </span>
+          <span class="f">! #{revision.display_number} failed to sync.</span>{" "}
+          <span class="long">Readable on this writer only.</span>{" "}
+          <a href={`/status#${revision.id}`}>Details</a>
         </span>
       ),
     });
@@ -767,20 +787,18 @@ export function statusSegments(ctx: CollectionContext): {
         <button type="button" class="btn sm" data-action="retry" data-ids={revision.id}>
           Retry
         </button>
-        <button type="button" class="btn sm ghost" data-action="drop" data-id={revision.id}>
+        <button type="button" class="btn sm danger" data-action="drop" data-id={revision.id}>
           Drop…
         </button>
       </>
     );
   } else if (failed.length) {
     const first = failed.at(-1)!;
+    const list = failed.map((row) => `#${row.display_number}`).join(", ");
     segments.push({
       tone: "failed",
-      body: (
-        <span class="f">
-          ! {failed.map((row) => `#${row.display_number}`).join(", ")} failed to sync
-        </span>
-      ),
+      text: `! ${list} failed to sync`,
+      body: <span class="f">! {list} failed to sync</span>,
     });
     action = (
       <button type="button" class="btn sm" data-action="retry" data-ids={first.id}>
@@ -791,6 +809,8 @@ export function statusSegments(ctx: CollectionContext): {
   if (revision.sync_state === "pending")
     segments.push({
       tone: "pending",
+      text: `◌ #${revision.display_number} is uploading. Readable here; other machines and public links see ${sees}.`,
+      brief: `◌ #${revision.display_number} is uploading.`,
       body: (
         <span>
           <span class="p">◌ #{revision.display_number} is uploading.</span>{" "}
@@ -798,18 +818,18 @@ export function statusSegments(ctx: CollectionContext): {
         </span>
       ),
     });
-  else if (pending.length)
+  else if (pending.length) {
+    const list = pending.map((row) => `#${row.display_number}`).join(", ");
     segments.push({
       tone: "pending",
-      body: (
-        <span class="p">
-          ◌ {pending.map((row) => `#${row.display_number}`).join(", ")} uploading
-        </span>
-      ),
+      text: `◌ ${list} uploading`,
+      body: <span class="p">◌ {list} uploading</span>,
     });
+  }
   if ((failed.length || pending.length) && revision.sync_state !== "pending")
     segments.push({
       tone: "info",
+      text: `Other machines and public links see ${sees}.`,
       body: <span class="long">Other machines and public links see {sees}.</span>,
     });
   if (ctx.pinned && latest && revision.id !== latest.id && revision.sync_state !== "failed") {
@@ -817,6 +837,9 @@ export function statusSegments(ctx: CollectionContext): {
     const later = (latest.display_number ?? 0) > viewing;
     segments.push({
       tone: "info",
+      older: true,
+      text: `You're viewing #${viewing}, not the latest. Latest is #${latest.display_number}.`,
+      brief: `You're viewing #${viewing}, not the latest. Latest is #${latest.display_number} →`,
       body: (
         <span>
           <span data-older-segment hidden />
@@ -841,7 +864,13 @@ export function statusSegments(ctx: CollectionContext): {
 
 export function StatusLine(props: { ctx: CollectionContext; extra?: Segment[] }) {
   const { segments, action } = statusSegments(props.ctx);
-  const all = [...segments, ...(props.extra ?? [])];
+  // Spec order: failed, uploading, public, new since last read, then the older revision.
+  const older = segments.findIndex((segment) => segment.older);
+  const extra = props.extra ?? [];
+  const all =
+    older < 0
+      ? [...segments, ...extra]
+      : [...segments.slice(0, older), ...extra, ...segments.slice(older)];
   const tone = all.find((segment) => segment.tone === "failed")
     ? "failed"
     : all.find((segment) => segment.tone === "pending")
@@ -849,8 +878,23 @@ export function StatusLine(props: { ctx: CollectionContext; extra?: Segment[] })
       : all.find((segment) => segment.tone === "public")
         ? "public"
         : "info";
+  const text = all.map((segment) => segment.text).join(" · ");
+  const brief = all.map((segment) => segment.brief ?? segment.text).join(" · ");
+  // The visible glyphs (! ◌) are markers, not words; the tap target's name drops them.
+  const spoken = text.replace(/(^|· )[!◌●] /g, "$1").replace(/\.?$/, ".");
+  const tab = all.every((segment) => segment.tone === "public") ? "links" : "history";
   return (
     <div class={`status1 ${tone}`} data-status role="status" hidden={!all.length}>
+      <a
+        class="stap"
+        href={`?panel=${tab}`}
+        data-action="panel-tab"
+        data-tab={tab}
+        data-status-tap
+        aria-label={`${spoken} Open ${tab === "links" ? "Links" : "History"}.`}
+      >
+        {brief}
+      </a>
       {all.map((segment, index) => (
         <>
           {index ? (
@@ -871,7 +915,9 @@ function DownloadCard(props: { path: string; size: number; mime: string; raw: st
   return (
     <div class="scroll">
       <div class="dl">
-        <div class="ic">{ext(props.path)}</div>
+        <div class={`ic${ext(props.path).length > 5 ? " long" : ""}`} aria-hidden="true">
+          {ext(props.path)}
+        </div>
         <h2>{props.path}</h2>
         <p class="muted">
           {bytes(props.size)} · {props.mime} · can't be previewed in the browser
@@ -964,12 +1010,7 @@ export function notFound(
 ) {
   return noStore(
     c.html(
-      <Layout
-        title="Not found"
-        chrome={chrome}
-        bar={<HomeBarLite chrome={chrome} />}
-        page="not-found"
-      >
+      <Layout title="Not found" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="not-found">
         <NotFoundBody path={path} latestHref={latestHref} message={message} />
       </Layout>,
       404,
@@ -989,12 +1030,102 @@ export function HomeBarLite(props: { chrome: Chrome }) {
   );
 }
 
-export function DeletedPage(props: { chrome: Chrome; collection: CollectionRow }) {
+/** The In Trash page keeps the collection bar (spec §5.3, deleted.html), minus Copy and Share. */
+function TrashBar(props: { chrome: Chrome; collection: CollectionRow; n: number | null }) {
+  const { collection } = props;
+  let metadata: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(collection.metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      metadata = Object.fromEntries(Object.entries(parsed));
+  } catch {
+    metadata = {};
+  }
+  const { project } = projectAndTags(metadata);
+  return (
+    <header class="bar cbar">
+      <a class="iconbtn back" href="/" aria-label="Back to Recent">
+        ‹
+      </a>
+      <a class="logo" href="/" aria-label="Waypoint, Recent">
+        <LogoMark />
+      </a>
+      <nav class="crumbs" aria-label="Breadcrumb">
+        {project ? (
+          <>
+            <a
+              class="hide-sm"
+              href={`/?${new URLSearchParams({ q: `project:${project}` }).toString()}`}
+              title={project}
+            >
+              {project}
+            </a>
+            <span class="sep hide-sm" aria-hidden="true">
+              /
+            </span>
+          </>
+        ) : null}
+        <h1 data-title-text style={`view-transition-name:col-${collection.public_id}`}>
+          {collection.title}
+        </h1>
+      </nav>
+      {props.n !== null ? (
+        <span class="revbtn static">
+          #{props.n}
+          <span class="l">in Trash</span>
+        </span>
+      ) : null}
+      <span class="grow" />
+      <button
+        type="button"
+        class="iconbtn"
+        popovertarget="more-menu"
+        aria-haspopup="menu"
+        aria-label="More actions"
+        title="More actions"
+      >
+        ⋯
+      </button>
+      <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="restore"
+          data-id={collection.id}
+          data-title={collection.title}
+          data-then="reload"
+        >
+          <span aria-hidden="true">↺</span>
+          <span>Restore…</span>
+        </button>
+        <a class="mi" role="menuitem" href="/trash">
+          <span aria-hidden="true">⌫</span>
+          <span>Open Trash</span>
+        </a>
+        <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
+          <span aria-hidden="true">?</span>
+          <span>Keyboard shortcuts</span>
+          <kbd>?</kbd>
+        </button>
+      </div>
+      <HealthPill health={props.chrome.health} />
+    </header>
+  );
+}
+
+export function DeletedPage(props: {
+  chrome: Chrome;
+  collection: CollectionRow;
+  n?: number | null;
+}) {
   return (
     <Layout
       title={`${props.collection.title} (in Trash)`}
       chrome={props.chrome}
-      bar={<HomeBarLite chrome={props.chrome} />}
+      bar={<TrashBar chrome={props.chrome} collection={props.collection} n={props.n ?? null} />}
       page="deleted"
     >
       <main class="wrap narrow" id="main">
@@ -1051,10 +1182,20 @@ export async function collectionPage(
   const rpub = match?.[1]?.toLowerCase();
   const loaded = await loadCollection(s, c, { pub, rpub, now });
   if (loaded.kind === "missing") return notFound(c, loaded.chrome, url.pathname);
-  if (loaded.kind === "deleted")
+  if (loaded.kind === "deleted") {
+    const rows = await s.reads.revisions(loaded.collection.id);
+    const last = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
     return noStore(
-      c.html(<DeletedPage chrome={loaded.chrome} collection={loaded.collection} />, 410),
+      c.html(
+        <DeletedPage
+          chrome={loaded.chrome}
+          collection={loaded.collection}
+          n={last?.display_number ?? null}
+        />,
+        410,
+      ),
     );
+  }
   if (loaded.kind === "no-revision")
     return notFound(c, loaded.chrome, url.pathname, `/c/${loaded.collection.public_id}/`);
   const { ctx } = loaded;

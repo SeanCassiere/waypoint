@@ -1,7 +1,9 @@
 import { $, $$, storage } from "./dom.js";
 import { withTransition } from "./motion.js";
 
-const wide = () => window.matchMedia("(min-width: 1101px)").matches;
+// The panel docks at ≥ 1100px (spec §3.3) and is an overlay sheet below that.
+const WIDE = "(min-width: 1100px)";
+export const wide = () => window.matchMedia(WIDE).matches;
 
 function shell(): HTMLElement | null {
   return $("#shell");
@@ -11,18 +13,42 @@ export function panelOpen(): boolean {
   if (!root) return false;
   return wide() ? !root.classList.contains("closed") : root.classList.contains("open");
 }
+function syncToggle(): void {
+  const open = String(panelOpen());
+  for (const toggle of $$("[data-action=panel-toggle]")) toggle.setAttribute("aria-expanded", open);
+}
+/** While the overlay sheet is open, everything behind it is inert (spec §4.8: focus trapped). */
+function setBackdrop(inert: boolean): void {
+  for (const node of $$("body > .skip, header.bar, .tabbar, #main")) node.inert = inert;
+}
+let opener: HTMLElement | null = null;
 export function setPanel(open: boolean): void {
   const root = shell();
   if (!root) return;
   if (wide()) {
     root.classList.toggle("closed", !open);
     storage()?.setItem("wp:panel", open ? "open" : "closed");
+    syncToggle();
     return;
   }
+  const was = root.classList.contains("open");
+  if (open && !was) {
+    const active = document.activeElement;
+    opener = active instanceof HTMLElement && active !== document.body ? active : null;
+  }
   root.classList.toggle("open", open);
-  const main = $("#main");
-  if (main) main.inert = open;
-  if (open) $('#panel [role=tab][aria-selected="true"]')?.focus();
+  setBackdrop(open);
+  syncToggle();
+  if (open) {
+    $('#panel [role=tab][aria-selected="true"]')?.focus();
+    return;
+  }
+  if (!was) return;
+  // Closing (✕, Esc or the scrim) returns focus to whatever opened the sheet.
+  const target = opener?.isConnected && !opener.closest("#panel") ? opener : null;
+  opener = null;
+  const fallback = $$("[data-action=panel-toggle]").find((toggle) => toggle.offsetParent !== null);
+  (target ?? fallback ?? $("#main"))?.focus();
 }
 export function togglePanel(): void {
   setPanel(!panelOpen());
@@ -54,7 +80,7 @@ export function bindPanel(): void {
     tab.addEventListener("click", (event) => {
       event.preventDefault();
       const id = tab.dataset.tab ?? "files";
-      withTransition(() => selectTab(id));
+      void withTransition(() => selectTab(id));
       // Remember the tab in the URL so reloads and copied tailnet links keep it.
       const url = new URL(location.href);
       if (id === "files") url.searchParams.delete("panel");
@@ -91,7 +117,17 @@ export function bindPanel(): void {
     }
   });
   if (!wide()) {
-    // Panels on narrow screens start closed; the phone tab bar or "." opens them.
+    // Panels on narrow screens start closed; the bar's ☰, the phone tab bar or "." opens them.
     root.classList.remove("open");
   }
+  // Crossing the breakpoint: a docked panel never leaves the page behind it inert.
+  window.matchMedia(WIDE).addEventListener("change", () => {
+    if (wide()) {
+      root.classList.remove("open");
+      setBackdrop(false);
+      opener = null;
+    }
+    syncToggle();
+  });
+  syncToggle();
 }

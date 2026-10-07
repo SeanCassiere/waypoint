@@ -111,11 +111,14 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
           {soon ? (
             <details class="act">
               <summary class="btn sm">Extend…</summary>
-              <div class="pop neutral">
+              <div class="pop neutral" role="group" aria-label="Extend this link">
                 <span>
                   Keep this link working longer. The new expiry reaches viewers within a minute.
                 </span>
                 <span class="row">
+                  <button type="button" class="btn sm" data-action="close-details">
+                    Keep as is
+                  </button>
                   <button
                     type="button"
                     class="btn sm"
@@ -222,19 +225,23 @@ export function LinksPanel(props: {
 }
 
 /** The status line's public segment, when a live link follows latest. */
-export function publicSegment(links: ShareView[]): { tone: "public"; body: Child } | null {
+export function publicSegment(
+  links: ShareView[],
+): { tone: "public"; body: Child; text: string; brief: string } | null {
   const live = links.filter(isLive);
   const following = live.find((link) => !link.revision_id);
   if (!following) return null;
+  const who = following.label ? `“${following.label}”` : "A link";
   return {
     tone: "public",
+    text: `Public: ${plural(live.length, "active link")}. ${who} follows latest, so new revisions become public about a minute after they sync.`,
+    brief: `Public: ${who} follows latest`,
     body: (
       <span>
         <span class="pubseg">
           <Globe /> Public
         </span>{" "}
-        {plural(live.length, "active link")}.{" "}
-        <b>{following.label ? `“${following.label}”` : "A link"} follows latest</b>
+        {plural(live.length, "active link")}. <b>{who} follows latest</b>
         <span class="long">, so new revisions become public about a minute after they sync.</span>
       </span>
     ),
@@ -529,9 +536,9 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
         <main class="wrap" id="main">
           <div class="ph">
             <div>
-              <h2>
+              <h1>
                 <Globe /> Public links
-              </h2>
+              </h1>
               <p>
                 Everything readable outside your tailnet right now. Revoking takes effect within
                 about a minute.

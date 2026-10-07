@@ -218,7 +218,7 @@ export async function statusPage(
         <main class="wrap" id="main">
           <div class="ph">
             <div>
-              <h2>Status</h2>
+              <h1>Status</h1>
               <p>
                 Writer <span class="mono">{chrome.host}</span> · environment{" "}
                 <span class="mono">{status.environment}</span>
@@ -272,9 +272,9 @@ export async function statusPage(
               </div>
             </div>
           </div>
-          <h3 class="sec">
+          <h2 class="sec">
             Failed revisions <span class="n">{health.failed.length}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {health.failed.length ? (
               failedList.shown.map((item) => (
@@ -315,16 +315,21 @@ export async function statusPage(
             shown={failedList.shown.length}
             total={failedList.total}
           />
-          <h3 class="sec">
+          <h2 class="sec">
             Uploading <span class="n">{plural(health.pending.length, "revision")}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {health.pending.length ? (
               pendingList.shown.map((item) => (
                 <div class="r" id={item.id}>
                   <span class="t">{revisionLink(item)}</span>
                   <span class="acts">
-                    <button type="button" class="btn sm ghost" data-action="drop" data-id={item.id}>
+                    <button
+                      type="button"
+                      class="btn sm danger"
+                      data-action="drop"
+                      data-id={item.id}
+                    >
                       Drop…
                     </button>
                   </span>
@@ -350,9 +355,9 @@ export async function statusPage(
           />
           {extras.watchers ? (
             <>
-              <h3 class="sec">
+              <h2 class="sec">
                 Agents watching <span class="n">{watchers.length}</span>
-              </h3>
+              </h2>
               <div class="rows" data-watchers>
                 {watchers.length ? (
                   watchers.map((watcher) => {
@@ -386,9 +391,9 @@ export async function statusPage(
               </div>
             </>
           ) : null}
-          <h3 class="sec">
+          <h2 class="sec">
             Background queue errors <span class="n">{status.queue_errors.length}</span>
-          </h3>
+          </h2>
           <div class="rows">
             {status.queue_errors.length ? (
               status.queue_errors.slice(0, STATUS_LIST).map((row) => (
@@ -408,6 +413,7 @@ export async function statusPage(
               <div class="empty">No snapshot, delete, or purge errors.</div>
             )}
           </div>
+<<<<<<< HEAD
           {status.queue_errors.length > STATUS_LIST ? (
             <p class="legend" data-more="queue-errors">
               and {status.queue_errors.length - STATUS_LIST} more…{" "}
@@ -415,6 +421,9 @@ export async function statusPage(
             </p>
           ) : null}
           <h3 class="sec">Writer</h3>
+=======
+          <h2 class="sec">Writer</h2>
+>>>>>>> feat/folio-b
           <div class="rows">
             <div class="r">
               <span class="t mono">{chrome.host}</span>

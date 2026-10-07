@@ -33,7 +33,7 @@ import {
   CollectionDialogs,
   type CollectionContext,
 } from "./collection.js";
-import { previewHref, ShareDialog } from "./share.js";
+import { isLive, LinksPanel, previewHref, ShareDialog } from "./share.js";
 import type { ViewerExtras } from "./status.js";
 
 const RENDER_FIRST = 5;
@@ -1011,9 +1011,25 @@ export async function changesPage(
         <ShellRoot ctx={ctx} path={revision.head_path} mode="changes">
           <Panel
             ctx={ctx}
-            tab={c.req.query("panel") === "history" ? "history" : "files"}
+            tab={
+              c.req.query("panel") === "history"
+                ? "history"
+                : c.req.query("panel") === "links" && ctx.links.length
+                  ? "links"
+                  : "files"
+            }
             files={filesPanel}
             history={<HistoryPanel ctx={ctx} path="" all={c.req.query("history") === "all"} />}
+            links={
+              ctx.links.length ? (
+                <LinksPanel
+                  ctx={ctx}
+                  links={ctx.links}
+                  previewHref={previewHref(ctx, revision.head_path)}
+                />
+              ) : undefined
+            }
+            linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
             <div class="cmp" data-done={done}>
@@ -1087,6 +1103,14 @@ export async function changesPage(
   );
 }
 
+/** Shortens an option label at a word boundary, with an ellipsis. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 /** The revision menu's Compare… picker: choose any two revisions. */
 export function CompareDialog(props: { ctx: CollectionContext; basePub: string | null }) {
   const { ctx } = props;
@@ -1109,7 +1133,7 @@ export function CompareDialog(props: { ctx: CollectionContext; basePub: string |
                         ctx.byId.get(ctx.revision.parent_revision_id ?? "")?.public_id)
                     }
                   >
-                    #{row.display_number} · {(row.message ?? "No message").slice(0, 60)}
+                    #{row.display_number} · {clip(row.message ?? "No message", 60)}
                   </option>
                 ))}
               </select>
@@ -1119,7 +1143,7 @@ export function CompareDialog(props: { ctx: CollectionContext; basePub: string |
               <select name="head">
                 {options.map((row) => (
                   <option value={row.public_id} selected={row.id === ctx.revision.id}>
-                    #{row.display_number} · {(row.message ?? "No message").slice(0, 60)}
+                    #{row.display_number} · {clip(row.message ?? "No message", 60)}
                   </option>
                 ))}
               </select>

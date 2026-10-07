@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 
 import type { HttpServices } from "../http.js";
-import { clientAsset, cssAsset, pagesAsset } from "./assets.js";
+import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.js";
 import { getChrome } from "./chrome.js";
 import { collectionPage, notFound } from "./pages/collection.js";
 import { recentPage } from "./pages/recent.js";
@@ -23,6 +23,15 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
             "content-type": asset.type,
             "cache-control": "public, max-age=31536000, immutable",
           },
+        }),
+    );
+  // Browsers also ask for /favicon.ico on pages without a <link rel="icon"> (raw files).
+  for (const path of [faviconAsset.url, "/favicon.ico"])
+    app.get(
+      path,
+      () =>
+        new Response(faviconAsset.bytes, {
+          headers: { "content-type": faviconAsset.type, "cache-control": "public, max-age=86400" },
         }),
     );
   app.get("/", (c) => recentPage(s, c));
