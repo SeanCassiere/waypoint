@@ -161,5 +161,8 @@ curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
 | `blob_missing`, `blob_hash_mismatch`, `blob_too_large`, `revision_too_large` | Blob and limit problems |
 | `clock_skew`, `stale_id`, `id_before_parent` | Client ID rejected; mint a new one (`details.parent_timestamp` on the last) |
 | `revision_conflict` (409) | ID reused for a different collection or parent |
-| `collection_not_found`, `collection_deleted`, `collection_purged` | Collection state |
-| `parent_not_found`, `parent_failed` | Parent problems (`details.revision_id`) |
+| `collection_not_found` (404), `collection_deleted` (410), `collection_purged` (410) | Collection state |
+| `parent_not_found` (422), `parent_failed` (422) | Parent problems (`details.revision_id`) |
+| `not_found` (404) | Generic read miss: unknown revision, path, or URL |
+
+Validation and path errors are 400. `blob_missing` and `blob_hash_mismatch` are 422. Size-limit errors are 413. ID errors are 400.

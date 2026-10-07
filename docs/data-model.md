@@ -37,6 +37,7 @@ Format: `<3-letter prefix>_<26 lowercase Crockford base32 chars>`, where the bod
 - **Derived, not random.** The same ID always yields the same public ID. A retried write committed by two writers produces byte-identical rows, so last-push-wins resolves them harmlessly, and URLs already handed out never change.
 - **Revision public IDs are globally unique,** so a URL can name a revision without its collection (`/raw/r/<id>/…`).
 - **`UNIQUE(public_id)` on both tables.** At 10⁵ entities the collision probability is about 10⁻⁹.
+- **Golden vector:** `publicIdFor('col_01j9qz7x2bm4d8vk3np6rt9hcs') = 'apwyysc2zcj6'`. The derivation must never change, because URLs depend on it.
 - **Never API input.** Agents and the API use IDs, and every response also includes URLs. `resolve_url` maps a URL back to IDs.
 - **Lowercased at the router boundary.**
 
@@ -127,7 +128,7 @@ CREATE TABLE schema_migrations (
 - **Collection "updated at":** the timestamp embedded in its latest revision's ID.
 - **Deleted:** a tombstone row exists.
 - **Rendition to serve:** `MAX(renderer_version)` for `(source_hash, renderer)`.
-- **Is markdown:** `mime = 'text/markdown'`, inferred from the `.md` and `.markdown` extensions when not given.
+- **Is markdown:** `mime = 'text/markdown'`, inferred from the `.md` and `.markdown` extensions when not given. MIME types are normalized at ingest to their lowercase essence (`type/subtype`, parameters stripped), so exact comparison works.
 
 ## Invariants
 
@@ -136,9 +137,11 @@ CREATE TABLE schema_migrations (
 3. **Every revision's head path is in its manifest.**
 4. **Paths** in a revision must be:
    - relative, using `/` separators, with no leading `/` and no empty, `.`, or `..` segments
-   - NFC-normalized
-   - at most 512 bytes
-   - not case-only duplicates of another path in the same revision
+   - NFC-normalized, well-formed Unicode (no lone surrogates), with no control characters (C0, DEL, C1) and no backslashes
+   - at most 512 bytes in UTF-8
+   - not a case-only duplicate of another path in the same revision. Comparison is per segment, after NFC and `toLowerCase()`, so `Img/a.png` and `img/b.png` also conflict.
+   - not using a file path as a directory: a file `a` and a path `a/b` can't coexist
+   - not starting with the segment `r`. `r/` is reserved, because `/c/<id>/r/<rev>/…` is the pinned-revision URL.
 5. **Fixed placement.** A revision's collection and parent never change.
 6. **Parent before child.** A child revision is committed only after its parent has been committed.
 7. **Revision limits.** A revision holds at most 2,000 files and 500 MB in total, and each blob is at most 50 MB. All three limits are configurable.
