@@ -37,7 +37,7 @@ The tailnet is trusted, with full read and write access and no auth. The public 
 ## Core principles
 
 - **IDs identify; they don't authorize.** IDs and public IDs end up in logs, screenshots, and chat. Access always comes from a separate, revocable grant.
-- **Insert-only by default.** Revisions, files, blobs, and renditions are only ever inserted. The only in-place updates are a collection's title and metadata. This is what makes multiple writers safe under Turso's last-push-wins sync.
+- **Insert-only by default.** Revisions, files, blobs, and renditions are only ever inserted. The only in-place updates are a collection's title and metadata, and a share link's revocation and expiry. This is what makes multiple writers safe under Turso's last-push-wins sync.
 - **Upload the blob before inserting the row.** A row in the synced DB always refers to content that is already in the bucket, so the cloud never has dangling references.
 - **Content-addressed storage.** Identical content is stored and uploaded once, however many revisions use it.
 - **Local first, cloud durable.** Writes land locally and render immediately. A background committer moves them to the cloud and retries through outages.

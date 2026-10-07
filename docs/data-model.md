@@ -8,7 +8,7 @@ Conventions:
 - Timestamps are `INTEGER` Unix milliseconds.
 - JSON columns are `TEXT` holding a JSON object.
 - ID columns use the default `BINARY` collation, never `NOCASE`.
-- **`PRAGMA foreign_keys` is OFF on `waypoint.db`.** Rows pulled from other writers may arrive in any order, so the `REFERENCES` clauses are documentation only. The committer enforces the invariants instead. Spike S1 confirmed that pulls bypass FK enforcement even with the pragma on: a child row was applied before its parent existed.
+- **`PRAGMA foreign_keys` is OFF on `waypoint.db`.** Rows pulled from other writers may arrive in any order, so the `REFERENCES` clauses are documentation only. The committer enforces the invariants instead. Spike S1 confirmed that pulls bypass FK enforcement even with the pragma on: a child row was applied before its parent existed ([Turso Sync notes](turso-sync-notes.md#sync-semantics-s1)).
 - A share link may be created while its collection or pinned revision is still queued. Its row can precede the target row in `waypoint.db` and the cloud. The reader joins to the target and returns 404 until the target is present; purging the queued collection removes the link.
 
 ## IDs
@@ -147,7 +147,7 @@ CREATE TABLE schema_migrations (
 ## Invariants
 
 1. **Blob before row.** A `blobs` row exists only once the object is in the bucket. A `revision_files` or `renditions` row is inserted only together with, or after, the `blobs` rows it references. As a result, the cloud DB never references a missing object.
-2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` (phase 2) and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
+2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
 3. **Every revision's head path is in its manifest.**
 4. **Paths** in a revision must be:
    - relative, using `/` separators, with no leading `/` and no empty, `.`, or `..` segments
@@ -177,7 +177,7 @@ Turso Sync currently has open bugs: `RENAME`, `DROP COLUMN`, `RENAME COLUMN`, an
 - **Additive only.** Migrations add tables, nullable columns, and indexes. Nothing is renamed or dropped; to deprecate something, stop reading it.
 - **Idempotent and automatic.** Migrations use `IF NOT EXISTS` and guarded `ADD COLUMN`, run at writer startup, and are recorded in `schema_migrations`.
 - Prefer a new table over a new column on a heavily used table.
-- **Rehearsed.** Every migration is tested against two local replicas using `tursodb --sync-server` before it ships (spike S4 builds the harness).
+- **Rehearsed.** `tests/sync.test.ts` (needs `TURSODB_BIN`) runs the full migration set on one replica, pushes to a local `tursodb --sync-server`, bootstraps a second replica and migrates it again, so every new migration is checked for idempotence across replicas. A migration that alters an existing table should also be rehearsed against a replica that already holds data, as spike S4 did ([Turso Sync notes](turso-sync-notes.md#migration-rehearsal-s4)).
 
 ## Future tables (not built; listed to show they fit)
 

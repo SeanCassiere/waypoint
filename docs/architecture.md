@@ -22,13 +22,13 @@
    └─────────▲─────────┘           └─────────▲─────────┘
              │ read-only S3 API                │ read-only token (HTTP)
    ┌─────────┴──────────────────────────────┴─────────┐
-   │  Reader  (Cloudflare Worker, Hono) — phase 2      │
+   │  Reader  (Cloudflare Worker, Hono)                │
    │  waypoint.pingstash.com — share links only        │
    └───────────────────────────▲───────────────────────┘
                                │ public internet
 ```
 
-### Writer (phase 1)
+### Writer
 - A long-running Node process on a tailnet machine; agent-1 today.
 - Runs in Docker on agent-1 behind its own Tailscale sidecar node, reachable at `https://waypoint.tail7aca06.ts.net`. The host's Tailscale setup is untouched (see [infrastructure.md](infrastructure.md)).
 - Serves three things:
@@ -58,13 +58,13 @@ The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keye
 
 Running a statement prepared before a schema change aborts the process inside the engine. The cache is cleared after any statement or `exec` containing `CREATE`, `ALTER` or `DROP`, and after every pull that changed the database. A pull runs outside the connection chain, so a statement queued between the end of the pull and the reset could still run against a schema the pull changed. Only this writer's own migrations change the cloud schema, and they run at startup before anything is served, so that window isn't reachable in practice. The deploy runbook covers [memory checks](../deploy/README.md#memory).
 
-### MCP server (phase 1)
+### MCP server
 - A small local **stdio** process on each machine where agents run, started with `npx` and configured with `WAYPOINT_URL`.
 - Runs locally because agents' files are on *their* machine's disk. The MCP server reads files by path, hashes them, uploads only the blobs the writer doesn't have, and then submits the revision. Passing large files or images as base64 in tool arguments is avoided entirely.
 - Agents without the MCP server can use the HTTP API's multipart endpoint with `curl`.
 
-### Reader (phase 2)
-- A Cloudflare Worker on `waypoint.pingstash.com`.
+### Reader
+- A Cloudflare Worker on `waypoint.pingstash.com` (prod), with a dev twin on `waypoint-dev.pingstash.com`. Both deploy automatically after the writer.
 - Reads metadata from Turso through `@tursodatabase/serverless` with a **read-only** token, and reads blobs through R2's S3 API with bucket-scoped **Object Read only** credentials (D38).
 - Serves only what a share link permits. See [public-reader.md](public-reader.md).
 
@@ -90,12 +90,12 @@ apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,
                    queue.db, committer, viewer UI
   reader/          Workers adapter: read-only R2 S3 API, @tursodatabase/serverless,
-                   Cache API, Analytics Engine (phase 2)
+                   Cache API, Analytics Engine
 ```
 
 - `core` and `ui` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
 - The reader's build fails if anything Node-only leaks in. A separate tsconfig and the package `exports` conditions enforce this.
-- Proposed tooling: a pnpm workspace with TypeScript, Hono on both runtimes, the MCP TypeScript SDK, `typeid-js`, and `@aws-sdk/client-s3` for R2.
+- Tooling: a pnpm workspace with TypeScript, Hono on both runtimes, the MCP TypeScript SDK, `typeid-js`, and `@aws-sdk/client-s3` for R2.
 
 ## Data flow summary
 
@@ -113,7 +113,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 
 **Read on the tailnet.** The writer resolves the URL against `waypoint.db`, then `queue.db`. It streams the blob from the local store, falling back to R2 and caching locally on a miss.
 
-**Read in public** (phase 2). The reader validates the share token against the cloud DB, resolves the path to a blob or rendition, and streams it from R2 with immutable caching.
+**Read in public.** The reader validates the share token against the cloud DB, resolves the path to a blob or rendition, and streams it from R2 with immutable caching.
 
 ## URLs
 
@@ -123,8 +123,8 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 | `/c/<collection public id>/<path>` | Viewer for a file in the latest revision |
 | `/c/<collection public id>/r/<revision public id>/<path>` | Viewer for a file in a pinned revision |
 | `/raw/r/<revision public id>/<path>` | Raw content of a file. Markdown returns its HTML rendition; add `?source` for the original. |
-| `/assets/<renderer version>/<file>` | Static, non-secret JS and CSS that renditions may reference |
-| `/s/<token>/c/…`, `/s/<token>/raw/r/…` | (Reader, phase 2) the shell and raw routes behind a share token. See [public-reader.md](public-reader.md#urls). |
+| `/assets/<renderer version>/<file>` | Reserved for static, non-secret JS and CSS that renditions may reference. No renderer version uses it yet. |
+| `/s/<token>/c/…`, `/x/<link id>.<cap>/r/…` | (Reader) the share shell behind a share token, and raw content behind a derived per-revision capability. See [public-reader.md](public-reader.md#urls). |
 
 - **The viewer** is a shell: file sidebar, revision picker, and an iframe showing the raw content.
 - **Raw URLs are always pinned to a revision.** Relative links inside a document therefore resolve within the same revision even when the viewer is showing "latest".
@@ -136,7 +136,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 
 - **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request. After a renderer version bump, `waypoint-writer rerender` gives existing markdown a rendition at the new version (see [Re-rendering](#re-rendering-after-a-version-bump)).
 - **Self-contained.** CSS is inlined, and syntax highlighting is done at render time, also inlined. As a result a rendition displays correctly with no internet access on the tailnet, and the reader only has to stream it.
-- **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`. Both the writer and the reader serve that path as static files, with no token.
+- **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`, which both the writer and the reader would then serve as static files, with no token. No version needs this yet: renditions are self-contained, and the reader returns 404 there.
 - **No CDNs.** Renditions never reference external CDNs.
 - **Deterministic and bounded.** Output depends only on the input bytes and the renderer version, never on time, load, or host settings, because renditions are content-addressed:
   - Highlighting has no time limit, but lines over 5,000 characters and fences over 100 KB are shown as plain text.

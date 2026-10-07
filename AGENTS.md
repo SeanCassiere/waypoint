@@ -105,7 +105,7 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 - Node 24, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
 - Real-Chromium tests run after `pnpm build`: `pnpm test:browser` (writer viewer) and `pnpm test:browser:reader` (public reader shell). They use Playwright's Chromium (`pnpm exec playwright install --only-shell chromium`), or `CHROME_PATH` if set. CI runs both in its `browser` job.
 - Sync tests need a local Turso sync server: `bash scripts/fetch-tursodb.sh`, then set `TURSODB_BIN` to the extracted `tursodb` binary.
-- Local writer without any cloud: set `WAYPOINT_SYNC=off` (refused when `WAYPOINT_ENV=prod`).
+- Local writer without any cloud, after `pnpm build`: `WAYPOINT_ENV=dev WAYPOINT_SYNC=off WAYPOINT_DATA_DIR=$(mktemp -d) WAYPOINT_PORT=7411 node apps/writer/dist/main.js serve` (sync off is refused in prod; always pass a scratch `WAYPOINT_DATA_DIR`, since the default is the real dev writer's `~/.local/share/waypoint/dev`). For UI work, `node scripts/demo-writer.ts [port]` starts one on port 7421 with seeded collections, history, share links and Trash.
 - Local writer against the **dev** cloud: `set -a; . ~/.config/waypoint/dev.env; set +a; node apps/writer/dist/main.js serve`. `scripts/live-smoke.ts` exercises it end to end and refuses prod.
 - Specs live in [docs/](docs/). Update them in the same PR when behavior changes; [docs/decisions.md](docs/decisions.md) records why things are the way they are.
 - Lint config is `oxlint.config.ts`; formatting is `oxfmt.config.ts`. No blanket lint disables.

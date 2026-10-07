@@ -3,7 +3,7 @@
 Step-by-step instructions for obtaining every external resource and credential Waypoint needs, for both halves of the system:
 
 - **Local writer**: the tailnet write side ([Part 1](#part-1-local-writer)). Phase 1; provisioned.
-- **Cloud reader**: the public read-only Cloudflare Worker ([Part 2](#part-2-cloud-reader)). Phase 2.
+- **Cloud reader**: the public read-only Cloudflare Worker ([Part 2](#part-2-cloud-reader)). Phase 2; provisioned and live.
 
 [infrastructure.md](infrastructure.md) is the checklist of *what* exists. This page explains *how to create it again*: for a new environment, a rebuild, or rotating credentials. Every step can be done by a person, or handed to an agent with computer use, which reports back the values listed under **Record**.
 

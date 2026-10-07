@@ -4,7 +4,12 @@ import { DatabaseSync } from "node:sqlite";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
+import {
+  createReaderApp,
+  LOOKUP_TTL_MS,
+  type ReaderDb,
+  type ReaderEnv,
+} from "../apps/reader/src/app.js";
 import { deniedPage } from "../apps/reader/src/pages.js";
 import { waypointMigrations } from "../apps/writer/src/migrations.js";
 import { hashShareToken, newShareToken } from "../packages/core/src/index.js";
@@ -198,6 +203,8 @@ const bindings = () => ({
 });
 const get = (path: string, headers: Record<string, string> = {}) =>
   app.request(`https://waypoint.pingstash.com${path}`, { headers }, bindings());
+/** Share-link lookups the reader has sent to the database so far. */
+const linkQueries = () => queries.filter((sql) => sql.includes("FROM share_links")).length;
 async function snap(res: Response) {
   return {
     status: res.status,
@@ -228,10 +235,46 @@ describe("adversarial reader probes", () => {
     db.prepare("UPDATE share_links SET revoked_at=1 WHERE token_hash=?").run(
       await hashShareToken(tokens.follow),
     );
-    clock += 29_999;
+    clock += LOOKUP_TTL_MS - 1;
     expect((await get(`/s/${tokens.follow}/c/${A.pub}/`)).status).toBe(200);
     clock += 2;
     expect((await get(`/s/${tokens.follow}/c/${A.pub}/`)).status).toBe(404);
+  });
+  it("denies a revoked link on shell and raw routes once the 5 s lookup TTL passes", async () => {
+    expect(LOOKUP_TTL_MS).toBe(5_000);
+    const shell = `/s/${tokens.follow}/c/${A.pub}/`;
+    const file = raw(tokens.follow, A2.pub, "index.html");
+    expect((await get(shell)).status).toBe(200);
+    expect((await get(file)).status).toBe(200);
+    const before = linkQueries();
+    // Within the TTL, repeat requests are served from the isolate cache: no Turso lookups.
+    clock += 2_000;
+    for (let i = 0; i < 5; i++) {
+      expect((await get(shell)).status).toBe(200);
+      expect((await get(file)).status).toBe(200);
+    }
+    expect(linkQueries()).toBe(before);
+    db.prepare("UPDATE share_links SET revoked_at=? WHERE token_hash=?").run(
+      clock,
+      await hashShareToken(tokens.follow),
+    );
+    // The entries were cached at 5000 ms, so they expire at 10 000 ms.
+    clock = 5_000 + LOOKUP_TTL_MS;
+    expect((await get(shell)).status).toBe(404);
+    expect((await get(file)).status).toBe(404);
+    // A denial is never cached: each later request re-queries and stays denied.
+    const denied = linkQueries();
+    expect((await get(shell)).status).toBe(404);
+    expect(linkQueries()).toBe(denied + 1);
+  });
+  it("never caches a miss, so a link that reaches the cloud later works at once", async () => {
+    const late = newShareToken();
+    const shell = `/s/${late}/c/${A.pub}/`;
+    expect((await get(shell)).status).toBe(404);
+    db.prepare(
+      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,1)",
+    ).run("shl_" + "9".repeat(26), await hashShareToken(late), A.id, null, null, null);
+    expect((await get(shell)).status).toBe(200);
   });
   it("accepts normalized Unicode paths and rejects a tampered capability", async () => {
     const nfd = encodeURIComponent("café.txt".normalize("NFD"));
