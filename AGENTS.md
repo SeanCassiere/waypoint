@@ -81,6 +81,7 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 ## Developing
 
 - Node 24, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
+- Real-Chromium tests run after `pnpm build`: `pnpm test:browser` (writer viewer) and `pnpm test:browser:reader` (public reader shell). They use Playwright's Chromium (`pnpm exec playwright install --only-shell chromium`), or `CHROME_PATH` if set. CI runs both in its `browser` job.
 - Sync tests need a local Turso sync server: `bash scripts/fetch-tursodb.sh`, then set `TURSODB_BIN` to the extracted `tursodb` binary.
 - Local writer without any cloud: set `WAYPOINT_SYNC=off` (refused when `WAYPOINT_ENV=prod`).
 - Local writer against the **dev** cloud: `set -a; . ~/.config/waypoint/dev.env; set +a; node apps/writer/dist/main.js serve`. `scripts/live-smoke.ts` exercises it end to end and refuses prod.

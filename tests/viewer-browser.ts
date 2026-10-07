@@ -94,8 +94,10 @@ try {
   const latest = new URL(first.latest_url).pathname;
   const pinned = new URL(first.url).pathname;
   const secondPinned = new URL(second.url).pathname;
+  // Playwright's own Chromium (`pnpm exec playwright install chromium`), or CHROME_PATH.
+  const executablePath = process.env.CHROME_PATH;
   browser = await chromium.launch({
-    executablePath: "/usr/bin/google-chrome",
+    ...(executablePath ? { executablePath } : {}),
     headless: true,
     args: ["--no-sandbox"],
   });

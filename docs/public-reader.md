@@ -91,7 +91,7 @@ The two static pages are fixed constants in `apps/reader/src/pages.ts` with one 
 | Bare root | exactly `/` (GET and HEAD) | 200 | `Cache-Control: public, max-age=3600`; `Cross-Origin-Opener-Policy: same-origin`; CSP `default-src 'none'; style-src 'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` |
 | Denial | everything not allowed, for every reason | 404 | `Cache-Control: no-store`; the same COOP and CSP |
 
-The denial page is byte-identical for every reason, including blocked IPs and errors, with the same headers. `tests/reader-security.test.ts` checks this across 25 denial cases, GET and HEAD, and `tests/reader-browser.ts` (run after `pnpm build` with `node --experimental-strip-types tests/reader-browser.ts`) checks the shell in Chromium: CSP, the message listener, token exposure, sandbox escapes and COOP. The root page carries no token or collection data, so it is safe for shared caches, and uptime checks can probe it.
+The denial page is byte-identical for every reason, including blocked IPs and errors, with the same headers. `tests/reader-security.test.ts` checks this across 25 denial cases, GET and HEAD, and `tests/reader-browser.ts` (run after `pnpm build` with `pnpm test:browser:reader`; CI runs it) checks the shell in Chromium: CSP, the message listener, token exposure, sandbox escapes and COOP. The root page carries no token or collection data, so it is safe for shared caches, and uptime checks can probe it.
 
 ## Safeguards (enforced by structure, not convention)
 

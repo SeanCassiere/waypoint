@@ -36,3 +36,20 @@ jobs:
       # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
       - name: Build writer image
         run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
+  # Real-Chromium checks of the writer viewer and the public reader shell (CSP, sandboxing,
+  # navigation). Runs alongside `check`; needs only a build, not the test suite.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+      - run: pnpm build
+      - run: pnpm test:browser
+      - run: pnpm test:browser:reader
