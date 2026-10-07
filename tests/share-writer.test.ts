@@ -463,6 +463,10 @@ async function createdId(response: Response): Promise<string> {
   return id;
 }
 async function queryCount(path: string): Promise<number> {
+  // Let background committer passes (e.g. the standalone-rendition step) finish so
+  // their queries aren't attributed to the page being measured.
+  await worker.drain();
+  await worker.drain();
   const spies = [
     vi.spyOn(queue, "all"),
     vi.spyOn(queue, "get"),
