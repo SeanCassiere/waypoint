@@ -11,6 +11,7 @@
   },
   "include": [
     "tests/**/*.ts",
+    "packages/*/tests/**/*.ts",
     "scripts/**/*.mjs",
     "oxlint.config.ts",
     "oxfmt.config.ts",
