@@ -20,13 +20,14 @@ Phase 2 implements the writer share-link API and the read-only Worker. Deploymen
 ```
 
 - **The shell token is in its path. Raw content uses a derived per-revision capability, so document scripts cannot read the full share token from their URL. Relative links and images resolve under the same capability prefix.
-- **The shell** is a minimal page: title, file sidebar, and an iframe. It iframes the raw route **pinned to the resolved revision**, so one page never mixes files from two revisions. Share viewers never see a revision picker.
+- **The shell** is the Folio public shell (see [Shell and static pages](#shell-and-static-pages)): a quiet letterhead, the file tabs or a "Files (N)" tree, and an iframe. It iframes the raw route **pinned to the resolved revision**, so one page never mixes files from two revisions. Share viewers never see a revision picker.
 - **Pinned links:** for a share link pinned to a revision, the raw route requires `rpub` to be that revision. Anything else returns 404.
+- **The bare root** `/` is a fixed explanatory page that returns **200**. It is the only URL outside `/s/` and `/x/` that isn't a denial; `/index.html`, `/s`, `/s/` and everything else get the denial page.
 - **Assets:** `/assets/…` is reserved for future renderer assets. Current renditions are self-contained (D31), so there is no asset to serve and these URLs return 404.
 
 ## Access model
 
-- **Deny by default.** Every shell request needs a valid share token; raw requests need a valid derived capability. Anything else returns **404**, never 403, so the reader never confirms that something exists.
+- **Deny by default.** Every shell request needs a valid share token; raw requests need a valid derived capability. Anything else returns **404**, never 403, so the reader never confirms that something exists. The one exception is the bare root `/`, which has nothing to confirm (see below).
 - **Token format:** `wps_` plus 32 random bytes, base64url. The prefix lets secret scanners spot leaked tokens. Only `sha256:` followed by 64 lowercase hexadecimal SHA-256 digits of the complete token is stored in `share_links.token_hash`.
 - **Following vs. pinned:**
   - A link with `revision_id = NULL` follows the latest synced revision.
@@ -70,6 +71,26 @@ Implementation: collection snapshots remain `format_version: 1` with an optional
 
 Implementation values: share-link lookup entries live in isolate memory for 30 seconds (maximum 1,000 entries before clearing); blob Cache API entries use same-origin internal URLs under `/__internal/blob/<hash>`, keyed only by `sha256:` hash. That route is not publicly served. The Rate Limiting binding counts denials only (any denial reason), permitting 30 per IP per 60 seconds. When it rejects a denial, that isolate blocks the IP for 60 seconds in a bounded 10,000-entry LRU map. During that window even a valid request from the same IP receives the same 404 without a DB or R2 call; this can happen only after more than 30 denials. Blocked and ordinary denials have identical status, body, and headers. A missing binding skips rate limiting; a missing Analytics Engine binding skips access logging in local tests. All outgoing raw responses use `private, no-cache` to recheck revocation and latest-revision scope; markdown also has an ETag because a newer rendition may replace the prior one.
 
+## Shell and static pages
+
+The shell markup and CSS live in `packages/ui` (`renderPublicShell`, `publicShellCss`, `publicShellScript`), shared with the writer's `?as=public` preview. The reader supplies every URL: tab links (`/s/<token>/c/<pub>/[r/<rpub>/]<path>`) and the iframe's capability prefix (`/x/<link>.<cap>/r/<rpub>/`).
+
+- **Letterhead:** the collection title, then "Updated <time>" for links that follow the latest or a pin icon with "Snapshot from <time>" for single-revision links, and "Read-only · shared with you" (hidden on phones). The time is rendered in UTC and localized by the shell script. There is no Waypoint branding and no link back to the tailnet.
+- **Files:** no strip for one file; one tab per file up to 8 (head first); above 8, a "Files (N)" `<details>` tree (head first, folders collapsed above 200 files except the current file's). Tabs and tree entries are server-rendered links, so the shell works without JavaScript. Rendering is one pass over the sorted paths, so 2,000 files stay well under the CPU budget.
+- **Document:** `<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer">` on the capability URL. Files that can't be shown in a sandboxed frame (anything but text and images) get a download card linking to the same capability URL.
+- **Navigation:** CSS-only cross-document view transitions (`@view-transition { navigation: auto }`, 160 ms crossfade), switched off under `prefers-reduced-motion: reduce`.
+- **CSP:** `default-src 'none'; style-src 'sha256-<css>'; script-src 'sha256-<script>'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, plus `X-Frame-Options: DENY`. The shell has exactly one inline `<style>` and one inline `<script>` and no `style` attributes or event handlers; the reader hashes both on first use. There are no external assets.
+- **Shell script:** it localizes `<time>` elements and listens for the v2 rendition's `{ type: "waypoint:location", href }` message. It accepts a message only when `event.source` is the iframe's own window, and treats `href` as untrusted: the URL must be under the iframe's capability prefix and decode to a path already linked in the shell. It then moves `aria-current`, sets the iframe title, and calls `history.replaceState` with that link's own server-rendered URL, never with message data.
+
+The two static pages are fixed constants in `apps/reader/src/pages.ts` with one shared `<style>` element (one hash), no script, no links and no `style` attributes:
+
+| Page | URL | Status | Headers besides `X-Robots-Tag`, `Referrer-Policy: no-referrer`, `nosniff`, `Content-Type` |
+|---|---|---|---|
+| Bare root | exactly `/` (GET and HEAD) | 200 | `Cache-Control: public, max-age=3600`; CSP `default-src 'none'; style-src 'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` |
+| Denial | everything not allowed, for every reason | 404 | `Cache-Control: no-store`; the same CSP |
+
+The denial page is byte-identical for every reason, including blocked IPs and errors, with the same headers. The root page carries no token or collection data, so it is safe for shared caches, and uptime checks can probe it.
+
 ## Safeguards (enforced by structure, not convention)
 
 The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
@@ -83,9 +104,10 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 | Not indexable | `X-Robots-Tag: noindex, nofollow` on every response; `robots.txt` disallows everything |
 | No token leakage to document scripts | Raw iframes use a derived per-revision capability; `Referrer-Policy: no-referrer` is on every response |
 | No enumeration | 404 for everything not explicitly allowed; rate limiting before metadata lookup |
-| No stale shared caches | `Cache-Control: private` on all tokenized responses |
+| No stale shared caches | `Cache-Control: private` on all tokenized responses; `no-store` on denials |
 | Environment isolation | The prod reader is bound only to the prod bucket and the prod DB |
 | Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
+| Shell runs only its own code | Hash-only CSP for the one inline style and script; frame messages are validated against the frame's window and the shell's own links |
 
 ## Later (not phase 2)
 
