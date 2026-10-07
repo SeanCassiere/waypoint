@@ -1,5 +1,7 @@
-import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import {
   isContentHash,
@@ -8,6 +10,7 @@ import {
   validateClientId,
   isTextMime,
   WaypointError,
+  withBase,
   type CreateCollectionRequest,
   type AddRevisionRequest,
 } from "@waypoint/core";
@@ -27,6 +30,7 @@ export interface HttpServices {
   reads: ReadModel;
   ingest: IngestService;
   port?: number;
+  mcpTarballPath?: string;
 }
 async function parseJson(c: Context): Promise<unknown> {
   const type = c.req.header("content-type") ?? "";
@@ -117,6 +121,17 @@ function addRequest(input: unknown): AddRevisionRequest {
 }
 export function createApp(s: HttpServices): Hono {
   const app = new Hono();
+  const tarballPath =
+    s.mcpTarballPath ??
+    fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
+  const tarball = readFile(tarballPath).then(
+    (bytes) => ({ bytes, hash: createHash("sha256").update(bytes).digest("hex") }),
+    (error: unknown) => {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+        return undefined;
+      throw error;
+    },
+  );
   app.onError((error, c) => {
     if (isWaypointError(error))
       return new Response(JSON.stringify(error.toBody()), {
@@ -160,6 +175,42 @@ export function createApp(s: HttpServices): Hono {
     await next();
   });
   app.get("/healthz", (c) => c.json({ ok: true }));
+  app.get("/mcp", async () => {
+    const loaded = await tarball;
+    const tarballUrl = withBase(
+      s.reads.baseUrl,
+      `/mcp/waypoint-mcp${loaded ? `-${loaded.hash.slice(0, 12)}` : ""}.tgz`,
+    );
+    const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint.\n\nClaude Code:\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n`;
+    return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+  });
+  app.get("/mcp/:filename", async (c) => {
+    const loaded = await tarball;
+    if (!loaded) return new Response("MCP tarball not built", { status: 404 });
+    const versioned = `waypoint-mcp-${loaded.hash.slice(0, 12)}.tgz`;
+    if (c.req.param("filename") !== "waypoint-mcp.tgz" && c.req.param("filename") !== versioned)
+      return new Response("Not found", { status: 404 });
+    const { bytes, hash } = loaded;
+    const etag = `"sha256-${hash}"`;
+    const headers = {
+      "content-type": "application/octet-stream",
+      "content-length": String(bytes.length),
+      etag,
+      "cache-control":
+        c.req.param("filename") === versioned ? "public, max-age=31536000, immutable" : "no-cache",
+    };
+    if (
+      c.req
+        .header("if-none-match")
+        ?.split(",")
+        .some((item) => {
+          const token = item.trim().replace(/^W\//, "");
+          return token === etag || token === "*";
+        })
+    )
+      return new Response(null, { status: 304, headers });
+    return new Response(bytes, { headers });
+  });
   app.post("/api/blobs/check", async (c) => {
     const body = validated(z.object({ hashes: z.array(z.string()) }), await parseJson(c));
     if (

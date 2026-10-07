@@ -7,7 +7,7 @@
     "format": "oxfmt --write .",
     "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "build": "tsc -b tsconfig.build.json",
+    "build": "tsc -b tsconfig.build.json && pnpm --filter @waypoint/mcp bundle",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "core:guard": "node scripts/check-core-imports.mjs",
     "format:check": "oxfmt --check ."

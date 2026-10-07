@@ -20,7 +20,7 @@ function publicId(id: string): PublicId {
 function encodePath(path?: string): string {
   return path === undefined ? "" : validatePath(path).split("/").map(encodeURIComponent).join("/");
 }
-function withBase(base: string, route: string): string {
+export function withBase(base: string, route: string): string {
   let url: URL;
   try {
     url = new URL(base);

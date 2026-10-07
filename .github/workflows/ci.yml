@@ -27,3 +27,4 @@ jobs:
         env:
           TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb
       - run: pnpm build
+      - run: pnpm --filter @waypoint/mcp smoke
