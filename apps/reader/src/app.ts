@@ -85,6 +85,13 @@ const deniedHeaders = staticHeaders("no-store");
 const denied = (): Response => new Response(deniedPage, { status: 404, headers: deniedHeaders });
 /** Content the sandboxed iframe can show; anything else gets the download card. */
 const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
+/**
+ * How long an isolate trusts a live link lookup. This bounds revocation latency after the
+ * writer's push; each isolate queries Turso at most once per link per window.
+ */
+export const LOOKUP_TTL_MS = 5_000;
+/** Lookup entries per isolate before the cache is cleared. */
+const LOOKUP_CACHE_MAX = 1_000;
 const linkSql =
   "SELECT s.id,s.collection_id,s.revision_id,s.expires_at,s.revoked_at,c.public_id,c.title,t.deleted_at,pr.public_id AS pinned_public_id,pr.head_path AS pinned_head_path,pr.created_at AS pinned_created_at FROM share_links s JOIN collections c ON c.id=s.collection_id LEFT JOIN collection_tombstones t ON t.collection_id=c.id LEFT JOIN revisions pr ON pr.id=s.revision_id AND pr.collection_id=s.collection_id WHERE ";
 function decodeRawPath(encoded: string): string {
@@ -177,15 +184,23 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     await count(env, ip);
     return denied();
   }
+  /**
+   * Looks up a link by token hash (shell) or link ID (raw). Only live links are cached, for
+   * LOOKUP_TTL_MS, so a revocation pushed by the writer takes effect within that window.
+   * Misses, revoked links and tombstoned collections are never cached: they always re-query.
+   */
   async function lookup(db: ReaderDb, kind: "token" | "id", value: string): Promise<Link | null> {
     const key = kind === "token" ? await hashShareToken(value) : value;
     const cached = lookupCache.get(key);
     if (cached && cached.until > now()) return cached.link;
+    if (cached) lookupCache.delete(key);
     const row =
       (await db.all<Link>(`${linkSql}s.${kind === "token" ? "token_hash" : "id"}=?`, [key]))[0] ??
       null;
-    if (lookupCache.size > 1000) lookupCache.clear();
-    lookupCache.set(key, { until: now() + 30_000, link: row });
+    if (row && row.revoked_at === null && row.deleted_at === null) {
+      if (lookupCache.size >= LOOKUP_CACHE_MAX) lookupCache.clear();
+      lookupCache.set(key, { until: now() + LOOKUP_TTL_MS, link: row });
+    }
     return row;
   }
   async function blobResponse(

@@ -44,7 +44,7 @@ All secrets on agent-1 are in `~/.config/waypoint/` (directory mode 700, files 6
 
 - **Format:** `https://waypoint.pingstash.com/s/<token>/c/<collection public id>/…`. The token is `wps_` plus 32 random bytes, base64url-encoded. The prefix makes leaked tokens easy for secret scanners to spot.
 - **Scope:** one collection. A link either **follows the latest** revision or is **pinned** to one revision (D20). Viewers of a following link never see older revisions, since an older revision may contain something later removed.
-- **Lifecycle:** created and revoked only on the tailnet. They can carry an expiry. Revocation takes effect within about 60 s (the reader's lookup cache plus the writer's push).
+- **Lifecycle:** created and revoked only on the tailnet. They can carry an expiry. Revocation takes effect within about 5 s of the writer's push, which starts immediately after the revoke (the reader caches live links for at most 5 s per isolate and never caches denials).
 - **Tombstones win:** deleting a collection makes every link to it return 404. Undeleting reactivates links that were not revoked or expired; accepting a purge immediately revokes all its links.
 - **Properties of a capability URL**, which the owner should understand:
   - Anyone holding the URL can view the content until it's revoked or expires.
@@ -105,7 +105,7 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 | Risk | Why it's accepted |
 |---|---|
 | A compromised tailnet device can read and modify everything | The tailnet is the trust boundary by design (D2). Protect it with Tailscale device approval and key expiry if that ever matters. |
-| A leaked share URL grants access until revoked or expired | Capability-URL model. Revoke it in the writer; it takes effect within about 60 s. Passwords and audience grants are planned to narrow this. |
+| A leaked share URL grants access until revoked or expired | Capability-URL model. Revoke it in the writer; it takes effect within about 5 s of the writer's push. Passwords and audience grants are planned to narrow this. |
 | Malicious agent HTML in the tailnet viewer can call the writer API | D23. The agents are the owner's own. |
 | Turso or Cloudflare can read stored content | Accepted provider trust. There's no client-side encryption. |
 | A pushed branch can run any code on the deploy runner before review | The Preview workflow runs the PR branch's own workflow file there (D49). It's accepted only because only the owner can push, and that "owner" includes every agent, token and tool that pushes as `SeanCassiere`. Such code can reach far more than the reader credentials. The runner runs as `agent-1`, which is in the `docker`, `lxd` and `sudo` groups, so it is effectively root on agent-1. That includes every secret in `~/.config/waypoint/` (writer, Turso, R2 and Cloudflare), T3 Code and the other agent workloads, and the host's `gh` and git credentials. The runner is persistent: a job could leave behind files, Docker images or tool caches that a later deploy picks up. |
