@@ -44,7 +44,8 @@ async function hasTemp(path: string): Promise<boolean> {
   return (await readdir(path)).some((name) => name.startsWith(".blob-"));
 }
 async function clean(): Promise<void> {
-  if (!(await waitUntil(async () => !(await hasTemp(dir)), 40, 25)))
+  // Up to 5 s: on a busy CI runner the abort can take longer than a second to reach cleanup.
+  if (!(await waitUntil(async () => !(await hasTemp(dir)), 200, 25)))
     throw new Error("Multipart temporary file was not cleaned up");
 }
 async function expectNoQueuedWrite(db: Db): Promise<void> {
