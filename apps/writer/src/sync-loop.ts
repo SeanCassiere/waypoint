@@ -41,6 +41,17 @@ export class SyncLoop {
    * before it started, and the cloud has it once the push finished.
    */
   private pushes: { started: number; finished: number }[] = [];
+  /**
+   * Seeds the push log from queue.db, so after a restart everything committed before the
+   * last successful push counts as pushed at its finish time (instead of "not yet pushed"
+   * until the next push succeeds).
+   */
+  async load(): Promise<void> {
+    const row = await this.queue.get<{ started_at: number; finished_at: number }>(
+      "SELECT started_at,finished_at FROM last_push WHERE id=1",
+    );
+    if (row && !this.pushes.length) this.recordPush(row.started_at, row.finished_at);
+  }
   /** Records a successful push (pushOnce, and tests standing in for one). */
   recordPush(started: number, finished: number): void {
     this.pushes.push({ started, finished });
@@ -223,7 +234,15 @@ export class SyncLoop {
           }
         }
       if (watermark) await this.queue.run("DELETE FROM unpushed WHERE seq<=?", [watermark]);
-      this.recordPush(started, this.now());
+      const finished = this.now();
+      this.recordPush(started, finished);
+      // Best effort: losing it only means "not yet pushed" until the next push after a restart.
+      await this.queue
+        .run(
+          "INSERT INTO last_push (id,started_at,finished_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,finished_at=excluded.finished_at",
+          [started, finished],
+        )
+        .catch(() => undefined);
       this.lastOkAt = this.lastPushAt;
       this.lastAttemptFailed = false;
       this.lastError = null;

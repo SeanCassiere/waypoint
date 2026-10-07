@@ -99,6 +99,7 @@ try {
   );
   const bucket = config.sync ? new R2Bucket(config) : undefined;
   const syncLoop = new SyncLoop(queue, syncClient, Date.now, waypoint);
+  await syncLoop.load();
   const committer = bucket
     ? new WriterCommitter(
         waypoint,

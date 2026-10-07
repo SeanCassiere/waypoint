@@ -68,6 +68,14 @@ CREATE TRIGGER unpushed_assign_seq AFTER INSERT ON unpushed BEGIN
 END;
 `,
   },
+  {
+    // The last successful push survives restarts (queue.db is local-only, so writing it on
+    // every push costs no sync traffic): share-link states read "pushed" right away.
+    id: "0004_last_push",
+    sql: `
+CREATE TABLE last_push (id INTEGER PRIMARY KEY CHECK (id = 1), started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL);
+`,
+  },
 ];
 export async function migrate(
   db: Db,

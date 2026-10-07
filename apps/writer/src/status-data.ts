@@ -46,7 +46,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     s.waypoint.get<{ last_upload_at: number | null }>(
       "SELECT MAX(uploaded_at) AS last_upload_at FROM blobs",
     ),
-    s.waypoint.get<{ value: string }>("SELECT value FROM meta WHERE key='last_push_at'"),
+    s.queue.get<{ finished_at: number }>("SELECT finished_at FROM last_push WHERE id=1"),
     s.queue.all<{ id: string; last_error: string }>(
       "SELECT collection_id AS id,last_error FROM pending_snapshots WHERE last_error IS NOT NULL",
     ),
@@ -62,7 +62,6 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
   );
   const pending = rows.filter((row) => row.state === "pending");
   const failed = rows.filter((row) => row.state === "failed");
-  const pushTime = lastPush ? Number(lastPush.value) : null;
   const queueErrors = [
     ...snapshotErrors.map((row) => ({ kind: "snapshot", ...row })),
     ...deleteErrors.map((row) => ({ kind: "bucket_delete", ...row })),
@@ -103,8 +102,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     })),
     queue_errors: queueErrors,
     last_upload_at: s.committer?.lastUploadAt ?? uploads?.last_upload_at ?? null,
-    last_push_at:
-      s.syncLoop?.lastPushAt ?? (pushTime !== null && Number.isFinite(pushTime) ? pushTime : null),
+    last_push_at: s.syncLoop?.lastPushAt ?? lastPush?.finished_at ?? null,
     last_pull_at: s.ingest.sync.lastPullAt,
     last_error:
       s.committer?.accountError ??

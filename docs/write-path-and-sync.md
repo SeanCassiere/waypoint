@@ -79,6 +79,7 @@ pending_snapshots   (collection_id PRIMARY KEY, requested_at)    -- collections/
 pending_r2_deletes  (key PRIMARY KEY, requested_at)              -- bucket objects to delete
 pending_purges      (collection_id PRIMARY KEY, requested_at, step)
 unpushed            (revision_id PRIMARY KEY, committed_at)      -- committed, not yet pushed
+last_push           (id = 1, started_at, finished_at)            -- the last successful push
 ```
 
 ### Pending collections
@@ -146,7 +147,7 @@ These are idempotent and **never give up**:
 | `committed` | In `waypoint.db`, and either in `unpushed` or still in `pending_revisions` (the crash window between commit steps 5 and 6) |
 | `synced` | In `waypoint.db` and not in `unpushed`. This includes every revision pulled from other writers. |
 
-An `unpushed` row is deleted after a push succeeds, provided that push *started* after the row's `committed_at`.
+An `unpushed` row is deleted after a push succeeds, provided that push *started* after the row's `committed_at`. The same rule says when a share link's creation or revocation reached the cloud: the writer keeps recent push start and finish times in memory, seeded at startup from `last_push`, so after a restart anything committed before the last successful push already counts as pushed.
 
 ## Purge
 
