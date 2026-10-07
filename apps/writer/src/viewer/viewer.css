@@ -2482,6 +2482,10 @@ h3.sec .n {
   color: var(--muted);
   overflow: hidden;
 }
+/* Long extensions (.parquet, .sqlite) fit the 56px tile. */
+.dl .ic.long {
+  font-size: 10.5px;
+}
 .dl h2 {
   margin: 0 0 4px;
   font: 650 18px var(--mono);
@@ -2828,6 +2832,12 @@ h3.sec .n {
   ::view-transition-new(root) {
     animation-duration: 180ms;
   }
+  /* A collection title morphing from its Recent row into the header: quick and decelerating,
+     so it doesn't streak across the panel's tab strip. */
+  ::view-transition-group(*.col-title) {
+    animation-duration: 160ms;
+    animation-timing-function: ease-out;
+  }
 }
 .bar {
   view-transition-name: topbar;
@@ -2840,6 +2850,10 @@ h3.sec .n {
 }
 .revbtn {
   view-transition-name: rev-pill;
+}
+.item .tt,
+.crumbs h1 {
+  view-transition-class: col-title;
 }
 /* Transitions must never delay interaction: clicks pass through the transition overlay. */
 ::view-transition {

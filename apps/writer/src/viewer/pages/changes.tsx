@@ -705,6 +705,14 @@ export async function changesPage(
   );
 }
 
+/** Shortens an option label at a word boundary, with an ellipsis. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 /** The revision menu's Compare… picker: choose any two revisions. */
 export function CompareDialog(props: { ctx: CollectionContext; basePub: string | null }) {
   const { ctx } = props;
@@ -727,7 +735,7 @@ export function CompareDialog(props: { ctx: CollectionContext; basePub: string |
                         ctx.byId.get(ctx.revision.parent_revision_id ?? "")?.public_id)
                     }
                   >
-                    #{row.display_number} · {(row.message ?? "No message").slice(0, 60)}
+                    #{row.display_number} · {clip(row.message ?? "No message", 60)}
                   </option>
                 ))}
               </select>
@@ -737,7 +745,7 @@ export function CompareDialog(props: { ctx: CollectionContext; basePub: string |
               <select name="head">
                 {options.map((row) => (
                   <option value={row.public_id} selected={row.id === ctx.revision.id}>
-                    #{row.display_number} · {(row.message ?? "No message").slice(0, 60)}
+                    #{row.display_number} · {clip(row.message ?? "No message", 60)}
                   </option>
                 ))}
               </select>

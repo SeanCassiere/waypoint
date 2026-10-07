@@ -243,7 +243,10 @@ export function CollectionBar(props: {
         aria-label={`Revision ${revision.display_number ?? "?"}, ${props.pill ?? label.text}. Open revisions`}
       >
         #{revision.display_number ?? "?"}
-        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>▾
+        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>
+        <span class="caret" aria-hidden="true">
+          ▾
+        </span>
       </button>
       {ctx.links.some(isLive) ? (
         <a class="chip public hide-sm" href="?panel=links" title="Public links">
@@ -277,7 +280,7 @@ export function CollectionBar(props: {
         popovertarget="more-menu"
         aria-haspopup="menu"
         aria-label="More actions"
-        title="Rename · Open raw · Print · Move to Trash · Shortcuts"
+        title="More actions"
       >
         ⋯
       </button>
@@ -907,7 +910,9 @@ function DownloadCard(props: { path: string; size: number; mime: string; raw: st
   return (
     <div class="scroll">
       <div class="dl">
-        <div class="ic">{ext(props.path)}</div>
+        <div class={`ic${ext(props.path).length > 5 ? " long" : ""}`} aria-hidden="true">
+          {ext(props.path)}
+        </div>
         <h2>{props.path}</h2>
         <p class="muted">
           {bytes(props.size)} · {props.mime} · can't be previewed in the browser

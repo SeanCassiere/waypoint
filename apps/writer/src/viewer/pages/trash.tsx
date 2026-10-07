@@ -47,7 +47,7 @@ export async function trashPage(
                 const detail = details.get(item.id);
                 const link = links.get(item.id);
                 const linkChip: Child = link?.active.length ? (
-                  <a class="chip xs public" href="/links" title="Revoke them from Public links">
+                  <a class="chip xs" href="/links" title="Revoke them from Public links">
                     <Globe />
                     {plural(link.active.length, "link")}, inactive while in Trash
                   </a>

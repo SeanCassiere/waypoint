@@ -2,10 +2,8 @@
 import type { Child } from "hono/jsx";
 
 import type { Health } from "../health.js";
-import { clientAsset, cssAsset, pagesAsset } from "./assets.js";
+import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.js";
 import { HealthPill, HealthPopover, LogoMark } from "./components.js";
-
-const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#1b1a17"/><path d="M14 20l10 26 8-17 8 17 10-26" fill="none" stroke="#fcfbf9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>')}`;
 
 /** Per-request data every page needs for its chrome (bar, health pill and popover). */
 export interface Chrome {
@@ -28,7 +26,7 @@ export function Layout(props: {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <title>{props.title === "Waypoint" ? "Waypoint" : `${props.title} · Waypoint`}</title>
-        <link rel="icon" href={favicon} />
+        <link rel="icon" href={faviconAsset.url} type="image/svg+xml" />
         <link rel="stylesheet" href={cssAsset.url} />
       </head>
       <body data-page={props.page}>
@@ -94,7 +92,7 @@ export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
         popovertarget="home-more"
         aria-haspopup="menu"
         aria-label="More"
-        title="Public links · Connect an agent · Status · Shortcuts"
+        title="More"
       >
         ⋯
       </button>

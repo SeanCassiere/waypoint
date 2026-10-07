@@ -351,8 +351,16 @@ export function SearchBody(props: {
       <p class="muted small" data-token-hint>
         Narrow it down: <span class="mono">project:webhooks</span>{" "}
         <span class="mono">tag:research</span> <span class="mono">host:macbook-air</span>{" "}
-        <span class="mono">is:shared</span> <span class="mono">is:unsynced</span>{" "}
-        <span class="mono">is:pending</span> <span class="mono">in:trash</span>
+        {["is:shared", "is:unsynced", "is:pending", "in:trash"].map((token) => (
+          <>
+            <a
+              class="mono"
+              href={`/?${new URLSearchParams({ q: q.includes(token) ? q : `${q} ${token}`.trim() }).toString()}`}
+            >
+              {token}
+            </a>{" "}
+          </>
+        ))}
       </p>
       {items.length ? (
         items.map((item) =>
