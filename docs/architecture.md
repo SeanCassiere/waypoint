@@ -30,7 +30,7 @@
 
 ### Writer (phase 1)
 - A long-running Node process on a tailnet machine; agent-1 today.
-- Exposed on the tailnet with `tailscale serve` over HTTPS at its MagicDNS name.
+- Runs in Docker on agent-1 behind its own Tailscale sidecar node, reachable at `https://waypoint.tail7aca06.ts.net`. The host's Tailscale setup is untouched (see [infrastructure.md](infrastructure.md)).
 - Serves three things:
   - the **HTTP API** for writes and reads
   - the **viewer**: collection list, collection view with file sidebar and revision picker, and a Trash view
