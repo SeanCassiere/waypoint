@@ -28,7 +28,7 @@ It is live: `waypoint-reader` serves prod at `waypoint.pingstash.com`, and `wayp
 ## Access model
 
 - **Deny by default.** Every shell request needs a valid share token; raw requests need a valid derived capability. Anything else returns **404**, never 403, so the reader never confirms that something exists. The exceptions are the bare root `/`, which has nothing to confirm (see below), and the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`.
-- **Token format:** `wps_` plus 32 random bytes, base64url. The prefix lets secret scanners spot leaked tokens. Only `sha256:` followed by 64 lowercase hexadecimal SHA-256 digits of the complete token is stored in `share_links.token_hash`.
+- **Token format:** `wps_` plus 32 bytes, base64url. The prefix lets secret scanners spot leaked tokens. Only `sha256:` followed by 64 lowercase hexadecimal SHA-256 digits of the complete token is stored in `share_links.token_hash`. The writer derives the 32 bytes as an HMAC of the link ID with a writer-only key (D49); the reader neither knows nor cares, and still just hashes the token and looks up `token_hash`.
 - **Following vs. pinned:**
   - A link with `revision_id = NULL` follows the latest synced revision.
   - A link created while viewing an older revision is pinned to it.
