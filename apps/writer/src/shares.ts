@@ -1,7 +1,59 @@
-import { WaypointError, type ShareLink } from "@waypoint/core";
+import {
+  deriveShareToken,
+  hashShareToken,
+  shareShellUrl,
+  WaypointError,
+  type ShareLink,
+} from "@waypoint/core";
 
 import type { HttpServices } from "./http.js";
 import type { RevisionRow } from "./read-model.js";
+
+/**
+ * Sharing needs both the reader's public base URL and the key that derives link tokens. With
+ * either missing, the share-link API answers 409 and the viewer hides sharing.
+ */
+export function sharingEnabled(s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">): boolean {
+  return sharingConfig(s) !== undefined;
+}
+function sharingConfig(
+  s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">,
+): { base: string; key: Uint8Array } | undefined {
+  return s.publicBaseUrl && s.shareTokenKey
+    ? { base: s.publicBaseUrl, key: s.shareTokenKey }
+    : undefined;
+}
+/** Answers 409 conflict unless sharing is configured. */
+export function requireSharing(s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">): {
+  base: string;
+  key: Uint8Array;
+} {
+  const sharing = sharingConfig(s);
+  if (!sharing) throw new WaypointError("conflict", "Sharing is not configured");
+  return sharing;
+}
+/**
+ * A link's stable public URL, without a file path (the reader opens the head file). Null when
+ * the token derived from the link ID doesn't hash to the stored token_hash: the link predates
+ * deterministic tokens, or the key changed since.
+ */
+async function recoverUrl(
+  sharing: { base: string; key: Uint8Array },
+  row: ShareRow,
+  tokenHash: string | undefined,
+  collectionPublicId: string | undefined,
+  pinnedPublicId: string | undefined,
+): Promise<string | null> {
+  if (!tokenHash || !collectionPublicId || (row.revision_id && !pinnedPublicId)) return null;
+  const token = await deriveShareToken(sharing.key, row.id);
+  if ((await hashShareToken(token)) !== tokenHash) return null;
+  return shareShellUrl(
+    sharing.base,
+    token,
+    collectionPublicId,
+    row.revision_id ? pinnedPublicId : undefined,
+  );
+}
 
 export type ShareRow = Pick<
   ShareLink,
@@ -32,51 +84,79 @@ export function shareState(
   return lastPushAt === null || row.created_at > lastPushAt ? "activating" : "active";
 }
 
-/** Views for any number of links in five queries (B3). */
+/**
+ * Views for any number of links in six queries (B3): five for revisions and collections, and
+ * one for the stored token hashes that decide whether each link's URL is recoverable. The
+ * hashes never leave this function.
+ */
 export async function shareViews(s: HttpServices, rows: readonly ShareRow[]): Promise<ShareView[]> {
   if (!rows.length) return [];
   const ids = [...new Set(rows.map((row) => row.collection_id))];
-  const [index, collections] = await Promise.all([
+  const sharing = sharingConfig(s);
+  const [index, collections, hashes] = await Promise.all([
     s.reads.revisionIndex(ids),
     s.reads.collectionsById(ids),
+    sharing
+      ? s.waypoint.all<{ id: string; token_hash: string }>(
+          `SELECT id,token_hash FROM share_links WHERE collection_id IN (${ids.map(() => "?").join(",")})`,
+          ids,
+        )
+      : Promise.resolve([]),
   ]);
+  const tokenHashes = new Map(hashes.map((row) => [row.id, row.token_hash]));
   const now = Date.now();
   const lastPushAt = s.syncLoop?.lastPushAt ?? null;
-  return rows.map((row) => {
-    const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
-    const collection = collections.get(row.collection_id);
-    const deleted = collection?.deleted ?? true;
-    const pinned = row.revision_id
-      ? revisions.find((item) => item.id === row.revision_id)
-      : undefined;
-    const latest = revisions.findLast((item) => item.sync_state !== "failed");
-    const newestSynced = revisions.findLast((item) => item.sync_state === "synced");
-    const status: ShareLink["status"] =
-      row.revoked_at !== null
-        ? "revoked"
-        : row.expires_at !== null && row.expires_at <= now
-          ? "expired"
-          : "active";
-    const target = row.revision_id ? pinned : latest;
-    const sees = row.revision_id
-      ? pinned?.sync_state === "synced"
-        ? pinned
-        : undefined
-      : newestSynced;
-    return {
-      ...row,
-      mode: row.revision_id ? "pinned" : "latest",
-      status,
-      publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
-      state: shareState(row, lastPushAt, now),
-      revision_display_number: pinned?.display_number ?? null,
-      public_sees:
-        status === "active" && !deleted && sees
-          ? { revision_id: sees.id, display_number: sees.display_number ?? 0 }
+  return Promise.all(
+    rows.map(async (row): Promise<ShareView> => {
+      const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
+      const collection = collections.get(row.collection_id);
+      const deleted = collection?.deleted ?? true;
+      const pinned = row.revision_id
+        ? revisions.find((item) => item.id === row.revision_id)
+        : undefined;
+      const latest = revisions.findLast((item) => item.sync_state !== "failed");
+      const newestSynced = revisions.findLast((item) => item.sync_state === "synced");
+      const status: ShareLink["status"] =
+        row.revoked_at !== null
+          ? "revoked"
+          : row.expires_at !== null && row.expires_at <= now
+            ? "expired"
+            : "active";
+      const target = row.revision_id ? pinned : latest;
+      const sees = row.revision_id
+        ? pinned?.sync_state === "synced"
+          ? pinned
+          : undefined
+        : newestSynced;
+      return {
+        ...row,
+        mode: row.revision_id ? "pinned" : "latest",
+        status,
+        publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
+        state: shareState(row, lastPushAt, now),
+        revision_display_number: pinned?.display_number ?? null,
+        public_sees:
+          status === "active" && !deleted && sees
+            ? { revision_id: sees.id, display_number: sees.display_number ?? 0 }
+            : null,
+        url: sharing
+          ? await recoverUrl(
+              sharing,
+              row,
+              tokenHashes.get(row.id),
+              collection?.public_id,
+              pinned?.public_id,
+            )
           : null,
-      collection: collection ?? { id: row.collection_id, public_id: "", title: "", deleted: true },
-    };
-  });
+        collection: collection ?? {
+          id: row.collection_id,
+          public_id: "",
+          title: "",
+          deleted: true,
+        },
+      };
+    }),
+  );
 }
 export function withoutCollection(view: ShareView): ShareLink {
   const { collection, ...link } = view;
@@ -141,7 +221,7 @@ function decodeLinkCursor(cursor: string): [number, string] | undefined {
 }
 /**
  * One page of links in a filter, newest first, with every filter's count: four queries plus
- * shareViews' five for the page, whatever the number of links.
+ * shareViews' six for the page, whatever the number of links.
  */
 export async function linkPage(
   s: HttpServices,
@@ -190,7 +270,7 @@ export const API_LINKS_DEFAULT = 50;
 export const API_LINKS_MAX = 200;
 /**
  * One page of links for the API, newest first, optionally in one filter: two queries plus
- * shareViews' five, whatever the number of links. An unreadable cursor is a validation error.
+ * shareViews' six, whatever the number of links. An unreadable cursor is a validation error.
  */
 export async function listLinks(
   s: HttpServices,

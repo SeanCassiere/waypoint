@@ -40,6 +40,8 @@ const child = spawn(process.execPath, ["apps/writer/dist/main.js"], {
     WAYPOINT_DATA_DIR: dir,
     WAYPOINT_PORT: String(port),
     WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
+    // A fixed test key (never a real one): 32 bytes of 42.
+    WAYPOINT_SHARE_TOKEN_KEY: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

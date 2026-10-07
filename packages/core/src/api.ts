@@ -20,6 +20,12 @@ export interface ShareLink {
   revision_display_number: number | null;
   /** The revision the reader serves right now (latest = newest synced), or null for none. */
   public_sees: { revision_id: string; display_number: number } | null;
+  /**
+   * The link's public URL (no file path, so the reader opens the head file), or null when it
+   * can't be recovered: the link was created before deterministic tokens, the token key has
+   * changed since, or sharing isn't configured.
+   */
+  url: string | null;
 }
 export interface CreateShareLinkResult {
   share_link: ShareLink;

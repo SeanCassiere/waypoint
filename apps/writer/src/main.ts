@@ -119,10 +119,15 @@ try {
     syncLoop.start();
     committer.wake();
   }
+  if (Boolean(config.publicBaseUrl) !== Boolean(config.shareTokenKey))
+    console.error(
+      `Sharing is off: ${config.publicBaseUrl ? "WAYPOINT_SHARE_TOKEN_KEY" : "WAYPOINT_PUBLIC_BASE_URL"} is not set`,
+    );
   const shutdownController = new AbortController();
   const server = serve({
     fetch: createApp({
       ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
+      ...(config.shareTokenKey ? { shareTokenKey: config.shareTokenKey } : {}),
       waypoint,
       queue,
       blobs,

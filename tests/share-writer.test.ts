@@ -17,7 +17,14 @@ import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src
 import { ReadModel } from "../apps/writer/src/read-model.js";
 import { restore } from "../apps/writer/src/restore.js";
 import { SyncLoop } from "../apps/writer/src/sync-loop.js";
-import { hashShareToken, mintRevisionId, newId, publicIdFor } from "../packages/core/src/index.js";
+import {
+  deriveShareToken,
+  hashShareToken,
+  mintRevisionId,
+  newId,
+  newShareToken,
+  publicIdFor,
+} from "../packages/core/src/index.js";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
   method: "POST",
@@ -37,6 +44,8 @@ let revisionId: string;
 let collectionPublicId: string;
 let revisionPublicId: string;
 let hash: string;
+/** A fixed test key (never a real one). */
+const shareTokenKey = new Uint8Array(32).fill(42);
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "waypoint-share-"));
   const config: Config = {
@@ -68,6 +77,7 @@ beforeEach(async () => {
     reads,
     ingest,
     publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    shareTokenKey,
   });
   const bytes = new TextEncoder().encode("hello public");
   hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex")}`;
@@ -141,8 +151,8 @@ describe("writer share links", () => {
     expect(stored?.token_hash).toBe(await hashShareToken(data.token));
     const list = await (await app.request(`/api/collections/${collectionId}/share-links`)).text();
     expect(list).toContain(id);
-    expect(list).not.toContain(data.token);
     expect(list).not.toContain(stored?.token_hash);
+    expect(list).not.toContain("token_hash");
     await worker.drain();
     const chunks: Uint8Array[] = [];
     for await (const chunk of await bucket.get(`collections/${collectionId}.json`))
@@ -150,6 +160,15 @@ describe("writer share links", () => {
     const snapshot = Buffer.concat(chunks).toString("utf8");
     expect(snapshot).toContain(stored?.token_hash);
     expect(snapshot).not.toContain(data.token);
+    // Snapshots carry the stored columns only: never the token or the derived URL.
+    const parsed = z
+      .object({ share_links: z.array(z.record(z.string(), z.unknown())) })
+      .parse(JSON.parse(snapshot));
+    expect(parsed.share_links).toHaveLength(1);
+    for (const link of parsed.share_links) {
+      expect(link).not.toHaveProperty("url");
+      expect(link).not.toHaveProperty("token");
+    }
     const revoked = await app.request(`/api/share-links/${id}/revoke`, json({}));
     expect(revoked.status).toBe(200);
     const first: unknown = await revoked.json();
@@ -511,6 +530,141 @@ describe("writer share links", () => {
   });
 });
 
+describe("deterministic share-link tokens (D49)", () => {
+  const base = "https://waypoint-dev.pingstash.com";
+  const links = z.object({
+    share_links: z.array(z.object({ id: z.string(), url: z.string().nullable() })),
+  });
+  it("stores the hash of the token derived from the link ID", async () => {
+    const created = z
+      .object({
+        share_link: z.object({ id: z.string(), url: z.string() }),
+        url: z.string(),
+        token: z.string(),
+      })
+      .parse(await jsonBody(await create()));
+    const token = await deriveShareToken(shareTokenKey, created.share_link.id);
+    expect(created.token).toBe(token);
+    const stored = await waypoint.get<{ token_hash: string }>(
+      "SELECT token_hash FROM share_links WHERE id=?",
+      [created.share_link.id],
+    );
+    expect(stored?.token_hash).toBe(await hashShareToken(token));
+    // A stable URL without a file path: the reader opens the head file.
+    expect(created.url).toBe(`${base}/s/${token}/c/${collectionPublicId}/`);
+    expect(created.share_link.url).toBe(created.url);
+    const pinned = z
+      .object({ share_link: z.object({ url: z.string() }), url: z.string(), token: z.string() })
+      .parse(await jsonBody(await create({ revision_id: revisionId })));
+    expect(pinned.url).toBe(
+      `${base}/s/${pinned.token}/c/${collectionPublicId}/r/${revisionPublicId}/`,
+    );
+    expect(pinned.share_link.url).toBe(pinned.url);
+  });
+  it("reports the same URL on every share-link response, never the stored hash", async () => {
+    const created = z
+      .object({ share_link: z.object({ id: z.string() }), url: z.string() })
+      .parse(await jsonBody(await create({ expires_at: Date.now() + 3_600_000 })));
+    const { id } = created.share_link;
+    const { url } = created;
+    const single = z.object({ share_link: z.object({ url: z.string().nullable() }) });
+    const responses = [
+      await app.request(`/api/collections/${collectionId}/share-links`),
+      await app.request("/api/share-links"),
+      await app.request(`/api/share-links/${id}`),
+      await app.request(`/api/share-links/${id}/url`),
+      await app.request(
+        `/api/share-links/${id}/extend`,
+        json({ expires_at: Date.now() + 7_200_000 }),
+      ),
+      await app.request(`/api/share-links/${id}/revoke`, json({})),
+    ];
+    const bodies = await Promise.all(responses.map((response) => response.text()));
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200]);
+    for (const body of bodies) expect(body).not.toContain("token_hash");
+    const [collection, all, get, direct, extended, revoked] = bodies.map((body): unknown =>
+      JSON.parse(body ?? "null"),
+    );
+    expect(links.parse(collection).share_links[0]?.url).toBe(url);
+    expect(links.parse(all).share_links[0]?.url).toBe(url);
+    expect(single.parse(get).share_link.url).toBe(url);
+    expect(direct).toEqual({ url });
+    expect(single.parse(extended).share_link.url).toBe(url);
+    // Revoke answers with the link itself, still carrying its URL.
+    expect(z.object({ url: z.string().nullable() }).parse(revoked).url).toBe(url);
+  });
+  it("reports null and 409 for links created before deterministic tokens", async () => {
+    const legacy = await legacyLink();
+    const current = await createdId(await create());
+    const list = links.parse(
+      await jsonBody(await app.request(`/api/collections/${collectionId}/share-links`)),
+    );
+    expect(list.share_links.find((link) => link.id === legacy)?.url).toBeNull();
+    expect(list.share_links.find((link) => link.id === current)?.url).toMatch(/^https:/);
+    const get = await jsonBody(await app.request(`/api/share-links/${legacy}`));
+    expect(get.share_link).toMatchObject({ url: null });
+    const response = await app.request(`/api/share-links/${legacy}/url`);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "conflict",
+        message:
+          "URL not recoverable: this link was created before deterministic tokens. Create a new link to get a copyable URL.",
+      },
+    });
+    expect((await app.request("/api/share-links/shl_missing/url")).status).toBe(404);
+    // A different key can't reproduce existing links' URLs.
+    const rotated = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      publicBaseUrl: base,
+      shareTokenKey: new Uint8Array(32).fill(7),
+    });
+    expect((await rotated.request(`/api/share-links/${current}/url`)).status).toBe(409);
+  });
+  it("treats a missing key like a missing public URL", async () => {
+    const id = await createdId(await create());
+    const services = {
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+    };
+    for (const partial of [
+      createApp({ ...services, publicBaseUrl: base }),
+      createApp({ ...services, shareTokenKey }),
+      createApp(services),
+    ]) {
+      for (const response of [
+        await partial.request(`/api/collections/${collectionId}/share-links`, json({})),
+        await partial.request(`/api/collections/${collectionId}/share-links`),
+        await partial.request("/api/share-links"),
+        await partial.request(`/api/share-links/${id}`),
+        await partial.request(`/api/share-links/${id}/url`),
+        await partial.request(`/api/share-links/${id}/revoke`, json({})),
+      ]) {
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({
+          error: { code: "conflict", message: "Sharing is not configured" },
+        });
+      }
+    }
+  });
+});
+
+/** Inserts a link the way writers did before D49: a random token's hash. */
+async function legacyLink(): Promise<string> {
+  const id = newId("shl");
+  await waypoint.run(
+    "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    [id, await hashShareToken(newShareToken()), collectionId, null, "old", null, null, Date.now()],
+  );
+  return id;
+}
 async function jsonBody(response: Response): Promise<Record<string, unknown>> {
   const value: unknown = await response.json();
   if (!value || typeof value !== "object") throw new Error("Expected an object");
@@ -549,6 +703,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
       ingest,
       syncLoop: loop,
       publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      shareTokenKey,
     });
     const pinned = await createdId(await create({ revision_id: revisionId, label: "pinned" }));
     const latest = await createdId(await create({ expires_at: Date.now() + 3_600_000 }));

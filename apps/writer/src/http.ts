@@ -13,7 +13,7 @@ import {
   WaypointError,
   withBase,
   newId,
-  newShareToken,
+  deriveShareToken,
   hashShareToken,
   shareShellUrl,
   type CreateCollectionRequest,
@@ -48,6 +48,7 @@ import {
   extendLink,
   inFilter,
   listLinks,
+  requireSharing,
   revokeAll,
   SHARE_COLUMNS,
   shareViews,
@@ -71,6 +72,8 @@ export interface HttpServices {
   environment?: "dev" | "prod";
   port?: number;
   publicBaseUrl?: string;
+  /** Derives share-link tokens; sharing is off without it (see sharingEnabled). */
+  shareTokenKey?: Uint8Array;
   mcpTarballPath?: string;
   mcpLauncherPath?: string;
   mcpServerPath?: string;
@@ -755,11 +758,8 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
-  const requireSharing = () => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
-  };
   app.post("/api/collections/:id/share-links", async (c) => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    const sharing = requireSharing(s);
     const id = c.req.param("id");
     const body = validated(
       z.object({
@@ -788,9 +788,10 @@ export function createApp(s: HttpServices): Hono {
         }
         if (body.expires_at != null && body.expires_at <= Date.now())
           throw new WaypointError("validation_failed", "Expiry must be in the future");
-        const token = newShareToken();
+        const linkId = newId("shl");
+        const token = await deriveShareToken(sharing.key, linkId);
         const row: ShareRow = {
-          id: newId("shl"),
+          id: linkId,
           collection_id: id,
           revision_id: body.revision_id ?? null,
           label: body.label ?? null,
@@ -820,25 +821,24 @@ export function createApp(s: HttpServices): Hono {
         const target = row.revision_id
           ? await s.reads.revision(row.revision_id)
           : await s.reads.latest(id);
+        if (row.revision_id && !target)
+          throw new WaypointError("internal_error", "Pinned revision missing");
+        // The same stable, path-less URL every share-link response reports for this link.
+        const url = shareShellUrl(
+          sharing.base,
+          token,
+          collection.public_id,
+          row.revision_id ? target?.public_id : undefined,
+        );
         const [view] = await shareViews(s, [row]);
         if (!view) throw new WaypointError("internal_error", "Share link view missing");
-        return {
-          share_link: withoutCollection(view),
-          url: shareShellUrl(
-            s.publicBaseUrl!,
-            token,
-            collection.public_id,
-            row.revision_id ? target?.public_id : undefined,
-            target?.head_path,
-          ),
-          token,
-        };
+        return { share_link: { ...withoutCollection(view), url }, url, token };
       }),
       201,
     );
   });
   app.get("/api/collections/:id/share-links", async (c) => {
-    requireSharing();
+    requireSharing(s);
     const id = c.req.param("id");
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
@@ -847,7 +847,7 @@ export function createApp(s: HttpServices): Hono {
   // B3: links across collections, newest first, a page at a time, optionally one filter
   // (active includes activating). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
   app.get("/api/share-links", async (c) => {
-    requireSharing();
+    requireSharing(s);
     const state = c.req.query("state");
     if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
       throw new WaypointError("validation_failed", "Invalid state filter");
@@ -862,7 +862,7 @@ export function createApp(s: HttpServices): Hono {
     return c.json({ share_links: page.views, next_cursor: page.next });
   });
   app.get("/api/share-links/:id", async (c) => {
-    requireSharing();
+    requireSharing(s);
     const row = await s.waypoint.get<ShareRow>(
       `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
       [c.req.param("id")],
@@ -871,8 +871,25 @@ export function createApp(s: HttpServices): Hono {
     if (!view) throw new WaypointError("not_found", "Share link not found");
     return c.json({ share_link: withoutCollection(view) });
   });
+  // The link's public URL, recomputed from its ID (D49). Links created before deterministic
+  // tokens have no recoverable URL.
+  app.get("/api/share-links/:id/url", async (c) => {
+    requireSharing(s);
+    const row = await s.waypoint.get<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+      [c.req.param("id")],
+    );
+    const [view] = await shareViews(s, row ? [row] : []);
+    if (!view) throw new WaypointError("not_found", "Share link not found");
+    if (!view.url)
+      throw new WaypointError(
+        "conflict",
+        "URL not recoverable: this link was created before deterministic tokens. Create a new link to get a copyable URL.",
+      );
+    return c.json({ url: view.url });
+  });
   app.post("/api/share-links/revoke-all", async (c) => {
-    requireSharing();
+    requireSharing(s);
     await parseJson(c);
     if ((c.req.query("state") ?? "active") !== "active")
       throw new WaypointError("validation_failed", "Only state=active can be revoked in bulk");
@@ -884,7 +901,7 @@ export function createApp(s: HttpServices): Hono {
     return c.json({ revoked });
   });
   app.post("/api/collections/:id/share-links/revoke-all", async (c) => {
-    requireSharing();
+    requireSharing(s);
     await parseJson(c);
     const id = c.req.param("id");
     if (!(await s.reads.collection(id)))
@@ -892,7 +909,7 @@ export function createApp(s: HttpServices): Hono {
     return c.json({ revoked: await revokeAll(s, id) });
   });
   app.post("/api/share-links/:id/extend", async (c) => {
-    requireSharing();
+    requireSharing(s);
     const body = validated(
       z.object({ expires_at: z.number().int().positive() }),
       await parseJson(c),
@@ -902,7 +919,7 @@ export function createApp(s: HttpServices): Hono {
     });
   });
   app.post("/api/share-links/:id/revoke", async (c) => {
-    requireSharing();
+    requireSharing(s);
     await parseJson(c);
     const id = c.req.param("id");
     const found = await s.waypoint.get<ShareRow>(

@@ -3,11 +3,15 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseShareTokenKey } from "@waypoint/core";
+
 export interface Config {
   environment: "dev" | "prod";
   dataDir: string;
   baseUrl: string;
   publicBaseUrl?: string;
+  /** WAYPOINT_SHARE_TOKEN_KEY: derives share-link tokens (D49). Sharing needs it too. */
+  shareTokenKey?: Uint8Array;
   port: number;
   queueGiveUpHours: number;
   maxBlobBytes: number;
@@ -91,6 +95,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         "WAYPOINT_PUBLIC_BASE_URL must be an HTTP URL without credentials, query or fragment",
       );
   }
+  let shareTokenKey: Uint8Array | undefined;
+  if (env.WAYPOINT_SHARE_TOKEN_KEY) {
+    try {
+      shareTokenKey = parseShareTokenKey(env.WAYPOINT_SHARE_TOKEN_KEY);
+    } catch {
+      // Never echo the value: it's a secret.
+      throw new Error("WAYPOINT_SHARE_TOKEN_KEY must be 32 bytes, base64url-encoded");
+    }
+  }
   const queueGiveUpHours = number("WAYPOINT_QUEUE_GIVE_UP_HOURS", 72);
   const maxBlobBytes = number("WAYPOINT_MAX_BLOB_MB", 50) * 1024 * 1024;
   const maxFiles = number("WAYPOINT_MAX_FILES", 2000);
@@ -115,6 +128,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir,
     baseUrl,
     ...(publicBaseUrl ? { publicBaseUrl } : {}),
+    ...(shareTokenKey ? { shareTokenKey } : {}),
     port,
     queueGiveUpHours,
     maxBlobBytes,
