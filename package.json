@@ -1,0 +1,27 @@
+{
+  "name": "waypoint",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "tsc -b tsconfig.build.json && oxlint . && pnpm core:guard",
+    "format": "oxfmt --write .",
+    "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "core:guard": "node scripts/check-core-imports.mjs",
+    "format:check": "oxfmt --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "oxlint-tsgolint": "^7.0.2003",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.28.2"
+}

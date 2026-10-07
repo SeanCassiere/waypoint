@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "types": ["node"],
+    "lib": ["ES2024"],
+    "rootDir": "."
+  },
+  "include": [
+    "tests/**/*.ts",
+    "scripts/**/*.mjs",
+    "oxlint.config.ts",
+    "oxfmt.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["tests/fixtures/core-denied-import/**"]
+}

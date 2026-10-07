@@ -8,5 +8,8 @@ node_modules/
 .DS_Store
 .wrangler/
 dist/
+coverage/
+*.tsbuildinfo
+.pnpm-store/
 spikes/.tools/
 spikes/.tmp/
