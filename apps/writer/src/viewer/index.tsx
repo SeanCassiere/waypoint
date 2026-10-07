@@ -6,8 +6,9 @@ import { clientAsset, cssAsset } from "./assets.js";
 import { getChrome } from "./chrome.js";
 import { collectionPage, notFound } from "./pages/collection.js";
 import { recentPage } from "./pages/recent.js";
+import { linksPage } from "./pages/share.js";
 import { statusPage, type ViewerExtras } from "./pages/status.js";
-import { trashPage } from "./pages/trash.js";
+import { trashPage, trashLinks } from "./pages/trash.js";
 
 export type { ViewerExtras } from "./pages/status.js";
 
@@ -25,7 +26,10 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
         }),
     );
   app.get("/", (c) => recentPage(s, c));
-  app.get("/trash", (c) => trashPage(s, c));
+  app.get("/trash", (c) =>
+    trashPage(s, c, s.publicBaseUrl ? (ids) => trashLinks(s, ids) : undefined),
+  );
+  app.get("/links", (c) => linksPage(s, c));
   app.get("/status", (c) => statusPage(s, c, extras));
   app.get("/c/:pub", (c) => collectionPage(s, c, extras));
   app.get("/c/:pub/*", (c) => collectionPage(s, c, extras));

@@ -39,6 +39,7 @@ const child = spawn(process.execPath, ["apps/writer/dist/main.js"], {
     WAYPOINT_SYNC: "off",
     WAYPOINT_DATA_DIR: dir,
     WAYPOINT_PORT: String(port),
+    WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -98,7 +99,8 @@ try {
     headless: true,
     args: ["--no-sandbox"],
   });
-  const page = await browser.newPage();
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
   const rawRequests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/raw/r/")) rawRequests.push(request.url());
@@ -109,9 +111,32 @@ try {
   assert.equal(await page.locator("aside#panel").count(), 1);
   assert.equal(await page.locator("main#main").count(), 1);
   assert.equal(await page.locator("a.skip").getAttribute("href"), "#main");
+  // Share: the dialog opens natively, the checklist follows the form, the link shows once.
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await page.locator("[data-share-dialog]").waitFor({ state: "visible" });
+  await page.locator("#share").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#share .row.when-latest").isVisible(), false);
+  await page.locator("#share label.opt", { hasText: "Latest revision" }).click();
+  assert.equal(await page.locator("#share .row.when-latest").isVisible(), true);
+  await page.locator('#share input[name="label"]').fill("Browser review");
+  await page.locator("[data-share-submit]").click();
+  await page.locator('[data-share-step="created"]').waitFor({ state: "visible" });
+  assert.match((await page.locator("[data-share-url]").textContent()) ?? "", /\/s\/wps_/);
   await page.keyboard.press("Escape");
+  await page.locator("[data-share-uncopied]").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#share").isVisible(), true, "closing before copying is guarded");
+  await page.locator("[data-share-back]").click();
+  await page.locator("[data-share-copy]").click();
+  await page.locator("[data-share-copy].done").waitFor();
+  await page.locator("[data-share-done]").click();
+  await page.waitForURL(/panel=links/);
+  const card = page.locator(".lnk", { hasText: "Browser review" });
+  await card.waitFor();
+  assert.equal(await page.locator("header .chip.public").count(), 1, "Public chip shows");
+  await card.locator("summary", { hasText: "Revoke…" }).click();
+  await card.getByRole("button", { name: "Revoke link" }).click();
+  await page.waitForURL(/panel=links/);
+  await page.locator(".lnk.dead", { hasText: "Browser review" }).waitFor({ state: "attached" });
+  await page.goto(`${base}${latest}`);
   assert.notEqual(
     await page.locator("body").evaluate("element => getComputedStyle(element).fontFamily"),
     "Times New Roman",
@@ -206,7 +231,7 @@ try {
   assert.equal(await page.locator("#tp-history").isVisible(), false, "shortcuts stay off");
   await page.evaluate('localStorage.removeItem("wp:keys")');
   console.log(
-    "Chromium viewer: landmarks, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts: passed",
+    "Chromium viewer: landmarks, share create/copy/revoke, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts: passed",
   );
 } finally {
   await browser?.close();

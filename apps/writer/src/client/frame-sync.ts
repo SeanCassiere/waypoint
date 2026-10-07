@@ -3,6 +3,20 @@ import { frameLocationHref } from "@waypoint/ui";
 import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.js";
 import { $, $$, el, shellRoot } from "./dom.js";
 
+/** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
+const SHELL_PARAMS = ["panel", "history"];
+export function withShellParams(search: string): string {
+  const current = new URLSearchParams(location.search);
+  const own = new URLSearchParams(search);
+  // The frame's query string is kept verbatim (for example "?source"); only shell keys are added.
+  const extra = SHELL_PARAMS.flatMap((key) => {
+    const value = current.get(key);
+    return value && !own.has(key) ? [`${key}=${encodeURIComponent(value)}`] : [];
+  });
+  if (!extra.length) return search;
+  return `${search ? `${search}&` : "?"}${extra.join("&")}`;
+}
+
 /** Shows (or replaces) the "document left Waypoint" segment in the status line. */
 function frameNotice(message: string | null, back?: { href: string; label: string }): void {
   const line = $("[data-status]");
@@ -51,7 +65,7 @@ export function bindFrameSync(): void {
     history.replaceState(
       null,
       "",
-      shellPath(collection, revision, path, pinned, head, search, hash),
+      shellPath(collection, revision, path, pinned, head, withShellParams(search), hash),
     );
   }
   function fromUrl(href: string): boolean {

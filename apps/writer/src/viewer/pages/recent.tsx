@@ -393,13 +393,29 @@ function projectFacets(items: CollectionSearchResult[]): Facet[] {
     .slice(0, 12);
 }
 
+/** "Public now": collections with live links, most links first (three queries). */
+async function loadPublicNow(s: HttpServices): Promise<PublicNow[]> {
+  const summary = await s.reads.shareSummary();
+  const collections = await s.reads.collectionsById([...summary.keys()]);
+  return [...summary]
+    .flatMap(([id, share]) => {
+      const collection = collections.get(id);
+      return collection && !collection.deleted
+        ? [{ public_id: collection.public_id, title: collection.title, links: share.active }]
+        : [];
+    })
+    .toSorted((a, b) => b.links - a.links || a.title.localeCompare(b.title))
+    .slice(0, 8);
+}
+
 export async function recentPage(s: HttpServices, c: Context): Promise<Response> {
   const q = (c.req.query("q") ?? "").trim();
   const cursor = c.req.query("cursor");
   const now = Date.now();
-  const [search, chrome] = await Promise.all([
+  const [search, chrome, publicNow] = await Promise.all([
     s.reads.searchCollections({ query: q, limit: 50, cursor }),
     getChrome(s, now),
+    q || !s.publicBaseUrl ? Promise.resolve(null) : loadPublicNow(s),
   ]);
   const items = search.collections;
   if (q)
@@ -430,7 +446,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
             items={items}
             nextCursor={search.next_cursor}
             projects={projectFacets(items)}
-            publicNow={null}
+            publicNow={publicNow}
           />
         ) : (
           <EmptyHome />

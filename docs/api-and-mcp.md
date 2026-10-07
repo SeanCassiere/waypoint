@@ -197,14 +197,19 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 |---|---|
 | `POST /api/collections` | Create a collection and its first revision. Body: `{ collection_id?, revision_id?, title, head_path?, message?, metadata?, files: [{ path, hash, mime? }] }`. Every hash must already be present. Returns `WriteResult`. |
 | `POST /api/collections/:id/revisions` | Add a revision. Body: `{ revision_id?, parent_revision_id?, mode?, head_path?, message?, metadata?, files?: [{ path, hash, mime? }], remove?: string[] }`. Returns `WriteResult`. |
-| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }`. Each result's `latest_revision` also carries `changes` and `source_host`, and `queue: { pending, failed }` counts its uncommitted revisions. |
+| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }`. Each result's `latest_revision` also carries `changes` and `source_host`, and `queue: { pending, failed }` counts its uncommitted revisions. `share: { active, follows_latest } \| null` summarizes live public links. |
 | `GET /api/collections/:id` | Collection + latest revision summary. `:id` may be a `col_` ID or a public ID. `?include_head=1` adds the head document's text. |
 | `PATCH /api/collections/:id` | Edit `title` and/or `metadata` |
 | `DELETE /api/collections/:id` | Soft delete |
 | `POST /api/collections/:id/undelete` | Undo soft delete |
 | `POST /api/collections/:id/purge` `{ confirm: "<collection id>" }` | Queue a hard purge; returns immediately |
 | `POST /api/collections/:id/share-links` `{ revision_id?, label?, expires_at? }` | Create a link. Omit `revision_id` to follow latest. The token and URL appear only in this 201 response. `expires_at` is a future Unix millisecond timestamp. Requires `WAYPOINT_PUBLIC_BASE_URL`; otherwise 409 `conflict`. |
-| `GET /api/collections/:id/share-links` | List links without tokens or hashes. |
+| `GET /api/collections/:id/share-links` | List links without tokens or hashes. Each link also carries `state` (`activating` until the writer pushes it, `active`, `expired`, `revoking` until a revocation is pushed and about 60 s have passed, `revoked`), `revision_display_number` (pinned links), and `public_sees: { revision_id, display_number } \| null` (what the reader serves now: the pinned revision once synced, or the newest synced revision). |
+| `POST /api/collections/:id/share-links/revoke-all` `{}` | Revoke every unrevoked link of the collection (allowed while it's in Trash). Returns `{ revoked }`. |
+| `GET /api/share-links?state=active\|expired\|revoked` | Every link across collections, each with `collection: { id, public_id, title, deleted }`. `active` includes `activating`; `revoked` includes `revoking`. |
+| `GET /api/share-links/:id` | `{ share_link }`, for activation polling. |
+| `POST /api/share-links/revoke-all?state=active` `{}` | Revoke every active link. Returns `{ revoked }`. |
+| `POST /api/share-links/:id/extend` `{ expires_at }` | Move an active, expiring link's expiry later (never earlier; 409 for revoked, expired or never-expiring links). Queues a snapshot rewrite like revocation. |
 | `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
 | `GET /api/collections/:id/revisions` | List revisions. Each summary includes `changes: { added, modified, removed }` against its parent (file counts; a root revision counts every file as added). With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones (without `changes`). |
 | `GET /api/revisions/:id` | Revision + full manifest |

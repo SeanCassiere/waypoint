@@ -250,6 +250,96 @@ export class ReadModel {
     ]);
     return [...pending, ...committed].toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
   }
+  /** Revisions (with sync state and display numbers) for many collections in three queries. */
+  async revisionIndex(collectionIds: string[]): Promise<Map<string, RevisionRow[]>> {
+    const index = new Map<string, RevisionRow[]>();
+    if (!collectionIds.length) return index;
+    const marks = placeholders(collectionIds);
+    const [committed, pending, unpushed] = await Promise.all([
+      this.waypoint.all<RevisionRow>(
+        `SELECT id,public_id,collection_id,parent_revision_id,head_path,message,metadata,created_at FROM revisions WHERE collection_id IN (${marks})`,
+        collectionIds,
+      ),
+      this.queue.all<RevisionRow>(
+        `SELECT id,public_id,collection_id,parent_revision_id,head_path,message,metadata,created_at,state FROM pending_revisions WHERE collection_id IN (${marks})`,
+        collectionIds,
+      ),
+      this.queue.all<{ revision_id: string }>("SELECT revision_id FROM unpushed"),
+    ]);
+    const unpushedIds = new Set(unpushed.map((row) => row.revision_id));
+    const pendingIds = new Set(pending.map((row) => row.id));
+    const merged = new Map<string, RevisionRow>();
+    for (const row of pending) merged.set(row.id, { ...row, sync_state: row.state ?? "pending" });
+    for (const row of committed)
+      merged.set(row.id, {
+        ...row,
+        sync_state: unpushedIds.has(row.id) || pendingIds.has(row.id) ? "committed" : "synced",
+      });
+    for (const row of [...merged.values()].toSorted((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    )) {
+      const list = index.get(row.collection_id) ?? [];
+      list.push(row);
+      index.set(row.collection_id, list);
+    }
+    for (const list of index.values()) {
+      const numbers = displayNumbers(list.map((row) => parseId(row.id, "rev")));
+      for (const row of list) row.display_number = numbers[row.id];
+    }
+    return index;
+  }
+  /** Title, public ID and Trash state for many collections in two queries. */
+  async collectionsById(
+    collectionIds: string[],
+  ): Promise<Map<string, { id: string; public_id: string; title: string; deleted: boolean }>> {
+    const found = new Map<
+      string,
+      { id: string; public_id: string; title: string; deleted: boolean }
+    >();
+    if (!collectionIds.length) return found;
+    const marks = placeholders(collectionIds);
+    const [committed, pending] = await Promise.all([
+      this.waypoint.all<{
+        id: string;
+        public_id: string;
+        title: string;
+        deleted_at: number | null;
+      }>(
+        `SELECT c.id,c.public_id,c.title,t.deleted_at FROM collections c LEFT JOIN collection_tombstones t ON t.collection_id=c.id WHERE c.id IN (${marks})`,
+        collectionIds,
+      ),
+      this.queue.all<{ id: string; public_id: string; title: string; deleted_at: number | null }>(
+        `SELECT id,public_id,title,deleted_at FROM pending_collections WHERE id IN (${marks})`,
+        collectionIds,
+      ),
+    ]);
+    for (const row of [...committed, ...pending])
+      found.set(row.id, {
+        id: row.id,
+        public_id: row.public_id,
+        title: row.title,
+        deleted: row.deleted_at != null,
+      });
+    return found;
+  }
+  /** Active (unrevoked, unexpired) link counts per collection (B4); one query. */
+  async shareSummary(
+    collectionIds?: string[],
+  ): Promise<Map<string, { active: number; follows_latest: boolean }>> {
+    const summary = new Map<string, { active: number; follows_latest: boolean }>();
+    if (collectionIds && !collectionIds.length) return summary;
+    const rows = await this.waypoint.all<{ collection_id: string; revision_id: string | null }>(
+      `SELECT collection_id,revision_id FROM share_links WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)${collectionIds ? ` AND collection_id IN (${placeholders(collectionIds)})` : ""}`,
+      [Date.now(), ...(collectionIds ?? [])],
+    );
+    for (const row of rows) {
+      const current = summary.get(row.collection_id) ?? { active: 0, follows_latest: false };
+      current.active++;
+      if (row.revision_id === null) current.follows_latest = true;
+      summary.set(row.collection_id, current);
+    }
+    return summary;
+  }
   /** Revision and newest-revision file counts for Trash rows; four queries for any number. */
   async trashDetails(
     collectionIds: string[],
@@ -752,6 +842,8 @@ export class ReadModel {
           : { id, parent_revision_id: null, sync_state: "synced" as const };
       }),
     );
+    const shares = await this.shareSummary(page.map((item) => item.id));
+    for (const item of page) item.share = shares.get(item.id) ?? null;
     for (const item of page)
       if (item.latest_revision) {
         item.latest_revision.file_count =

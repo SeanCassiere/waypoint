@@ -29,6 +29,7 @@ import {
   CollectionDialogs,
   type CollectionContext,
 } from "./collection.js";
+import { previewHref, ShareDialog } from "./share.js";
 import type { ViewerExtras } from "./status.js";
 
 const RENDER_FIRST = 5;
@@ -676,6 +677,13 @@ export async function changesPage(
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
         <CompareDialog ctx={ctx} basePub={baseRow?.public_id ?? null} />
+        {ctx.sharing ? (
+          <ShareDialog
+            ctx={ctx}
+            links={ctx.links}
+            previewHref={previewHref(ctx, revision.head_path)}
+          />
+        ) : null}
       </Layout>,
     ),
   );

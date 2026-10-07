@@ -5,11 +5,11 @@ import { bindCompare } from "./client/compare.js";
 import { bindFrameSync } from "./client/frame-sync.js";
 import { bindKeys } from "./client/keys.js";
 import { bindReadMarks, bindRecentMarks } from "./client/lastread.js";
-import { bindLegacyShare } from "./client/legacy-share.js";
 import { bindMenus } from "./client/menus.js";
 import { bindMotion } from "./client/motion.js";
 import { bindPanel } from "./client/panel.js";
 import { bindSearch } from "./client/search.js";
+import { bindShare } from "./client/share.js";
 import { localizeTimes } from "./client/time.js";
 
 localizeTimes();
@@ -25,4 +25,4 @@ bindCollection();
 bindCompare();
 bindFrameSync();
 bindReadMarks();
-bindLegacyShare();
+bindShare();

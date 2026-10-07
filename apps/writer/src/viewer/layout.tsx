@@ -97,6 +97,10 @@ export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
         ⋯
       </button>
       <div id="home-more" class="menu" popover="auto" role="menu" aria-label="More">
+        <a class="mi" role="menuitem" href="/links">
+          <span aria-hidden="true">◍</span>
+          <span>Public links</span>
+        </a>
         <a class="mi" role="menuitem" href="/mcp">
           <span aria-hidden="true">⚯</span>
           <span>Connect an agent</span>

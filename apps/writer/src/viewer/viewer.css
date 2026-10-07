@@ -1664,6 +1664,56 @@ details.sees > summary h3 {
   align-items: center;
   font-size: 13px;
 }
+.pop .row {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.status1 .pubseg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+/* share dialog: the live checklist and warnings follow the form with :has(), no script */
+#share:not(:has(input[name="target"][value="latest"]:checked)) .when-latest,
+#share:has(input[name="target"][value="latest"]:checked) .when-only,
+#share:not(:has(input[name="expires"][value="never"]:checked)) .when-never {
+  display: none;
+}
+#share .band .globe,
+.ph h2 .globe {
+  width: 22px;
+  height: 22px;
+}
+.kv.flat {
+  margin: 0;
+}
+.lnk .soon,
+.r .soon {
+  color: var(--pending);
+  font-weight: 600;
+}
+.lnk .row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.lnk details.act > summary {
+  list-style: none;
+}
+.lnk details.act > summary::-webkit-details-marker {
+  display: none;
+}
+.lnk details.act[open] {
+  flex-basis: 100%;
+}
+.lnk details.act[open] > summary {
+  display: none;
+}
+.lnk details.act .pop {
+  margin-top: 0;
+}
 /* compare */
 .cmp {
   overflow: auto;

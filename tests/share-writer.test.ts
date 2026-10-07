@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
 import { BlobStore } from "../apps/writer/src/blob-store.js";
@@ -230,8 +230,9 @@ describe("writer share links", () => {
     const page = await app.request(`/c/${collectionPublicId}/`);
     const html = await page.text();
     expect(html).toContain("data-share-dialog");
-    expect(html).toContain('data-action="share"');
+    expect(html).toContain('commandfor="share" command="show-modal"');
     expect(html).toContain("data-share-form");
+    expect(html).toContain("Create a public link");
   });
   it("reader accepts a writer-created link against copied cloud rows", async () => {
     const response = await create();
@@ -447,5 +448,169 @@ describe("writer share links", () => {
     expect(
       await waypoint.get("SELECT id FROM share_links WHERE collection_id=?", [pendingCollection]),
     ).toBeUndefined();
+  });
+});
+
+async function jsonBody(response: Response): Promise<Record<string, unknown>> {
+  const value: unknown = await response.json();
+  if (!value || typeof value !== "object") throw new Error("Expected an object");
+  return Object.fromEntries(Object.entries(value));
+}
+async function createdId(response: Response): Promise<string> {
+  const link = (await jsonBody(response)).share_link;
+  const id = link && typeof link === "object" && "id" in link ? link.id : undefined;
+  if (typeof id !== "string") throw new Error("No link id");
+  return id;
+}
+async function queryCount(path: string): Promise<number> {
+  const spies = [
+    vi.spyOn(queue, "all"),
+    vi.spyOn(queue, "get"),
+    vi.spyOn(waypoint, "all"),
+    vi.spyOn(waypoint, "get"),
+  ];
+  await app.request(path);
+  const total = spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+  for (const spy of spies) spy.mockRestore();
+  return total;
+}
+describe("share links for the Folio UI (B3, B4)", () => {
+  it("derives state and public_sees from pushes, revocation and expiry", async () => {
+    const loop = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    const live = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      syncLoop: loop,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    });
+    const pinned = await createdId(await create({ revision_id: revisionId, label: "pinned" }));
+    const latest = await createdId(await create({ expires_at: Date.now() + 3_600_000 }));
+    const get = async (id: string) =>
+      (await jsonBody(await live.request(`/api/share-links/${id}`))).share_link;
+    expect(await get(pinned)).toMatchObject({
+      state: "activating",
+      revision_display_number: 1,
+      public_sees: { revision_id: revisionId, display_number: 1 },
+    });
+    loop.lastPushAt = Date.now() + 1;
+    expect(await get(latest)).toMatchObject({
+      state: "active",
+      revision_display_number: null,
+      public_sees: { display_number: 1 },
+    });
+    // A newer, unpushed revision: Latest keeps showing #1 until it syncs.
+    const next = await app.request(
+      `/api/collections/${collectionId}/revisions`,
+      json({ files: [{ path: "two.txt", hash }] }),
+    );
+    expect(next.status).toBe(200);
+    const nextId = (await jsonBody(next)).revision_id;
+    await worker.drain();
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      String(nextId),
+      Date.now(),
+    ]);
+    expect(await get(latest)).toMatchObject({ public_sees: { display_number: 1 } });
+    await queue.run("DELETE FROM unpushed");
+    expect(await get(latest)).toMatchObject({ public_sees: { display_number: 2 } });
+    expect((await live.request(`/api/share-links/${pinned}/revoke`, json({}))).status).toBe(200);
+    expect(await get(pinned)).toMatchObject({ state: "revoking", public_sees: null });
+    await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [
+      Date.now() - 120_000,
+      pinned,
+    ]);
+    expect(await get(pinned)).toMatchObject({ state: "revoked" });
+    await waypoint.run("UPDATE share_links SET expires_at=? WHERE id=?", [Date.now() - 1, latest]);
+    expect(await get(latest)).toMatchObject({ state: "expired", public_sees: null });
+    expect((await live.request("/api/share-links/shl_missing")).status).toBe(404);
+  });
+  it("lists every link with its collection, filters by state, and revokes in bulk", async () => {
+    const a = await createdId(await create({ label: "a" }));
+    await createdId(await create({ label: "b", revision_id: revisionId }));
+    await app.request(`/api/share-links/${a}/revoke`, json({}));
+    const all = await jsonBody(await app.request("/api/share-links"));
+    expect(Array.isArray(all.share_links) && all.share_links.length).toBe(2);
+    expect(JSON.stringify(all)).toContain(`"public_id":"${collectionPublicId}"`);
+    const active = await jsonBody(await app.request("/api/share-links?state=active"));
+    expect(Array.isArray(active.share_links) && active.share_links.length).toBe(1);
+    expect((await app.request("/api/share-links?state=bogus")).status).toBe(400);
+    expect(
+      await jsonBody(
+        await app.request(`/api/collections/${collectionId}/share-links/revoke-all`, json({})),
+      ),
+    ).toEqual({ revoked: 1 });
+    await create({ label: "c" });
+    expect(
+      await jsonBody(await app.request("/api/share-links/revoke-all?state=active", json({}))),
+    ).toEqual({ revoked: 1 });
+    expect(
+      (
+        await app.request(
+          "/api/share-links/revoke-all",
+          json({}, { origin: "https://attacker.example" }),
+        )
+      ).status,
+    ).toBe(403);
+    const page = await (await app.request("/links?state=revoked")).text();
+    expect(page).toContain("Public links");
+    expect(page).toContain("Shared test");
+  });
+  it("extends expiry only later, and never for revoked or open-ended links", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const extend = (expires: number, target = id) =>
+      app.request(`/api/share-links/${target}/extend`, json({ expires_at: expires }));
+    expect((await extend(soon - 1000)).status).toBe(400);
+    const later = await extend(soon + 7 * 86_400_000);
+    expect(later.status).toBe(200);
+    expect(await jsonBody(later)).toMatchObject({
+      share_link: { expires_at: soon + 7 * 86_400_000 },
+    });
+    const forever = await createdId(await create({}));
+    expect((await extend(soon, forever)).status).toBe(409);
+    await app.request(`/api/share-links/${id}/revoke`, json({}));
+    expect((await extend(soon + 30 * 86_400_000)).status).toBe(409);
+  });
+  it("summarizes live links on search results and renders the Links tab, chip and status segment", async () => {
+    await create({ label: "Design review — Sam" });
+    await create({ revision_id: revisionId });
+    const search = await reads.searchCollections({});
+    expect(search.collections[0]?.share).toEqual({ active: 2, follows_latest: true });
+    const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
+    expect(html).toContain('class="chip public hide-sm"');
+    expect(html).toContain("follows latest");
+    expect(html).toContain("Revoke all 2…");
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toMatch(/id="tab-links"[^>]*aria-selected="true"/);
+    const recent = await (await app.request("/")).text();
+    expect(recent).toContain("Public · follows latest");
+    expect(recent).toContain("Public now");
+    const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
+    const previewHtml = await preview.text();
+    expect(previewHtml).toContain("Read-only · shared with you");
+    expect(previewHtml).toContain(
+      'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
+    );
+    expect(previewHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
+  });
+  it("keeps query counts constant as links grow on the shell, Recent and /links", async () => {
+    await create({ label: "first" });
+    const before = [
+      await queryCount(`/c/${collectionPublicId}/`),
+      await queryCount("/"),
+      await queryCount("/links"),
+    ];
+    for (let i = 0; i < 20; i++) await create({ label: `link ${i}` });
+    const after = [
+      await queryCount(`/c/${collectionPublicId}/`),
+      await queryCount("/"),
+      await queryCount("/links"),
+    ];
+    expect(after).toEqual(before);
+    expect(after[0]).toBeLessThan(30);
+    expect(after[1]).toBeLessThan(25);
   });
 });

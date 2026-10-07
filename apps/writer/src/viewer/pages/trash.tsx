@@ -3,8 +3,9 @@ import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
+import { SHARE_COLUMNS, shareViews, type ShareRow } from "../../shares.js";
 import { getChrome } from "../chrome.js";
-import { Time } from "../components.js";
+import { Globe, Time } from "../components.js";
 import { plural, shortId } from "../format.js";
 import { HomeBar, Layout } from "../layout.js";
 import { noStore } from "../respond.js";
@@ -46,7 +47,8 @@ export async function trashPage(
                 const detail = details.get(item.id);
                 const link = links.get(item.id);
                 const linkChip: Child = link?.active.length ? (
-                  <a class="chip xs public" href={`/c/${item.public_id}/?panel=links`}>
+                  <a class="chip xs public" href="/links" title="Revoke them from Public links">
+                    <Globe />
                     {plural(link.active.length, "link")}, inactive while in Trash
                   </a>
                 ) : null;
@@ -105,4 +107,26 @@ export async function trashPage(
       </Layout>,
     ),
   );
+}
+
+/** Live links per trashed collection: they work again after a restore (spec §5.9). */
+export async function trashLinks(s: HttpServices, ids: string[]): Promise<Map<string, TrashLinks>> {
+  const result = new Map<string, TrashLinks>();
+  if (!ids.length) return result;
+  const rows = await s.waypoint.all<ShareRow>(
+    `SELECT ${SHARE_COLUMNS} FROM share_links WHERE collection_id IN (${ids.map(() => "?").join(",")})`,
+    ids,
+  );
+  for (const view of await shareViews(s, rows)) {
+    const entry = result.get(view.collection_id) ?? { active: [], total: 0 };
+    entry.total++;
+    if (view.status === "active")
+      entry.active.push({
+        id: view.id,
+        label: view.label,
+        revision_display_number: view.revision_display_number,
+      });
+    result.set(view.collection_id, entry);
+  }
+  return result;
 }

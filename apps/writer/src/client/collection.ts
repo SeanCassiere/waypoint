@@ -21,7 +21,6 @@ export function bindCollection(): void {
   onCommand("copy-latest", () => run(copyLatest, toast));
   onCommand("copy-pinned", () => run(copyPinned, toast));
   onCommand("copy-handoff", () => run(copyHandoff, toast));
-  onCommand("share", () => $("[data-action=share]")?.click());
   onCommand("older", () => goRevision(root.dataset.older));
   onCommand("newer", () => goRevision(root.dataset.newer));
   onCommand("changes", () => {

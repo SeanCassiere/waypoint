@@ -13,6 +13,7 @@ import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
 import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.js";
+import { collectionLinks, type ShareView } from "../../shares.js";
 import { rawPath, shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import {
@@ -29,6 +30,8 @@ import { bytes, ext, projectAndTags } from "../format.js";
 import { Layout, NotFoundBody, type Chrome } from "../layout.js";
 import { noStore } from "../respond.js";
 import { changesPage, CompareDialog } from "./changes.js";
+import { publicPreview } from "./public-preview.js";
+import { isLive, LinksPanel, previewHref, publicSegment, ShareDialog } from "./share.js";
 import type { ViewerExtras } from "./status.js";
 
 const HISTORY_PAGE = 50;
@@ -50,6 +53,9 @@ export interface CollectionContext {
   byId: Map<string, TimelineRow>;
   publicSees: RevisionRow | undefined;
   url: URL;
+  /** Share links (any state); empty when sharing isn't configured. */
+  links: ShareView[];
+  sharing: boolean;
 }
 
 export function filesOf(manifest: Manifest): ManifestFileEntry[] {
@@ -131,9 +137,10 @@ export async function loadCollection(
   const latest = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
   const revision = options.rpub ? rows.find((row) => row.public_id === options.rpub) : latest;
   if (!revision) return { kind: "no-revision", chrome, collection };
-  const [manifest, changes] = await Promise.all([
+  const [manifest, changes, links] = await Promise.all([
     s.reads.manifestOf(revision),
     s.reads.changesFor(rows),
+    s.publicBaseUrl ? collectionLinks(s, collection.id) : Promise.resolve([]),
   ]);
   const timeline: TimelineRow[] = rows.map((row) => ({
     id: row.id,
@@ -172,6 +179,8 @@ export async function loadCollection(
       byId: new Map(timeline.map((row) => [row.id, row])),
       publicSees: rows.findLast((row) => row.sync_state === "synced"),
       url: new URL(c.req.raw.url),
+      links,
+      sharing: Boolean(s.publicBaseUrl),
     },
   };
 }
@@ -223,6 +232,12 @@ export function CollectionBar(props: {
         #{revision.display_number ?? "?"}
         <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>▾
       </button>
+      {ctx.links.some(isLive) ? (
+        <a class="chip public hide-sm" href="?panel=links" title="Public links">
+          <Globe />
+          Public
+        </a>
+      ) : null}
       {props.doneHref ? (
         <a class="btn sm ghost hide-sm" href={props.doneHref} data-done>
           Done <kbd>Esc</kbd>
@@ -237,10 +252,12 @@ export function CollectionBar(props: {
       >
         Copy ▾
       </button>
-      <button type="button" class="btn public hide-sm" data-action="share">
-        <Globe />
-        Share
-      </button>
+      {ctx.sharing ? (
+        <button type="button" class="btn public hide-sm" commandfor="share" command="show-modal">
+          <Globe />
+          Share
+        </button>
+      ) : null}
       <button
         type="button"
         class="iconbtn"
@@ -400,18 +417,19 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
   const raw = rawPath(ctx.revision.public_id, path);
   return (
     <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
-      <button
-        type="button"
-        class="mi pubitem show-sm"
-        role="menuitem"
-        popovertarget="more-menu"
-        popovertargetaction="hide"
-        data-action="share"
-      >
-        <Globe />
-        <span>Share…</span>
-        <kbd>s</kbd>
-      </button>
+      {ctx.sharing ? (
+        <button
+          type="button"
+          class="mi pubitem show-sm"
+          role="menuitem"
+          commandfor="share"
+          command="show-modal"
+        >
+          <Globe />
+          <span>Share…</span>
+          <kbd>s</kbd>
+        </button>
+      ) : null}
       <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
         <span aria-hidden="true">✎</span>
         <span>Rename…</span>
@@ -905,11 +923,20 @@ export function ShellRoot(props: {
         ctx.timeline.map((row) => [row.public_id, row.display_number, row.id]),
       )}
       data-files={String(ctx.files.length)}
-      data-links="0"
+      data-links={String(ctx.links.filter(isLive).length)}
     >
       {props.children}
     </div>
   );
+}
+
+/** The document's own query string: shell-only keys (panel, history) are dropped verbatim. */
+export function documentSearch(search: string): string {
+  const kept = search
+    .replace(/^\?/, "")
+    .split("&")
+    .filter((part) => part && !/^(?:panel|history)(?:=|$)/.test(part));
+  return kept.length ? `?${kept.join("&")}` : "";
 }
 
 function decodePath(encoded: string, head: string): string | null {
@@ -1075,9 +1102,11 @@ export async function collectionPage(
     : undefined;
   const parentManifest = parentRow ? await s.reads.manifestOf(parentRow) : undefined;
   const glyphs = glyphsAgainst(ctx.manifest, parentManifest);
-  const tab: PanelTab = c.req.query("panel") === "history" ? "history" : "files";
-  const raw =
-    rawPath(revision.public_id, path) + url.search.replace(/[?&](?:panel|history)=[^&]*/g, "");
+  const panel = c.req.query("panel");
+  const tab: PanelTab =
+    panel === "history" ? "history" : panel === "links" && ctx.links.length ? "links" : "files";
+  if (url.searchParams.get("as") === "public") return publicPreview(c, ctx, path);
+  const raw = rawPath(revision.public_id, path) + documentSearch(url.search);
   return noStore(
     c.html(
       <Layout
@@ -1092,9 +1121,18 @@ export async function collectionPage(
             tab={tab}
             files={<FilesPanel ctx={ctx} path={path} glyphs={glyphs} />}
             history={<HistoryPanel ctx={ctx} path={path} all={c.req.query("history") === "all"} />}
+            links={
+              ctx.links.length ? (
+                <LinksPanel ctx={ctx} links={ctx.links} previewHref={previewHref(ctx, path)} />
+              ) : undefined
+            }
+            linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
-            <StatusLine ctx={ctx} />
+            <StatusLine
+              ctx={ctx}
+              extra={[publicSegment(ctx.links)].filter((item) => item !== null)}
+            />
             {isEmbeddable(file.mime) ? (
               <iframe
                 class={`frame${file.mime.startsWith("image/") ? " img" : ""}`}
@@ -1111,52 +1149,13 @@ export async function collectionPage(
         <TabBar />
         <RevisionMenu ctx={ctx} path={path} />
         <CopyMenu ctx={ctx} path={path} />
-        <MoreMenu ctx={ctx} path={path} />
+        <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
         <CollectionDialogs ctx={ctx} />
         <CompareDialog ctx={ctx} basePub={null} />
-        <LegacyShareDialog pinned={ctx.pinned} />
+        {ctx.sharing ? (
+          <ShareDialog ctx={ctx} links={ctx.links} previewHref={previewHref(ctx, path)} />
+        ) : null}
       </Layout>,
     ),
-  );
-}
-
-/** Phase-2 share dialog, kept until the Folio share flow replaces it (plan step 5). */
-function LegacyShareDialog(props: { pinned: boolean }) {
-  return (
-    <dialog class="dlg" data-share-dialog aria-labelledby="share-title">
-      <div class="bd">
-        <h2 id="share-title">Share collection</h2>
-        <p class="muted">
-          Anyone with a share URL can view this{" "}
-          {props.pinned ? "snapshot" : "collection's latest revision"}.
-        </p>
-        <form data-share-form class="fields">
-          <label class="fl">
-            Label <input name="label" maxLength={200} placeholder="Optional" />
-          </label>
-          <label class="fl">
-            Expires <input name="expires" type="datetime-local" />
-          </label>
-          <div class="btns">
-            <button type="submit" class="btn public-solid">
-              Create link
-            </button>
-            <button type="button" class="btn" data-share-close>
-              Close
-            </button>
-          </div>
-        </form>
-        <p data-share-availability role="status" />
-        <div data-share-created hidden>
-          <p>Copy this URL now. You won't see it again.</p>
-          <input data-share-url readonly aria-label="New share URL" class="confirm-input" />
-          <button type="button" class="btn" data-share-copy>
-            Copy URL
-          </button>
-        </div>
-        <h3>Existing links</h3>
-        <div data-share-list />
-      </div>
-    </dialog>
   );
 }

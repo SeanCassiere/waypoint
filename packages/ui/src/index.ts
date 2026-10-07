@@ -3,3 +3,4 @@
 export * from "./frame-location.js";
 export * from "./html.js";
 export * from "./tokens.js";
+export * from "./public-shell.js";

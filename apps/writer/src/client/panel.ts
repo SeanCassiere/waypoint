@@ -53,7 +53,13 @@ export function bindPanel(): void {
   for (const tab of tabs) {
     tab.addEventListener("click", (event) => {
       event.preventDefault();
-      withTransition(() => selectTab(tab.dataset.tab ?? "files"));
+      const id = tab.dataset.tab ?? "files";
+      withTransition(() => selectTab(id));
+      // Remember the tab in the URL so reloads and copied tailnet links keep it.
+      const url = new URL(location.href);
+      if (id === "files") url.searchParams.delete("panel");
+      else url.searchParams.set("panel", id);
+      history.replaceState(history.state, "", url);
     });
     tab.addEventListener("keydown", (event) => {
       const index = tabs.indexOf(tab);

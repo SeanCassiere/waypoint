@@ -16,7 +16,6 @@ import {
   newShareToken,
   hashShareToken,
   shareShellUrl,
-  type ShareLink,
   type CreateCollectionRequest,
   type AddRevisionRequest,
 } from "@waypoint/core";
@@ -40,6 +39,17 @@ import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
+import {
+  allLinks,
+  collectionLinks,
+  extendLink,
+  inFilter,
+  revokeAll,
+  SHARE_COLUMNS,
+  shareViews,
+  withoutCollection,
+  type ShareRow,
+} from "./shares.js";
 import { getStatus } from "./status-data.js";
 import type { SyncLoop } from "./sync-loop.js";
 import { viewerApp } from "./viewer/index.js";
@@ -703,30 +713,9 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
-  type ShareRow = Pick<
-    ShareLink,
-    "id" | "collection_id" | "revision_id" | "label" | "expires_at" | "revoked_at" | "created_at"
-  >;
-  async function shareView(row: ShareRow): Promise<ShareLink> {
-    const collection = await s.reads.collection(row.collection_id);
-    const target = row.revision_id
-      ? await s.reads.revision(row.revision_id)
-      : await s.reads.latest(row.collection_id);
-    const now = Date.now();
-    const status =
-      row.revoked_at !== null
-        ? "revoked"
-        : row.expires_at !== null && row.expires_at <= now
-          ? "expired"
-          : "active";
-    return {
-      ...row,
-      mode: row.revision_id ? "pinned" : "latest",
-      status,
-      publicly_available:
-        status === "active" && collection?.deleted_at == null && target?.sync_state === "synced",
-    };
-  }
+  const requireSharing = () => {
+    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+  };
   app.post("/api/collections/:id/share-links", async (c) => {
     if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
     const id = c.req.param("id");
@@ -789,8 +778,10 @@ export function createApp(s: HttpServices): Hono {
         const target = row.revision_id
           ? await s.reads.revision(row.revision_id)
           : await s.reads.latest(id);
+        const [view] = await shareViews(s, [row]);
+        if (!view) throw new WaypointError("internal_error", "Share link view missing");
         return {
-          share_link: await shareView(row),
+          share_link: withoutCollection(view),
           url: shareShellUrl(
             s.publicBaseUrl!,
             token,
@@ -805,51 +796,96 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/collections/:id/share-links", async (c) => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    requireSharing();
     const id = c.req.param("id");
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
-    const rows = await s.waypoint.all<ShareRow>(
-      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY created_at DESC",
-      [id],
+    return c.json({ share_links: (await collectionLinks(s, id)).map(withoutCollection) });
+  });
+  // B3: every link across collections, optionally one filter (active includes activating).
+  app.get("/api/share-links", async (c) => {
+    requireSharing();
+    const state = c.req.query("state");
+    if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
+      throw new WaypointError("validation_failed", "Invalid state filter");
+    const views = await allLinks(s);
+    return c.json({ share_links: state ? views.filter((view) => inFilter(view, state)) : views });
+  });
+  app.get("/api/share-links/:id", async (c) => {
+    requireSharing();
+    const row = await s.waypoint.get<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+      [c.req.param("id")],
     );
-    return c.json({ share_links: await Promise.all(rows.map(shareView)) });
+    const [view] = await shareViews(s, row ? [row] : []);
+    if (!view) throw new WaypointError("not_found", "Share link not found");
+    return c.json({ share_link: withoutCollection(view) });
+  });
+  app.post("/api/share-links/revoke-all", async (c) => {
+    requireSharing();
+    await parseJson(c);
+    if ((c.req.query("state") ?? "active") !== "active")
+      throw new WaypointError("validation_failed", "Only state=active can be revoked in bulk");
+    const active = (await allLinks(s)).filter((view) => inFilter(view, "active"));
+    let revoked = 0;
+    await inSeries([...new Set(active.map((view) => view.collection_id))], async (id) => {
+      revoked += await revokeAll(s, id);
+    });
+    return c.json({ revoked });
+  });
+  app.post("/api/collections/:id/share-links/revoke-all", async (c) => {
+    requireSharing();
+    await parseJson(c);
+    const id = c.req.param("id");
+    if (!(await s.reads.collection(id)))
+      throw new WaypointError("collection_not_found", "Collection not found");
+    return c.json({ revoked: await revokeAll(s, id) });
+  });
+  app.post("/api/share-links/:id/extend", async (c) => {
+    requireSharing();
+    const body = validated(
+      z.object({ expires_at: z.number().int().positive() }),
+      await parseJson(c),
+    );
+    return c.json({
+      share_link: withoutCollection(await extendLink(s, c.req.param("id"), body.expires_at)),
+    });
   });
   app.post("/api/share-links/:id/revoke", async (c) => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    requireSharing();
     await parseJson(c);
     const id = c.req.param("id");
     const found = await s.waypoint.get<ShareRow>(
-      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
       [id],
     );
     if (!found) throw new WaypointError("not_found", "Share link not found");
-    return c.json(
-      await s.ingest.withCollectionLock(found.collection_id, async () => {
-        const row = await s.waypoint.get<ShareRow>(
-          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
-          [id],
+    await s.ingest.withCollectionLock(found.collection_id, async () => {
+      const row = await s.waypoint.get<ShareRow>(
+        `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+        [id],
+      );
+      if (!row) throw new WaypointError("not_found", "Share link not found");
+      if (row.revoked_at === null) {
+        await s.queue.run(
+          "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
+          [row.collection_id, Date.now()],
         );
-        if (!row) throw new WaypointError("not_found", "Share link not found");
-        if (row.revoked_at === null) {
-          await s.queue.run(
-            "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
-            [row.collection_id, Date.now()],
-          );
-          await s.waypoint.run(
-            "UPDATE share_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
-            [Date.now(), id],
-          );
-          s.ingest.committer.wake();
-          s.syncLoop?.triggerPush();
-        }
-        const current = await s.waypoint.get<ShareRow>(
-          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
-          [id],
+        await s.waypoint.run(
+          "UPDATE share_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+          [Date.now(), id],
         );
-        return shareView(current!);
-      }),
+        s.ingest.committer.wake();
+        s.syncLoop?.triggerPush();
+      }
+    });
+    const current = await s.waypoint.get<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+      [id],
     );
+    const [view] = await shareViews(s, current ? [current] : []);
+    if (!view) throw new WaypointError("not_found", "Share link not found");
+    return c.json(withoutCollection(view));
   });
   app.post("/api/collections/:id/purge", async (c) => {
     const id = c.req.param("id");
