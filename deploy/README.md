@@ -226,7 +226,7 @@ keeps the output plain for scripts.
 
 The reader job runs on the same self-hosted runner after the writer job succeeds. It checks out the same commit, installs the frozen lockfile, builds the reader, then deploys dev before prod. No reader credentials enter GitHub Actions secrets. The runner reads mode-600 `~/.config/waypoint/cloudflare.env` for `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `reader-dev.env` or `reader-prod.env` for the seven reader values listed in [provisioning](../docs/provisioning.md#part-2-cloud-reader). The deploy script writes them to a mode-600 temporary JSON file for `wrangler secret bulk`, then deletes it immediately after upload.
 
-Before the first reader deploy, provision those files and add `WAYPOINT_PUBLIC_BASE_URL=https://waypoint-dev.pingstash.com` to the writer's `dev.env` and `WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com` to `prod.env`. The writer must be restarted through the normal deploy for the setting to take effect. The custom domains are attached by Wrangler; do not add DNS records by hand.
+Both readers are live, at `https://waypoint-dev.pingstash.com` (`waypoint-reader-dev`) and `https://waypoint.pingstash.com` (`waypoint-reader`). The writers point their share links at them with `WAYPOINT_PUBLIC_BASE_URL` in `dev.env` and `prod.env`; a change to that setting takes effect after the writer restarts through the normal deploy. Wrangler attaches the custom domains, so don't add DNS records by hand. When rebuilding the runner host, provision the env files above before the first reader deploy.
 
 Manual deploy from the checked out repository on agent-1:
 

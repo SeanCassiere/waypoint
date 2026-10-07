@@ -4,14 +4,17 @@ Read this before changing or operating Waypoint. Background on what Waypoint is:
 
 ## Where it runs
 
-|                   |                                                                                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Production writer | `https://waypoint.tail7aca06.ts.net`, reachable **only on the Tailscale tailnet**                                                                 |
-| Host              | `agent-1`, Docker Compose project `waypoint` ([deploy/compose.yaml](deploy/compose.yaml))                                                         |
-| Containers        | `waypoint-writer-1` (the writer) and `waypoint-ts-waypoint-1` (Tailscale sidecar; its own tailnet node `waypoint`, `tag:waypoint`)                |
-| Data              | `~/.local/share/waypoint/prod` on agent-1 (local DB, queue, blob cache). Durable copies live in Turso (`waypoint-prod`) and R2 (`waypoint-prod`). |
-| Secrets           | `~/.config/waypoint/prod.env` (writer) and `~/.config/waypoint/ts.env` (sidecar). Mode 600, passed at runtime only.                               |
-| Dev environment   | Not deployed. Run a writer locally with `~/.config/waypoint/dev.env` on `http://127.0.0.1:7411` (see [Developing](#developing)).                  |
+|                   |                                                                                                                                                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production writer | `https://waypoint.tail7aca06.ts.net`, reachable **only on the Tailscale tailnet**                                                                                                                                                                                           |
+| Public reader     | Cloudflare Worker `waypoint-reader` at `https://waypoint.pingstash.com` (public; serves only what share links allow). Deployed from agent-1 after the writer.                                                                                                               |
+| Dev reader        | Cloudflare Worker `waypoint-reader-dev` at `https://waypoint-dev.pingstash.com` (dev DB and bucket)                                                                                                                                                                         |
+| PR previews       | `https://pr-<number>-waypoint-reader.seancassiere.workers.dev`, Worker Previews of `waypoint-reader` with production data read-only. `*-waypoint-reader.seancassiere.workers.dev` and `waypoint-reader.seancassiere.workers.dev` are behind Cloudflare Access (owner only). |
+| Host              | `agent-1`, Docker Compose project `waypoint` ([deploy/compose.yaml](deploy/compose.yaml))                                                                                                                                                                                   |
+| Containers        | `waypoint-writer-1` (the writer) and `waypoint-ts-waypoint-1` (Tailscale sidecar; its own tailnet node `waypoint`, `tag:waypoint`)                                                                                                                                          |
+| Data              | `~/.local/share/waypoint/prod` on agent-1 (local DB, queue, blob cache). Durable copies live in Turso (`waypoint-prod`) and R2 (`waypoint-prod`).                                                                                                                           |
+| Secrets           | `~/.config/waypoint/prod.env` (writer), `ts.env` (sidecar), `cloudflare.env` (Workers deploy token) and `reader-<env>.env` (reader read-only credentials). Mode 600, passed at runtime only.                                                                                |
+| Dev writer        | Not deployed. Run a writer locally with `~/.config/waypoint/dev.env` on `http://127.0.0.1:7411` (see [Developing](#developing)).                                                                                                                                            |
 
 The writer publishes **no host port**. It's reachable only through the sidecar's tailnet HTTPS endpoint, not from the plain LAN.
 
@@ -47,12 +50,17 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
    - It updates on every push and is deleted when the PR closes.
    - It runs only for same-repo PRs pushed by the owner, on the self-hosted runner. See [deploy/README.md](deploy/README.md#pr-previews) and [docs/trust-model.md](docs/trust-model.md#deploy-pipeline).
 3. Merge to `main`. CI runs again on `main`.
-4. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`). It runs [deploy/deploy.sh](deploy/deploy.sh), which:
-   - builds the image `waypoint-writer:<sha>` locally (no registry)
-   - recreates only the writer container
-   - waits for the container health check, then for `https://waypoint.tail7aca06.ts.net/healthz` through the tailnet
-   - **on failure, rolls back** to `waypoint-writer:previous` and fails the workflow
-5. Confirm with `gh run list --workflow Deploy --limit 1` and `curl -fsS https://waypoint.tail7aca06.ts.net/healthz`.
+4. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`), for that exact commit, in order:
+   1. **Writer** (job `deploy`): [deploy/deploy.sh](deploy/deploy.sh)
+      - builds the image `waypoint-writer:<sha>` locally (no registry)
+      - recreates only the writer container
+      - waits for the container health check, then for `https://waypoint.tail7aca06.ts.net/healthz` through the tailnet
+      - **on failure, rolls back** to `waypoint-writer:previous` and fails the workflow
+   2. **Reader** (job `reader`, only if the writer succeeded): builds the reader, then runs [deploy/deploy-reader.sh](deploy/deploy-reader.sh) `dev` and then `prod`. Each run:
+      - uploads the read-only secrets and deploys
+      - smoke-tests `/healthz`, `/healthz/deep`, an unknown share URL and `/robots.txt`
+      - **on failure, rolls back** to the previous Worker version
+5. Confirm with `gh run list --workflow Deploy --limit 1`, `curl -fsS https://waypoint.tail7aca06.ts.net/healthz` and `curl -fsS https://waypoint.pingstash.com/healthz/deep`.
 
 Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md).
 
