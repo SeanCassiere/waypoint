@@ -971,7 +971,7 @@ export function notFound(
     ),
   );
 }
-function HomeBarLite(props: { chrome: Chrome }) {
+export function HomeBarLite(props: { chrome: Chrome }) {
   return (
     <header class="bar">
       <a class="logo" href="/" aria-label="Waypoint, Recent">
@@ -1066,6 +1066,8 @@ export async function collectionPage(
   const encoded = match ? (match[2] ?? "") : after;
   const path = decodePath(encoded, revision.head_path);
   if (path === null) return notFound(c, ctx.chrome, url.pathname, `/c/${collection.public_id}/`);
+  // Before the file check: the public may see a file that the newest revision no longer has.
+  if (url.searchParams.get("as") === "public") return publicPreview(c, ctx, path);
   const file = ctx.manifest.files[path];
   if (url.searchParams.get("fallback") === "head") {
     url.searchParams.delete("fallback");
@@ -1113,7 +1115,6 @@ export async function collectionPage(
   const panel = c.req.query("panel");
   const tab: PanelTab =
     panel === "history" ? "history" : panel === "links" && ctx.links.length ? "links" : "files";
-  if (url.searchParams.get("as") === "public") return publicPreview(c, ctx, path);
   const raw = rawPath(revision.public_id, path) + documentSearch(url.search);
   return noStore(
     c.html(

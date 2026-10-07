@@ -9,7 +9,7 @@ Conventions:
 
 ## Viewer routes
 
-`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]`, `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links`, `/trash`, `/status`, and `/mcp` (HTML for browsers; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
+`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell: the newest synced revision for a latest URL, or the pinned one; when that hasn't synced, the owner gets a "not public yet" explanation instead), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]`, `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links`, `/trash`, `/status`, and `/mcp` (HTML for browsers; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
 
 ## Request safety
 

@@ -670,6 +670,49 @@ describe("share links for the Folio UI (B3, B4)", () => {
     );
     expect(previewHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
   });
+  it("previews what the public sees, including files only the public revision has", async () => {
+    // #1 (synced) has index.txt; #2 replaces it with two.txt and hasn't synced.
+    const next = await app.request(
+      `/api/collections/${collectionId}/revisions`,
+      json({ mode: "replace", head_path: "two.txt", files: [{ path: "two.txt", hash }] }),
+    );
+    expect(next.status).toBe(200);
+    const nextId = String((await jsonBody(next)).revision_id);
+    await worker.drain();
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      nextId,
+      Date.now(),
+    ]);
+    const nextPub = (
+      await waypoint.get<{ public_id: string }>("SELECT public_id FROM revisions WHERE id=?", [
+        nextId,
+      ])
+    )?.public_id;
+    const only = await app.request(`/c/${collectionPublicId}/index.txt?as=public`);
+    expect(only.status).toBe(200);
+    const onlyHtml = await only.text();
+    expect(onlyHtml).toContain("Read-only · shared with you");
+    expect(onlyHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
+    expect(onlyHtml).not.toContain("two.txt");
+    // A pinned preview of the unsynced revision explains instead of showing it.
+    const pinned = await app.request(`/c/${collectionPublicId}/r/${nextPub}/?as=public`);
+    expect(pinned.status).toBe(200);
+    const pinnedHtml = await pinned.text();
+    expect(pinnedHtml).toContain("#2 isn&#39;t public yet.");
+    expect(pinnedHtml).not.toContain(`/raw/r/${nextPub}/`);
+    // Nothing synced at all: no revision is presented as public.
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      revisionId,
+      Date.now(),
+    ]);
+    const none = await app.request(`/c/${collectionPublicId}/?as=public`);
+    expect(none.status).toBe(200);
+    const noneHtml = await none.text();
+    expect(noneHtml).toContain("Nothing is public yet.");
+    expect(noneHtml).toContain('data-preview="not-public"');
+    expect(noneHtml).not.toContain("/raw/r/");
+    expect(noneHtml).not.toContain("Read-only · shared with you");
+  });
   it("keeps query counts constant as links grow on the shell, Recent and /links", async () => {
     await create({ label: "first" });
     const before = [
