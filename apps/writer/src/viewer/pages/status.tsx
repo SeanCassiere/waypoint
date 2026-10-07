@@ -188,7 +188,7 @@ export async function statusPage(
         <main class="wrap" id="main">
           <div class="ph">
             <div>
-              <h2>Status</h2>
+              <h1>Status</h1>
               <p>
                 Writer <span class="mono">{chrome.host}</span> · environment{" "}
                 <span class="mono">{status.environment}</span>

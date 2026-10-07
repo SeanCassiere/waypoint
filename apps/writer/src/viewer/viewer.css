@@ -132,6 +132,8 @@ mark {
 }
 .search:focus-within {
   border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 .search input {
   flex: 1;
@@ -1696,7 +1698,7 @@ details.sees > summary h3 {
   display: none;
 }
 #share .band .globe,
-.ph h2 .globe {
+.ph h1 .globe {
   width: 22px;
   height: 22px;
 }
@@ -2200,7 +2202,7 @@ dialog.lbx::backdrop {
   margin-bottom: 22px;
   flex-wrap: wrap;
 }
-.ph h2 {
+.ph h1 {
   font: 700 26px/1.15 var(--sans);
   letter-spacing: -0.02em;
   margin: 0;
@@ -2387,8 +2389,9 @@ h3.sec .n {
 .notfound {
   padding-top: 12vh;
 }
-.notfound b {
-  font-size: 22px;
+.notfound h1 {
+  font: 700 22px/1.2 var(--sans);
+  margin: 0;
 }
 .btns {
   display: flex;
@@ -2438,7 +2441,7 @@ h3.sec .n {
   background: none;
   cursor: pointer;
 }
-.tabs2 [aria-selected="true"] {
+.tabs2 [aria-current="page"] {
   color: var(--ink);
   border-color: var(--ink);
 }
@@ -2718,6 +2721,25 @@ h3.sec .n {
   .bar {
     gap: 6px;
     padding: 0 10px;
+  }
+  /* Touch targets ≥ 44px (spec §7): icon buttons grow; pills keep their look and get an
+     invisible hit area. */
+  .bar .iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+  .bar .revbtn,
+  .bar .health {
+    position: relative;
+  }
+  .bar .revbtn::after,
+  .bar .health::after {
+    content: "";
+    position: absolute;
+    inset: -8px -3px;
+  }
+  .pfoot {
+    display: none;
   }
 }
 /* Motion (spec §3.3): opacity and transform only, 120-200 ms, and none under reduced motion.

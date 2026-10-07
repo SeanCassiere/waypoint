@@ -536,9 +536,9 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
         <main class="wrap" id="main">
           <div class="ph">
             <div>
-              <h2>
+              <h1>
                 <Globe /> Public links
-              </h2>
+              </h1>
               <p>
                 Everything readable outside your tailnet right now. Revoking takes effect within
                 about a minute.

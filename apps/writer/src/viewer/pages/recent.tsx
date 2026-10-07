@@ -68,21 +68,29 @@ export function CollectionRow(props: {
     <a
       class="item"
       href={`/c/${item.public_id}/`}
+      aria-labelledby={`it-${item.public_id}`}
+      aria-describedby={`iw-${item.public_id} im-${item.public_id} ix-${item.public_id}`}
       data-updated={String(item.updated_at)}
       data-pub={item.public_id}
       data-n={latest ? String(latest.display_number) : undefined}
     >
       <span class="t">
-        <span class="tt" style={`view-transition-name:col-${item.public_id}`}>
+        <span
+          class="tt"
+          id={`it-${item.public_id}`}
+          style={`view-transition-name:col-${item.public_id}`}
+        >
           {highlight(item.title, query)}
         </span>
       </span>
-      <span class="when">
+      <span class="when" id={`iw-${item.public_id}`}>
         <Time at={item.updated_at} now={now} />
       </span>
-      <span class="msg">{latest?.message ?? (latest ? "No message" : "No revision yet")}</span>
+      <span class="msg" id={`im-${item.public_id}`}>
+        {latest?.message ?? (latest ? "No message" : "No revision yet")}
+      </span>
       <span class="rn">{latest ? `#${latest.display_number}` : ""}</span>
-      <span class="meta">
+      <span class="meta" id={`ix-${item.public_id}`}>
         {latest?.source_host ? <span class="host">{latest.source_host}</span> : null}
         <Chg changes={latest?.changes} />
         {labels.length ? <span>{labels.join(" · ")}</span> : null}
@@ -249,9 +257,9 @@ export function RecentBody(props: {
   return (
     <div class="home">
       <main id="main" aria-labelledby="recent-title" data-recent>
-        <h2 class="page" id="recent-title">
+        <h1 class="page" id="recent-title">
           Recent
-        </h2>
+        </h1>
         <p class="lede" data-lede>
           Newest first, by latest revision.
         </p>
@@ -324,7 +332,7 @@ export function SearchBody(props: {
     <main class="wrap" id="main">
       <div class="ph">
         <div>
-          <h2>
+          <h1>
             {items.length || props.nextCursor ? (
               <>
                 {props.nextCursor ? `${items.length}+` : items.length}{" "}
@@ -333,7 +341,7 @@ export function SearchBody(props: {
             ) : (
               <>No collections match “{q}”</>
             )}
-          </h2>
+          </h1>
           <p>
             Matched in titles and metadata values. Paste a Waypoint URL or ID to jump straight to
             it.

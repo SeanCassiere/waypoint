@@ -263,7 +263,7 @@ export function CollectionBar(props: {
         popovertarget="copy-menu"
         aria-haspopup="menu"
       >
-        Copy ▾
+        Copy <span aria-hidden="true">▾</span>
       </button>
       {ctx.sharing ? (
         <button type="button" class="btn public hide-sm" commandfor="share" command="show-modal">

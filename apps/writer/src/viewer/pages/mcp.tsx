@@ -67,7 +67,7 @@ export async function mcpPage(
         <main class="wrap narrow" id="main">
           <div class="ph">
             <div>
-              <h2>Connect an agent</h2>
+              <h1>Connect an agent</h1>
               <p>
                 Agents publish to Waypoint through a small MCP server. Set it up once per machine.
                 It updates itself on every session start.
@@ -76,11 +76,7 @@ export async function mcpPage(
           </div>
           <nav class="tabs2" aria-label="Agent">
             {tabs.map(([id, label]) => (
-              <a
-                href={`/mcp?client=${id}`}
-                aria-selected={id === tab ? "true" : "false"}
-                aria-current={id === tab ? "page" : undefined}
-              >
+              <a href={`/mcp?client=${id}`} aria-current={id === tab ? "page" : undefined}>
                 {label}
               </a>
             ))}

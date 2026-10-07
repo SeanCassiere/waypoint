@@ -231,7 +231,7 @@ export function NotFoundBody(props: {
 }) {
   return (
     <main class="wrap narrow notfound" id="main">
-      <b>Not found</b>
+      <h1>Not found</h1>
       <p class="muted">
         {props.message ?? (
           <>

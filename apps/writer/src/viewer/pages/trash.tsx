@@ -34,7 +34,7 @@ export async function trashPage(
         <main class="wrap narrow" id="main">
           <div class="ph">
             <div>
-              <h2>Trash</h2>
+              <h1>Trash</h1>
               <p>
                 Deleted collections are hidden everywhere, and their public links stop working.
                 Restore brings everything back. Purge erases it permanently, everywhere.
