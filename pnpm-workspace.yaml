@@ -21,3 +21,6 @@ overrides:
   # GHSA-w5hq-g745-h8pq (uuid < 11.1.1). typeid-js 1.2.0 (latest) still depends on uuid ^10;
   # it only calls uuid.v7() and uuid.stringify(), which are API-compatible in 11.x.
   "uuid@<11.1.1": "^11.1.1"
+  # GHSA-wq5f-xc86-pv6w (sharp < 0.35.5, librsvg). Only reached through wrangler -> miniflare
+  # (reader dev tooling), never shipped in the writer image or the Worker bundle.
+  "sharp@<0.35.5": "0.35.5"
