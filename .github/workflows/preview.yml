@@ -7,13 +7,15 @@ name: Preview
 # production credentials in ~/.config/waypoint/. GitHub runs a pull_request workflow from the
 # PR's own branch, so whoever can push a branch to this repository controls what runs there.
 # That's acceptable only because only the owner can push. Never switch this to
-# pull_request_target, and never let fork PRs reach the self-hosted jobs.
+# pull_request_target, and never let fork PRs reach the self-hosted jobs. A fork PR would run
+# the fork's own copy of this file, so the `if:` conditions below don't stop forks. What does is
+# that the repository is private with "Run workflows from fork pull requests" off
+# (run_workflows_from_fork_pull_requests: false). Keep that setting off.
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
-permissions:
-  contents: read
-  pull-requests: write
+# Each job grants only what it needs.
+permissions: {}
 concurrency:
   group: preview-pr-${{ github.event.pull_request.number }}
   # A newer push cancels an in-flight `up`. `closed` waits for it, then deletes the preview.
@@ -31,8 +33,8 @@ jobs:
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-          # Space-separated. Only the owner for now. A bot added here runs its PR's code with
-          # the prod read-only reader credentials, so add one only after reviewing that risk.
+          # Space-separated. Only the owner for now. A bot added here (and to the `if:` of `up`
+          # and `down`) runs its PR's code on the deploy runner, so add one only after review.
           ALLOWED_ACTORS: SeanCassiere
         run: |
           [[ "$HEAD_REPO" == "$REPO" ]] || { echo "::error::Previews never run for fork PRs ($HEAD_REPO)"; exit 1; }
@@ -40,9 +42,14 @@ jobs:
             [[ " $ALLOWED_ACTORS " == *" $who "* ]] || { echo "::error::$who may not run previews"; exit 1; }
           done
           echo "Allowed: $ACTOR (triggered by $TRIGGERING_ACTOR) on $HEAD_REPO"
+  # The `if:` repeats the guard's checks: re-running only this job reuses guard's earlier
+  # success, possibly with a different triggering actor.
   up:
     needs: guard
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action != 'closed'
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor == 'SeanCassiere' && github.triggering_actor == 'SeanCassiere'
     runs-on: [self-hosted, waypoint-deploy]
     permissions:
       contents: read
@@ -63,9 +70,7 @@ jobs:
       - run: pnpm --filter @waypoint/reader build
       # The reader build checks from CI's build-reader job, run before anything is uploaded.
       - run: pnpm --filter @waypoint/reader dry-run
-      - run: DRY_RUN=1 bash deploy/preview-reader.sh "$PR" up
-        env:
-          PR: ${{ github.event.pull_request.number }}
+      - run: bash deploy/preview-reader-check.sh
       - id: preview
         run: bash deploy/preview-reader.sh "$PR" up
         env:
@@ -73,7 +78,10 @@ jobs:
           PREVIEW_SHA: ${{ github.event.pull_request.head.sha }}
   down:
     needs: guard
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'closed'
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor == 'SeanCassiere' && github.triggering_actor == 'SeanCassiere'
     runs-on: [self-hosted, waypoint-deploy]
     permissions:
       contents: read

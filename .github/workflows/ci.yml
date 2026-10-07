@@ -8,9 +8,10 @@ on:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-# Independent jobs run in parallel on GitHub-hosted runners. `ci-ok` is the single required
-# check. Any failed, cancelled or skipped job fails it, so the workflow's conclusion is
-# `failure` and the Deploy workflow (which requires `success`) never runs.
+# Independent jobs run in parallel on GitHub-hosted runners. `ci-ok` needs every job and fails
+# on any failed, cancelled or skipped one. Any failed job already makes the workflow's
+# conclusion `failure`, so the Deploy workflow (which requires `success`) never runs. `main` has
+# no branch protection; if it gets some, require `ci-ok`.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -51,9 +52,10 @@ jobs:
       - run: DRY_RUN=1 bash deploy/deploy-reader.sh dev
       - run: DRY_RUN=1 bash deploy/deploy-reader.sh prod
       - run: if DRY_RUN=1 DRY_RUN_FAIL_SMOKE=1 bash deploy/deploy-reader.sh dev; then exit 1; fi
-      - run: DRY_RUN=1 bash deploy/preview-reader.sh 1 up
-      - run: DRY_RUN=1 bash deploy/preview-reader.sh 1 down
-      - run: if DRY_RUN=1 DRY_RUN_FAIL_SMOKE=1 bash deploy/preview-reader.sh 1 up; then exit 1; fi
+      # prod's smoke also requires waypoint-reader.seancassiere.workers.dev to redirect to Access.
+      - run: if DRY_RUN=1 DRY_RUN_FAIL_ACCESS=1 bash deploy/deploy-reader.sh prod; then exit 1; fi
+      # Preview up/down, and every failure after the upload deleting the preview (fail closed).
+      - run: bash deploy/preview-reader-check.sh
   # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
   build-writer-image:
     runs-on: ubuntu-latest
