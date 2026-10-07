@@ -105,6 +105,47 @@ export class ReadModel {
     );
     return { ...committed, deleted_at: tombstone?.deleted_at ?? null };
   }
+  async collectionByPublicId(publicId: string): Promise<CollectionRow | undefined> {
+    const normalized = publicId.toLowerCase();
+    const row =
+      (await this.queue.get<CollectionRow>("SELECT * FROM pending_collections WHERE public_id=?", [
+        normalized,
+      ])) ??
+      (await this.waypoint.get<CollectionRow>("SELECT * FROM collections WHERE public_id=?", [
+        normalized,
+      ]));
+    return row ? this.collection(row.id) : undefined;
+  }
+  async deletedCollections(): Promise<CollectionRow[]> {
+    const [pending, committed] = await Promise.all([
+      this.queue.all<CollectionRow>(
+        "SELECT * FROM pending_collections WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+      ),
+      this.waypoint.all<CollectionRow>(
+        "SELECT c.*,t.deleted_at FROM collections c JOIN collection_tombstones t ON t.collection_id=c.id ORDER BY t.deleted_at DESC",
+      ),
+    ]);
+    return [...pending, ...committed].toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
+  }
+  async fileCounts(revisionIds: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (!revisionIds.length) return counts;
+    const placeholders = revisionIds.map(() => "?").join(",");
+    const [committed, pending] = await Promise.all([
+      this.waypoint.all<{ revision_id: string; count: number }>(
+        `SELECT revision_id,COUNT(*) AS count FROM revision_files WHERE revision_id IN (${placeholders}) GROUP BY revision_id`,
+        revisionIds,
+      ),
+      this.queue.all<{ id: string; manifest_json: string }>(
+        `SELECT id,manifest_json FROM pending_revisions WHERE id IN (${placeholders})`,
+        revisionIds,
+      ),
+    ]);
+    for (const row of committed) counts.set(row.revision_id, row.count);
+    for (const row of pending)
+      counts.set(row.id, Object.keys(parseManifest(row.manifest_json).files).length);
+    return counts;
+  }
   async revisions(collectionId: string): Promise<RevisionRow[]> {
     const committed = await this.waypoint.all<RevisionRow>(
       "SELECT * FROM revisions WHERE collection_id=?",
@@ -200,9 +241,11 @@ export class ReadModel {
     };
   }
   async listRevisions(collectionId: string): Promise<ListRevisionsResponse> {
+    const collection = await this.collection(collectionId);
+    if (!collection) throw new WaypointError("collection_not_found", "Collection not found");
     return {
-      revisions: await Promise.all(
-        (await this.revisions(collectionId)).map((row) => this.summary(row)),
+      revisions: (await this.revisions(collectionId)).map((row) =>
+        this.summaryFor(row, collection),
       ),
     };
   }
@@ -354,13 +397,7 @@ export class ReadModel {
       if (!rev) throw new WaypointError("not_found", "Revision not found");
       return { collection_id: rev.collection_id, revision_id: rev.id, path: parsed.path };
     }
-    const col =
-      (await this.queue.get<CollectionRow>("SELECT * FROM pending_collections WHERE public_id=?", [
-        parsed.collectionPublicId,
-      ])) ??
-      (await this.waypoint.get<CollectionRow>("SELECT * FROM collections WHERE public_id=?", [
-        parsed.collectionPublicId,
-      ]));
+    const col = await this.collectionByPublicId(parsed.collectionPublicId);
     if (!col) throw new WaypointError("not_found", "Collection not found");
     if (parsed.kind === "latest")
       return { collection_id: col.id, ...(parsed.path ? { path: parsed.path } : {}) };

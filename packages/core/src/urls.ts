@@ -17,7 +17,7 @@ function publicId(id: string): PublicId {
   if (!publicIdPattern.test(id)) throw new WaypointError("validation_failed", "Invalid public ID");
   return brand<PublicId>(id.toLowerCase());
 }
-function encodePath(path?: string): string {
+export function encodePath(path?: string): string {
   return path === undefined ? "" : validatePath(path).split("/").map(encodeURIComponent).join("/");
 }
 export function withBase(base: string, route: string): string {

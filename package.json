@@ -3,21 +3,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "tsc -b tsconfig.build.json && oxlint . && pnpm core:guard",
+    "lint": "tsc -b tsconfig.build.json && pnpm viewer:build && oxlint . && pnpm core:guard",
     "format": "oxfmt --write .",
     "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "build": "tsc -b tsconfig.build.json && pnpm --filter @waypoint/mcp bundle",
+    "build": "tsc -b tsconfig.build.json && pnpm --filter @waypoint/mcp bundle && pnpm viewer:build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "core:guard": "node scripts/check-core-imports.mjs",
-    "format:check": "oxfmt --check ."
+    "format:check": "oxfmt --check .",
+    "viewer:build": "tsc -p apps/writer/tsconfig.browser.json && esbuild apps/writer/src/viewer-client.browser.ts --bundle --platform=browser --format=iife --minify --outfile=apps/writer/dist/viewer-client.browser.js",
+    "test:browser": "node --experimental-strip-types tests/viewer-browser.ts"
   },
   "devDependencies": {
     "@hono/node-server": "^2.1.3",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
     "oxfmt": "^0.72.0",
     "oxlint": "^1.87.0",
     "oxlint-tsgolint": "^7.0.2003",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   },

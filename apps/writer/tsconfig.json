@@ -4,9 +4,12 @@
     "rootDir": "src",
     "outDir": "dist",
     "lib": ["ES2023"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
     "types": ["node"]
   },
   "include": ["src"],
+  "exclude": ["src/viewer-client.browser.ts"],
   "references": [
     {
       "path": "../../packages/core"

@@ -89,11 +89,15 @@ export interface FailedItem {
   id: string;
   created_at: number;
   last_error: string | null;
+  error_kind?: string | null;
+  collection_public_id?: string | null;
 }
 export interface StatusResponse {
   queue: QueueCounts;
   oldest_pending_age_ms: number | null;
   failed_items: FailedItem[];
+  pending_items?: { id: string; collection_public_id: string | null }[];
+  sync_enabled?: boolean;
   last_upload_at: number | null;
   last_push_at: number | null;
   last_pull_at: number | null;
