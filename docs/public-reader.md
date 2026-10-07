@@ -72,7 +72,7 @@ share_links (
 |---|---|
 | No writes to metadata | The reader's Turso token is created with `--read-only` |
 | No write code paths | The reader app contains no write routes; the core's write handlers aren't imported into the Worker build |
-| No writes to blobs | R2 bindings can't be permission-scoped; a binding can write. The reader adapter exposes only `get`/`head` behind a narrow interface, and a lint rule bans `put`/`delete` in `apps/reader`. *(Open: use the S3 API with a read-only R2 token instead.)* |
+| No writes to blobs | The reader reads R2 over the S3 API with an **Object Read only** token scoped to one bucket (decision D38). It has no R2 binding, so it holds no credential that can write. |
 | Logs never touch the main DB | Access events go to Analytics Engine |
 | Not indexable | `X-Robots-Tag: noindex, nofollow` on every response; `robots.txt` disallows everything |
 | No token leakage | `Referrer-Policy: no-referrer` on every response |

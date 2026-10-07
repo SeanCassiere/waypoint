@@ -33,5 +33,6 @@ Development: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and 
 | [API & MCP](docs/api-and-mcp.md) | HTTP API and MCP tools for agents |
 | [Public reader](docs/public-reader.md) | Phase 2: Workers reader, share links, safeguards |
 | [Infrastructure](docs/infrastructure.md) | Turso, R2, Cloudflare, and Tailscale setup checklist |
+| [Provisioning](docs/provisioning.md) | Step-by-step: obtaining and verifying every account, token, bucket, and DNS item for the writer and the reader |
 | [Roadmap](docs/roadmap.md) | Phases, spikes, deferred work |
 | [Decisions](docs/decisions.md) | Decision log with rationale |
