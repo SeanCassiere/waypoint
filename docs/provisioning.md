@@ -156,6 +156,29 @@ My Profile → API Tokens → Create Token → **Custom token**, named `waypoint
 
 The seven values in `reader-<env>.env` are uploaded with `wrangler secret bulk` by the deploy pipeline, running on the self-hosted runner with `cloudflare.env`. The temporary JSON file is mode 600 and removed on exit. Values never appear in `wrangler.jsonc`, the repo, or CI logs.
 
+PR previews also get the `reader-prod.env` values; see 2.7.
+
+### 2.7 PR previews
+
+PR previews are Worker Previews of the prod Worker `waypoint-reader` (decision D49; operations in [deploy/README.md](../deploy/README.md#pr-previews)). They need no new credential, but they depend on four things being in place.
+
+- **Wrangler ≥ 4.135.** Worker Previews are in open beta, and `wrangler preview` first shipped in 4.135. The reader pins 4.147.0.
+- **The `workers.dev` route and previews enabled on `waypoint-reader`.** Its Worker settings must show `{enabled: true, previews_enabled: true}`. The prod deploy sets both from `workers_dev: true` and `preview_urls: true` in `wrangler.jsonc`. They were first enabled on 2026-10-08, by hand through the API, right after confirming the Access app below. The call was `POST /accounts/<account>/workers/scripts/waypoint-reader/subdomain` with `{"enabled":true,"previews_enabled":true}`. The custom domain `waypoint.pingstash.com` keeps `previews_enabled: false`.
+- **The Cloudflare Access app.** Zero Trust → Access → Applications → `fb19dcb4-9f87-47dc-a038-1b41cef93d0f`, "Waypoint reader workers.dev and previews", a self-hosted app with these hostnames:
+  - `waypoint-reader.seancassiere.workers.dev`
+  - `*-waypoint-reader.seancassiere.workers.dev` (every preview, deployment and version URL)
+
+  It has one Allow policy (the owner's email), with login by One-time PIN or Cloudflare. The team domain is `seancassiere.cloudflareaccess.com`.
+  - **Verify with no credentials:** `curl -sI https://waypoint-reader.seancassiere.workers.dev/healthz`, and the same for any `<anything>-waypoint-reader…` hostname. Each must answer `302` to `https://seancassiere.cloudflareaccess.com/cdn-cgi/access/login/<that hostname>`.
+  - **Never** add `waypoint.pingstash.com` to this app or any other Access app, and never widen the policy. If the app changes, disable the Worker's `workers.dev` route and previews first. Do that in `wrangler.jsonc` (`workers_dev: false`, `preview_urls: false` in the prod env) **and** with the API call above (`false` for both), and disable the Preview workflow. A change made only in the dashboard or API is undone by the next prod deploy, which applies `wrangler.jsonc`. Every prod deploy fails and rolls back unless `waypoint-reader.seancassiere.workers.dev` redirects to Access, so while it's disabled, remove that check from `deploy-reader.sh` in the same change.
+  - The deploy token can't read Access apps, by design: it has no Access permissions, and shouldn't get any. Check the app in the dashboard.
+- **Preview secrets and bindings.**
+  - Previews don't inherit production secrets, so the Preview workflow sends the seven `reader-prod.env` values with every preview deployment (`wrangler preview --secrets-file`, from a mode-600 temporary file). Keep the dashboard's Preview base config empty. `--ignore-base-config` only takes effect when a preview is created (Wrangler sends it on the create request, at a PR's first push); later deployments to that preview send their full runtime env, bindings and secrets, so the base config isn't what they run with either way.
+  - Bindings come only from the `previews` block of the prod env in `wrangler.jsonc`: Analytics Engine dataset `waypoint_access_preview` (created on first write, like the others) and rate-limit namespace `1003`.
+  - Rotating a prod reader credential reaches existing previews on their next push. Closing and reopening a PR also re-uploads.
+
+**Cleanup.** Closing a PR deletes its preview. To find and delete leftovers, see [deploy/README.md](../deploy/README.md#pr-previews). Deleting a preview removes all of its deployments and their secrets.
+
 ---
 
 ## Rotating a credential

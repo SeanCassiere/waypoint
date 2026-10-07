@@ -1,0 +1,15 @@
+name: Set up Node and pnpm
+description: >-
+  Installs pnpm and the pinned Node version, restores the pnpm store cache (setup-node keys it on
+  pnpm-lock.yaml), and installs the whole workspace from the frozen lockfile. Every job installs
+  the full workspace, so whichever job saves the shared cache key first saves a complete store.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash
