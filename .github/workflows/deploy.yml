@@ -19,3 +19,18 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - run: bash deploy/deploy.sh
+  reader:
+    needs: deploy
+    runs-on: [self-hosted, waypoint-deploy]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
+      - run: pnpm --filter @waypoint/reader build
+      - run: bash deploy/deploy-reader.sh dev
+      - run: bash deploy/deploy-reader.sh prod

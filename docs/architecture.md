@@ -20,7 +20,7 @@
    │ R2 bucket (private)│           │ Turso cloud DB    │
    │ blobs, manifests   │           │ all metadata rows │
    └─────────▲─────────┘           └─────────▲─────────┘
-             │ R2 binding (read)              │ read-only token (HTTP)
+             │ read-only S3 API                │ read-only token (HTTP)
    ┌─────────┴──────────────────────────────┴─────────┐
    │  Reader  (Cloudflare Worker, Hono) — phase 2      │
    │  waypoint.pingstash.com — share links only        │
@@ -46,11 +46,11 @@
 
 ### Reader (phase 2)
 - A Cloudflare Worker on `waypoint.pingstash.com`.
-- Reads metadata from Turso through `@tursodatabase/serverless` with a **read-only** token, and reads blobs through the R2 binding.
+- Reads metadata from Turso through `@tursodatabase/serverless` with a **read-only** token, and reads blobs through R2's S3 API with bucket-scoped **Object Read only** credentials (D38).
 - Serves only what a share link permits. See [public-reader.md](public-reader.md).
 
 ### Cloud storage
-- **Turso cloud DB**: rows for collections, revisions, files, blobs, renditions, and later share links. Created as a Turso Sync (`--tursodb`) database. There is one per environment.
+- **Turso cloud DB**: rows for collections, revisions, files, blobs, renditions, and share links. Created as a Turso Sync (`--tursodb`) database. There is one per environment.
 - **R2 bucket**: blob contents, renditions, and JSON manifests for disaster recovery. Private, Standard storage class only. There is one per environment.
 
 ## Runtimes and code layout
@@ -67,7 +67,7 @@ packages/
 apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,
                    queue.db, committer, viewer UI
-  reader/          Workers adapter: R2 binding, @tursodatabase/serverless,
+  reader/          Workers adapter: read-only R2 S3 API, @tursodatabase/serverless,
                    Cache API, Analytics Engine (phase 2)
 ```
 

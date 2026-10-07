@@ -1,4 +1,21 @@
 export type SyncState = "pending" | "committed" | "synced" | "failed";
+export interface ShareLink {
+  id: string;
+  collection_id: string;
+  revision_id: string | null;
+  label: string | null;
+  expires_at: number | null;
+  revoked_at: number | null;
+  created_at: number;
+  mode: "latest" | "pinned";
+  status: "active" | "revoked" | "expired";
+  publicly_available: boolean;
+}
+export interface CreateShareLinkResult {
+  share_link: ShareLink;
+  url: string;
+  token: string;
+}
 export interface WriteResult {
   collection_id: string;
   revision_id: string;

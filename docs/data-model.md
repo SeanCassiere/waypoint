@@ -9,6 +9,7 @@ Conventions:
 - JSON columns are `TEXT` holding a JSON object.
 - ID columns use the default `BINARY` collation, never `NOCASE`.
 - **`PRAGMA foreign_keys` is OFF on `waypoint.db`.** Rows pulled from other writers may arrive in any order, so the `REFERENCES` clauses are documentation only. The committer enforces the invariants instead. Spike S1 confirmed that pulls bypass FK enforcement even with the pragma on: a child row was applied before its parent existed.
+- A share link may be created while its collection or pinned revision is still queued. Its row can precede the target row in `waypoint.db` and the cloud. The reader joins to the target and returns 404 until the target is present; purging the queued collection removes the link.
 
 ## IDs
 
@@ -115,6 +116,19 @@ CREATE TABLE renditions (                  -- insert-only, idempotent
   PRIMARY KEY (source_hash, renderer, renderer_version)
 );
 
+CREATE TABLE share_links (                 -- added in migration 0003
+  id            TEXT PRIMARY KEY CHECK (id GLOB 'shl_*' AND length(id) = 30),
+  token_hash    TEXT NOT NULL UNIQUE,      -- sha256:<64 lowercase hex> of the token
+  collection_id TEXT NOT NULL REFERENCES collections(id),
+  revision_id   TEXT REFERENCES revisions(id), -- NULL follows latest
+  label         TEXT,
+  expires_at    INTEGER,
+  revoked_at    INTEGER,                   -- only ordinary update
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX share_links_by_collection ON share_links (collection_id);
+CREATE INDEX share_links_by_token_hash ON share_links (token_hash);
+
 CREATE TABLE schema_migrations (
   id         TEXT PRIMARY KEY,             -- e.g. '0001_init'
   applied_at INTEGER NOT NULL
@@ -170,8 +184,6 @@ Turso Sync currently has open bugs: `RENAME`, `DROP COLUMN`, `RENAME COLUMN`, an
 None of these touch `collections`.
 
 ```sql
-share_links (id shl_, token_hash, collection_id, revision_id NULL /* NULL = follow latest */,
-             label, expires_at NULL, revoked_at NULL, created_at)                -- phase 2
 grants      (id grt_, ..., password_hash NULL, scope_kind, scope_id, ...)         -- future
 audiences   (id aud_, name, created_at)                                           -- future
 audience_collections (audience_id, collection_id, added_at)                       -- future

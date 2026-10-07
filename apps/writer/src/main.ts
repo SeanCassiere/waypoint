@@ -91,6 +91,7 @@ try {
   const shutdownController = new AbortController();
   const server = serve({
     fetch: createApp({
+      ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
       waypoint,
       queue,
       blobs,

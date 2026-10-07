@@ -24,7 +24,7 @@ Current values, for reference: Cloudflare account `2129f9f79b31857b67e19f0a43194
 | `~/.config/waypoint/prod.env` | prod writer container | `WAYPOINT_*` config, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` |
 | `~/.config/waypoint/dev.env` | local dev writer | same keys, dev values |
 | `~/.config/waypoint/ts.env` | Tailscale sidecar | `TS_AUTHKEY` only |
-| `~/.config/waypoint/reader-prod.env` | reader deploy (prod) | `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET` |
+| `~/.config/waypoint/reader-prod.env` | reader deploy (prod) | `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, `RAW_CAP_KEY` |
 | `~/.config/waypoint/reader-dev.env` | reader deploy (dev) | same keys, dev values |
 | `~/.config/waypoint/cloudflare.env` | reader deploy | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
 
@@ -82,7 +82,7 @@ Prerequisite: the Turso CLI (`brew install tursodatabase/tap/turso`), logged in 
 - **Docker:** `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker <user>`. No re-login is needed; the deploy script uses `sg docker`.
 - **Data directory:** `install -d -m 700 ~/.local/share/waypoint/prod`, owned by uid/gid 1000.
 - **Self-hosted GitHub Actions runner:** see "Reinstalling the existing runner" in [deploy/README.md](../deploy/README.md). Repo-scoped, label `waypoint-deploy`, running as a systemd **user** unit, with linger enabled.
-- **Writer config** in `prod.env`: `WAYPOINT_ENV=prod`, `WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net`, `WAYPOINT_PORT=7410`. See [infrastructure.md](infrastructure.md#writer-configuration).
+- **Writer config** in `prod.env`: `WAYPOINT_ENV=prod`, `WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net`, `WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com`, `WAYPOINT_PORT=7410`. Dev sharing uses `WAYPOINT_PUBLIC_BASE_URL=https://waypoint-dev.pingstash.com` in `dev.env`. See [infrastructure.md](infrastructure.md#writer-configuration).
 
 ---
 
@@ -108,7 +108,7 @@ R2 → Manage API tokens → **Create Account API token**:
 - **Apply to specific buckets only** → `waypoint-<env>`
 - TTL Forever, no IP filtering
 
-**Record** `R2_READER_ACCESS_KEY_ID` and `R2_READER_SECRET_ACCESS_KEY` into `reader-<env>.env`, plus `R2_ACCOUNT_ID` and `R2_BUCKET`.
+**Record** `R2_READER_ACCESS_KEY_ID` and `R2_READER_SECRET_ACCESS_KEY` into `reader-<env>.env`, plus `R2_ACCOUNT_ID` and `R2_BUCKET`. Generate `RAW_CAP_KEY` as 32 random bytes with `openssl rand -base64 32 | tr "+/" "-_" | tr -d "="` and record it in the same file.
 
 **Verify:**
 - `list-objects-v2 --max-keys 1` on its own bucket → **200**
@@ -144,7 +144,7 @@ My Profile → API Tokens → Create Token → **Custom token**, named `waypoint
 ### 2.4 Platform features
 
 - **Workers Analytics Engine** stores the reader's access events. Enable it once under Workers & Pages → Analytics Engine; it's free. The dataset is created automatically on the first write.
-- **Rate Limiting binding** throttles share-token misses. The docs list it for the Free plan; it needs wrangler ≥ 4.36.
+- **Rate Limiting binding** throttles protected reader requests. The docs list it for the Free plan; it needs wrangler ≥ 4.36.
 - **Workers plan:** Free, with 100k requests/day and 10 ms CPU per request. The reader never renders anything, which keeps it within that.
 
 ### 2.5 DNS and the zone
@@ -154,7 +154,7 @@ My Profile → API Tokens → Create Token → **Custom token**, named `waypoint
 
 ### 2.6 Where the reader's secrets go
 
-The values in `reader-<env>.env` are uploaded as Worker secrets with `wrangler secret put` (or `wrangler deploy` with a secrets file) by the deploy pipeline, running on the self-hosted runner with `cloudflare.env`. They never appear in `wrangler.jsonc`, the repo, or CI logs.
+The seven values in `reader-<env>.env` are uploaded with `wrangler secret bulk` by the deploy pipeline, running on the self-hosted runner with `cloudflare.env`. The temporary JSON file is mode 600 and removed on exit. Values never appear in `wrangler.jsonc`, the repo, or CI logs.
 
 ---
 

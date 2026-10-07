@@ -407,7 +407,10 @@ export class WriterCommitter implements Committer {
                     deleted_at: uploadedCollection.deleted_at,
                     note: null,
                   },
-            share_links: [],
+            share_links: await this.waypoint.all(
+              "SELECT id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY id",
+              [row.collection_id],
+            ),
           }),
           this.abortController.signal,
         );
@@ -668,6 +671,10 @@ export class WriterCommitter implements Committer {
           "SELECT * FROM collection_tombstones WHERE collection_id=?",
           [row.collection_id],
         );
+        const shareLinks = await this.waypoint.all(
+          "SELECT id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY id",
+          [row.collection_id],
+        );
         if (collection) {
           await this.bucket.put(
             collectionKey(row.collection_id),
@@ -676,7 +683,7 @@ export class WriterCommitter implements Committer {
               updated_at: this.now(),
               collection,
               tombstone: tombstone ?? null,
-              share_links: [],
+              share_links: shareLinks,
             }),
             this.abortController.signal,
           );
@@ -711,9 +718,14 @@ export class WriterCommitter implements Committer {
             "SELECT * FROM collection_tombstones WHERE collection_id=?",
             [row.collection_id],
           );
+          const latestShareLinks = await this.waypoint.all(
+            "SELECT id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY id",
+            [row.collection_id],
+          );
           if (
             JSON.stringify(latest) !== JSON.stringify(collection) ||
-            JSON.stringify(latestTombstone) !== JSON.stringify(tombstone)
+            JSON.stringify(latestTombstone) !== JSON.stringify(tombstone) ||
+            JSON.stringify(latestShareLinks) !== JSON.stringify(shareLinks)
           ) {
             this.rerun = true;
             return;
@@ -920,6 +932,7 @@ export class WriterCommitter implements Committer {
       for (const rev of purged)
         await this.queue.run("DELETE FROM unpushed WHERE revision_id=?", [rev.id]);
       await this.waypoint.transaction(async (tx) => {
+        await tx.run("DELETE FROM share_links WHERE collection_id=?", [id]);
         await tx.run(
           "DELETE FROM revision_files WHERE revision_id IN (SELECT id FROM revisions WHERE collection_id=?)",
           [id],

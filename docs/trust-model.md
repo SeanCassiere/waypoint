@@ -7,7 +7,7 @@ This is the single source of truth for **who can do what** in Waypoint and **why
 | Zone | Who is in it | Can read | Can write | Authenticated by |
 |---|---|---|---|---|
 | **Tailnet** | Any device on the owner's Tailscale network: agent-1, the MacBook Air, future machines, and the agents running on them | Everything, including deleted, pending, and failed items | Everything: create, revise, edit titles, delete, purge, create or revoke share links | Tailnet membership only. The writer has no login (D2). |
-| **Public** | Anyone on the internet | Only what a valid, unrevoked, unexpired share link allows | **Nothing, ever** (D3) | Possession of a share token |
+| **Public** | Anyone on the internet | Only what a valid, unrevoked, unexpired share link allows | **Nothing, ever** (D3) | Possession of a share token or derived revision capability |
 | **Cloud providers** | Turso (metadata) and Cloudflare R2 (file contents) | Everything, at rest | Only through Waypoint's credentials | Provider accounts |
 
 The tailnet is the trust boundary, not the home LAN. The writer is **not reachable from the plain LAN** (D37): LANs contain guests and IoT devices, and the writer has no auth.
@@ -44,14 +44,14 @@ All secrets on agent-1 are in `~/.config/waypoint/` (directory mode 700, files 6
 - **Format:** `https://waypoint.pingstash.com/s/<token>/c/<collection public id>/…`. The token is `wps_` plus 32 random bytes, base64url-encoded. The prefix makes leaked tokens easy for secret scanners to spot.
 - **Scope:** one collection. A link either **follows the latest** revision or is **pinned** to one revision (D20). Viewers of a following link never see older revisions, since an older revision may contain something later removed.
 - **Lifecycle:** created and revoked only on the tailnet. They can carry an expiry. Revocation takes effect within about 60 s (the reader's lookup cache plus the writer's push).
-- **Tombstones win:** deleting a collection makes every link to it return 404.
+- **Tombstones win:** deleting a collection makes every link to it return 404. Undeleting reactivates links that were not revoked or expired; accepting a purge immediately revokes all its links.
 - **Properties of a capability URL**, which the owner should understand:
   - Anyone holding the URL can view the content until it's revoked or expires.
   - URLs can end up in browser history, chat logs, and screenshots. Mitigations:
     - `Referrer-Policy: no-referrer` stops the token leaking to other sites.
     - `X-Robots-Tag: noindex` and a disallow-all `robots.txt` keep it out of search engines.
     - `Cache-Control: private` keeps shared caches from serving it after revocation.
-    - Rate limiting on token misses stops guessing.
+    - Only denied protected requests count toward rate limiting. Once an IP exceeds 30 denials per 60 seconds, that reader isolate blocks it for 60 seconds before any DB or R2 access. Even valid links from that IP receive the same generic 404 during the block; this is acceptable because the block follows more than 30 denials. Blocked and ordinary denials have identical status, body, and headers.
 
 ## Untrusted content
 
@@ -61,7 +61,7 @@ Content is written by agents, so treat it as **untrusted HTML** wherever someone
 - **In public**, content is sandboxed so a shared document can't act as the reader's origin:
   - Raw content responses carry `Content-Security-Policy: sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms`, **without** `allow-same-origin`, so they run in an opaque origin.
   - The reader shell embeds content in `<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox">`.
-  - The shell itself has a strict CSP and runs no agent-supplied code.
+  - The shell itself has a strict CSP and runs no agent-supplied code. Its iframe URL contains a derived capability for only the resolved revision, never the full share token. Scripts in agent HTML can still read and exfiltrate the revision content they are shown, and may disclose that revision capability while it remains valid.
 - **Markdown renditions** pass raw HTML through (they're agent content), so the same rules apply to them.
 
 ## Writer request safety (tailnet)
@@ -95,4 +95,4 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 
 ## Related decisions
 
-D1–D6, D20, D21, D23, D24, D26, D36, D37, D38. See [decisions.md](decisions.md).
+D1–D6, D20, D21, D23, D24, D26, D36, D37, D38, D40, D41. See [decisions.md](decisions.md).

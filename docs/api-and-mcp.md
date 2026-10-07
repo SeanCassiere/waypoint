@@ -33,6 +33,9 @@ Read responses use the types exported by `@waypoint/core` (`api.ts`). They conta
 - `POST /api/collections/:id/purge` returns `{ purged: true }` for a pending collection or `{ queued: true }` for a committed one, with status 202.
 - `POST /api/queue/:revision_id/retry` returns `{ retried: string[] }`; `DELETE /api/queue/:revision_id` returns `{ dropped: string[] }`.
 - `PUT /api/blobs/:hash` returns `{ hash: string, size: number }`.
+- `POST /api/collections/:id/share-links` returns `CreateShareLinkResult` with the token and URL once. `GET /api/collections/:id/share-links` returns `{ share_links: ShareLink[] }`; `POST /api/share-links/:id/revoke` returns `ShareLink`. List and revoke responses never contain tokens or hashes.
+
+`ShareLink` contains `id`, `collection_id`, `revision_id` (null for a following link), `label`, `expires_at`, `revoked_at`, `created_at`, `mode` (`latest` or `pinned`), `status` (`active`, `revoked`, or `expired`), and `publicly_available`. The latter is true only while the link is active and its target revision is synced; a new link to an unsynced target becomes reachable after sync. `CreateShareLinkResult` contains `{ share_link, url, token }`. Timestamps are Unix milliseconds.
 
 ## WriteResult
 
@@ -200,6 +203,9 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 | `DELETE /api/collections/:id` | Soft delete |
 | `POST /api/collections/:id/undelete` | Undo soft delete |
 | `POST /api/collections/:id/purge` `{ confirm: "<collection id>" }` | Queue a hard purge; returns immediately |
+| `POST /api/collections/:id/share-links` `{ revision_id?, label?, expires_at? }` | Create a link. Omit `revision_id` to follow latest. The token and URL appear only in this 201 response. `expires_at` is a future Unix millisecond timestamp. Requires `WAYPOINT_PUBLIC_BASE_URL`; otherwise 409 `conflict`. |
+| `GET /api/collections/:id/share-links` | List links without tokens or hashes. |
+| `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
 | `GET /api/collections/:id/revisions` | List revisions. With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones. |
 | `GET /api/revisions/:id` | Revision + full manifest |
 | `GET /api/revisions/:id/files/*path` | Raw file content. Markdown returns its rendition; add `?source` for the original. |

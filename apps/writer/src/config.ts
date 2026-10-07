@@ -7,6 +7,7 @@ export interface Config {
   environment: "dev" | "prod";
   dataDir: string;
   baseUrl: string;
+  publicBaseUrl?: string;
   port: number;
   queueGiveUpHours: number;
   maxBlobBytes: number;
@@ -71,6 +72,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     parsed.hash
   )
     throw new Error("WAYPOINT_BASE_URL must be an HTTP URL without credentials, query or fragment");
+  const publicBaseUrl = env.WAYPOINT_PUBLIC_BASE_URL;
+  if (publicBaseUrl) {
+    let publicUrl: URL;
+    try {
+      publicUrl = new URL(publicBaseUrl);
+    } catch {
+      throw new Error("WAYPOINT_PUBLIC_BASE_URL must be an HTTP URL");
+    }
+    if (
+      !["http:", "https:"].includes(publicUrl.protocol) ||
+      publicUrl.username ||
+      publicUrl.password ||
+      publicUrl.search ||
+      publicUrl.hash
+    )
+      throw new Error(
+        "WAYPOINT_PUBLIC_BASE_URL must be an HTTP URL without credentials, query or fragment",
+      );
+  }
   const queueGiveUpHours = number("WAYPOINT_QUEUE_GIVE_UP_HOURS", 72);
   const maxBlobBytes = number("WAYPOINT_MAX_BLOB_MB", 50) * 1024 * 1024;
   const maxFiles = number("WAYPOINT_MAX_FILES", 2000);
@@ -94,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     environment,
     dataDir,
     baseUrl,
+    ...(publicBaseUrl ? { publicBaseUrl } : {}),
     port,
     queueGiveUpHours,
     maxBlobBytes,

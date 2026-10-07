@@ -35,4 +35,26 @@ describe("writer config", () => {
     expect(message).toContain("TURSO_DATABASE_URL");
     expect(message).not.toContain(secret);
   });
+  it("accepts an optional public URL and rejects credentials or fragments", () => {
+    const config = loadConfig({
+      WAYPOINT_ENV: "dev",
+      WAYPOINT_SYNC: "off",
+      WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
+    });
+    expect(config.publicBaseUrl).toBe("https://waypoint-dev.pingstash.com");
+    expect(() =>
+      loadConfig({
+        WAYPOINT_ENV: "dev",
+        WAYPOINT_SYNC: "off",
+        WAYPOINT_PUBLIC_BASE_URL: "https://user:secret@reader.example",
+      }),
+    ).toThrow("WAYPOINT_PUBLIC_BASE_URL");
+    expect(() =>
+      loadConfig({
+        WAYPOINT_ENV: "dev",
+        WAYPOINT_SYNC: "off",
+        WAYPOINT_PUBLIC_BASE_URL: "https://reader.example/#x",
+      }),
+    ).toThrow("WAYPOINT_PUBLIC_BASE_URL");
+  });
 });

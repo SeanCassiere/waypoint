@@ -2,7 +2,7 @@
 
 The reader is a Cloudflare Worker on **`waypoint.pingstash.com`** that serves shared collections to people outside the tailnet. It is **read-only forever**. There is no upload, edit, or delete path, and no admin UI.
 
-It isn't built in phase 1. It is specified here so phase 1 doesn't paint it into a corner.
+Phase 2 implements the writer share-link API and the read-only Worker. Deployment is separate.
 
 ## Why Workers (not Railway)
 
@@ -15,26 +15,26 @@ It isn't built in phase 1. It is specified here so phase 1 doesn't paint it into
 
 ```
 /s/<token>/c/<collection public id>/[r/<revision public id>/][<path>]   viewer shell
-/s/<token>/raw/r/<revision public id>/<path>                           raw content
+/x/<share link id>.<cap>/r/<revision public id>/<path>             raw content
 /assets/<renderer version>/<file>                                       static rendition assets
 ```
 
-- **The token is in the path,** not a query string, so relative links and images inside documents resolve with the token automatically.
+- **The shell token is in its path. Raw content uses a derived per-revision capability, so document scripts cannot read the full share token from their URL. Relative links and images resolve under the same capability prefix.
 - **The shell** is a minimal page: title, file sidebar, and an iframe. It iframes the raw route **pinned to the resolved revision**, so one page never mixes files from two revisions. Share viewers never see a revision picker.
-- **Pinned links:** for a share link pinned to a revision, both routes require `rpub` to be that revision. Anything else returns 404.
-- **Assets:** `/assets/…` serves the same static, non-secret JS and CSS that the writer serves, with no token. Renditions may reference them. See [architecture.md](architecture.md#renditions).
+- **Pinned links:** for a share link pinned to a revision, the raw route requires `rpub` to be that revision. Anything else returns 404.
+- **Assets:** `/assets/…` is reserved for future renderer assets. Current renditions are self-contained (D31), so there is no asset to serve and these URLs return 404.
 
 ## Access model
 
-- **Deny by default.** Every request needs a valid share token. Anything else returns **404**, never 403, so the reader never confirms that something exists.
-- **Token format:** `wps_` plus 32 random bytes, base64url. The prefix lets secret scanners spot leaked tokens. Only `sha256(token)` is stored, in `share_links.token_hash`.
+- **Deny by default.** Every shell request needs a valid share token; raw requests need a valid derived capability. Anything else returns **404**, never 403, so the reader never confirms that something exists.
+- **Token format:** `wps_` plus 32 random bytes, base64url. The prefix lets secret scanners spot leaked tokens. Only `sha256:` followed by 64 lowercase hexadecimal SHA-256 digits of the complete token is stored in `share_links.token_hash`.
 - **Following vs. pinned:**
   - A link with `revision_id = NULL` follows the latest synced revision.
   - A link created while viewing an older revision is pinned to it.
 - **No history.** Viewers of a following link see only the latest revision, because an older revision may contain something that was later removed.
 - **Tombstones hide everything.** A tombstoned collection returns 404 for every link.
 - **Revocation and expiry.** `revoked_at` and `expires_at` are checked on every request. Token lookups are cached for at most 60 s, so a revocation takes effect within about a minute of the writer's push.
-- **Created only on the tailnet.** Share links are created and revoked through the writer's API or viewer (and later its MCP server). The reader never writes them.
+- **Created only on the tailnet.** Share links are created and revoked through the writer's API or viewer. They are never exposed through MCP (trust-model rule 6). The reader never writes them.
 
 ```sql
 share_links (
@@ -52,19 +52,23 @@ share_links (
 - **Revoking** sets `revoked_at`. That is one of the few allowed updates, and only one human edits it, so last-push-wins is fine.
 - **Disaster recovery.** Share links are included in the [collection snapshot](glossary.md#content) (token hashes only), so a restore from the bucket keeps them valid. Creating or revoking a link queues a snapshot rewrite.
 
+Implementation: collection snapshots remain `format_version: 1` with an optional `share_links` array. Old snapshots without the array restore as having no links. Restore inserts links after revision manifests so pinned foreign keys resolve. Merge inserts missing links and can add a revocation, but never removes one. The writer may create links for queued collections and revisions; the cloud reader returns 404 until their rows reach the cloud.
+
 ## Request handling
 
-1. **Parse the URL** against the routes above. If it doesn't match, return 404.
-2. **Rate-limit** token misses per IP using the Rate Limiting binding.
-3. **Look up the link:** hash the token, then look up `share_links` joined with `collections`, the tombstone, and the revision. This lookup is cached for no more than 60 s.
-4. **Return 404** if:
+1. **Check the per-isolate blocked-IP map** before parsing or querying metadata. A blocked IP receives the generic 404 immediately.
+2. **Parse the URL** against the routes above. If it does not match, count the denial and return 404. Allowed requests never call the Rate Limiting binding.
+3. **Look up the link:** hash the shell token (or validate the raw capability and look up its share link ID), then look up `share_links` joined with `collections`, the tombstone, and the revision. This lookup is cached for no more than 60 s.
+4. **Count the denial and return the uniform 404** if:
    - the link is revoked or expired
    - the collection is tombstoned
    - the revision isn't allowed by this link
    - the path isn't in the manifest
 5. **Resolve the blob.** For markdown, use the newest rendition.
-6. **Stream it** from R2 through the Cache API. The internal cache entries are keyed by blob hash and can live forever. The *outgoing* response uses `Cache-Control: private, max-age=31536000, immutable`, so shared caches never keep serving a tokenized URL after revocation.
+6. **Stream it** from R2 through the Cache API. The internal cache entries are keyed by blob hash and can live forever. The outgoing response uses `Cache-Control: private, no-cache`, so browsers recheck link status on each use.
 7. **Record an access event** in Workers Analytics Engine: share link ID, collection, revision, path, and time.
+
+Implementation values: share-link lookup entries live in isolate memory for 30 seconds (maximum 1,000 entries before clearing); blob Cache API entries use same-origin internal URLs under `/__internal/blob/<hash>`, keyed only by `sha256:` hash. That route is not publicly served. The Rate Limiting binding counts denials only (any denial reason), permitting 30 per IP per 60 seconds. When it rejects a denial, that isolate blocks the IP for 60 seconds in a bounded 10,000-entry LRU map. During that window even a valid request from the same IP receives the same 404 without a DB or R2 call; this can happen only after more than 30 denials. Blocked and ordinary denials have identical status, body, and headers. A missing binding skips rate limiting; a missing Analytics Engine binding skips access logging in local tests. All outgoing raw responses use `private, no-cache` to recheck revocation and latest-revision scope; markdown also has an ETag because a newer rendition may replace the prior one.
 
 ## Safeguards (enforced by structure, not convention)
 
@@ -77,8 +81,8 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 | No writes to blobs | The reader reads R2 over the S3 API with an **Object Read only** token scoped to one bucket (decision D38). It has no R2 binding, so it holds no credential that can write. |
 | Logs never touch the main DB | Access events go to Analytics Engine |
 | Not indexable | `X-Robots-Tag: noindex, nofollow` on every response; `robots.txt` disallows everything |
-| No token leakage | `Referrer-Policy: no-referrer` on every response |
-| No enumeration | 404 for everything not explicitly allowed; rate limiting on token misses |
+| No token leakage to document scripts | Raw iframes use a derived per-revision capability; `Referrer-Policy: no-referrer` is on every response |
+| No enumeration | 404 for everything not explicitly allowed; rate limiting before metadata lookup |
 | No stale shared caches | `Cache-Control: private` on all tokenized responses |
 | Environment isolation | The prod reader is bound only to the prod bucket and the prod DB |
 | Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
@@ -88,3 +92,5 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 - **Password-protected links:** a password page with Turnstile, then a short-lived session token in the path.
 - **Audience grants:** one grant per person, scoped to an audience of collections.
 - **Comments from share viewers.** This would be the first non-read operation on the public side. It needs its own design and will never include uploads.
+
+A raw capability is the first 22 base64url characters of HMAC-SHA256 with the 32-byte `RAW_CAP_KEY` over `share_link_id + "\n" + revision_public_id`. It remains valid only while the link is active and the revision is allowed. A following link permits only the current latest revision. The reader caches lookups by token hash or share-link ID for 30 seconds. Undeleting a collection reactivates links that were active before deletion; purge revokes them immediately. `/healthz/deep` probes Turso and R2 and returns only `ok` or `fail`.

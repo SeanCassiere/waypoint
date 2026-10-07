@@ -12,6 +12,11 @@ import {
   MCP_LAUNCHER_API,
   WaypointError,
   withBase,
+  newId,
+  newShareToken,
+  hashShareToken,
+  shareShellUrl,
+  type ShareLink,
   type CreateCollectionRequest,
   type AddRevisionRequest,
 } from "@waypoint/core";
@@ -41,6 +46,7 @@ export interface HttpServices {
   syncLoop?: SyncLoop | undefined;
   environment?: "dev" | "prod";
   port?: number;
+  publicBaseUrl?: string;
   mcpTarballPath?: string;
   mcpLauncherPath?: string;
   mcpServerPath?: string;
@@ -646,6 +652,154 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
+  type ShareRow = Pick<
+    ShareLink,
+    "id" | "collection_id" | "revision_id" | "label" | "expires_at" | "revoked_at" | "created_at"
+  >;
+  async function shareView(row: ShareRow): Promise<ShareLink> {
+    const collection = await s.reads.collection(row.collection_id);
+    const target = row.revision_id
+      ? await s.reads.revision(row.revision_id)
+      : await s.reads.latest(row.collection_id);
+    const now = Date.now();
+    const status =
+      row.revoked_at !== null
+        ? "revoked"
+        : row.expires_at !== null && row.expires_at <= now
+          ? "expired"
+          : "active";
+    return {
+      ...row,
+      mode: row.revision_id ? "pinned" : "latest",
+      status,
+      publicly_available:
+        status === "active" && collection?.deleted_at == null && target?.sync_state === "synced",
+    };
+  }
+  app.post("/api/collections/:id/share-links", async (c) => {
+    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    const id = c.req.param("id");
+    const body = validated(
+      z.object({
+        revision_id: z.string().optional(),
+        label: z.string().max(200).nullable().optional(),
+        expires_at: z.number().int().positive().nullable().optional(),
+      }),
+      await parseJson(c),
+    );
+    return c.json(
+      await s.ingest.withCollectionLock(id, async () => {
+        const collection = await s.reads.collection(id);
+        if (!collection) throw new WaypointError("collection_not_found", "Collection not found");
+        if (collection.deleted_at != null)
+          throw new WaypointError("collection_deleted", "Collection is deleted");
+        if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
+          throw new WaypointError("collection_purged", "Collection is being purged");
+        if (body.revision_id) {
+          const revision = await s.reads.revision(body.revision_id);
+          if (!revision || revision.collection_id !== id)
+            throw new WaypointError("validation_failed", "Revision does not belong to collection");
+          if (revision.sync_state === "failed")
+            throw new WaypointError("validation_failed", "Failed revision cannot be shared");
+        } else if (!(await s.reads.latest(id))) {
+          throw new WaypointError("validation_failed", "No successful revision to share");
+        }
+        if (body.expires_at != null && body.expires_at <= Date.now())
+          throw new WaypointError("validation_failed", "Expiry must be in the future");
+        const token = newShareToken();
+        const row: ShareRow = {
+          id: newId("shl"),
+          collection_id: id,
+          revision_id: body.revision_id ?? null,
+          label: body.label ?? null,
+          expires_at: body.expires_at ?? null,
+          revoked_at: null,
+          created_at: Date.now(),
+        };
+        await s.queue.run(
+          "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
+          [id, Date.now()],
+        );
+        await s.waypoint.run(
+          "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+          [
+            row.id,
+            await hashShareToken(token),
+            id,
+            row.revision_id,
+            row.label,
+            row.expires_at,
+            null,
+            row.created_at,
+          ],
+        );
+        s.ingest.committer.wake();
+        s.syncLoop?.triggerPush();
+        const target = row.revision_id
+          ? await s.reads.revision(row.revision_id)
+          : await s.reads.latest(id);
+        return {
+          share_link: await shareView(row),
+          url: shareShellUrl(
+            s.publicBaseUrl!,
+            token,
+            collection.public_id,
+            row.revision_id ? target?.public_id : undefined,
+            target?.head_path,
+          ),
+          token,
+        };
+      }),
+      201,
+    );
+  });
+  app.get("/api/collections/:id/share-links", async (c) => {
+    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    const id = c.req.param("id");
+    if (!(await s.reads.collection(id)))
+      throw new WaypointError("collection_not_found", "Collection not found");
+    const rows = await s.waypoint.all<ShareRow>(
+      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY created_at DESC",
+      [id],
+    );
+    return c.json({ share_links: await Promise.all(rows.map(shareView)) });
+  });
+  app.post("/api/share-links/:id/revoke", async (c) => {
+    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    await parseJson(c);
+    const id = c.req.param("id");
+    const found = await s.waypoint.get<ShareRow>(
+      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
+      [id],
+    );
+    if (!found) throw new WaypointError("not_found", "Share link not found");
+    return c.json(
+      await s.ingest.withCollectionLock(found.collection_id, async () => {
+        const row = await s.waypoint.get<ShareRow>(
+          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
+          [id],
+        );
+        if (!row) throw new WaypointError("not_found", "Share link not found");
+        if (row.revoked_at === null) {
+          await s.queue.run(
+            "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
+            [row.collection_id, Date.now()],
+          );
+          await s.waypoint.run(
+            "UPDATE share_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+            [Date.now(), id],
+          );
+          s.ingest.committer.wake();
+          s.syncLoop?.triggerPush();
+        }
+        const current = await s.waypoint.get<ShareRow>(
+          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
+          [id],
+        );
+        return shareView(current!);
+      }),
+    );
+  });
   app.post("/api/collections/:id/purge", async (c) => {
     const id = c.req.param("id");
     const body = validated(z.object({ confirm: z.string() }), await parseJson(c));
@@ -672,15 +826,29 @@ export function createApp(s: HttpServices): Hono {
               [`collections/${id}.json`, Date.now()],
             );
             await tx.run("DELETE FROM pending_revisions WHERE collection_id=?", [id]);
+            await tx.run("DELETE FROM pending_snapshots WHERE collection_id=?", [id]);
             const result = await tx.run("DELETE FROM pending_collections WHERE id=?", [id]);
             if (!result.changes)
               throw new WaypointError("collection_not_found", "Collection not found");
             return prunePendingStorage(tx, s.waypoint);
           });
           await s.ingest.withGcExclusive(() => deleteUnusedBlobs(s, unused));
+          await s.waypoint.run("DELETE FROM share_links WHERE collection_id=?", [id]);
+          s.syncLoop?.triggerPush();
           s.ingest.committer.wake();
           return { purged: true };
         }
+        // Revoke public access as soon as the purge is accepted, even if bucket
+        // deletion retries for days. The snapshot is queued before the DB edit.
+        await s.queue.run(
+          "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
+          [id, Date.now()],
+        );
+        await s.waypoint.run(
+          "UPDATE share_links SET revoked_at=? WHERE collection_id=? AND revoked_at IS NULL",
+          [Date.now(), id],
+        );
+        s.syncLoop?.triggerPush();
         await s.queue.run(
           "INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
           [id, Date.now()],

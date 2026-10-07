@@ -3,6 +3,7 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
+  workerd: true
 minimumReleaseAgeExclude:
   - "@tursodatabase/database-common@0.8.2"
   - "@tursodatabase/database-darwin-arm64@0.8.2"
