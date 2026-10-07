@@ -9,6 +9,7 @@ import { MemoryBucket } from "../apps/writer/src/bucket.js";
 import { WriterCommitter } from "../apps/writer/src/committer.js";
 import type { Config } from "../apps/writer/src/config.js";
 import { openDatabases, type Db } from "../apps/writer/src/db.js";
+import { getHealth } from "../apps/writer/src/health.js";
 import { createApp, type HttpServices } from "../apps/writer/src/http.js";
 import { IngestService } from "../apps/writer/src/ingest.js";
 import {
@@ -177,17 +178,21 @@ describe("viewer routes", () => {
     expect(list.headers.get("cache-control")).toBe("no-store");
     const html = await list.text();
     expect(html).toContain("#2");
-    expect(html).toContain(
-      '<style>:root{font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI"',
-    );
-    expect(html).not.toContain("&quot;Segoe UI&quot;");
+    const stylesheet = /<link rel="stylesheet" href="(\/assets\/viewer\/[0-9a-f]{16}\.css)"/.exec(
+      html,
+    )?.[1];
+    expect(stylesheet).toBeTruthy();
+    const css = await app.request(stylesheet ?? "");
+    expect(css.headers.get("content-type")).toBe("text/css; charset=utf-8");
+    expect(css.headers.get("cache-control")).toContain("immutable");
+    expect(await css.text()).toContain("prefers-color-scheme");
     expect(html).toContain('rel="icon"');
-    expect(html).toContain("2 files");
+    expect(html).toContain('<span class="m">~1</span>');
     expect(html.indexOf("Newest")).toBeLessThan(html.indexOf("Alpha"));
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(await (await app.request("/?q=absent")).text()).toContain("No collections found");
-    expect(await (await app.request("/?q=alpha")).text()).toContain("2 files");
+    expect(await (await app.request("/?q=absent")).text()).toContain("No collections match");
+    expect(await (await app.request("/?q=alpha")).text()).toContain("<mark>Alpha</mark>");
   });
   it("shows latest and pinned shells with pinned raw frames and nested paths", async () => {
     const latest = new URL(first.latest_url).pathname;
@@ -238,7 +243,7 @@ describe("viewer routes", () => {
     expect((await app.request("/status")).headers.get("cache-control")).toBe("no-store");
     await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" });
     expect(await (await app.request("/trash")).text()).toContain("Purge");
-    expect(await (await app.request("/")).text()).toContain("No collections found");
+    expect(await (await app.request("/")).text()).toContain("Nothing here yet");
   });
   it("shares live committer and sync status between the API and status page", async () => {
     await queue.run(
@@ -286,7 +291,7 @@ describe("viewer routes", () => {
     expect(trash).toContain("Later 204");
     const deleted = await app.request(new URL(first.latest_url).pathname);
     expect(deleted.status).toBe(410);
-    expect(await deleted.text()).toContain("In Trash");
+    expect(await deleted.text()).toContain("is in Trash");
   });
   it("keeps list and shell query counts constant as history grows", async () => {
     await Promise.all(
@@ -351,7 +356,7 @@ describe("viewer routes", () => {
     ]);
     const path = new URL(first.latest_url).pathname;
     const html = await (await app.request(path)).text();
-    expect(html).toContain("Every revision of this collection failed to sync");
+    expect(html).toContain("Nothing in this collection has synced");
     expect(html).toContain("failed");
     expect((await app.request(`${path}notes%2Fb.md`)).status).toBe(404);
     expect(
@@ -425,7 +430,7 @@ describe("viewer routes", () => {
     expect((await app.request(latest.toUpperCase().replace("/C/", "/c/"))).status).toBe(200);
     const unknown = await app.request("/totally-unknown");
     expect(unknown.status).toBe(404);
-    expect(await unknown.text()).toContain("Page not found");
+    expect(await unknown.text()).toContain("Not found");
   });
   it("shows a download page for binary files", async () => {
     const binary = writeResult(
@@ -443,6 +448,153 @@ describe("viewer routes", () => {
     const html = await (await app.request(new URL(binary.url).pathname)).text();
     expect(html).toContain("Download file");
     expect(html).not.toContain("<iframe");
+  });
+});
+
+async function queryCount(path: string): Promise<number> {
+  // Let background committer passes finish so their queries aren't attributed to the page
+  // being measured (as in share-writer.test.ts).
+  const { committer } = services.ingest;
+  if (committer instanceof WriterCommitter) {
+    await committer.drain();
+    await committer.drain();
+  }
+  const spies = [
+    vi.spyOn(queue, "all"),
+    vi.spyOn(queue, "get"),
+    vi.spyOn(waypoint, "all"),
+    vi.spyOn(waypoint, "get"),
+  ];
+  await app.request(path);
+  const total = spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+  spies.forEach((spy) => spy.mockRestore());
+  return total;
+}
+describe("Folio shell", () => {
+  it("renders landmarks, the skip link and the health pill on every page", async () => {
+    for (const path of ["/", "/status", "/trash", new URL(first.latest_url).pathname]) {
+      const html = await (await app.request(path)).text();
+      expect(html).toContain('class="skip" href="#main"');
+      expect(html).toMatch(/<header class="bar/);
+      expect(html).toContain('id="main"');
+      expect(html).toContain('popovertarget="health-pop"');
+      expect(html).toContain('id="health-pop"');
+    }
+    const shell = await (await app.request(new URL(first.latest_url).pathname)).text();
+    expect(shell).toContain('<nav class="crumbs" aria-label="Breadcrumb">');
+    expect(shell).toContain('<aside class="panel" id="panel" aria-label="Collection panel">');
+    expect(shell).toContain('role="tablist"');
+    expect(shell).toContain('id="copy-menu"');
+    expect(shell).toContain("Watch: wait_for_revision");
+    expect(shell).toContain('<nav class="tabbar" aria-label="Collection">');
+  });
+  it("orders the health pill blocked > failed > offline > off > uploading > synced", async () => {
+    const syncLoop = new SyncLoop(queue, services.ingest.sync, Date.now, waypoint);
+    const cloud = {
+      lastPullAt: 0,
+      verified: true,
+      pull: () => Promise.resolve(false),
+      push: () => Promise.resolve(),
+      checkpoint: () => Promise.resolve(),
+    };
+    const live = {
+      ...services,
+      syncLoop,
+      ingest: new IngestService(waypoint, queue, services.blobs, services.reads, cloud),
+    };
+    expect((await getHealth(services)).state).toBe("off");
+    const now = Date.now();
+    const uploading = await getHealth(live, now);
+    expect(uploading.state).toBe("uploading");
+    const oldest = await queue.get<{ at: number }>(
+      "SELECT MIN(created_at) AS at FROM pending_revisions",
+    );
+    expect(uploading.oldestPendingAt).toBe(oldest?.at);
+    syncLoop.lastAttemptFailed = true;
+    syncLoop.lastOkAt = now - 3 * 60_000;
+    expect((await getHealth(live, now)).state).toBe("offline");
+    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [second.revision_id]);
+    const failed = await getHealth(live, now);
+    expect(failed.state).toBe("failed");
+    expect(failed.label).toBe("1 failed");
+    expect(failed.failed[0]?.display_number).toBe(2);
+    expect(failed.failed[0]?.collection_public_id).toBeTruthy();
+    syncLoop.blocked = true;
+    syncLoop.lastError = "Environment mismatch";
+    expect((await getHealth(live, now)).label).toBe("Sync blocked");
+    await queue.run("DELETE FROM pending_revisions");
+    syncLoop.blocked = false;
+    syncLoop.lastAttemptFailed = false;
+    expect((await getHealth(live, now)).state).toBe("synced");
+  });
+  it("names a dropped revision's descendants (B7)", async () => {
+    const third = writeResult(
+      await (
+        await app.request(
+          `/api/collections/${first.collection_id}/revisions`,
+          json({ message: "Third", files: [await upload("c.md", "C")] }),
+        )
+      ).json(),
+    );
+    const response = await app.request(`/api/queue/${second.revision_id}/descendants`);
+    expect(await response.json()).toEqual({
+      ids: [second.revision_id, third.revision_id],
+      display_numbers: [2, 3],
+    });
+    expect((await app.request("/api/queue/rev_missing/descendants")).status).toBe(404);
+  });
+  it("forbids cross-site framing of viewer pages but not of raw content or the API", async () => {
+    const latest = new URL(first.latest_url).pathname;
+    const pinned = new URL(second.url).pathname;
+    const rpub = pinned.split("/r/")[1]?.split("/")[0] ?? "";
+    for (const path of [
+      "/",
+      "/status",
+      "/trash",
+      "/links",
+      latest,
+      `${pinned}changes`,
+      `${latest}?as=public`,
+      "/c/doesnotexist/",
+    ]) {
+      const response = await app.request(path);
+      expect({
+        path,
+        type: response.headers.get("content-type")?.split(";")[0],
+        csp: response.headers.get("content-security-policy"),
+        frame: response.headers.get("x-frame-options"),
+      }).toEqual({
+        path,
+        type: "text/html",
+        csp: "frame-ancestors 'self'",
+        frame: "SAMEORIGIN",
+      });
+    }
+    const mcp = await app.request("/mcp", { headers: { accept: "text/html" } });
+    expect(mcp.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    // The shell frames /raw from the same origin; raw content keeps its own headers.
+    const shell = await (await app.request(latest)).text();
+    expect(shell).toContain(`src="/raw/r/${rpub}/index.md`);
+    const raw = await app.request(`/raw/r/${rpub}/notes/b.md`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("x-frame-options")).toBeNull();
+    expect(raw.headers.get("content-security-policy") ?? "").not.toContain("frame-ancestors");
+    const api = await app.request("/api/collections");
+    expect(api.headers.get("x-frame-options")).toBeNull();
+    expect((await app.request("/healthz")).headers.get("x-frame-options")).toBeNull();
+  });
+  it("keeps Status and Trash query counts constant", async () => {
+    await seedPendingCollection("Gone", Date.now() + 500, true);
+    const status = await queryCount("/status");
+    const trash = await queryCount("/trash");
+    await Promise.all(
+      Array.from({ length: 25 }, (_, i) =>
+        seedPendingCollection(`Gone ${i}`, Date.now() + i + 1000, true),
+      ),
+    );
+    expect(await queryCount("/status")).toBe(status);
+    expect(await queryCount("/trash")).toBe(trash);
+    expect(trash).toBeLessThan(20);
   });
 });
 

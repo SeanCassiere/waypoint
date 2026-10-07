@@ -19,7 +19,7 @@ function assertAllowed(specifier, location) {
     forbidden.has(bare) ||
     denied.some((name) => specifier.startsWith(name))
   ) {
-    const area = location.includes("reader") ? "reader" : "core";
+    const area = location.includes("reader") ? "reader" : location.includes("ui") ? "ui" : "core";
     throw new Error(`Node-only import in ${area}: ${specifier} (${location})`);
   }
 }
@@ -43,9 +43,11 @@ function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 const reader = new URL("../apps/reader/", import.meta.url);
+const ui = new URL("../packages/ui/", import.meta.url);
 for (const { name, directory } of [
   { name: "core", directory: core },
   { name: "reader", directory: reader },
+  { name: "ui", directory: ui },
 ]) {
   const parsedPackage = /** @type {unknown} */ (
     JSON.parse(await readFile(new URL("package.json", directory), "utf8"))
@@ -61,3 +63,4 @@ for (const { name, directory } of [
 }
 await check(process.argv[2] ?? new URL("src/", core).pathname);
 await check(new URL("src/", reader).pathname);
+await check(new URL("src/", ui).pathname);

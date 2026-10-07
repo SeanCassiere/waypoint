@@ -11,6 +11,7 @@
   "dependencies": {
     "@tursodatabase/serverless": "^1.4.1",
     "@waypoint/core": "workspace:*",
+    "@waypoint/ui": "workspace:*",
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.13"
   },

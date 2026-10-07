@@ -92,3 +92,10 @@ export const markdownRenderer = {
     return { bytes: new TextEncoder().encode(html), mime: "text/html" };
   },
 } as const satisfies Renderer;
+export {
+  markWords,
+  MAX_FRAGMENT_SOURCE,
+  renderFragment,
+  renderFragments,
+  SENTINELS,
+} from "./fragment.js";

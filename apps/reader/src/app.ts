@@ -5,9 +5,12 @@ import {
   parseShareUrl,
   shareShellUrl,
   validatePath,
-  encodePath,
 } from "@waypoint/core";
+import { encodeLinkPath, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
+
+import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.js";
+import { deniedPage, rootPage } from "./pages.js";
 
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;
@@ -52,7 +55,7 @@ type Link = {
   pinned_created_at: number | null;
 };
 type Revision = { id: string; public_id: string; head_path: string; created_at: number };
-type File = { path: string; blob_hash: string; mime: string };
+type File = { path: string; blob_hash: string; mime: string; size?: number | null };
 type Rendition = { output_hash: string; output_mime: string; renderer_version: number };
 const standard = {
   "X-Robots-Tag": "noindex, nofollow",
@@ -61,37 +64,27 @@ const standard = {
   "Cache-Control": "private",
 };
 const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms";
-const page404 = "<!doctype html><title>Not found</title><h1>Not found</h1>";
-const denied = (status = 404): Response =>
-  new Response(page404, {
-    status,
-    headers: { ...standard, "Content-Type": "text/html; charset=utf-8" },
-  });
-const entities: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-const escape = (value: string): string => value.replace(/[&<>"']/g, (char) => entities[char]!);
-const css =
-  "body{margin:0;font:16px system-ui;color:#1b222b;background:#fff}header{padding:1rem;border-bottom:1px solid #aaa}main{display:grid;grid-template-columns:minmax(12rem,20rem) 1fr;height:calc(100vh - 6rem)}nav{padding:1rem;overflow:auto;border-right:1px solid #aaa}nav a{display:block;padding:.4rem;color:inherit;word-break:break-all}nav a[aria-current]{font-weight:bold;background:#ddd}iframe{width:100%;height:100%;border:0}small{color:#666}@media(max-width:650px){main{grid-template-columns:1fr;grid-template-rows:12rem 1fr}nav{border-right:0;border-bottom:1px solid #aaa}}@media(prefers-color-scheme:dark){body{color:#eee;background:#141820}nav a[aria-current]{background:#38404a}small{color:#aaa}}";
-const cssHash = crypto.subtle
-  .digest("SHA-256", new TextEncoder().encode(css))
-  .then((digest) => btoa(String.fromCharCode(...new Uint8Array(digest))));
-export function renderFileLinks(
-  files: ReadonlyArray<{ path: string }>,
-  prefix: string,
-  current: string,
-): string {
-  return files
-    .map(
-      (item) =>
-        `<a href="${prefix}${item.path.split("/").map(encodeURIComponent).join("/")}"${item.path === current ? ' aria-current="page"' : ""}>${escape(item.path)}</a>`,
-    )
-    .join("");
-}
+/**
+ * Hash-only CSPs. The hashes are build-time constants (csp-hashes.ts, verified against the exact
+ * inline <style> and <script> bodies by tests/reader-csp-hashes.test.ts), so no response,
+ * least of all the denial, waits on crypto.
+ */
+const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticHeaders = (cache: string): Record<string, string> => ({
+  "X-Robots-Tag": standard["X-Robots-Tag"],
+  "Referrer-Policy": standard["Referrer-Policy"],
+  "X-Content-Type-Options": standard["X-Content-Type-Options"],
+  "Content-Type": "text/html; charset=utf-8",
+  "Content-Security-Policy": staticPolicy,
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cache-Control": cache,
+});
+const deniedHeaders = staticHeaders("no-store");
+/** The one denial response: same status, body and headers for every reason (spec §9.2). */
+const denied = (): Response => new Response(deniedPage, { status: 404, headers: deniedHeaders });
+/** Content the sandboxed iframe can show; anything else gets the download card. */
+const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
 const linkSql =
   "SELECT s.id,s.collection_id,s.revision_id,s.expires_at,s.revoked_at,c.public_id,c.title,t.deleted_at,pr.public_id AS pinned_public_id,pr.head_path AS pinned_head_path,pr.created_at AS pinned_created_at FROM share_links s JOIN collections c ON c.id=s.collection_id LEFT JOIN collection_tombstones t ON t.collection_id=c.id LEFT JOIN revisions pr ON pr.id=s.revision_id AND pr.collection_id=s.collection_id WHERE ";
 function decodeRawPath(encoded: string): string {
@@ -156,17 +149,32 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const lookupCache = new Map<string, { until: number; link: Link | null }>();
   const blockedIps = new Map<string, number>();
   const now = deps.now ?? Date.now;
-  async function deny(env: ReaderEnv, ip: string): Promise<Response> {
+  /** Counts one denial-equivalent request for this IP; false once the limiter rejects it. */
+  async function count(env: ReaderEnv, ip: string): Promise<boolean> {
     try {
       if (env.TOKEN_MISS_LIMITER && !(await env.TOKEN_MISS_LIMITER.limit({ key: ip })).success) {
         // Map insertion order provides a bounded LRU. Expired entries are removed on access.
         blockedIps.delete(ip);
         blockedIps.set(ip, now() + 60_000);
         if (blockedIps.size > 10_000) blockedIps.delete(blockedIps.keys().next().value!);
+        return false;
       }
     } catch (error) {
       logFailure("limiter", error);
     }
+    return true;
+  }
+  /** True while this IP is blocked; refreshes its LRU position, drops it once expired. */
+  function blocked(ip: string): boolean {
+    const until = blockedIps.get(ip);
+    if (until === undefined) return false;
+    blockedIps.delete(ip);
+    if (until <= now()) return false;
+    blockedIps.set(ip, until);
+    return true;
+  }
+  async function deny(env: ReaderEnv, ip: string): Promise<Response> {
+    await count(env, ip);
     return denied();
   }
   async function lookup(db: ReaderDb, kind: "token" | "id", value: string): Promise<Link | null> {
@@ -208,6 +216,10 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       new Response("ok", { headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" } }),
   );
   app.get("/healthz/deep", async (c) => {
+    // Each deep probe queries Turso and R2, so it counts toward the per-IP limiter like a
+    // denial; a blocked IP gets the uniform denial without touching either.
+    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+    if (blocked(ip) || !(await count(c.env, ip))) return denied();
     try {
       await deps.db(c.env).all("SELECT 1 FROM collections LIMIT 1");
       const result = await deps.blob(c.env).probe();
@@ -223,6 +235,12 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       });
     }
   });
+  // The bare root (spec §9.2): a fixed page that confirms nothing, so it is a 200 that uptime
+  // checks can probe. Hono answers HEAD from this GET handler with the same headers.
+  const rootHeaders = staticHeaders("public, max-age=3600");
+  app.get("/", (c) =>
+    c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : denied(),
+  );
   app.get(
     "/robots.txt",
     () =>
@@ -233,15 +251,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const serve = async (c: Context<{ Bindings: ReaderEnv }>) => {
     const env = c.env;
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    const blockedUntil = blockedIps.get(ip);
-    if (blockedUntil !== undefined) {
-      if (blockedUntil > now()) {
-        blockedIps.delete(ip);
-        blockedIps.set(ip, blockedUntil);
-        return denied();
-      }
-      blockedIps.delete(ip);
-    }
+    if (blocked(ip)) return denied();
     const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf;
     const record = (link: Link, revisionId: string, path: string, status: number): void => {
       try {
@@ -358,7 +368,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     }
     const file = (
       await db.all<File>(
-        "SELECT path,blob_hash,mime FROM revision_files WHERE revision_id=? AND path=?",
+        "SELECT path,blob_hash,mime,size FROM revision_files WHERE revision_id=? AND path=?",
         [revision.id, path],
       )
     )[0];
@@ -380,17 +390,33 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         link.public_id,
         link.revision_id ? revision.public_id : undefined,
       );
-      const links = renderFileLinks(files, prefix, path);
+      // Links relative to this page's own URL: smaller, and they don't repeat the share token.
+      // The page's folder depth below the shell prefix decides how many "../" to use; a page
+      // above it (no trailing slash) falls back to root-relative links.
+      const prefixPath = new URL(prefix).pathname;
+      const depth = new URL(c.req.url).pathname.split("/").length - prefixPath.split("/").length;
+      const linkPrefix = depth < 0 ? prefixPath : depth === 0 ? "./" : "../".repeat(depth);
       const cap = await rawCap(env.RAW_CAP_KEY, link.id, revision.public_id);
-      const frame = `${base}/x/${link.id}.${cap}/r/${revision.public_id}/${encodePath(path)}`;
-      const csp = `default-src 'none'; style-src 'sha256-${await cssHash}'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
-      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(link.title)}</title><style>${css}</style></head><body><header><strong>${escape(link.title)}</strong>${link.revision_id ? `<br><small>Snapshot from ${escape(new Date(revision.created_at).toLocaleDateString("en-CA"))}</small>` : ""}</header><main><nav aria-label="Files">${links}</nav><iframe title="${escape(path)}" src="${escape(frame)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></main></body></html>`;
+      const html = renderPublicShell({
+        title: link.title,
+        files,
+        head: revision.head_path,
+        current: path,
+        // Relative, minimally encoded links keep a 2,000-file shell small.
+        fileHref: (item) => linkPrefix + encodeLinkPath(item),
+        frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
+        updatedAt: link.revision_id ? null : revision.created_at,
+        snapshotAt: link.revision_id ? revision.created_at : null,
+        download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
+      });
       response = new Response(html, {
         headers: {
           ...standard,
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": csp,
+          "Content-Security-Policy": shellPolicy,
           "X-Frame-Options": "DENY",
+          // Documents may open popups that escape the sandbox; sever their opener to the shell.
+          "Cross-Origin-Opener-Policy": "same-origin",
         },
       });
     } else {

@@ -9,6 +9,7 @@ import {
   type Limits,
   type McpStatusResponse,
   type McpVersionResponse,
+  type SearchCollectionsResponse,
 } from "@waypoint/core";
 import { z } from "zod";
 
@@ -156,13 +157,48 @@ export interface LauncherInfo {
   source: "fresh" | "cache" | "embedded";
 }
 
+/**
+ * search_collections for agents: what's needed to pick a collection and read it. The API's
+ * queue, share and change-count detail (for the viewer) is dropped, and the text is compact.
+ */
+export function compactSearch(result: SearchCollectionsResponse) {
+  return {
+    collections: result.collections.map((item) => ({
+      id: item.id,
+      title: item.title,
+      metadata: item.metadata,
+      updated_at: new Date(item.updated_at).toISOString(),
+      revision_count: item.revision_count,
+      latest_url: item.latest_url,
+      ...(item.deleted ? { deleted: true } : {}),
+      ...(item.match ? { match: item.match } : {}),
+      latest_revision: item.latest_revision
+        ? {
+            id: item.latest_revision.id,
+            display_number: item.latest_revision.display_number,
+            message: item.latest_revision.message,
+            sync_state: item.latest_revision.sync_state,
+            head_path: item.latest_revision.head_path,
+            file_count: item.latest_revision.file_count,
+          }
+        : null,
+    })),
+    next_cursor: result.next_cursor,
+  };
+}
+
 export function createServer(client: WaypointClient, launcher?: LauncherInfo): McpServer {
   const server = new McpServer({ name: "waypoint-mcp", version: manifest.version });
+  // Lets the writer's Status page say which agent is waiting (B5); server bundle only.
+  server.server.oninitialized = () => {
+    client.clientName = server.server.getClientVersion()?.name ?? null;
+  };
   function register(
     name: string,
     description: string,
     schema: z.ZodRawShape | z.ZodType,
     handler: (input: unknown, signal: AbortSignal) => Promise<unknown>,
+    options: { compact?: boolean } = {},
   ): void {
     server.registerTool(
       name,
@@ -175,7 +211,12 @@ export function createServer(client: WaypointClient, launcher?: LauncherInfo): M
               ? Object.fromEntries(Object.entries(value))
               : { result: value };
           return {
-            content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+            content: [
+              {
+                type: "text" as const,
+                text: options.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2),
+              },
+            ],
             structuredContent,
           };
         } catch (error) {
@@ -252,23 +293,26 @@ export function createServer(client: WaypointClient, launcher?: LauncherInfo): M
       cursor: z.string().optional().describe("Opaque next_cursor from the previous page"),
       include_deleted: z.boolean().optional().describe("Include soft-deleted collections"),
     },
-    (input, signal) =>
-      client.searchCollections(
-        z
-          .object({
-            query: z.string().optional(),
-            metadata: z.record(z.string(), z.unknown()).optional(),
-            updated_after: z
-              .union([z.iso.datetime({ offset: true }), z.iso.date(), z.number()])
-              .optional(),
-            sort: z.enum(["updated", "created"]).optional(),
-            limit: z.number().optional(),
-            cursor: z.string().optional(),
-            include_deleted: z.boolean().optional(),
-          })
-          .parse(input),
-        signal,
+    async (input, signal) =>
+      compactSearch(
+        await client.searchCollections(
+          z
+            .object({
+              query: z.string().optional(),
+              metadata: z.record(z.string(), z.unknown()).optional(),
+              updated_after: z
+                .union([z.iso.datetime({ offset: true }), z.iso.date(), z.number()])
+                .optional(),
+              sort: z.enum(["updated", "created"]).optional(),
+              limit: z.number().optional(),
+              cursor: z.string().optional(),
+              include_deleted: z.boolean().optional(),
+            })
+            .parse(input),
+          signal,
+        ),
       ),
+    { compact: true },
   );
   register(
     "wait_for_revision",

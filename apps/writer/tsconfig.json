@@ -9,13 +9,16 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "exclude": ["src/viewer-client.browser.ts"],
+  "exclude": ["src/viewer-client.browser.ts", "src/viewer-pages.browser.ts", "src/client"],
   "references": [
     {
       "path": "../../packages/core"
     },
     {
       "path": "../../packages/render"
+    },
+    {
+      "path": "../../packages/ui"
     }
   ]
 }

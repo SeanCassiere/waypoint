@@ -18,7 +18,7 @@ A Waypoint instance running on the tailnet in *write mode*. It accepts writes fr
 The Waypoint instance on Cloudflare Workers at `waypoint.pingstash.com`, running in *read mode*. It faces the public internet, is read-only forever, and serves only what a [share link](#access-phase-2-and-later) permits. Phase 2.
 
 **Viewer**
-The writer's web UI. It has a collection list, a collection view (file sidebar, revision picker, and an iframe showing the current file), a Trash view, and a status page.
+The writer's web UI ("Folio"; spec in the "Waypoint UI redesign" collection). Server-rendered pages: **Recent** (home, with Needs attention and search), the **collection shell** (top bar, a Files / History / Links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, view transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
 
 **Trash view**
 The part of the viewer that lists soft-deleted (tombstoned) collections and lets you undelete or purge them.

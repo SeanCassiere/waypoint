@@ -38,6 +38,10 @@ export class SyncLoop {
   lastPushAt: number | null = null;
   lastError: string | null = null;
   blocked = false;
+  /** Last successful push or pull, for offline detection (B6b). */
+  lastOkAt: number | null = null;
+  /** Whether the most recent push or pull attempt failed. */
+  lastAttemptFailed = false;
   constructor(
     readonly queue: Db,
     readonly client: SyncClient,
@@ -98,7 +102,13 @@ export class SyncLoop {
       this.stopController.signal,
       this.timeouts.pullMs ?? 30_000,
     )
+      .then((changed) => {
+        this.lastOkAt = this.now();
+        this.lastAttemptFailed = false;
+        return changed;
+      })
       .catch((error: unknown) => {
+        this.lastAttemptFailed = true;
         this.lastError = error instanceof Error ? error.message : "Pull failed";
         if (/Environment mismatch|marker is missing/.test(this.lastError)) this.blocked = true;
         throw error;
@@ -190,9 +200,12 @@ export class SyncLoop {
         }
       if (watermark) await this.queue.run("DELETE FROM unpushed WHERE seq<=?", [watermark]);
       this.lastPushAt = this.now();
+      this.lastOkAt = this.lastPushAt;
+      this.lastAttemptFailed = false;
       this.lastError = null;
       this.blocked = false;
     } catch (error) {
+      this.lastAttemptFailed = true;
       this.lastError = error instanceof Error ? error.message : "Push failed";
       if (constraint(error) || /Environment mismatch|marker is missing/.test(this.lastError))
         this.blocked = true;

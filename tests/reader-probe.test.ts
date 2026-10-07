@@ -4,14 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  createReaderApp,
-  renderFileLinks,
-  type ReaderDb,
-  type ReaderEnv,
-} from "../apps/reader/src/app.js";
+import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
+import { deniedPage } from "../apps/reader/src/pages.js";
 import { waypointMigrations } from "../apps/writer/src/migrations.js";
 import { hashShareToken, newShareToken } from "../packages/core/src/index.js";
+import { encodePathSegments, renderPublicShell } from "../packages/ui/src/index.js";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",
@@ -283,12 +280,21 @@ describe("adversarial reader probes", () => {
       raw(tokens.follow, A1.pub, "old-secret.html"),
       raw(tokens.follow, A2.pub, "missing.html"),
       raw(tokens.follow, A2.pub, "a%2Fb"),
-      `/`,
+      `/s/`,
+      `/index.html`,
       `/assets/1/x.js`,
     ];
     const reference = await snap(await get(cases[0]!));
+    expect(reference.status).toBe(404);
+    expect(reference.body).toBe(deniedPage);
     for (const path of cases) expect(await snap(await get(path))).toEqual(reference);
-    expect(limiterCalls).toBe(8);
+    expect(limiterCalls).toBe(9);
+    // The bare root is the one non-share page: a 200 that differs from every denial.
+    const root = await snap(await get("/"));
+    expect(root.status).toBe(200);
+    expect(root.body).not.toBe(reference.body);
+    expect(root.body).not.toMatch(/wps_|shl_|sha256:|T aaaa/);
+    expect(limiterCalls).toBe(9);
   });
   it("keeps the share token out of raw iframe URLs and analytics", async () => {
     const shell = await get(`/s/${tokens.follow}/c/${A.pub}/`);
@@ -337,13 +343,32 @@ describe("adversarial reader probes", () => {
       insert.run(A2.id, `dir${i % 40}/file-${i}.html`, h("3"), "text/html");
     const shell = await (await get(`/s/${tokens.follow}/c/${A.pub}/`)).text();
     expect((shell.match(/<a href=/g) ?? []).length).toBeGreaterThan(2000);
-    // Time the Worker CPU work that scales with file count. The end-to-end
-    // request includes fake SQLite and Hono/Vitest scheduling overhead.
+    // Large manifests collapse folders, so the shell stays one cheap pass over the paths.
+    expect(shell).toContain('<summary>Files <span class="n">(2003)</span>');
+    expect(shell).not.toContain("<details open><summary>dir");
+    // Time the Worker CPU work that scales with file count: the whole shell document.
+    // The end-to-end request includes fake SQLite and Hono/Vitest scheduling overhead.
     const paths = Array.from({ length: 2000 }, (_, i) => ({ path: `dir${i % 40}/file-${i}.html` }));
     const prefix = `https://waypoint.pingstash.com/s/${tokens.follow}/c/${A.pub}/`;
-    const start = performance.now();
-    for (let i = 0; i < 10; i++) renderFileLinks(paths, prefix, "index.html");
-    const overhead = (performance.now() - start) / 10;
+    const render = () =>
+      renderPublicShell({
+        title: "T",
+        files: paths,
+        head: "index.html",
+        current: "dir7/file-7.html",
+        fileHref: (path) => prefix + encodePathSegments(path),
+        frameBase: "https://waypoint.pingstash.com/x/shl_x.cap/r/a2a2a2a2a2a2/",
+        updatedAt: 1,
+        snapshotAt: null,
+      });
+    // CPU time of this thread (what the Worker CPU limit counts), not wall time, which other
+    // processes on a busy machine inflate. Warm isolates serve most requests, so measure after a
+    // short warm-up: the mean of 10 renders, as before, in milliseconds.
+    for (let i = 0; i < 5; i++) render();
+    const cpu = process.threadCpuUsage();
+    for (let i = 0; i < 10; i++) render();
+    const used = process.threadCpuUsage(cpu);
+    const overhead = (used.user + used.system) / 1000 / 10;
     expect(overhead).toBeLessThan(5);
   });
 });

@@ -10,6 +10,16 @@ export interface ShareLink {
   mode: "latest" | "pinned";
   status: "active" | "revoked" | "expired";
   publicly_available: boolean;
+  /**
+   * Lifecycle as the public experiences it (B3): "activating" until the writer pushes the
+   * link to the cloud, "revoking" until a revocation has been pushed and the reader's
+   * lookup cache (about 60 s) has expired.
+   */
+  state: "activating" | "active" | "expired" | "revoking" | "revoked";
+  /** Display number of the pinned revision, or null for a link that follows latest. */
+  revision_display_number: number | null;
+  /** The revision the reader serves right now (latest = newest synced), or null for none. */
+  public_sees: { revision_id: string; display_number: number } | null;
 }
 export interface CreateShareLinkResult {
   share_link: ShareLink;
@@ -49,6 +59,12 @@ export interface AddRevisionRequest {
   files?: RequestFile[];
   remove?: string[];
 }
+/** File-level change counts relative to the parent revision (all files are "added" for a root). */
+export interface RevisionChanges {
+  added: number;
+  modified: number;
+  removed: number;
+}
 export interface RevisionSummary {
   id: string;
   public_id: string;
@@ -61,6 +77,7 @@ export interface RevisionSummary {
   created_at: number;
   sync_state: SyncState;
   url: string;
+  changes?: RevisionChanges | undefined;
 }
 export interface ManifestFileEntry {
   path: string;
@@ -109,10 +126,18 @@ export interface CollectionSearchResult {
     | (Pick<
         RevisionSummary,
         "id" | "display_number" | "message" | "created_at" | "sync_state" | "head_path"
-      > & { file_count: number })
+      > & {
+        file_count: number;
+        changes?: RevisionChanges | null | undefined;
+        source_host?: string | null | undefined;
+      })
     | null;
   latest_url: string;
   match: "id" | "title" | "metadata" | null;
+  /** Queue counts for the collection's revisions that haven't committed yet. */
+  queue?: { pending: number; failed: number } | undefined;
+  /** Active public links (B4). Null when the collection has none. */
+  share?: { active: number; follows_latest: boolean } | null | undefined;
 }
 export interface SearchCollectionsResponse {
   collections: CollectionSearchResult[];
@@ -134,6 +159,11 @@ export interface QueueCounts {
   failed_revisions: number;
   pending_blobs: number;
   pending_renditions: number;
+  /**
+   * Queued renditions no queued revision references (the `rerender` backlog). Unlike
+   * `pending_renditions`, it doesn't count renditions waiting on a pending or failed revision.
+   */
+  rerender_pending?: number | undefined;
   pending_snapshots: number;
   pending_r2_deletes: number;
   pending_purges: number;
@@ -162,6 +192,10 @@ export interface StatusResponse {
   sync_blocked: boolean;
   account_paused: boolean;
   account_error: string | null;
+  /** Last successful cloud push or pull (B6b). */
+  cloud_last_ok_at?: number | null | undefined;
+  /** Last sync-loop error while the most recent attempt is failing. */
+  cloud_error?: string | null | undefined;
 }
 export const MCP_LAUNCHER_API = 1;
 export interface McpVersionResponse {

@@ -8,5 +8,10 @@
     "lib": ["ES2023", "DOM"],
     "types": []
   },
-  "include": ["src/viewer-client.browser.ts", "src/viewer-paths.ts"]
+  "include": [
+    "src/viewer-client.browser.ts",
+    "src/viewer-pages.browser.ts",
+    "src/viewer-paths.ts",
+    "src/client"
+  ]
 }

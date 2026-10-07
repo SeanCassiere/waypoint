@@ -17,8 +17,11 @@ interface Statement {
   get<T>(...args: Params): Promise<T | undefined>;
   run(...args: Params): Promise<RunResult>;
 }
+interface EngineStatement extends Statement {
+  close(): void;
+}
 interface Engine {
-  prepare(sql: string): Promise<Statement>;
+  prepare(sql: string): Promise<EngineStatement>;
   exec(sql: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -54,22 +57,96 @@ export async function retrySyncBusy<T>(operation: () => Promise<T>): Promise<T> 
     }
   }
 }
+/** Prepared statements kept per connection. Each distinct SQL string costs one slot. */
+export const STATEMENT_CACHE_SIZE = 256;
+/** Schema changes make prepared statements stale (Turso aborts the process on a stale one). */
+const SCHEMA_CHANGE = /\b(?:CREATE|ALTER|DROP)\s/i;
 export class Db implements DbHandle {
   private chain: Promise<unknown> = Promise.resolve();
+  /**
+   * Prepared statements by SQL, least recently used first. The engine leaks native memory for
+   * every statement it prepares (about 12.5 KB when never closed, about 2.5 KB even when closed;
+   * see docs/architecture.md), so statements are prepared once and reused. Schema changes drop
+   * them all: running a statement prepared against an older schema aborts the process.
+   */
+  private statements = new Map<string, EngineStatement>();
+  private busy = new Set<EngineStatement>();
+  /** Called after each statement with its execution time (tests and diagnostics). */
+  onStatement: ((sql: string, ms: number) => void) | undefined = undefined;
   constructor(readonly engine: Engine) {}
   connectionOperation<T>(fn: () => Promise<T>): Promise<T> {
     const task = this.chain.then(fn);
     this.chain = task.catch(() => undefined);
     return task;
   }
+  /** Number of cached prepared statements (for tests and diagnostics). */
+  get cachedStatements(): number {
+    return this.statements.size;
+  }
+  private async execute<T>(sql: string, use: (statement: Statement) => Promise<T>): Promise<T> {
+    const schemaChange = SCHEMA_CHANGE.test(sql);
+    let statement = this.statements.get(sql);
+    // A transaction callback can run statements concurrently; a statement already running gets
+    // a one-off sibling instead of having its bindings replaced mid-step.
+    const cached = Boolean(statement) && !this.busy.has(statement!);
+    if (statement && cached) {
+      this.statements.delete(sql);
+      this.statements.set(sql, statement);
+    } else statement = await this.engine.prepare(sql);
+    const keep = !schemaChange && (cached || !this.statements.has(sql));
+    if (keep && !cached) {
+      this.statements.set(sql, statement);
+      for (const [key, oldest] of this.statements) {
+        if (this.statements.size <= STATEMENT_CACHE_SIZE) break;
+        this.statements.delete(key);
+        // A running statement is closed by its own caller once it finishes.
+        if (!this.busy.has(oldest)) oldest.close();
+      }
+    }
+    this.busy.add(statement);
+    let failed = false;
+    const started = this.onStatement ? performance.now() : 0;
+    try {
+      return await use(statement);
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      this.onStatement?.(sql, performance.now() - started);
+      this.busy.delete(statement);
+      const owned = this.statements.get(sql) === statement;
+      // A failed statement is prepared afresh next time rather than trusted again.
+      if (owned && failed) this.statements.delete(sql);
+      if (!owned || failed) statement.close();
+      if (schemaChange) this.dropStatements();
+    }
+  }
+  private dropStatements(): void {
+    for (const statement of this.statements.values())
+      if (!this.busy.has(statement)) statement.close();
+    this.statements.clear();
+  }
+  /** Forgets every prepared statement, on the connection chain (after a pull changed the database). */
+  resetStatements(): Promise<void> {
+    return this.connectionOperation(() => {
+      this.dropStatements();
+      return Promise.resolve();
+    });
+  }
   private raw: DbHandle = {
     all: async <T>(sql: string, args: Params = []) =>
-      this.retryBusy(async () => (await this.engine.prepare(sql)).all<T>(...args)),
+      this.retryBusy(() => this.execute(sql, (statement) => statement.all<T>(...args))),
     get: async <T>(sql: string, args: Params = []) =>
-      this.retryBusy(async () => (await this.engine.prepare(sql)).get<T>(...args)),
+      this.retryBusy(() => this.execute(sql, (statement) => statement.get<T>(...args))),
     run: (sql: string, args: Params = []) =>
-      this.retryBusy(async () => (await this.engine.prepare(sql)).run(...args)),
-    exec: (sql: string) => this.retryBusy(() => this.engine.exec(sql)),
+      this.retryBusy(() => this.execute(sql, (statement) => statement.run(...args))),
+    exec: async (sql: string) => {
+      try {
+        await this.retryBusy(() => this.engine.exec(sql));
+      } finally {
+        if (SCHEMA_CHANGE.test(sql)) this.dropStatements();
+      }
+    },
   };
   private async retryBusy<T>(fn: () => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
@@ -121,7 +198,10 @@ export class Db implements DbHandle {
     });
   }
   close(): Promise<void> {
-    return this.connectionOperation(() => this.engine.close());
+    return this.connectionOperation(() => {
+      this.dropStatements();
+      return this.engine.close();
+    });
   }
 }
 export interface SyncClient {
@@ -191,6 +271,8 @@ export async function openDatabases(
           return retrySyncBusy(() => remote.pull());
         })
         .then(async (changed) => {
+          // A pull can carry schema changes; statements prepared before it must not run again.
+          if (changed) await waypoint.resetStatements();
           await this.afterPull?.();
           this.lastPullAt = Date.now();
           return changed;

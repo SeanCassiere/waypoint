@@ -16,7 +16,6 @@ import {
   newShareToken,
   hashShareToken,
   shareShellUrl,
-  type ShareLink,
   type CreateCollectionRequest,
   type AddRevisionRequest,
 } from "@waypoint/core";
@@ -28,13 +27,38 @@ import { BlobStore } from "./blob-store.js";
 import type { Bucket } from "./bucket.js";
 import { BucketError } from "./bucket.js";
 import { blobKey, type WriterCommitter } from "./committer.js";
+import {
+  compareManifests,
+  DiffCache,
+  DiffWorkers,
+  MAX_SIDE_BYTES,
+  type CompareFile,
+  type FileDiff,
+} from "./compare.js";
+import { compression } from "./compression.js";
 import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
+import {
+  allLinks,
+  API_LINKS_DEFAULT,
+  API_LINKS_MAX,
+  collectionLinks,
+  extendLink,
+  inFilter,
+  listLinks,
+  revokeAll,
+  SHARE_COLUMNS,
+  shareViews,
+  withoutCollection,
+  type ShareRow,
+} from "./shares.js";
 import { getStatus } from "./status-data.js";
 import type { SyncLoop } from "./sync-loop.js";
-import { viewerApp } from "./viewer.js";
+import { viewerApp } from "./viewer/index.js";
+import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.js";
+import { mcpPage } from "./viewer/pages/mcp.js";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;
@@ -154,10 +178,20 @@ const matchesEtag = (header: string | undefined, etag: string) =>
     const token = item.trim().replace(/^W\//, "");
     return token === etag || token === "*";
   }) ?? false;
+/** Shared by every app instance: diff and fragment workers hold no per-app state. */
+const diffWorkers = new DiffWorkers();
+
 export function createApp(s: HttpServices): Hono {
   const app = new Hono();
+  app.use("*", compression());
   const revisionEvents = s.reads.revisionEvents;
   let waiters = 0;
+  /** Agents long-polling for a new revision (B5). In memory only; cleared on restart. */
+  const watchers = new Map<
+    number,
+    { collection_id: string; after: string; since: number; client: string | null }
+  >();
+  let watcherSeq = 0;
   const tarballPath =
     s.mcpTarballPath ??
     fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
@@ -200,6 +234,55 @@ export function createApp(s: HttpServices): Hono {
     }
     await flight;
   }
+  /** Text of a blob for diffs: null when the side is absent, undefined when too large or unavailable. */
+  async function blobText(
+    side: { hash: string; size: number } | null,
+  ): Promise<string | null | undefined> {
+    if (!side) return null;
+    if (side.size > MAX_SIDE_BYTES) return undefined;
+    try {
+      await ensureBlob(side.hash);
+      return new TextDecoder().decode(await readFile(s.blobs.path(side.hash)));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      if (isWaypointError(error) && ["not_found", "bucket_unavailable"].includes(error.code))
+        return undefined;
+      throw error;
+    }
+  }
+  const diffs = new DiffCache();
+  async function fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff> {
+    const key = `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${mode}|${file.mime}|${file.path}`;
+    const cached = diffs.get(key);
+    if (cached) return cached;
+    // Large inputs are diffed in a worker with a time limit, never on the event loop.
+    const result = await diffWorkers.diff({
+      file,
+      base: await blobText(file.base),
+      head: await blobText(file.head),
+      mode,
+    });
+    if (!result.truncated) diffs.set(key, result);
+    return result;
+  }
+  async function compareRevisions(id: string, baseId: string | undefined) {
+    const head = await s.reads.revision(id);
+    if (!head) throw new WaypointError("not_found", "Revision not found");
+    const baseRef = baseId ?? head.parent_revision_id ?? undefined;
+    const baseRevision = baseRef ? await s.reads.revision(baseRef) : undefined;
+    if (baseRef && (!baseRevision || baseRevision.collection_id !== head.collection_id))
+      throw new WaypointError("not_found", "Base revision not found in this collection");
+    return {
+      head,
+      base: baseRevision,
+      compare: compareManifests(baseRevision?.manifest ?? null, head.manifest),
+    };
+  }
+  async function revisionSummary(id: string) {
+    const { files, ...rest } = await s.reads.getRevision(id);
+    void files;
+    return rest;
+  }
   app.onError((error, c) => {
     if (isWaypointError(error))
       return new Response(JSON.stringify(error.toBody()), {
@@ -228,6 +311,16 @@ export function createApp(s: HttpServices): Hono {
         throw new WaypointError("forbidden", "Cross-origin write rejected");
     }
     await next();
+    // Viewer pages can't be framed by other sites (clickjacking their buttons). /raw is framed
+    // by the viewer itself and the API isn't HTML, so both are left alone.
+    if (
+      !c.req.path.startsWith("/raw/") &&
+      !c.req.path.startsWith("/api/") &&
+      c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")
+    ) {
+      c.res.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+      c.res.headers.set("X-Frame-Options", "SAMEORIGIN");
+    }
   });
   app.use("/api/*", async (c, next) => {
     const length = Number(c.req.header("content-length") ?? 0);
@@ -243,11 +336,21 @@ export function createApp(s: HttpServices): Hono {
     await next();
   });
   app.get("/healthz", (c) => c.json({ ok: true }));
-  app.get("/mcp", () => {
+  const mcpMarkdown = () => {
     const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
     const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");
     const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing. Set WAYPOINT_MCP_PIN=embedded for debugging.\n\nClaude Code:\n\n\`\`\`sh\nclaude mcp add waypoint --env WAYPOINT_URL=${s.reads.baseUrl} -- npx --prefer-offline -y ${tarballUrl}\n\`\`\`\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["--prefer-offline","-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["--prefer-offline", "-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n\nInstall the Waypoint skill:\n\n\`\`\`sh\nmkdir -p ~/.codex/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.codex/skills/waypoint/SKILL.md\nmkdir -p ~/.claude/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.claude/skills/waypoint/SKILL.md\n\`\`\`\n`;
     return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+  };
+  app.get("/mcp.md", () => mcpMarkdown());
+  // Browsers get the Connect an agent page; agents and curl keep the markdown. The body depends
+  // on Accept, so caches must key on it.
+  app.get("/mcp", async (c) => {
+    const response = (c.req.header("accept") ?? "").includes("text/html")
+      ? await mcpPage(s, c, (await serverBundle)?.hash.slice(0, 7) ?? null)
+      : mcpMarkdown();
+    response.headers.append("Vary", "Accept");
+    return response;
   });
   app.get("/mcp/server.mjs", async (c) => {
     const loaded = await serverBundle;
@@ -652,30 +755,9 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
-  type ShareRow = Pick<
-    ShareLink,
-    "id" | "collection_id" | "revision_id" | "label" | "expires_at" | "revoked_at" | "created_at"
-  >;
-  async function shareView(row: ShareRow): Promise<ShareLink> {
-    const collection = await s.reads.collection(row.collection_id);
-    const target = row.revision_id
-      ? await s.reads.revision(row.revision_id)
-      : await s.reads.latest(row.collection_id);
-    const now = Date.now();
-    const status =
-      row.revoked_at !== null
-        ? "revoked"
-        : row.expires_at !== null && row.expires_at <= now
-          ? "expired"
-          : "active";
-    return {
-      ...row,
-      mode: row.revision_id ? "pinned" : "latest",
-      status,
-      publicly_available:
-        status === "active" && collection?.deleted_at == null && target?.sync_state === "synced",
-    };
-  }
+  const requireSharing = () => {
+    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+  };
   app.post("/api/collections/:id/share-links", async (c) => {
     if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
     const id = c.req.param("id");
@@ -738,8 +820,10 @@ export function createApp(s: HttpServices): Hono {
         const target = row.revision_id
           ? await s.reads.revision(row.revision_id)
           : await s.reads.latest(id);
+        const [view] = await shareViews(s, [row]);
+        if (!view) throw new WaypointError("internal_error", "Share link view missing");
         return {
-          share_link: await shareView(row),
+          share_link: withoutCollection(view),
           url: shareShellUrl(
             s.publicBaseUrl!,
             token,
@@ -754,51 +838,104 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/collections/:id/share-links", async (c) => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    requireSharing();
     const id = c.req.param("id");
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
-    const rows = await s.waypoint.all<ShareRow>(
-      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE collection_id=? ORDER BY created_at DESC",
-      [id],
+    return c.json({ share_links: (await collectionLinks(s, id)).map(withoutCollection) });
+  });
+  // B3: links across collections, newest first, a page at a time, optionally one filter
+  // (active includes activating). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
+  app.get("/api/share-links", async (c) => {
+    requireSharing();
+    const state = c.req.query("state");
+    if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
+      throw new WaypointError("validation_failed", "Invalid state filter");
+    const limitText = c.req.query("limit");
+    const limit = limitText === undefined ? API_LINKS_DEFAULT : Number(limitText);
+    if (!/^\d+$/u.test(limitText ?? "1") || limit < 1 || limit > API_LINKS_MAX)
+      throw new WaypointError(
+        "validation_failed",
+        `limit must be an integer from 1 to ${API_LINKS_MAX}`,
+      );
+    const page = await listLinks(s, { filter: state, cursor: c.req.query("cursor"), limit });
+    return c.json({ share_links: page.views, next_cursor: page.next });
+  });
+  app.get("/api/share-links/:id", async (c) => {
+    requireSharing();
+    const row = await s.waypoint.get<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+      [c.req.param("id")],
     );
-    return c.json({ share_links: await Promise.all(rows.map(shareView)) });
+    const [view] = await shareViews(s, row ? [row] : []);
+    if (!view) throw new WaypointError("not_found", "Share link not found");
+    return c.json({ share_link: withoutCollection(view) });
+  });
+  app.post("/api/share-links/revoke-all", async (c) => {
+    requireSharing();
+    await parseJson(c);
+    if ((c.req.query("state") ?? "active") !== "active")
+      throw new WaypointError("validation_failed", "Only state=active can be revoked in bulk");
+    const active = (await allLinks(s)).filter((view) => inFilter(view, "active"));
+    let revoked = 0;
+    await inSeries([...new Set(active.map((view) => view.collection_id))], async (id) => {
+      revoked += await revokeAll(s, id);
+    });
+    return c.json({ revoked });
+  });
+  app.post("/api/collections/:id/share-links/revoke-all", async (c) => {
+    requireSharing();
+    await parseJson(c);
+    const id = c.req.param("id");
+    if (!(await s.reads.collection(id)))
+      throw new WaypointError("collection_not_found", "Collection not found");
+    return c.json({ revoked: await revokeAll(s, id) });
+  });
+  app.post("/api/share-links/:id/extend", async (c) => {
+    requireSharing();
+    const body = validated(
+      z.object({ expires_at: z.number().int().positive() }),
+      await parseJson(c),
+    );
+    return c.json({
+      share_link: withoutCollection(await extendLink(s, c.req.param("id"), body.expires_at)),
+    });
   });
   app.post("/api/share-links/:id/revoke", async (c) => {
-    if (!s.publicBaseUrl) throw new WaypointError("conflict", "Sharing is not configured");
+    requireSharing();
     await parseJson(c);
     const id = c.req.param("id");
     const found = await s.waypoint.get<ShareRow>(
-      "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
       [id],
     );
     if (!found) throw new WaypointError("not_found", "Share link not found");
-    return c.json(
-      await s.ingest.withCollectionLock(found.collection_id, async () => {
-        const row = await s.waypoint.get<ShareRow>(
-          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
-          [id],
+    await s.ingest.withCollectionLock(found.collection_id, async () => {
+      const row = await s.waypoint.get<ShareRow>(
+        `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+        [id],
+      );
+      if (!row) throw new WaypointError("not_found", "Share link not found");
+      if (row.revoked_at === null) {
+        await s.queue.run(
+          "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
+          [row.collection_id, Date.now()],
         );
-        if (!row) throw new WaypointError("not_found", "Share link not found");
-        if (row.revoked_at === null) {
-          await s.queue.run(
-            "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
-            [row.collection_id, Date.now()],
-          );
-          await s.waypoint.run(
-            "UPDATE share_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
-            [Date.now(), id],
-          );
-          s.ingest.committer.wake();
-          s.syncLoop?.triggerPush();
-        }
-        const current = await s.waypoint.get<ShareRow>(
-          "SELECT id,collection_id,revision_id,label,expires_at,revoked_at,created_at FROM share_links WHERE id=?",
-          [id],
+        await s.waypoint.run(
+          "UPDATE share_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+          [Date.now(), id],
         );
-        return shareView(current!);
-      }),
+        s.ingest.committer.wake();
+        s.syncLoop?.triggerPush();
+      }
+    });
+    const current = await s.waypoint.get<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE id=?`,
+      [id],
     );
+    const [view] = await shareViews(s, current ? [current] : []);
+    if (!view) throw new WaypointError("not_found", "Share link not found");
+    return c.json(withoutCollection(view));
   });
   app.post("/api/collections/:id/purge", async (c) => {
     const id = c.req.param("id");
@@ -866,7 +1003,13 @@ export function createApp(s: HttpServices): Hono {
     if (!(await s.reads.collection(id)))
       throw new WaypointError("collection_not_found", "Collection not found");
     const after = c.req.query("after");
-    if (!after) return c.json(await s.reads.listRevisions(id));
+    // Change counts read every file of every revision, so they're opt-in (`?changes=1`).
+    if (!after)
+      return c.json(
+        await s.reads.listRevisions(id, {
+          changes: ["1", "true"].includes(c.req.query("changes") ?? ""),
+        }),
+      );
     const seconds = Number(c.req.query("wait") ?? 0);
     if (!Number.isFinite(seconds)) throw new WaypointError("validation_failed", "Invalid wait");
     const waitSeconds = Math.max(0, Math.min(seconds, 50));
@@ -893,6 +1036,7 @@ export function createApp(s: HttpServices): Hono {
     c.req.raw.signal.addEventListener("abort", onAbort);
     s.shutdownSignal?.addEventListener("abort", onAbort);
     let counted = false;
+    let watcher: number | undefined;
     try {
       let revisions = await list();
       if (notified && !revisions.length) {
@@ -910,6 +1054,14 @@ export function createApp(s: HttpServices): Hono {
       }
       waiters++;
       counted = true;
+      const header = c.req.header("x-waypoint-client") ?? "";
+      watcher = ++watcherSeq;
+      watchers.set(watcher, {
+        collection_id: id,
+        after,
+        since: Date.now(),
+        client: /^[\w.@+-]{1,60}\/[\w.@+-]{1,60}$/.test(header) ? header : null,
+      });
       const deadline = Date.now() + waitSeconds * 1000;
       while (
         !revisions.length &&
@@ -937,12 +1089,70 @@ export function createApp(s: HttpServices): Hono {
       return c.json({ changed: revisions.length > 0, revisions });
     } finally {
       if (counted) waiters--;
+      if (watcher !== undefined) watchers.delete(watcher);
       revisionEvents.off("revision", onRevision);
       c.req.raw.signal.removeEventListener("abort", onAbort);
       s.shutdownSignal?.removeEventListener("abort", onAbort);
     }
   });
   app.get("/api/revisions/:id", async (c) => c.json(await s.reads.getRevision(c.req.param("id"))));
+  // B1: manifest-level compare; base defaults to the parent.
+  app.get("/api/revisions/:id/compare", async (c) => {
+    const {
+      head,
+      base: baseRevision,
+      compare,
+    } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    return c.json({
+      base: baseRevision ? await revisionSummary(baseRevision.id) : null,
+      head: await revisionSummary(head.id),
+      ...compare,
+    });
+  });
+  // B1: per-file diff. mode=blocks (Markdown) or lines.
+  app.get("/api/revisions/:id/compare/*", async (c) => {
+    const url = new URL(c.req.raw.url);
+    const encoded = url.pathname.split("/compare/").slice(1).join("/compare/");
+    if (/%(?:2f|5c)/i.test(encoded))
+      throw new WaypointError("path_invalid", "Encoded separator in file path");
+    let path: string;
+    try {
+      path = validatePath(decodeURIComponent(encoded));
+    } catch {
+      throw new WaypointError("path_invalid", "Invalid file path");
+    }
+    const mode = c.req.query("mode") === "lines" ? "lines" : "blocks";
+    const { compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    const file = compare.files.find((item) => item.path === path);
+    if (!file) throw new WaypointError("not_found", "File not in either revision");
+    if (c.req.query("format") === "html") {
+      // A folded run of the Changes page, rendered: blocks [from, to) of the block diff.
+      const diff = await fileDiff(file, "blocks");
+      const from = Number(c.req.query("from"));
+      const to = Number(c.req.query("to"));
+      if (
+        diff.truncated ||
+        !Number.isSafeInteger(from) ||
+        !Number.isSafeInteger(to) ||
+        from < 0 ||
+        to <= from ||
+        to - from > FOLD_LOAD_LIMIT ||
+        to > unitCount(diff.ops)
+      )
+        throw new WaypointError("validation_failed", "Invalid block range");
+      const html = await foldFragment(
+        diff,
+        from,
+        to,
+        (sources) => diffWorkers.fragments(sources),
+        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}`,
+      );
+      return c.html(html, 200, { "cache-control": "private, max-age=3600" });
+    }
+    const { ops, ...diff } = await fileDiff(file, mode);
+    void ops;
+    return c.json(diff);
+  });
   async function serve(
     id: string,
     path: string,
@@ -1035,6 +1245,8 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));
+  app.get("/api/facets", async (c) => c.json(await s.reads.facets()));
+  app.get("/api/watchers", (c) => c.json({ watchers: [...watchers.values()] }));
   app.post("/api/queue/:revision_id/retry", async (c) => {
     const id = c.req.param("revision_id");
     const root = await s.queue.get<{ collection_id: string }>(
@@ -1064,6 +1276,20 @@ export function createApp(s: HttpServices): Hono {
         return { retried };
       }),
     );
+  });
+  // B7: lets a Drop confirmation name every revision the drop removes.
+  app.get("/api/queue/:revision_id/descendants", async (c) => {
+    const id = c.req.param("revision_id");
+    const root = await s.queue.get<{ collection_id: string }>(
+      "SELECT collection_id FROM pending_revisions WHERE id=?",
+      [id],
+    );
+    if (!root) throw new WaypointError("not_found", "Queue revision not found");
+    const ids = await descendantsOf(s.queue, id);
+    const numbers = new Map(
+      (await s.reads.revisions(root.collection_id)).map((row) => [row.id, row.display_number]),
+    );
+    return c.json({ ids, display_numbers: ids.map((item) => numbers.get(item) ?? null) });
   });
   app.delete("/api/queue/:revision_id", async (c) => {
     const id = c.req.param("revision_id");
@@ -1105,7 +1331,15 @@ export function createApp(s: HttpServices): Hono {
       }),
     );
   });
-  app.route("/", viewerApp(s));
+  app.route(
+    "/",
+    viewerApp(s, {
+      serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
+      fileDiff,
+      renderFragments: (sources) => diffWorkers.fragments(sources),
+      watchers: () => [...watchers.values()],
+    }),
+  );
   return app;
 }
 async function prunePendingStorage(tx: DbHandle, waypoint: Db): Promise<string[]> {
@@ -1132,7 +1366,11 @@ async function prunePendingStorage(tx: DbHandle, waypoint: Db): Promise<string[]
     "SELECT source_hash,output_hash FROM pending_renditions",
   );
   await inSeries(renditions, async (rendition) => {
-    if (!referenced.has(rendition.source_hash))
+    // Rows queued by `rerender` belong to an already committed source, not to a queued revision.
+    if (
+      !referenced.has(rendition.source_hash) &&
+      !(await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.source_hash]))
+    )
       await tx.run("DELETE FROM pending_renditions WHERE source_hash=?", [rendition.source_hash]);
     else referenced.add(rendition.output_hash);
   });

@@ -6,6 +6,7 @@ COPY apps/writer/package.json apps/writer/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/render/package.json packages/render/package.json
 COPY packages/mcp/package.json packages/mcp/package.json
+COPY packages/ui/package.json packages/ui/package.json
 # The reader's manifest is needed for the frozen lockfile check, but the image
 # builds only the writer and the MCP bundle, so reader dependencies are skipped.
 COPY apps/reader/package.json apps/reader/package.json

@@ -42,6 +42,8 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md).
 
+**After a deploy that bumps `RENDERER_VERSION`**, re-render existing markdown with the step-by-step procedure in [deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade). It stops the deploy runner and the writer, so follow it exactly and restart both at the end.
+
 Things that need care when changing code:
 
 - **Schema changes are additive only** (new tables, columns, indexes; never rename or drop). Turso Sync has bugs with destructive DDL. See [docs/data-model.md](docs/data-model.md#migrations).
@@ -79,6 +81,7 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 ## Developing
 
 - Node 24, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
+- Real-Chromium tests run after `pnpm build`: `pnpm test:browser` (writer viewer) and `pnpm test:browser:reader` (public reader shell). They use Playwright's Chromium (`pnpm exec playwright install --only-shell chromium`), or `CHROME_PATH` if set. CI runs both in its `browser` job.
 - Sync tests need a local Turso sync server: `bash scripts/fetch-tursodb.sh`, then set `TURSODB_BIN` to the extracted `tursodb` binary.
 - Local writer without any cloud: set `WAYPOINT_SYNC=off` (refused when `WAYPOINT_ENV=prod`).
 - Local writer against the **dev** cloud: `set -a; . ~/.config/waypoint/dev.env; set +a; node apps/writer/dist/main.js serve`. `scripts/live-smoke.ts` exercises it end to end and refuses prod.

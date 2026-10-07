@@ -16,7 +16,7 @@ The tailnet is the trust boundary, not the home LAN. The writer is **not reachab
 
 1. **IDs identify; they never authorize** (D4). Collection and revision IDs and public IDs end up in logs, screenshots, and chat. Knowing one never grants public access.
 2. **Stored is not exposed** (D5). Turso and R2 hold *everything*, private content included. Public access exists only through share links.
-3. **Deny by default in public.** The reader answers **404** for anything not explicitly allowed by a valid share link. It never returns 403, so it never confirms that something exists.
+3. **Deny by default in public.** The reader answers **404** for anything not explicitly allowed by a valid share link, with one fixed page that is byte-identical for every reason. It never returns 403, so it never confirms that something exists. The other non-denial URLs are the bare root `/` (a fixed 200 with no data, which has nothing to confirm) and the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`. `/healthz/deep` counts toward the per-IP limiter, since it queries Turso and R2.
 4. **The reader can't write, structurally:**
    - **Metadata:** its Turso token is created `--read-only`; writes return `BLOCKED`.
    - **Blobs:** it reads R2 over the S3 API with an **Object Read only** token scoped to one bucket. It has no R2 binding (D38).
@@ -61,7 +61,8 @@ Content is written by agents, so treat it as **untrusted HTML** wherever someone
 - **In public**, content is sandboxed so a shared document can't act as the reader's origin:
   - Raw content responses carry `Content-Security-Policy: sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms`, **without** `allow-same-origin`, so they run in an opaque origin.
   - The reader shell embeds content in `<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox">`.
-  - The shell itself has a strict CSP and runs no agent-supplied code. Its iframe URL contains a derived capability for only the resolved revision, never the full share token. Scripts in agent HTML can still read and exfiltrate the revision content they are shown, and may disclose that revision capability while it remains valid.
+  - The shell itself has a strict, hash-only CSP and runs no agent-supplied code. Its iframe URL contains a derived capability for only the resolved revision, never the full share token. Scripts in agent HTML can still read and exfiltrate the revision content they are shown, and may disclose that revision capability while it remains valid.
+  - The shell's one script listens for the rendition's `waypoint:location` message. A document (or any page it navigates the frame to) can post anything, so the shell accepts only messages from the frame's own window, and only uses them to highlight a file it already links to and to replace its URL with that link's own href. The shell sends `Cross-Origin-Opener-Policy: same-origin`, so a popup a document opens (allowed to escape the sandbox) has no opener to navigate the shell with.
 - **Markdown renditions** pass raw HTML through (they're agent content), so the same rules apply to them.
 
 ## Writer request safety (tailnet)
@@ -70,6 +71,8 @@ The writer trusts any client on the tailnet, but defends against *websites* atta
 - JSON endpoints require `Content-Type: application/json` (415 otherwise).
 - Mutating requests from another origin are rejected with 403. The check is `Sec-Fetch-Site: cross-site`/`same-site`, or an `Origin` header that doesn't match the writer.
 - Requests without browser headers (MCP, curl) pass.
+- Viewer HTML pages send `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, so another site can't frame them and trick a click on Revoke or Share. `/raw` (framed by the viewer itself) and the JSON API don't.
+- GETs have no side effects but can be triggered cross-site (`<img src=…>`), so costly ones are bounded: diffs and Changes-page Markdown run under time budgets in a worker thread (D47).
 
 ## Code that runs on agent machines
 

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashShareToken, newShareToken, shareShellUrl } from "../../../packages/core/src/index.js";
+import { publicShellCss, publicShellScript } from "../../../packages/ui/src/index.js";
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.js";
+import { deniedPage, rootPage, staticCss } from "../src/pages.js";
 
 const collection = "0123456789ab";
 const firstPub = "bcdefghjkmnp";
@@ -30,7 +32,7 @@ type LinkRow = {
   deleted_at: number | null;
 };
 type RevisionRow = { id: string; public_id: string; head_path: string; created_at: number };
-type FileRow = { path: string; blob_hash: string; mime: string };
+type FileRow = { path: string; blob_hash: string; mime: string; size?: number };
 let link: LinkRow;
 let revisions: RevisionRow[];
 let files: FileRow[];
@@ -62,6 +64,29 @@ async function rawUrl(revision: string, path: string): Promise<string> {
     .slice(0, 22);
   return `${base}/x/shl_aaaaaaaaaaaaaaaaaaaaaaaaaa.${cap}/r/${revision}/${path}`;
 }
+async function sha256(text: string): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
+  );
+  return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
+}
+/** Exact policy for the two static pages (spec §9.2); the hash is the design generator's. */
+const staticPolicy =
+  "default-src 'none'; style-src 'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const staticHeaderNames = [
+  "cache-control",
+  "content-security-policy",
+  "content-type",
+  "cross-origin-opener-policy",
+  "referrer-policy",
+  "x-content-type-options",
+  "x-robots-tag",
+];
+/** Resolves a shell's file links against its URL, as the browser would. */
+const resolveLinks = (html: string, page: string): string[] =>
+  [...html.matchAll(/<a href="([^"]+)" data-p=/g)].map(
+    (m) => new URL(m[1]!.replaceAll("&amp;", "&"), page).pathname,
+  );
 function fixture(body?: ReadableStream<Uint8Array>) {
   const db: ReaderDb = {
     async all<T>(sql: string, args: (string | number)[] = []): Promise<T[]> {
@@ -171,15 +196,13 @@ describe("public reader", () => {
     expect(html).toContain(`/r/${firstPub}/index.md`);
     expect(html).toContain('sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"');
     expect(html).not.toContain("Revision picker");
+    expect(html).toContain('referrerpolicy="no-referrer"');
+    expect(html).toContain("Updated <time");
+    expect(html).not.toContain("Snapshot from");
     expect(shell.headers.get("content-security-policy")).toContain("default-src 'none'");
-    const style = html.match(/<style>(.*?)<\/style>/)?.[1];
+    const style = html.match(/<style>([\s\S]*?)<\/style>/)?.[1];
     if (!style) throw new Error("Shell style missing");
-    const digest = new Uint8Array(
-      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(style)),
-    );
-    expect(shell.headers.get("content-security-policy")).toContain(
-      `'sha256-${btoa(String.fromCharCode(...digest))}'`,
-    );
+    expect(shell.headers.get("content-security-policy")).toContain(await sha256(style));
     revisions.push({
       id: "rev_two",
       public_id: secondPub,
@@ -205,10 +228,12 @@ describe("public reader", () => {
       404,
     );
     const shell = await app.request(shareShellUrl(base, token, collection, firstPub), {}, bindings);
-    expect(await shell.text()).toContain("Snapshot from");
+    const html = await shell.text();
+    expect(html).toContain("Snapshot from <time");
+    expect(html).not.toContain("Updated <time");
     expect((await app.request(await rawUrl(secondPub, "index.md"), {}, bindings)).status).toBe(404);
   });
-  it("uses identical denials for revoked, expired, tombstoned and missing paths", async () => {
+  it("uses identical denials for every reason", async () => {
     const { app, bindings } = fixture();
     const path = await rawUrl(firstPub, "index.md");
     link.revoked_at = 1;
@@ -226,16 +251,186 @@ describe("public reader", () => {
       {},
       bindings,
     );
-    for (const response of [revoked, expired, tombstoned, missing, unknown]) {
+    const wrongCollection = await app.request(
+      shareShellUrl(base, token, "zzzzzzzzzzzz"),
+      {},
+      bindings,
+    );
+    const missingShellPath = await app.request(
+      shareShellUrl(base, token, collection, undefined, "missing.md"),
+      {},
+      bindings,
+    );
+    const others = await Promise.all(
+      ["/index.html", "/s", "/s/", "//", "/assets/1/x.js", "/x/", "/s/wps_short/c/x/"].map(
+        async (url) => app.request(url, {}, bindings),
+      ),
+    );
+    const post = await app.request("/", { method: "POST" }, bindings);
+    const all = [
+      revoked,
+      expired,
+      tombstoned,
+      missing,
+      unknown,
+      wrongCollection,
+      missingShellPath,
+      post,
+      ...others,
+    ];
+    const bodies = await Promise.all(all.map(async (response) => response.text()));
+    expect(bodies).toEqual(all.map(() => deniedPage));
+    for (const response of all) {
       expect(response.status).toBe(404);
-      expect(await response.text()).toBe(
-        "<!doctype html><title>Not found</title><h1>Not found</h1>",
-      );
       expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-      expect(response.headers.get("cache-control")).toBe("private");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("content-security-policy")).toBe(staticPolicy);
       expect([...response.headers]).toEqual([...revoked.headers]);
     }
+    expect([...revoked.headers.keys()].toSorted()).toEqual(staticHeaderNames);
+  });
+  it("serves the bare root only at /, as a 200 with no data", async () => {
+    const { app, bindings } = fixture();
+    for (const method of ["GET", "HEAD"]) {
+      const before = reads.length;
+      const root = await app.request(`${base}/`, { method }, bindings);
+      expect(root.status).toBe(200);
+      expect(Object.fromEntries(root.headers)).toEqual({
+        "cache-control": "public, max-age=3600",
+        "content-security-policy": staticPolicy,
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-robots-tag": "noindex, nofollow",
+      });
+      expect(await root.text()).toBe(method === "GET" ? rootPage : "");
+      expect(reads.length).toBe(before);
+    }
+    expect(limiter).not.toHaveBeenCalled();
+    expect(rootPage).toContain("<title>Waypoint</title>");
+    expect(rootPage).toContain("<h1>This address is for shared Waypoint documents</h1>");
+    expect(deniedPage).toContain("<title>Not available</title>");
+    expect(deniedPage).toContain("<h1>This link isn't available</h1>");
+    // No data, links, inputs, scripts or style attributes; one <style> covered by one hash.
+    for (const page of [rootPage, deniedPage]) {
+      expect(page).not.toMatch(/<(?:a|input|form|button|script|select|textarea|link|img)\b/i);
+      expect(page).not.toMatch(/\sstyle=|\son[a-z]+=/i);
+      expect(page.match(/<style>/g)).toHaveLength(1);
+      expect(page).toContain(`<style>${staticCss}</style>`);
+    }
+    expect(await sha256(staticCss)).toBe("'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='");
+  });
+  it("hashes the shell's only inline style and script in a strict CSP", async () => {
+    const { app, bindings } = fixture();
+    const shell = await app.request(shareShellUrl(base, token, collection), {}, bindings);
+    const html = await shell.text();
+    expect(html.match(/<style>/g)).toHaveLength(1);
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain(`<style>${publicShellCss}</style>`);
+    expect(html).toContain(`<script>${publicShellScript}</script>`);
+    expect(html).not.toMatch(
+      /\sstyle=|\son[a-z]+=|<link\b|<script\s+src|https?:\/\/(?!waypoint\.pingstash\.com)/i,
+    );
+    expect(shell.headers.get("content-security-policy")).toBe(
+      `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    );
+    expect(shell.headers.get("x-frame-options")).toBe("DENY");
+    expect(shell.headers.get("cache-control")).toBe("private");
+    expect(shell.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(shell.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(shell.headers.get("x-content-type-options")).toBe("nosniff");
+    // The listener trusts only the frame's own window and re-checks the payload.
+    expect(publicShellScript).toContain("e.source!==f.contentWindow");
+    expect(publicShellScript).toContain('m.type!=="waypoint:location"');
+  });
+  it("has no revision picker and keeps every link on the served revision", async () => {
+    revisions.push({
+      id: "rev_two",
+      public_id: secondPub,
+      head_path: "index.md",
+      created_at: 2000,
+    });
+    const { app, bindings } = fixture();
+    const latest = await (
+      await app.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    link.revision_id = "rev_one";
+    const { app: pinnedApp } = fixture();
+    const pinned = await (
+      await pinnedApp.request(shareShellUrl(base, token, collection, firstPub), {}, bindings)
+    ).text();
+    for (const html of [latest, pinned]) {
+      const markup = html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "");
+      expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
+      expect(html).not.toContain("rev_");
+    }
+    // Tab links are relative to the shell URL; resolve them as the browser would.
+    const latestLinks = resolveLinks(latest, shareShellUrl(base, token, collection));
+    expect(latestLinks.length).toBeGreaterThan(0);
+    for (const href of latestLinks) {
+      expect(href).not.toContain("/r/");
+      expect(href.startsWith(new URL(shareShellUrl(base, token, collection)).pathname)).toBe(true);
+    }
+    expect(latest).toContain(`/r/${secondPub}/index.md`);
+    expect(latest).not.toContain(firstPub);
+    const pinnedLinks = resolveLinks(pinned, shareShellUrl(base, token, collection, firstPub));
+    expect(pinnedLinks.length).toBeGreaterThan(0);
+    for (const href of pinnedLinks) expect(href).toContain(`/r/${firstPub}/`);
+    expect(pinned).not.toContain(secondPub);
+  });
+  it("shows tabs up to 8 files, a Files tree above, and a download card for binaries", async () => {
+    files = [
+      { path: "z.md", blob_hash: hash, mime: "text/markdown" },
+      { path: "index.md", blob_hash: hash, mime: "text/markdown" },
+      { path: "data/a.bin", blob_hash: hash, mime: "application/octet-stream", size: 2048 },
+    ];
+    const { app, bindings } = fixture();
+    const tabs = await (
+      await app.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    expect(tabs).toContain('<nav class="ptabs2" aria-label="Files">');
+    expect([...tabs.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
+      "index.md",
+      "data/a.bin",
+      "z.md",
+    ]);
+    expect(tabs).toMatch(/<a href="[^"]+\/index\.md" data-p="index\.md" aria-current="page">/);
+    const binary = await (
+      await app.request(
+        shareShellUrl(base, token, collection, undefined, "data/a.bin"),
+        {},
+        bindings,
+      )
+    ).text();
+    expect(binary).not.toContain("<iframe");
+    expect(binary).toContain(
+      "2.0 KB · application/octet-stream · can&#39;t be previewed in the browser",
+    );
+    expect(binary).toMatch(
+      /<a id="doc" class="btn" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,
+    );
+    expect(binary).not.toContain(`${token}/data`);
+    files = Array.from({ length: 9 }, (_, i) => ({
+      path: i ? `docs/part-${i}.md` : "index.md",
+      blob_hash: hash,
+      mime: "text/markdown",
+    }));
+    const tree = await (
+      await app.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    expect(tree).not.toContain('<nav class="ptabs2"');
+    expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
+    expect(tree).toContain('<summary>Files <span class="n">(9)</span>');
+    expect(tree).toContain('<details open><summary dir="auto">docs/</summary>');
+    files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
+    const single = await (
+      await app.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    expect(single).not.toContain('aria-label="Files"');
+    expect(single).toContain("<iframe");
   });
   it("serves renditions, falls back to source, caches by hash and logs no token", async () => {
     const { app, bindings } = fixture();
@@ -295,13 +490,47 @@ describe("public reader", () => {
     expect(
       (await app.request(shareShellUrl(base, newShareToken(), collection), {}, env)).status,
     ).toBe(404);
-    expect((await app.request("/", {}, bindings)).status).toBe(404);
+    expect((await app.request("/", {}, bindings)).status).toBe(200);
+    expect((await app.request("/index.html", {}, bindings)).status).toBe(404);
     expect((await app.request("/unknown", {}, bindings)).status).toBe(404);
     expect(await (await app.request("/healthz", {}, bindings)).text()).toBe("ok");
+    limiter.mockResolvedValue({ success: true });
     const deep = await app.request("/healthz/deep", {}, bindings);
     expect(deep.status).toBe(200);
     expect(await deep.text()).toBe("ok");
     expect(reads).toContain("SELECT 1 FROM collections LIMIT 1");
     expect(await (await app.request("/robots.txt", {}, bindings)).text()).toContain("Disallow: /");
+  });
+  it("counts /healthz/deep toward the per-IP limiter and denies once blocked", async () => {
+    const { app, bindings } = fixture();
+    const ip = { headers: { "cf-connecting-ip": "192.0.2.50" } };
+    const deep = await app.request("/healthz/deep", ip, bindings);
+    expect(await deep.text()).toBe("ok");
+    expect(limiter).toHaveBeenCalledWith({ key: "192.0.2.50" });
+    limiter.mockResolvedValue({ success: false });
+    const before = reads.length;
+    const rejected = await app.request("/healthz/deep", ip, bindings);
+    expect(rejected.status).toBe(404);
+    expect(await rejected.text()).toBe(deniedPage);
+    const calls = limiter.mock.calls.length;
+    const blocked = await app.request("/healthz/deep", ip, bindings);
+    expect(await blocked.text()).toBe(deniedPage);
+    // Blocked: no limiter call, no Turso query; /healthz stays cheap and unlimited.
+    expect(limiter.mock.calls.length).toBe(calls);
+    expect(reads.length).toBe(before);
+    expect(await (await app.request("/healthz", ip, bindings)).text()).toBe("ok");
+    expect(limiter.mock.calls.length).toBe(calls);
+  });
+  it("sets COOP on the shell and keeps the token out of every link", async () => {
+    const { app, bindings } = fixture();
+    const shell = await app.request(
+      shareShellUrl(base, token, collection, undefined, "other.txt"),
+      {},
+      bindings,
+    );
+    expect(shell.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+    const html = await shell.text();
+    for (const m of html.matchAll(/<a [^>]*href="([^"]+)"/g)) expect(m[1]).not.toContain(token);
+    expect(html).toContain('<a href="./index.md" data-p="index.md">');
   });
 });

@@ -11,6 +11,13 @@ import { IngestService } from "./ingest.js";
 import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.js";
 import { ReadModel } from "./read-model.js";
 import { writerRenderer } from "./renderer.js";
+import {
+  formatRerenderSummary,
+  parseRerenderArgs,
+  RERENDER_USAGE,
+  rerender,
+  type RerenderOptions,
+} from "./rerender.js";
 import { restore } from "./restore.js";
 import { SyncLoop } from "./sync-loop.js";
 
@@ -18,15 +25,27 @@ const command = process.argv[2] ?? "serve";
 const restoreMode = process.argv[3];
 if (command === "--help" || command === "help") {
   console.log(
-    "Usage: waypoint-writer serve | restore --from-bucket | restore --merge\nA fresh writer normally bootstraps from the cloud DB; restore rebuilds missing cloud data from the bucket.",
+    `Usage: waypoint-writer serve | restore --from-bucket | restore --merge | rerender …\nA fresh writer normally bootstraps from the cloud DB; restore rebuilds missing cloud data from the bucket.\n${RERENDER_USAGE}\nrerender queues current-version renditions for existing markdown; run it with the server stopped.`,
   );
   process.exit(0);
 }
-if (
+let rerenderOptions: RerenderOptions | undefined;
+if (command === "rerender") {
+  try {
+    rerenderOptions = parseRerenderArgs(process.argv.slice(3), writerRenderer);
+  } catch (error) {
+    console.error(
+      `${error instanceof Error ? error.message : "Invalid arguments"}\n${RERENDER_USAGE}`,
+    );
+    process.exit(2);
+  }
+} else if (
   command !== "serve" &&
   !(command === "restore" && (restoreMode === "--from-bucket" || restoreMode === "--merge"))
 ) {
-  console.error("Usage: waypoint-writer serve | restore --from-bucket | restore --merge");
+  console.error(
+    "Usage: waypoint-writer serve | restore --from-bucket | restore --merge | rerender …",
+  );
   process.exit(2);
 }
 let releaseDirectory: (() => Promise<void>) | undefined;
@@ -54,6 +73,18 @@ try {
   }
   const blobs = new BlobStore(config.dataDir, config.maxBlobBytes);
   await blobs.sweepTemps();
+  if (rerenderOptions) {
+    const bucket = config.sync ? new R2Bucket(config) : undefined;
+    console.log(
+      formatRerenderSummary(
+        await rerender(waypoint, queue, blobs, writerRenderer, rerenderOptions, bucket),
+      ),
+    );
+    await waypoint.close();
+    await queue.close();
+    await releaseDirectory();
+    process.exit(0);
+  }
   const reads = new ReadModel(waypoint, queue, config.baseUrl);
   const ingest = new IngestService(
     waypoint,

@@ -147,7 +147,7 @@ CREATE TABLE schema_migrations (
 ## Invariants
 
 1. **Blob before row.** A `blobs` row exists only once the object is in the bucket. A `revision_files` or `renditions` row is inserted only together with, or after, the `blobs` rows it references. As a result, the cloud DB never references a missing object.
-2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata` (and to `share_links.revoked_at` in phase 2). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
+2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` (phase 2) and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
 3. **Every revision's head path is in its manifest.**
 4. **Paths** in a revision must be:
    - relative, using `/` separators, with no leading `/` and no empty, `.`, or `..` segments

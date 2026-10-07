@@ -11,6 +11,18 @@ export interface ViewerStatus extends StatusResponse {
     collection_public_id: string | null;
   })[];
 }
+/**
+ * Standalone queued renditions: `pending_renditions` rows whose source no queued revision (pending
+ * or failed) references, i.e. the `rerender` backlog. The committer commits or drops each of
+ * these on its own, so this reaches 0; rows attached to a failed revision wait for that revision.
+ */
+const RERENDER_PENDING_SQL =
+  "SELECT COUNT(*) AS n FROM pending_renditions r WHERE NOT EXISTS (SELECT 1 FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE json_extract(f.value,'$.hash')=r.source_hash)";
+
+async function count(db: HttpServices["queue"], sql: string): Promise<number> {
+  return (await db.get<{ n: number }>(sql))?.n ?? 0;
+}
+
 export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
   const rows = await s.queue.all<{
     id: string;
@@ -67,15 +79,16 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
       pending_collections: pendingCollections.length,
       pending_revisions: pending.length,
       failed_revisions: failed.length,
-      pending_blobs: (await s.queue.all("SELECT hash FROM pending_blobs")).length,
-      pending_renditions: (await s.queue.all("SELECT source_hash FROM pending_renditions")).length,
-      pending_snapshots: (await s.queue.all("SELECT collection_id FROM pending_snapshots")).length,
-      pending_r2_deletes: (await s.queue.all("SELECT key FROM pending_r2_deletes")).length,
-      pending_purges: (await s.queue.all("SELECT collection_id FROM pending_purges")).length,
-      unpushed: (await s.queue.all("SELECT revision_id FROM unpushed")).length,
+      pending_blobs: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_blobs"),
+      pending_renditions: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_renditions"),
+      rerender_pending: await count(s.queue, RERENDER_PENDING_SQL),
+      pending_snapshots: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_snapshots"),
+      pending_r2_deletes: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_r2_deletes"),
+      pending_purges: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_purges"),
+      unpushed: await count(s.queue, "SELECT COUNT(*) AS n FROM unpushed"),
     },
     oldest_pending_age_ms: pending.length
-      ? Date.now() - Math.min(...pending.map((row) => row.created_at))
+      ? Date.now() - pending.reduce((oldest, row) => Math.min(oldest, row.created_at), Infinity)
       : null,
     pending_items: pending.map((row) => ({
       id: row.id,
@@ -105,5 +118,15 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     sync_enabled: !(s.ingest.sync instanceof LocalSyncClient),
     account_paused: Boolean(s.committer?.accountError),
     account_error: s.committer?.accountError ?? null,
+    cloud_last_ok_at: cloudLastOkAt(s),
+    cloud_error: s.syncLoop?.lastAttemptFailed ? s.syncLoop.lastError : null,
   };
+}
+
+/** The last successful push or pull, from the sync loop or the sync client's pull time. */
+export function cloudLastOkAt(s: HttpServices): number | null {
+  const times = [s.syncLoop?.lastOkAt, s.syncLoop?.lastPushAt, s.ingest.sync.lastPullAt].filter(
+    (value): value is number => typeof value === "number",
+  );
+  return times.length ? Math.max(...times) : null;
 }

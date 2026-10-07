@@ -29,7 +29,7 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ["packages/core/**", "apps/reader/**"],
+      files: ["packages/core/**", "packages/ui/**", "apps/reader/**"],
       rules: { "import/no-nodejs-modules": "error" },
     },
     {

@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
 import { BlobStore } from "../apps/writer/src/blob-store.js";
@@ -230,8 +231,9 @@ describe("writer share links", () => {
     const page = await app.request(`/c/${collectionPublicId}/`);
     const html = await page.text();
     expect(html).toContain("data-share-dialog");
-    expect(html).toContain('data-action="share"');
+    expect(html).toContain('commandfor="share" command="show-modal"');
     expect(html).toContain("data-share-form");
+    expect(html).toContain("Create a public link");
   });
   it("reader accepts a writer-created link against copied cloud rows", async () => {
     const response = await create();
@@ -349,6 +351,65 @@ describe("writer share links", () => {
       await rm(restoreDir, { recursive: true, force: true });
     }
   });
+  it("merge keeps the later expiry from either side, never-expiring wins, and revoked stays revoked", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const other = await createdId(await create({ expires_at: soon }));
+    const forever = await createdId(await create({}));
+    await worker.drain();
+    const restoreDir = await mkdtemp(join(tmpdir(), "waypoint-share-restore-"));
+    const opened = await openDatabases({
+      environment: "dev",
+      dataDir: restoreDir,
+      baseUrl: "http://localhost:7410",
+      port: 7410,
+      queueGiveUpHours: 72,
+      maxBlobBytes: 1024,
+      sync: false,
+    });
+    const expiry = async (link: string) =>
+      (
+        await opened.waypoint.get<{ expires_at: number | null; revoked_at: number | null }>(
+          "SELECT expires_at,revoked_at FROM share_links WHERE id=?",
+          [link],
+        )
+      )?.expires_at;
+    try {
+      await migrate(opened.waypoint, waypointMigrations);
+      await migrate(opened.queue, queueMigrations);
+      const sync = new SyncLoop(opened.queue, opened.syncClient, Date.now, opened.waypoint);
+      await restore(opened.waypoint, bucket, sync, "from-bucket");
+      expect(await expiry(id)).toBe(soon);
+      // The writer extends one link; the restored copy extends the other further and revokes it.
+      const extended = soon + 86_400_000;
+      expect(
+        (await app.request(`/api/share-links/${id}/extend`, json({ expires_at: extended }))).status,
+      ).toBe(200);
+      await worker.drain();
+      await opened.waypoint.run("UPDATE share_links SET expires_at=?, revoked_at=? WHERE id=?", [
+        soon + 2 * 86_400_000,
+        123,
+        other,
+      ]);
+      await restore(opened.waypoint, bucket, sync, "merge");
+      expect(await expiry(id)).toBe(extended);
+      expect(await expiry(other)).toBe(soon + 2 * 86_400_000);
+      expect(
+        await opened.waypoint.get("SELECT revoked_at FROM share_links WHERE id=?", [other]),
+      ).toEqual({ revoked_at: 123 });
+      // Never expiring (null) is final (D48): it wins on either side.
+      expect(await expiry(forever)).toBeNull();
+      await opened.waypoint.run("UPDATE share_links SET expires_at=NULL WHERE id=?", [id]);
+      await opened.waypoint.run("UPDATE share_links SET expires_at=? WHERE id=?", [soon, forever]);
+      await restore(opened.waypoint, bucket, sync, "merge");
+      expect(await expiry(id)).toBeNull();
+      expect(await expiry(forever)).toBeNull();
+    } finally {
+      await opened.waypoint.close();
+      await opened.queue.close();
+      await rm(restoreDir, { recursive: true, force: true });
+    }
+  });
   it("purge removes local links", async () => {
     expect((await create()).status).toBe(201);
     expect(
@@ -447,5 +508,314 @@ describe("writer share links", () => {
     expect(
       await waypoint.get("SELECT id FROM share_links WHERE collection_id=?", [pendingCollection]),
     ).toBeUndefined();
+  });
+});
+
+async function jsonBody(response: Response): Promise<Record<string, unknown>> {
+  const value: unknown = await response.json();
+  if (!value || typeof value !== "object") throw new Error("Expected an object");
+  return Object.fromEntries(Object.entries(value));
+}
+async function createdId(response: Response): Promise<string> {
+  const link = (await jsonBody(response)).share_link;
+  const id = link && typeof link === "object" && "id" in link ? link.id : undefined;
+  if (typeof id !== "string") throw new Error("No link id");
+  return id;
+}
+async function queryCount(path: string): Promise<number> {
+  // Let background committer passes (e.g. the standalone-rendition step) finish so
+  // their queries aren't attributed to the page being measured.
+  await worker.drain();
+  await worker.drain();
+  const spies = [
+    vi.spyOn(queue, "all"),
+    vi.spyOn(queue, "get"),
+    vi.spyOn(waypoint, "all"),
+    vi.spyOn(waypoint, "get"),
+  ];
+  await app.request(path);
+  const total = spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+  for (const spy of spies) spy.mockRestore();
+  return total;
+}
+describe("share links for the Folio UI (B3, B4)", () => {
+  it("derives state and public_sees from pushes, revocation and expiry", async () => {
+    const loop = new SyncLoop(queue, ingest.sync, Date.now, waypoint);
+    const live = createApp({
+      waypoint,
+      queue,
+      blobs: new BlobStore(directory, 1024 * 1024),
+      reads,
+      ingest,
+      syncLoop: loop,
+      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    });
+    const pinned = await createdId(await create({ revision_id: revisionId, label: "pinned" }));
+    const latest = await createdId(await create({ expires_at: Date.now() + 3_600_000 }));
+    const get = async (id: string) =>
+      (await jsonBody(await live.request(`/api/share-links/${id}`))).share_link;
+    expect(await get(pinned)).toMatchObject({
+      state: "activating",
+      revision_display_number: 1,
+      public_sees: { revision_id: revisionId, display_number: 1 },
+    });
+    loop.lastPushAt = Date.now() + 1;
+    expect(await get(latest)).toMatchObject({
+      state: "active",
+      revision_display_number: null,
+      public_sees: { display_number: 1 },
+    });
+    // A newer, unpushed revision: Latest keeps showing #1 until it syncs.
+    const next = await app.request(
+      `/api/collections/${collectionId}/revisions`,
+      json({ files: [{ path: "two.txt", hash }] }),
+    );
+    expect(next.status).toBe(200);
+    const nextId = (await jsonBody(next)).revision_id;
+    await worker.drain();
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      String(nextId),
+      Date.now(),
+    ]);
+    expect(await get(latest)).toMatchObject({ public_sees: { display_number: 1 } });
+    await queue.run("DELETE FROM unpushed");
+    expect(await get(latest)).toMatchObject({ public_sees: { display_number: 2 } });
+    expect((await live.request(`/api/share-links/${pinned}/revoke`, json({}))).status).toBe(200);
+    expect(await get(pinned)).toMatchObject({ state: "revoking", public_sees: null });
+    await waypoint.run("UPDATE share_links SET revoked_at=? WHERE id=?", [
+      Date.now() - 120_000,
+      pinned,
+    ]);
+    expect(await get(pinned)).toMatchObject({ state: "revoked" });
+    await waypoint.run("UPDATE share_links SET expires_at=? WHERE id=?", [Date.now() - 1, latest]);
+    expect(await get(latest)).toMatchObject({ state: "expired", public_sees: null });
+    expect((await live.request("/api/share-links/shl_missing")).status).toBe(404);
+  });
+  it("lists every link with its collection, filters by state, and revokes in bulk", async () => {
+    const a = await createdId(await create({ label: "a" }));
+    await createdId(await create({ label: "b", revision_id: revisionId }));
+    await app.request(`/api/share-links/${a}/revoke`, json({}));
+    const all = await jsonBody(await app.request("/api/share-links"));
+    expect(Array.isArray(all.share_links) && all.share_links.length).toBe(2);
+    expect(JSON.stringify(all)).toContain(`"public_id":"${collectionPublicId}"`);
+    const active = await jsonBody(await app.request("/api/share-links?state=active"));
+    expect(Array.isArray(active.share_links) && active.share_links.length).toBe(1);
+    expect((await app.request("/api/share-links?state=bogus")).status).toBe(400);
+    expect(all.next_cursor).toBeNull();
+    expect(
+      await jsonBody(
+        await app.request(`/api/collections/${collectionId}/share-links/revoke-all`, json({})),
+      ),
+    ).toEqual({ revoked: 1 });
+    await create({ label: "c" });
+    expect(
+      await jsonBody(await app.request("/api/share-links/revoke-all?state=active", json({}))),
+    ).toEqual({ revoked: 1 });
+    expect(
+      (
+        await app.request(
+          "/api/share-links/revoke-all",
+          json({}, { origin: "https://attacker.example" }),
+        )
+      ).status,
+    ).toBe(403);
+    const page = await (await app.request("/links?state=revoked")).text();
+    expect(page).toContain("Public links");
+    expect(page).toContain("Shared test");
+  });
+  it("extends expiry only later, and never for revoked or open-ended links", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const extend = (expires: number, target = id) =>
+      app.request(`/api/share-links/${target}/extend`, json({ expires_at: expires }));
+    expect((await extend(soon - 1000)).status).toBe(400);
+    const later = await extend(soon + 7 * 86_400_000);
+    expect(later.status).toBe(200);
+    expect(await jsonBody(later)).toMatchObject({
+      share_link: { expires_at: soon + 7 * 86_400_000 },
+    });
+    // Retrying the same extension succeeds and changes nothing (no write, no snapshot).
+    await worker.drain();
+    const writes = [vi.spyOn(waypoint, "run"), vi.spyOn(queue, "run")];
+    const again = await extend(soon + 7 * 86_400_000);
+    const calls = writes.flatMap((spy) => spy.mock.calls.map((call) => call[0]));
+    writes.forEach((spy) => spy.mockRestore());
+    expect(again.status).toBe(200);
+    expect(await jsonBody(again)).toMatchObject({
+      share_link: { expires_at: soon + 7 * 86_400_000 },
+    });
+    expect(calls.filter((sql) => /share_links|pending_snapshots/.test(sql))).toEqual([]);
+    expect((await extend(soon + 7 * 86_400_000 - 1)).status).toBe(400);
+    const forever = await createdId(await create({}));
+    expect((await extend(soon, forever)).status).toBe(409);
+    await app.request(`/api/share-links/${id}/revoke`, json({}));
+    expect((await extend(soon + 30 * 86_400_000)).status).toBe(409);
+  });
+  it("pages GET /api/share-links with limit and cursor", async () => {
+    const ids: string[] = [];
+    for (const label of ["one", "two", "three", "four", "five"])
+      ids.push(await createdId(await create({ label })));
+    await app.request(`/api/share-links/${ids[1]}/revoke`, json({}));
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+      const page = await jsonBody(await app.request(`/api/share-links?limit=2${query}`));
+      const links = z.array(z.object({ id: z.string() })).parse(page.share_links);
+      expect(links.length).toBeLessThanOrEqual(2);
+      seen.push(...links.map((link) => link.id));
+      cursor = z.string().nullable().parse(page.next_cursor);
+      pages++;
+    } while (cursor && pages < 10);
+    // Each link exactly once, across three pages.
+    expect(pages).toBe(3);
+    expect(seen.toSorted()).toEqual(ids.toSorted());
+    const active = await jsonBody(await app.request("/api/share-links?state=active&limit=3"));
+    const activeIds = z.array(z.object({ id: z.string() })).parse(active.share_links);
+    expect(activeIds).toHaveLength(3);
+    expect(activeIds.map((link) => link.id)).not.toContain(ids[1]);
+    expect(active.next_cursor).toEqual(expect.any(String));
+    for (const bad of ["limit=0", "limit=201", "limit=1.5", "limit=x", "cursor=nope"])
+      expect((await app.request(`/api/share-links?${bad}`)).status).toBe(400);
+    expect((await app.request("/api/share-links?limit=200")).status).toBe(200);
+  });
+  it("won't revive a link that expires between the check and the update", async () => {
+    const soon = Date.now() + 3_600_000;
+    const id = await createdId(await create({ expires_at: soon }));
+    const past = Date.now() - 1;
+    // The link passes the expiry check, then expires just before the UPDATE runs.
+    const run = waypoint.run.bind(waypoint);
+    const spy = vi.spyOn(waypoint, "run").mockImplementation(async (sql, args) => {
+      if (sql.startsWith("UPDATE share_links SET expires_at=?"))
+        await run("UPDATE share_links SET expires_at=? WHERE id=?", [past, id]);
+      return run(sql, args);
+    });
+    const response = await app.request(
+      `/api/share-links/${id}/extend`,
+      json({ expires_at: soon + 86_400_000 }),
+    );
+    spy.mockRestore();
+    expect(response.status).toBe(409);
+    expect(await jsonBody(response)).toMatchObject({
+      error: { code: "conflict", message: "Share link has expired" },
+    });
+    expect(await waypoint.get("SELECT expires_at FROM share_links WHERE id=?", [id])).toEqual({
+      expires_at: past,
+    });
+  });
+  it("summarizes live links on search results and renders the Links tab, chip and status segment", async () => {
+    await create({ label: "Design review — Sam" });
+    await create({ revision_id: revisionId });
+    const search = await reads.searchCollections({});
+    expect(search.collections[0]?.share).toEqual({ active: 2, follows_latest: true });
+    const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
+    expect(html).toContain('class="chip public hide-sm"');
+    expect(html).toContain("follows latest");
+    expect(html).toContain("Revoke all 2…");
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toMatch(/id="tab-links"[^>]*aria-selected="true"/);
+    const recent = await (await app.request("/")).text();
+    expect(recent).toContain("Public · follows latest");
+    expect(recent).toContain("Public now");
+    const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
+    const previewHtml = await preview.text();
+    expect(previewHtml).toContain("Read-only · shared with you");
+    expect(previewHtml).toContain("data-preview-banner");
+    expect(previewHtml).toContain("Preview: this is what the public sees");
+    // The banner's own <style> has a dark variant, and the writer's CSP doesn't block it.
+    expect(previewHtml).toMatch(/<style>[^<]*\.wp-preview-banner[^<]*prefers-color-scheme:dark/);
+    expect(preview.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
+    expect(previewHtml).toContain(
+      'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
+    );
+    expect(previewHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
+  });
+  it("previews what the public sees, including files only the public revision has", async () => {
+    // #1 (synced) has index.txt; #2 replaces it with two.txt and hasn't synced.
+    const next = await app.request(
+      `/api/collections/${collectionId}/revisions`,
+      json({ mode: "replace", head_path: "two.txt", files: [{ path: "two.txt", hash }] }),
+    );
+    expect(next.status).toBe(200);
+    const nextId = String((await jsonBody(next)).revision_id);
+    await worker.drain();
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      nextId,
+      Date.now(),
+    ]);
+    const nextPub = (
+      await waypoint.get<{ public_id: string }>("SELECT public_id FROM revisions WHERE id=?", [
+        nextId,
+      ])
+    )?.public_id;
+    const only = await app.request(`/c/${collectionPublicId}/index.txt?as=public`);
+    expect(only.status).toBe(200);
+    const onlyHtml = await only.text();
+    expect(onlyHtml).toContain("Read-only · shared with you");
+    expect(onlyHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
+    expect(onlyHtml).not.toContain("two.txt");
+    // A pinned preview of the unsynced revision explains instead of showing it.
+    const pinned = await app.request(`/c/${collectionPublicId}/r/${nextPub}/?as=public`);
+    expect(pinned.status).toBe(200);
+    const pinnedHtml = await pinned.text();
+    expect(pinnedHtml).toContain("#2 isn&#39;t public yet.");
+    expect(pinnedHtml).not.toContain(`/raw/r/${nextPub}/`);
+    // Nothing synced at all: no revision is presented as public.
+    await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
+      revisionId,
+      Date.now(),
+    ]);
+    const none = await app.request(`/c/${collectionPublicId}/?as=public`);
+    expect(none.status).toBe(200);
+    const noneHtml = await none.text();
+    expect(noneHtml).toContain("Nothing is public yet.");
+    expect(noneHtml).toContain('data-preview="not-public"');
+    expect(noneHtml).not.toContain("/raw/r/");
+    expect(noneHtml).not.toContain("Read-only · shared with you");
+  });
+  it("keeps query counts constant as links grow on the shell, Recent and /links", async () => {
+    await create({ label: "first" });
+    // Warm the change-count cache, so both measurements are of a warm shell.
+    await app.request(`/c/${collectionPublicId}/`);
+    const before = [
+      await queryCount(`/c/${collectionPublicId}/`),
+      await queryCount("/"),
+      await queryCount("/links"),
+    ];
+    for (let i = 0; i < 20; i++) await create({ label: `link ${i}` });
+    const after = [
+      await queryCount(`/c/${collectionPublicId}/`),
+      await queryCount("/"),
+      await queryCount("/links"),
+    ];
+    expect(after).toEqual(before);
+    expect(after[0]).toBeLessThan(30);
+    expect(after[1]).toBeLessThan(25);
+  });
+  it("keeps Recent and /links query counts constant as shared collections grow", async () => {
+    const shared = async (title: string) => {
+      const response = await app.request(
+        "/api/collections",
+        json({ title, files: [{ path: "index.txt", hash }] }),
+      );
+      const id = String((await jsonBody(response)).collection_id);
+      await worker.drain();
+      for (const label of ["a", "b"])
+        expect(
+          (await app.request(`/api/collections/${id}/share-links`, json({ label }))).status,
+        ).toBe(201);
+    };
+    await create({ label: "first" });
+    await shared("Second");
+    const before = [await queryCount("/"), await queryCount("/links")];
+    for (let i = 0; i < 8; i++) await shared(`Shared ${i}`);
+    const after = [await queryCount("/"), await queryCount("/links")];
+    expect(after).toEqual(before);
+    expect(after[0]).toBeLessThan(25);
+    expect(after[1]).toBeLessThan(25);
+    const links = await (await app.request("/links")).text();
+    expect(links).toContain("Shared 7");
+    expect(links).toContain("Second");
   });
 });

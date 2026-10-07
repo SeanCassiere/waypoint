@@ -7,6 +7,10 @@ Conventions:
 - Responses include URLs.
 - `resolve_url` turns a pasted URL back into IDs.
 
+## Viewer routes
+
+`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell: the newest synced revision for a latest URL, or the pinned one; when that hasn't synced, the owner gets a "not public yet" explanation instead), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]` (each file card shows up to 300 blocks or 1,500 lines, and the page up to 600 blocks or 3,000 lines; `?file=<path>&from=<n>` pages through one file, and `&folds=open` inlines short unchanged runs for browsers without script), `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links` (50 per page, newest first; `?state=active|expired|revoked|inactive&after=<cursor>`), `/trash`, `/status` (each list shows 50; `?failed=<n>` and `?pending=<n>` page through them, and `/api/status` has them all), and `/mcp` (HTML for browsers; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
+
 ## Request safety
 
 Part of the [trust model](trust-model.md).
@@ -28,7 +32,7 @@ Read responses use the types exported by `@waypoint/core` (`api.ts`). They conta
 - `RevisionDetail`: a revision summary plus `files`, an array of `{ path, hash, mime, size, url }`. Each file URL is pinned to that revision's raw route.
 - `GET /api/collections` returns `{ collections: CollectionSummary[] }`; `GET /api/collections/:id` returns `CollectionDetail`; `GET /api/collections/:id/revisions` returns `{ revisions: RevisionSummary[] }`; `GET /api/revisions/:id` returns `RevisionDetail`.
 - `POST /api/resolve` returns `{ collection_id, revision_id?, path? }`.
-- `GET /api/status` returns `queue` counts, `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, and `sync_verified`. Timestamps are Unix milliseconds or `null`.
+- `GET /api/status` returns `queue` counts (`rerender_pending` counts queued renditions no queued revision references, the `rerender` backlog), `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, and `sync_verified`. Timestamps are Unix milliseconds or `null`.
 - `PATCH /api/collections/:id`, `DELETE /api/collections/:id`, and `POST /api/collections/:id/undelete` return `CollectionDetail`.
 - `POST /api/collections/:id/purge` returns `{ purged: true }` for a pending collection or `{ queued: true }` for a committed one, with status 202.
 - `POST /api/queue/:revision_id/retry` returns `{ retried: string[] }`; `DELETE /api/queue/:revision_id` returns `{ dropped: string[] }`.
@@ -136,7 +140,7 @@ type SourceDir = {
 |---|---|---|
 | `create_collection` | `title`, `files?`, `source_dir?`, `head_path?`, `message?`, `metadata?` | `WriteResult` |
 | `add_revision` | `collection` (ID, public ID, or URL; `collection_id` alias), `files?`, `source_dir?`, `remove?: string[]`, `head_path?`, `message?`, `metadata?`, `mode?: "merge" \| "replace"` (default `merge`), `parent_revision_id?` (default: latest) | `WriteResult` |
-| `search_collections` | `query?`, `metadata?`, `updated_after?`, `sort?: "updated" \| "created"` (default `updated`), `include_deleted?`, `limit?` (default 20, max 100), `cursor?` | `{ collections: CollectionSearchResult[], next_cursor }`. See [Finding and handing off collections](#finding-and-handing-off-collections). |
+| `search_collections` | `query?`, `metadata?`, `updated_after?`, `sort?: "updated" \| "created"` (default `updated`), `include_deleted?`, `limit?` (default 20, max 100), `cursor?` | `{ collections, next_cursor }`, compact (one-line JSON): each collection's `id`, `title`, `metadata`, `updated_at` (ISO), `revision_count`, `latest_url`, `deleted`/`match` when set, and `latest_revision: { id, display_number, message, sync_state, head_path, file_count }`. The HTTP API's queue, share and change-count fields are left out. See [Finding and handing off collections](#finding-and-handing-off-collections). |
 | `get_collection` | `collection` (a `col_` ID, public ID, or Waypoint URL; `collection_id` is accepted as an alias), `revision_id?`, `include_head?` | collection; the selected revision (default latest) with its manifest, URLs, and sync state. With `include_head`, also the head document's text. |
 | `list_revisions` | `collection` (ID, public ID, or URL; `collection_id` alias) | revisions with display number, message, parent, and sync state |
 | `wait_for_revision` | `collection` (ID, public ID, or URL; `collection_id` alias), `after_revision_id`, `timeout_seconds?` (default 30, max 50) | `{ changed, revisions: RevisionSummary[] }`: revisions newer than `after_revision_id`, returned as soon as one appears |
@@ -161,18 +165,42 @@ One agent can build up a collection (research, a plan), and another agent, possi
 - **`updated_after`** (ISO timestamp or Unix ms) returns only collections with a revision newer than this. Use it to look for new work since you last checked.
 - Results are sorted by `updated_at` (the newest revision's time) by default, newest first. Pass `cursor` (from `next_cursor`) to page. Paging is a snapshot as of the first page: later pages show values as of that snapshot, and collections created mid-scan are omitted. Cursors expire after 10 minutes or if the writer restarts; start a new search then. Revision timestamps are stamped inside the queue transaction; client-minted IDs may be earlier, and a small interval remains between the timestamp and commit.
 
+Each `search_collections` result (one-line JSON):
+
+```ts
+type SearchCollectionsToolResult = {
+  collections: {
+    id: string; title: string
+    metadata: Record<string, unknown>
+    updated_at: string                          // ISO; the newest revision's time
+    revision_count: number
+    latest_url: string
+    deleted?: true                              // only when soft-deleted
+    match?: "id" | "title" | "metadata"         // why it matched; omitted when no query
+    latest_revision: { id: string; display_number: number; message: string | null
+                       sync_state: SyncState; head_path: string; file_count: number } | null
+  }[]
+  next_cursor: string | null
+}
+```
+
+`GET /api/collections` returns the fuller `CollectionSearchResult` from `@waypoint/core` (`api.ts`), for the viewer:
+
 ```ts
 type CollectionSearchResult = {
   id: string; public_id: string; title: string
   metadata: Record<string, unknown>
-  created_at: number; updated_at: number      // updated_at = newest revision's time
+  created_at: number; updated_at: number      // Unix ms; updated_at = newest revision's time
   deleted: boolean
   revision_count: number
   latest_revision: { id: string; display_number: number; message: string | null
                      created_at: number; sync_state: SyncState
-                     head_path: string; file_count: number } | null
+                     head_path: string; file_count: number
+                     changes?: RevisionChanges | null; source_host?: string | null } | null
   latest_url: string
-  match: "id" | "title" | "metadata" | null   // why it matched; null when no query
+  match: "id" | "title" | "metadata" | null   // null when no query
+  queue?: { pending: number; failed: number } // uncommitted revisions
+  share?: { active: number; follows_latest: boolean } | null  // live public links
 }
 ```
 
@@ -197,17 +225,24 @@ Everything is under `/api`, with JSON in and out unless noted otherwise.
 |---|---|
 | `POST /api/collections` | Create a collection and its first revision. Body: `{ collection_id?, revision_id?, title, head_path?, message?, metadata?, files: [{ path, hash, mime? }] }`. Every hash must already be present. Returns `WriteResult`. |
 | `POST /api/collections/:id/revisions` | Add a revision. Body: `{ revision_id?, parent_revision_id?, mode?, head_path?, message?, metadata?, files?: [{ path, hash, mime? }], remove?: string[] }`. Returns `WriteResult`. |
-| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }` |
+| `GET /api/collections` | Search. Query params: `query`, `metadata` (JSON object, URL-encoded), `updated_after`, `sort`, `limit`, `cursor`, `include_deleted`. Returns `{ collections: CollectionSearchResult[], next_cursor }`. Each result's `latest_revision` also carries `changes` and `source_host`, and `queue: { pending, failed }` counts its uncommitted revisions. `share: { active, follows_latest } \| null` summarizes live public links. |
 | `GET /api/collections/:id` | Collection + latest revision summary. `:id` may be a `col_` ID or a public ID. `?include_head=1` adds the head document's text. |
 | `PATCH /api/collections/:id` | Edit `title` and/or `metadata` |
 | `DELETE /api/collections/:id` | Soft delete |
 | `POST /api/collections/:id/undelete` | Undo soft delete |
 | `POST /api/collections/:id/purge` `{ confirm: "<collection id>" }` | Queue a hard purge; returns immediately |
 | `POST /api/collections/:id/share-links` `{ revision_id?, label?, expires_at? }` | Create a link. Omit `revision_id` to follow latest. The token and URL appear only in this 201 response. `expires_at` is a future Unix millisecond timestamp. Requires `WAYPOINT_PUBLIC_BASE_URL`; otherwise 409 `conflict`. |
-| `GET /api/collections/:id/share-links` | List links without tokens or hashes. |
+| `GET /api/collections/:id/share-links` | List links without tokens or hashes. Each link also carries `state` (`activating` until the writer pushes it, `active`, `expired`, `revoking` until a revocation is pushed and about 60 s have passed, `revoked`), `revision_display_number` (pinned links), and `public_sees: { revision_id, display_number } \| null` (what the reader serves now: the pinned revision once synced, or the newest synced revision). |
+| `POST /api/collections/:id/share-links/revoke-all` `{}` | Revoke every unrevoked link of the collection (allowed while it's in Trash). Returns `{ revoked }`. |
+| `GET /api/share-links?state=active\|expired\|revoked&limit=&cursor=` | Links across collections, newest first, each with `collection: { id, public_id, title, deleted }`. Returns `{ share_links, next_cursor }`: `limit` defaults to 50 (at most 200), and `cursor` takes the previous `next_cursor` (null on the last page). `active` includes `activating`; `revoked` includes `revoking`. |
+| `GET /api/share-links/:id` | `{ share_link }`, for activation polling. |
+| `POST /api/share-links/revoke-all?state=active` `{}` | Revoke every active link. Returns `{ revoked }`. |
+| `POST /api/share-links/:id/extend` `{ expires_at }` | Move an active, expiring link's expiry later (never earlier; 409 for revoked, expired or never-expiring links). Queues a snapshot rewrite like revocation. Repeating the current `expires_at` succeeds with no change, so retries are safe. |
 | `POST /api/share-links/:id/revoke` `{}` | Idempotently revoke a link; preserves its first `revoked_at`. |
-| `GET /api/collections/:id/revisions` | List revisions. With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones. |
+| `GET /api/collections/:id/revisions` | List revisions. With `?changes=1`, each summary also includes `changes: { added, modified, removed }` against its parent (file counts; a root revision counts every file as added). They're opt-in because computing them reads every file of every revision; the MCP tool doesn't ask for them. With `?after=<rev_id>&wait=<seconds>` (max 50), long-polls until a newer revision exists, then returns only newer ones (without `changes`). |
 | `GET /api/revisions/:id` | Revision + full manifest |
+| `GET /api/revisions/:id/compare?base=<rev_id>` | Manifest compare against `base` (default: the parent). Returns `{ base, head, head_path_changed, counts: { added, removed, modified, unchanged }, files: [{ path, status, mime, base, head, text }] }`; files come head first, then by path. |
+| `GET /api/revisions/:id/compare/*path?base=&mode=blocks\|lines` | One file's diff. `blocks` (Markdown) splits blank-line blocks (a fence is one block; list items and table rows are separate), runs an LCS over blocks, pairs similar delete+insert runs into `replace`, and word-diffs each pair. `lines` is a unified line diff with word highlights. Returns `{ path, status, kind: "text"\|"image"\|"binary", truncated, truncated_reason?, hunks, folded_after, lines? }`. `truncated: true` comes with `truncated_reason`: `size` (a side over 1 MB), `lines` (over 20,000 lines in `lines` mode), `blocks` (over 5,000 blocks), or `complex` (the diff ran out of its edit-length or 1 s time budget). Word highlights are skipped for blocks or lines over 16 KB and once a file's word budget is spent; more than 250,000 removed × added block pairs skip similarity pairing. Inputs over 32 KB are diffed in a worker thread that is stopped after 4 s. Results are cached in memory by content hash (LRU, about 32 MB). With `format=html&from=<i>&to=<j>` (at most 200 blocks), returns the rendered HTML of blocks `[i, j)` of the `blocks` diff instead: what an opened fold on the Changes page loads, since folded unchanged text isn't sent with the page. Rendered Changes HTML is cached too (LRU, about 48 MB). |
 | `GET /api/revisions/:id/files/*path` | Raw file content. Markdown returns its rendition; add `?source` for the original. |
 | `POST /api/resolve` `{ url }` | URL → IDs |
 
@@ -228,8 +263,11 @@ curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
 ### Queue & status
 | Method & path | Purpose |
 |---|---|
-| `GET /api/status` | Same data as the `waypoint_status` tool |
+| `GET /api/watchers` | `{ watchers: [{ collection_id, after, since, client }] }`: agents long-polling `wait_for_revision` right now (in memory, cleared on restart). `client` comes from the `X-Waypoint-Client: <agent>/<host>` header the MCP server bundle sends. |
+| `GET /api/facets` | `{ projects, tags, hosts: [{ value, count, last_written_at }] }` from collection and revision metadata; cached for 30 s. |
+| `GET /api/status` | Same data as the `waypoint_status` tool, plus `cloud_last_ok_at` (last successful push or pull) and `cloud_error` (the sync loop's error while its latest attempt is failing). The viewer shows **Offline** when the latest attempt failed and the last success is more than 2 minutes old. |
 | `POST /api/queue/:revision_id/retry` | Re-queue a failed revision and its failed descendants |
+| `GET /api/queue/:revision_id/descendants` | `{ ids, display_numbers }`: the revisions a drop would remove (the revision itself first), so a confirmation can name them |
 | `DELETE /api/queue/:revision_id` | Drop a pending or failed revision and its descendants, and queue deletion of their DR manifests |
 
 ### Errors

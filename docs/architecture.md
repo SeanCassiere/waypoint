@@ -33,11 +33,30 @@
 - Runs in Docker on agent-1 behind its own Tailscale sidecar node, reachable at `https://waypoint.tail7aca06.ts.net`. The host's Tailscale setup is untouched (see [infrastructure.md](infrastructure.md)).
 - Serves three things:
   - the **HTTP API** for writes and reads
-  - the **viewer**: collection list, collection view with file sidebar and revision picker, and a Trash view
+  - the **viewer** (the "Folio" design): Recent (collection list and search), the collection view (file sidebar, document frame, History and Links panels, revision stepping), per-revision Changes and image Gallery views, and the Links, Trash, Status and MCP setup pages. See the viewer routes in [api-and-mcp.md](api-and-mcp.md).
   - **raw content**: files and renditions
 - Runs a single **committer** worker, which moves queued writes into durable cloud state.
-- Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead.
+- Owns its data directory exclusively. Turso requires one process per database file. The MCP server never opens the DB; it calls the HTTP API instead. See [Data-directory lock](#data-directory-lock).
+- Reuses prepared statements. See [Prepared statements and native memory](#prepared-statements-and-native-memory).
+- Compresses text responses (viewer HTML, CSS, JS, JSON, text files and renditions over 1 KB) with Brotli, or gzip for clients without it. Images and other binaries, range responses and the MCP downloads under `/mcp/` are sent as they are. A compressed response's ETag is weak (`W/"…"`), which revalidation accepts, and every candidate carries `Vary: Accept-Encoding`. Compressed bodies of immutable responses are cached (about 16 MB).
 - Multiple writers are possible. Each has its own data directory, and they converge through the cloud DB.
+
+#### Data-directory lock
+
+`serve`, `restore` and `rerender` each take the data-directory lock before opening a database, so only one of them runs at a time, even from different containers that bind-mount the same directory.
+
+- The lock is an OS-level POSIX record lock on `writer-lock.db`, held by Turso for as long as the process keeps that file open. The kernel drops it when the process exits, however it exits, so a crashed writer never leaves a stale lock to clean up, and nothing ever deletes the lock file.
+- Process IDs aren't used for liveness. Containers have their own PID namespaces, so a PID check from another container can't see the owner. (Before this change, a second container could delete a live writer's `writer.lock`; only Turso's own lock on `waypoint.db` stopped it.)
+- After taking the lock, the owner writes `writer-lock.json` with its PID, hostname (the container ID in Docker), command and start time. A process that fails to get the lock reports that owner in its error. Only the owner removes the file, while it still holds the lock.
+- A leftover `writer.lock` from older versions is ignored.
+
+#### Prepared statements and native memory
+
+The Turso engine (`@tursodatabase/database` 0.8.2) leaks native memory for every statement it prepares: about 12.5 KB when the statement is never closed and about 2.5 KB even when it's closed. Preparing a statement per query, as the writer did until October 2026, grew RSS by 1.9 GB per 150,000 reads.
+
+The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keyed by SQL text (256 per connection) and reuses them. Measured on agent-1 with 200,000 reads of one statement: RSS grows about 0.16 KB per query (32 MB in total, flattening as the run goes on), and each query takes about 4 µs instead of about 30 µs. Each distinct SQL string still costs one prepare, so evictions (SQL with variable `IN (…)` lists) leak about 2.5 KB each.
+
+Running a statement prepared before a schema change aborts the process inside the engine. The cache is cleared after any statement or `exec` containing `CREATE`, `ALTER` or `DROP`, and after every pull that changed the database. A pull runs outside the connection chain, so a statement queued between the end of the pull and the reset could still run against a schema the pull changed. Only this writer's own migrations change the cloud schema, and they run at startup before anything is served, so that window isn't reachable in practice. The deploy runbook covers [memory checks](../deploy/README.md#memory).
 
 ### MCP server (phase 1)
 - A small local **stdio** process on each machine where agents run, started with `npx` and configured with `WAYPOINT_URL`.
@@ -63,6 +82,9 @@ packages/
                    manifest merge, URL routing, Hono route handlers written against
                    Storage / Repo interfaces. Web APIs only (fetch, Web Crypto, Web Streams).
   render/          markdown → HTML renderer (runs on the writer only)
+  ui/              runtime-agnostic UI shared by the writer viewer and the reader:
+                   design tokens, HTML escaping, the public shell, and the frame
+                   location listener. Web APIs only, like core.
   mcp/             stdio MCP server (published for `npx`)
 apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,
@@ -71,7 +93,7 @@ apps/
                    Cache API, Analytics Engine (phase 2)
 ```
 
-- `core` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
+- `core` and `ui` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
 - The reader's build fails if anything Node-only leaks in. A separate tsconfig and the package `exports` conditions enforce this.
 - Proposed tooling: a pnpm workspace with TypeScript, Hono on both runtimes, the MCP TypeScript SDK, `typeid-js`, and `@aws-sdk/client-s3` for R2.
 
@@ -112,7 +134,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 
 ## Renditions
 
-- **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request.
+- **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request. After a renderer version bump, `waypoint-writer rerender` gives existing markdown a rendition at the new version (see [Re-rendering](#re-rendering-after-a-version-bump)).
 - **Self-contained.** CSS is inlined, and syntax highlighting is done at render time, also inlined. As a result a rendition displays correctly with no internet access on the tailnet, and the reader only has to stream it.
 - **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`. Both the writer and the reader serve that path as static files, with no token.
 - **No CDNs.** Renditions never reference external CDNs.
@@ -122,4 +144,32 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
   - Rendering runs in a worker thread with a fixed stack size, so it never blocks the writer's event loop.
 - **Version policy.** Any change to renderer dependencies, CSS, language set, template, or options bumps `RENDERER_VERSION`. A golden-output hash test enforces this.
 - **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
+- **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
+
+### The reading template (renderer version 2, "Folio")
+
+The template follows the Folio design spec (section 8). The CSS is inlined in every rendition.
+- **Typography:** the system sans stack at 17px/1.65 (16.5px under 600px) with a 68ch measure, warm paper and ink colours matching the viewer, light and dark via `prefers-color-scheme`. No webfonts.
+- **Headings** keep their deterministic slug `id`s and get a hover anchor: `<a class="anchor" href="#id" aria-hidden="true" tabindex="-1">#</a>` as the first child. The rendition `<title>` and the contents block use the heading text without it.
+- **Contents:** when a document has 4 or more `h2`s (excluding the footnotes label), a `<details class="toc" open>` "Contents" list of them goes after the first `h1` (or after the front matter when there is no `h1`). The frame script collapses it when the frame is up to 600px wide, checked after layout (an iframe starts at its default 300px before the shell sizes it) and again whenever the width crosses 600px, until the reader toggles it; without JS it stays open.
+- **GitHub alerts:** a Markdown blockquote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` (any case), with content after it, becomes `<div class="markdown-alert markdown-alert-<kind>">` with a `p.markdown-alert-title`. Blockquotes written as raw HTML are left alone.
+- **Tables** are wrapped in `<div class="table-wrap" tabindex="0" role="region" aria-label="Table">`, which scrolls horizontally with CSS-only scroll shadows. On screens 900px and wider it is centred and grows as wide as its table needs: at least the text measure, at most `min(100vw − 64px, 1120px)`. Only the outermost table of a nested set is wrapped.
+- **Direction:** headings, paragraphs, list items, table cells, blockquotes, `dt`/`dd`, figure captions and contents entries carry `dir="auto"`, so right-to-left documents read right to left (an explicit `dir` in raw HTML wins).
+- **Code blocks** keep Shiki's dual-theme highlighting; fenced blocks with a simple language label get `data-lang`, shown as a small label.
+- **Images** alone in a paragraph (optionally inside a link) become `<figure class="image">`, centred with a hairline border. Inline images stay inline.
+- **Frame reporter.** One inline script (about 490 bytes with the contents-block check, identical in every rendition) tells the embedding shell which document is showing. The public reader needs it because its sandboxed iframe has an opaque origin the shell cannot read. On load and on `hashchange` it calls `parent.postMessage({ type: "waypoint:location", href: location.pathname + location.hash }, "*")`, and does nothing when the rendition is the top-level page. The payload is only the path and fragment: no origin, query string, referrer, cookies, or document content. The path is the frame's own URL, which the shell set and already knows; on the reader it carries the revision capability, never the share token, and the target is `"*"` only because the rendition cannot know its parent's origin. Shells must check `event.source === frame.contentWindow` and ignore anything else. On the writer it is redundant with the same-origin URL sync, and harmless.
+- **Print:** no measure limit, no anchors or contents block, and tables and code avoid page breaks.
+
+Fallback documents (oversized, too deeply nested, or failed renders) use the same template and script.
+
+### Re-rendering after a version bump
+
+`waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>]` renders current-version renditions for markdown blobs that lack one. It also accepts `--renderer markdown --version <n>` and refuses a version other than the one it was built with. Operating it: [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
+- **Scope:** the markdown files of committed revisions and of pending (not failed) revisions, in all collections or one (by ID or public ID), including trashed collections, excluding collections being purged. Each distinct source blob is rendered once.
+- **Queue path.** Outputs go into the local blob store with `pending_blobs` and `pending_renditions` rows, exactly as at ingest. The committer then commits each queued rendition whose source blob is committed: it uploads the output, inserts its `blobs` and `renditions` rows (blob before row), clears the queue rows, and pushes. A rendition whose source is still only in a pending revision commits with that revision. See [write-path-and-sync.md](write-path-and-sync.md#other-queued-work).
+- **Missing sources.** A writer bootstrapped from the cloud fetches blobs lazily, so `rerender` downloads a source that is missing locally from the bucket, like the viewer does.
+- **Idempotent and resumable.** Sources that already have a current-version rendition, committed or queued, are skipped. `--limit` caps the renditions queued per run (missing and failed sources don't count toward it); running again continues. The JSON summary reports `sources`, `current`, `queued`, `remaining`, and the `missing` and `failed` source hashes. Plain `missing: X` and `failed: Y` lines follow, then a last line `remaining: N`. `remaining` excludes missing and failed sources, which another run won't fix, so a loop that repeats while it is above 0 ends. `/api/status` reports the standalone backlog as `queue.rerender_pending`, which, unlike `pending_renditions`, leaves out renditions waiting on a queued (pending or failed) revision.
+- **Batched commits.** The committer commits at most 50 queued renditions per pass, then commits any new revisions before the next 50, so a large backlog never delays agents' writes. Dropping or purging a queued revision keeps rerender rows, whose source is already committed.
+- **Runs with the server stopped.** It takes the data-directory lock like `serve` and `restore`, so it refuses to run while the writer is up. The writer's committer uploads the queued work on its next start.
+- **Not in DR manifests.** A revision's manifest is written once, at commit, so renditions added later are not in it. A restore from the bucket brings back the renditions recorded at ingest; run `rerender` again afterwards.

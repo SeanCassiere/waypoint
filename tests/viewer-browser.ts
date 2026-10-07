@@ -39,6 +39,7 @@ const child = spawn(process.execPath, ["apps/writer/dist/main.js"], {
     WAYPOINT_SYNC: "off",
     WAYPOINT_DATA_DIR: dir,
     WAYPOINT_PORT: String(port),
+    WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -93,26 +94,62 @@ try {
   const latest = new URL(first.latest_url).pathname;
   const pinned = new URL(first.url).pathname;
   const secondPinned = new URL(second.url).pathname;
+  // Playwright's own Chromium (`pnpm exec playwright install chromium`), or CHROME_PATH.
+  const executablePath = process.env.CHROME_PATH;
   browser = await chromium.launch({
-    executablePath: "/usr/bin/google-chrome",
+    ...(executablePath ? { executablePath } : {}),
     headless: true,
     args: ["--no-sandbox"],
   });
-  const page = await browser.newPage();
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
   const rawRequests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/raw/r/")) rawRequests.push(request.url());
   });
   await page.goto(`${base}${latest}`);
+  // Landmarks and the skip link (spec §7).
+  assert.equal(await page.locator("header.bar").count(), 1);
+  assert.equal(await page.locator("aside#panel").count(), 1);
+  assert.equal(await page.locator("main#main").count(), 1);
+  assert.equal(await page.locator("a.skip").getAttribute("href"), "#main");
+  // Share: the dialog opens natively, the checklist follows the form, the link shows once.
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await page.locator("[data-share-dialog]").waitFor({ state: "visible" });
-  assert.equal(await page.locator('[data-share-form] input[name="label"]').count(), 1);
-  assert.equal(await page.locator('[data-share-form] input[name="expires"]').count(), 1);
-  await page.locator("[data-share-close]").click();
+  await page.locator("#share").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#share .row.when-latest").isVisible(), false);
+  await page.locator("#share label.opt", { hasText: "Latest revision" }).click();
+  assert.equal(await page.locator("#share .row.when-latest").isVisible(), true);
+  await page.locator('#share input[name="label"]').fill("Browser review");
+  await page.locator("[data-share-submit]").click();
+  await page.locator('[data-share-step="created"]').waitFor({ state: "visible" });
+  assert.match((await page.locator("[data-share-url]").textContent()) ?? "", /\/s\/wps_/);
+  await page.keyboard.press("Escape");
+  await page.locator("[data-share-uncopied]").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#share").isVisible(), true, "closing before copying is guarded");
+  await page.locator("[data-share-back]").click();
+  await page.locator("[data-share-copy]").click();
+  await page.locator("[data-share-copy].done").waitFor();
+  await page.locator("[data-share-done]").click();
+  await page.waitForURL(/panel=links/);
+  const card = page.locator(".lnk", { hasText: "Browser review" });
+  await card.waitFor();
+  assert.equal(await page.locator("header .chip.public").count(), 1, "Public chip shows");
+  await card.locator("summary", { hasText: "Revoke…" }).click();
+  await card.getByRole("button", { name: "Revoke link" }).click();
+  await page.waitForURL(/panel=links/);
+  await page.locator(".lnk.dead", { hasText: "Browser review" }).waitFor({ state: "attached" });
+  await page.goto(`${base}${latest}`);
   assert.notEqual(
     await page.locator("body").evaluate("element => getComputedStyle(element).fontFamily"),
     "Times New Roman",
   );
+  // Copy menu: the handoff block names the collection and revision for another agent.
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
+  await page.locator("#copy-menu").waitFor({ state: "visible" });
+  const handoff = (await page.locator("[data-handoff]").textContent()) ?? "";
+  assert.match(handoff, /collection_id: col_/);
+  assert.match(handoff, /Watch: wait_for_revision/);
+  await page.keyboard.press("Escape");
   assert.equal(new URL(page.url()).pathname, latest);
   await page.frameLocator("iframe").getByRole("link", { name: "Notes" }).click();
   await page.waitForURL(`**${latest}notes/b.md`);
@@ -120,6 +157,10 @@ try {
     rawRequests.filter((url) => url.endsWith("/notes/b.md")).length,
     1,
     "in-frame navigation fetched twice",
+  );
+  assert.equal(
+    await page.locator('#tp-files a[aria-current="page"]').getAttribute("data-file"),
+    "notes/b.md",
   );
   await page.goto(`${base}${latest}`);
   const beforeHistory = Number(await page.evaluate("history.length"));
@@ -143,34 +184,56 @@ try {
       url.pathname.endsWith("notes/b.md") && url.search === "?source" && url.hash === "#hello",
   );
   assert.equal(new URL(page.url()).pathname, `${pinned}notes/b.md`);
+  // "]" steps to the newer revision and keeps the current file.
   await page.goto(`${base}${pinned}notes/b.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(second.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
+  await page.locator("body").press("]");
   await page.waitForURL(`**${secondPinned}notes/b.md`);
-  assert.equal(new URL(page.url()).pathname, `${secondPinned}notes/b.md`);
+  // The panel's History tab lists both revisions, newest first.
+  await page.locator("body").press("h");
+  await page.locator("#tp-history").waitFor({ state: "visible" });
+  assert.deepEqual(await page.locator("#tp-history .rv .h b").allTextContents(), ["#2", "#1"]);
   const third = await api(`/api/collections/${first.collection_id}/revisions`, {
     message: "Third",
     mode: "replace",
     files: [await write("index.md", "# Third\n")],
   });
   const thirdPinned = new URL(third.url).pathname;
+  // A file missing from the target revision falls back to its head.
   await page.goto(`${base}${secondPinned}notes/b.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(third.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
+  await page.locator("body").press("]");
   await page.waitForURL(`**${thirdPinned}`);
   assert.equal(new URL(page.url()).pathname, `${thirdPinned}index.md`);
-  await page
-    .locator("[data-picker]")
-    .selectOption(new URL(second.url).pathname.split("/r/")[1]?.split("/")[0] ?? "");
-  await page.getByRole("button", { name: "Go", exact: true }).click();
-  await page.waitForURL(`**${secondPinned}index.md`);
-  assert.equal(new URL(page.url()).pathname, `${secondPinned}index.md`);
+  // The revision menu opens with "r" and its entries keep the current file.
+  await page.goto(`${base}${secondPinned}notes/b.md`);
+  await page.getByRole("button", { name: /^Revision 2/ }).click();
+  await page.locator("#rev-menu").waitFor({ state: "visible" });
+  await page.locator("#rev-menu").getByRole("link", { name: "Revision 1" }).click();
+  await page.waitForURL(`**${pinned}notes/b.md`);
+  // "d" opens the Changes page against the parent; j focuses the first change; Esc goes back.
+  await page.goto(`${base}${secondPinned}`);
+  await page.locator("body").press("d");
+  await page.waitForURL(`**${secondPinned}changes`);
+  await page.getByRole("heading", { name: "Changes in #2" }).waitFor();
+  await page.locator("body").press("j");
+  assert.equal(await page.evaluate('document.activeElement?.hasAttribute("data-change")'), true);
+  await page.locator("body").press("Escape");
+  await page.waitForURL((url) => url.pathname === secondPinned);
+  // Compare… opens natively (commandfor/command) and navigates to the chosen pair.
+  await page.getByRole("button", { name: /^Revision 2/ }).click();
+  await page.getByRole("button", { name: /Compare…/ }).click();
+  await page.locator("#compare").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await page.waitForURL(/\/changes\?base=/);
+  // Keyboard shortcuts dialog and the disable toggle.
+  await page.locator("body").press("?");
+  await page.locator("#keys").waitFor({ state: "visible" });
+  await page.locator("[data-keys-off]").check();
+  await page.keyboard.press("Escape");
+  await page.locator("body").press("h");
+  assert.equal(await page.locator("#tp-history").isVisible(), false, "shortcuts stay off");
+  await page.evaluate('localStorage.removeItem("wp:keys")');
   console.log(
-    "Chromium viewer share dialog, navigation, history, source/hash, picker, and font: passed",
+    "Chromium viewer: landmarks, share create/copy/revoke, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts: passed",
   );
 } finally {
   await browser?.close();
