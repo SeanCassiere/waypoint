@@ -6,12 +6,16 @@ COPY apps/writer/package.json apps/writer/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/render/package.json packages/render/package.json
 COPY packages/mcp/package.json packages/mcp/package.json
-RUN pnpm install --frozen-lockfile
+# The reader's manifest is needed for the frozen lockfile check, but the image
+# builds only the writer and the MCP bundle, so reader dependencies are skipped.
+COPY apps/reader/package.json apps/reader/package.json
+RUN pnpm install --frozen-lockfile --filter . --filter "@waypoint/writer..." --filter "@waypoint/mcp..."
 COPY tsconfig*.json ./
 COPY apps/writer apps/writer
 COPY packages packages
 COPY skills/waypoint/SKILL.md skills/waypoint/SKILL.md
-RUN pnpm build && pnpm --filter @waypoint/writer deploy --prod --legacy /out
+RUN pnpm exec tsc -b apps/writer packages/mcp && pnpm --filter @waypoint/mcp bundle && pnpm viewer:build \
+    && pnpm --filter @waypoint/writer deploy --prod --legacy /out
 
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN apt-get update && apt-get install -y --no-install-recommends tini \

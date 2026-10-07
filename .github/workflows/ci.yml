@@ -33,3 +33,6 @@ jobs:
       - run: DRY_RUN=1 bash deploy/deploy-reader.sh prod
       - run: if DRY_RUN=1 DRY_RUN_FAIL_SMOKE=1 bash deploy/deploy-reader.sh dev; then exit 1; fi
       - run: pnpm --filter @waypoint/mcp smoke
+      # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
+      - name: Build writer image
+        run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
