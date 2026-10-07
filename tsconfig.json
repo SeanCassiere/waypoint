@@ -15,6 +15,7 @@
     "tests/**/*.ts",
     "packages/*/tests/**/*.ts",
     "scripts/**/*.mjs",
+    "scripts/**/*.ts",
     "oxlint.config.ts",
     "oxfmt.config.ts",
     "vitest.config.ts",

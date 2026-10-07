@@ -66,9 +66,36 @@ describe("writer", () => {
       expect(m.sql).not.toMatch(/\b(?:DROP|RENAME)\b/i);
     await migrate(waypoint, waypointMigrations);
     await migrate(queue, queueMigrations);
-    expect(await waypoint.all("SELECT id FROM schema_migrations")).toHaveLength(1);
-    expect(await queue.all("SELECT id FROM schema_migrations")).toHaveLength(1);
+    expect(await waypoint.all("SELECT id FROM schema_migrations")).toHaveLength(
+      waypointMigrations.length,
+    );
+    expect(await queue.all("SELECT id FROM schema_migrations")).toHaveLength(
+      queueMigrations.length,
+    );
+    expect(
+      await waypoint.get(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='renditions_by_output'",
+      ),
+    ).toBeTruthy();
     expect((await app.request("/healthz")).status).toBe(200);
+  });
+  it("rejects creating a collection ID with a queued purge", async () => {
+    const id = newId("col");
+    await queue.run("INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)", [
+      id,
+      Date.now(),
+    ]);
+    const response = await app.request("/api/collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        collection_id: id,
+        title: "blocked",
+        files: [{ path: "a.txt", hash: (await stored("a")).hash }],
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "conflict" } });
   });
   it("uploads, creates, resolves, and serves content", async () => {
     const content = "hello waypoint";
@@ -318,7 +345,7 @@ describe("queue and guard", () => {
     expect(await reads.revisions(first.collection_id)).toHaveLength(0);
     expect(await reads.collection(first.collection_id)).toBeUndefined();
     expect(await queue.all("SELECT hash FROM pending_blobs")).toHaveLength(0);
-    expect(await queue.all("SELECT key FROM pending_r2_deletes")).toHaveLength(2);
+    expect(await queue.all("SELECT key FROM pending_r2_deletes")).toHaveLength(4);
   });
   it("refuses to drop a revision already present in waypoint.db", async () => {
     const first = await ingest.create({ title: "Committed drop", files: [await stored("one")] });
@@ -407,8 +434,15 @@ describe("queue and guard", () => {
       "newer",
       first.revision_id,
     ]);
+    await queue.run(
+      "INSERT INTO pending_snapshots (collection_id,requested_at,last_error) VALUES (?,?,?)",
+      [first.collection_id, 400, "snapshot outage"],
+    );
     const status = await app.request("/api/status");
-    expect(await status.json()).toMatchObject({ last_error: "newer" });
+    expect(await status.json()).toMatchObject({
+      last_error: "newer",
+      queue_errors: [{ kind: "snapshot", id: first.collection_id, last_error: "snapshot outage" }],
+    });
   });
 });
 describe("HTTP validation", () => {
@@ -885,14 +919,15 @@ describe("reviewer regressions", () => {
     await started;
     const old = new Date(Date.now() - 16 * 60_000);
     await utimes(blobs.path(shared.hash), old, old);
-    const purge = await racingApp.request(`/api/collections/${x.collection_id}/purge`, {
+    const purgePending = racingApp.request(`/api/collections/${x.collection_id}/purge`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirm: x.collection_id }),
     });
-    expect(purge.status).toBe(202);
     expect(await blobs.has(shared.hash)).toBe(true);
     release();
+    const purge = await purgePending;
+    expect(purge.status).toBe(202);
     const written = await adding;
     expect(
       (await racingApp.request(`/api/revisions/${written.revision_id}/files/shared.md?source`))

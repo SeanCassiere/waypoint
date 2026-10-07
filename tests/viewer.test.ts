@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BlobStore } from "../apps/writer/src/blob-store.js";
+import { MemoryBucket } from "../apps/writer/src/bucket.js";
+import { WriterCommitter } from "../apps/writer/src/committer.js";
 import type { Config } from "../apps/writer/src/config.js";
 import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
+import { createApp, type HttpServices } from "../apps/writer/src/http.js";
 import { IngestService } from "../apps/writer/src/ingest.js";
 import {
   guardEnvironment,
@@ -16,6 +18,7 @@ import {
   waypointMigrations,
 } from "../apps/writer/src/migrations.js";
 import { ReadModel } from "../apps/writer/src/read-model.js";
+import { SyncLoop } from "../apps/writer/src/sync-loop.js";
 import { pathFromRaw, rawPath, shellPath } from "../apps/writer/src/viewer-paths.js";
 import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.js";
 
@@ -23,6 +26,7 @@ let dir: string;
 let waypoint: Db;
 let queue: Db;
 let app: ReturnType<typeof createApp>;
+let services: HttpServices;
 let first: { collection_id: string; revision_id: string; url: string; latest_url: string };
 let second: typeof first;
 function writeResult(value: unknown): typeof first {
@@ -78,13 +82,14 @@ beforeEach(async () => {
   await guardEnvironment(waypoint, opened.syncClient, "dev", false);
   const blobs = new BlobStore(dir, config.maxBlobBytes);
   const reads = new ReadModel(waypoint, queue, config.baseUrl);
-  app = createApp({
+  services = {
     waypoint,
     queue,
     blobs,
     reads,
     ingest: new IngestService(waypoint, queue, blobs, reads, opened.syncClient),
-  });
+  };
+  app = createApp(services);
   first = writeResult(
     await (
       await app.request(
@@ -225,6 +230,39 @@ describe("viewer routes", () => {
     await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" });
     expect(await (await app.request("/trash")).text()).toContain("Purge");
     expect(await (await app.request("/")).text()).toContain("No collections found");
+  });
+  it("shares live committer and sync status between the API and status page", async () => {
+    await queue.run(
+      "INSERT INTO pending_snapshots (collection_id,requested_at,last_error) VALUES (?,?,?)",
+      [first.collection_id, Date.now(), "snapshot unavailable"],
+    );
+    const syncLoop = new SyncLoop(queue, services.ingest.sync, Date.now, waypoint);
+    syncLoop.lastPushAt = 123456;
+    const committer = new WriterCommitter(
+      waypoint,
+      queue,
+      services.blobs,
+      new MemoryBucket(),
+      syncLoop,
+      services.ingest,
+    );
+    committer.accountError = "Bucket access denied";
+    const liveApp = createApp({ ...services, committer, syncLoop, environment: "dev" });
+    const status = await (await liveApp.request("/api/status")).json();
+    expect(status).toMatchObject({
+      environment: "dev",
+      account_paused: true,
+      account_error: "Bucket access denied",
+      last_error: "Bucket access denied",
+      last_push_at: 123456,
+      queue_errors: [
+        { kind: "snapshot", id: first.collection_id, last_error: "snapshot unavailable" },
+      ],
+    });
+    const page = await (await liveApp.request("/status")).text();
+    expect(page).toContain("Bucket account paused: Bucket access denied");
+    expect(page).toContain("snapshot unavailable");
+    expect(page).toContain("1970-01-01T00:02:03.456Z");
   });
   it("resolves old collections and lists old deleted collections beyond 200", async () => {
     await Promise.all(

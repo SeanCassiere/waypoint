@@ -10,6 +10,8 @@ export type WaypointErrorCode =
   | "head_path_ambiguous"
   | "blob_missing"
   | "blob_hash_mismatch"
+  | "bucket_corrupt"
+  | "bucket_unavailable"
   | "blob_too_large"
   | "revision_too_large"
   | "clock_skew"
@@ -35,6 +37,8 @@ export const ERROR_STATUS: Record<WaypointErrorCode, number> = {
   head_path_ambiguous: 400,
   blob_missing: 422,
   blob_hash_mismatch: 422,
+  bucket_corrupt: 502,
+  bucket_unavailable: 503,
   blob_too_large: 413,
   revision_too_large: 413,
   clock_skew: 400,

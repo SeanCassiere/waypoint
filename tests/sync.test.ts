@@ -9,6 +9,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { describe, it, expect } from "vitest";
 
 import { BlobStore } from "../apps/writer/src/blob-store.js";
+import { MemoryBucket } from "../apps/writer/src/bucket.js";
+import { WriterCommitter } from "../apps/writer/src/committer.js";
 import type { Config } from "../apps/writer/src/config.js";
 import { openDatabases } from "../apps/writer/src/db.js";
 import { createApp } from "../apps/writer/src/http.js";
@@ -20,6 +22,7 @@ import {
   guardEnvironment,
 } from "../apps/writer/src/migrations.js";
 import { ReadModel } from "../apps/writer/src/read-model.js";
+import { SyncLoop } from "../apps/writer/src/sync-loop.js";
 
 async function waitForServer(url: string, attempts: number): Promise<boolean> {
   if (attempts === 0) return false;
@@ -129,6 +132,17 @@ describe("production SyncClient", () => {
             reads,
             offline.syncClient,
           );
+          const bucket = new MemoryBucket();
+          const syncLoop = new SyncLoop(offline.queue, offline.syncClient);
+          const committer = new WriterCommitter(
+            offline.waypoint,
+            offline.queue,
+            blobs,
+            bucket,
+            syncLoop,
+            ingest,
+          );
+          ingest.committer = committer;
           const app = createApp({
             waypoint: offline.waypoint,
             queue: offline.queue,
@@ -156,6 +170,25 @@ describe("production SyncClient", () => {
           )
             throw new Error("Invalid offline write result");
           expect((await app.request(`/api/collections/${result.collection_id}`)).status).toBe(200);
+          if (!("revision_id" in result) || typeof result.revision_id !== "string")
+            throw new Error("Invalid revision ID");
+          expect((await reads.revision(result.revision_id))?.sync_state).toBe("committed");
+          const restarted = spawn(
+            bin,
+            [join(dir, "server.db"), "--sync-server", `127.0.0.1:${port}`],
+            { stdio: "ignore" },
+          );
+          try {
+            expect(await waitForServer(url, 80)).toBe(true);
+            await delay(5);
+            await syncLoop.push();
+            expect((await reads.revision(result.revision_id))?.sync_state).toBe("synced");
+          } finally {
+            restarted.kill("SIGTERM");
+            await new Promise<void>((resolve) => restarted.once("exit", () => resolve()));
+          }
+          committer.stop();
+          await committer.drain();
         } finally {
           await offline.waypoint.close();
           await offline.queue.close();

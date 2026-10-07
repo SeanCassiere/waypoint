@@ -19,11 +19,15 @@ import { Context } from "hono";
 import { z } from "zod";
 
 import { BlobStore } from "./blob-store.js";
+import type { Bucket } from "./bucket.js";
+import { BucketError } from "./bucket.js";
+import { blobKey, type WriterCommitter } from "./committer.js";
 import { inSeries, type Db, type DbHandle } from "./db.js";
 import { IngestService } from "./ingest.js";
 import { parseMultipart } from "./multipart.js";
 import { ReadModel } from "./read-model.js";
 import { getStatus } from "./status-data.js";
+import type { SyncLoop } from "./sync-loop.js";
 import { viewerApp } from "./viewer.js";
 export interface HttpServices {
   waypoint: Db;
@@ -31,6 +35,10 @@ export interface HttpServices {
   blobs: BlobStore;
   reads: ReadModel;
   ingest: IngestService;
+  bucket?: Bucket | undefined;
+  committer?: WriterCommitter | undefined;
+  syncLoop?: SyncLoop | undefined;
+  environment?: "dev" | "prod";
   port?: number;
   mcpTarballPath?: string;
 }
@@ -134,6 +142,33 @@ export function createApp(s: HttpServices): Hono {
       throw error;
     },
   );
+  const downloads = new Map<string, Promise<void>>();
+  async function ensureBlob(hash: string): Promise<void> {
+    if (await s.blobs.has(hash)) return;
+    if (!s.bucket || !(await s.waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash]))) return;
+    let flight = downloads.get(hash);
+    if (!flight) {
+      flight = (async () => {
+        try {
+          await s.blobs.put(await s.bucket!.get(blobKey(hash)), hash);
+        } catch (error) {
+          if (isWaypointError(error) && error.code === "blob_hash_mismatch") {
+            console.error(`Corrupt bucket blob ${hash}`);
+            throw new WaypointError("bucket_corrupt", "Bucket blob hash mismatch");
+          }
+          if (error instanceof BucketError) {
+            if (error.status === 404 && error.code === "NoSuchKey")
+              throw new WaypointError("not_found", "Bucket blob not found");
+            console.error(`Bucket blob read failed for ${hash}: ${error.message}`);
+            throw new WaypointError("bucket_unavailable", "Bucket blob unavailable");
+          }
+          throw error;
+        }
+      })().finally(() => downloads.delete(hash));
+      downloads.set(hash, flight);
+    }
+    await flight;
+  }
   app.onError((error, c) => {
     if (isWaypointError(error))
       return new Response(JSON.stringify(error.toBody()), {
@@ -362,6 +397,8 @@ export function createApp(s: HttpServices): Hono {
       await s.ingest.withCollectionLock(id, async () => {
         const row = await s.reads.collection(id);
         if (!row) throw new WaypointError("collection_not_found", "Collection not found");
+        if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
+          throw new WaypointError("conflict", "Collection purge is queued");
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (!pending)
           await s.queue.run(
@@ -377,6 +414,7 @@ export function createApp(s: HttpServices): Hono {
         ]);
         if (!result.changes)
           throw new WaypointError("collection_not_found", "Collection not found");
+        s.ingest.committer.wake();
         return s.reads.getCollection(id);
       }),
     );
@@ -387,6 +425,8 @@ export function createApp(s: HttpServices): Hono {
       await s.ingest.withCollectionLock(id, async () => {
         const row = await s.reads.collection(id);
         if (!row) throw new WaypointError("collection_not_found", "Collection not found");
+        if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
+          throw new WaypointError("conflict", "Collection purge is queued");
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (pending) {
           const result = await s.queue.run(
@@ -405,6 +445,7 @@ export function createApp(s: HttpServices): Hono {
             [id, Date.now()],
           );
         }
+        s.ingest.committer.wake();
         return s.reads.getCollection(id);
       }),
     );
@@ -417,6 +458,8 @@ export function createApp(s: HttpServices): Hono {
         if (!row) throw new WaypointError("collection_not_found", "Collection not found");
         if (row.deleted_at == null)
           throw new WaypointError("conflict", "Collection is not deleted");
+        if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
+          throw new WaypointError("conflict", "Collection purge is queued");
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (pending) {
           const result = await s.queue.run(
@@ -436,6 +479,7 @@ export function createApp(s: HttpServices): Hono {
           );
           if (!result.changes) throw new WaypointError("conflict", "Collection is not deleted");
         }
+        s.ingest.committer.wake();
         return s.reads.getCollection(id);
       }),
     );
@@ -452,19 +496,34 @@ export function createApp(s: HttpServices): Hono {
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (pending) {
           const unused = await s.queue.transaction(async (tx) => {
+            const revisions = await tx.all<{ id: string }>(
+              "SELECT id FROM pending_revisions WHERE collection_id=?",
+              [id],
+            );
+            for (const revision of revisions)
+              await tx.run(
+                "INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
+                [`manifests/${revision.id}.json`, Date.now()],
+              );
+            await tx.run(
+              "INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
+              [`collections/${id}.json`, Date.now()],
+            );
             await tx.run("DELETE FROM pending_revisions WHERE collection_id=?", [id]);
             const result = await tx.run("DELETE FROM pending_collections WHERE id=?", [id]);
             if (!result.changes)
               throw new WaypointError("collection_not_found", "Collection not found");
-            return prunePendingStorage(tx);
+            return prunePendingStorage(tx, s.waypoint);
           });
-          await deleteUnusedBlobs(s, unused);
+          await s.ingest.withGcExclusive(() => deleteUnusedBlobs(s, unused));
+          s.ingest.committer.wake();
           return { purged: true };
         }
         await s.queue.run(
-          "INSERT OR IGNORE INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)",
+          "INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
           [id, Date.now()],
         );
+        s.ingest.committer.wake();
         return { queued: true };
       }),
       202,
@@ -494,6 +553,14 @@ export function createApp(s: HttpServices): Hono {
     const entry = await s.reads.file(id, validatePath(decoded));
     const rendition =
       entry.mime === "text/markdown" && !source ? await s.reads.rendition(entry.hash) : undefined;
+    if (rendition)
+      try {
+        await ensureBlob(rendition.hash);
+      } catch (error) {
+        console.error(
+          `Rendition fetch failed for ${rendition.hash}: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
+      }
     const availableRendition =
       rendition && (await s.blobs.has(rendition.hash)) ? rendition : undefined;
     const served = availableRendition
@@ -503,6 +570,7 @@ export function createApp(s: HttpServices): Hono {
           size: await s.blobs.size(availableRendition.hash),
         }
       : entry;
+    await ensureBlob(served.hash);
     if (!(await s.blobs.has(served.hash)))
       throw new WaypointError("not_found", "Blob is unavailable locally");
     const mime = isTextMime(served.mime) ? `${served.mime}; charset=utf-8` : served.mime;
@@ -612,7 +680,7 @@ export function createApp(s: HttpServices): Hono {
             const deleted = await tx.run("DELETE FROM pending_revisions WHERE id=?", [revision]);
             if (!deleted.changes) throw new WaypointError("not_found", "Queue revision not found");
             await tx.run(
-              "INSERT OR IGNORE INTO pending_r2_deletes (key,requested_at) VALUES (?,?)",
+              "INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
               [`manifests/${revision}.json`, Date.now()],
             );
           });
@@ -622,9 +690,10 @@ export function createApp(s: HttpServices): Hono {
             ]))
           )
             await tx.run("DELETE FROM pending_collections WHERE id=?", [root.collection_id]);
-          return prunePendingStorage(tx);
+          return prunePendingStorage(tx, s.waypoint);
         });
-        await deleteUnusedBlobs(s, unused);
+        await s.ingest.withGcExclusive(() => deleteUnusedBlobs(s, unused));
+        s.ingest.committer.wake();
         return { dropped: descendants };
       }),
     );
@@ -632,7 +701,7 @@ export function createApp(s: HttpServices): Hono {
   app.route("/", viewerApp(s));
   return app;
 }
-async function prunePendingStorage(tx: DbHandle): Promise<string[]> {
+async function prunePendingStorage(tx: DbHandle, waypoint: Db): Promise<string[]> {
   const rows = await tx.all<{ manifest_json: string }>(
     "SELECT manifest_json FROM pending_revisions",
   );
@@ -662,7 +731,14 @@ async function prunePendingStorage(tx: DbHandle): Promise<string[]> {
   });
   const pendingBlobs = await tx.all<{ hash: string }>("SELECT hash FROM pending_blobs");
   const unused = pendingBlobs.filter((blob) => !referenced.has(blob.hash)).map((blob) => blob.hash);
-  await inSeries(unused, (hash) => tx.run("DELETE FROM pending_blobs WHERE hash=?", [hash]));
+  await inSeries(unused, async (hash) => {
+    if (!(await waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash])))
+      await tx.run(
+        "INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
+        [blobKey(hash), Date.now()],
+      );
+    await tx.run("DELETE FROM pending_blobs WHERE hash=?", [hash]);
+  });
   return unused;
 }
 async function deleteUnusedBlobs(s: HttpServices, hashes: string[]): Promise<void> {

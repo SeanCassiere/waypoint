@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS blobs (hash TEXT PRIMARY KEY CHECK (hash GLOB 'sha256
 CREATE TABLE IF NOT EXISTS renditions (source_hash TEXT NOT NULL REFERENCES blobs(hash), renderer TEXT NOT NULL, renderer_version INTEGER NOT NULL, output_hash TEXT NOT NULL REFERENCES blobs(hash), output_mime TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (source_hash, renderer, renderer_version));
 `,
   },
+  {
+    id: "0002_renditions_output_index",
+    sql: "CREATE INDEX IF NOT EXISTS renditions_by_output ON renditions (output_hash);",
+  },
 ];
 export const queueMigrations = [
   {
@@ -28,6 +32,34 @@ CREATE TABLE IF NOT EXISTS pending_snapshots (collection_id TEXT PRIMARY KEY, re
 CREATE TABLE IF NOT EXISTS pending_r2_deletes (key TEXT PRIMARY KEY, requested_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS pending_purges (collection_id TEXT PRIMARY KEY, requested_at INTEGER NOT NULL, step INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS unpushed (revision_id TEXT PRIMARY KEY, committed_at INTEGER NOT NULL);
+`,
+  },
+  {
+    id: "0002_other_work_schedule",
+    sql: `
+ALTER TABLE pending_snapshots ADD COLUMN next_attempt_at INTEGER;
+ALTER TABLE pending_snapshots ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pending_snapshots ADD COLUMN last_error TEXT;
+ALTER TABLE pending_r2_deletes ADD COLUMN next_attempt_at INTEGER;
+ALTER TABLE pending_r2_deletes ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pending_r2_deletes ADD COLUMN last_error TEXT;
+ALTER TABLE pending_purges ADD COLUMN next_attempt_at INTEGER;
+ALTER TABLE pending_purges ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pending_purges ADD COLUMN last_error TEXT;
+`,
+  },
+  {
+    id: "0003_unpushed_sequence",
+    sql: `
+ALTER TABLE unpushed ADD COLUMN seq INTEGER;
+UPDATE unpushed SET seq=rowid;
+CREATE UNIQUE INDEX unpushed_by_seq ON unpushed (seq);
+CREATE TABLE unpushed_counter (next_seq INTEGER NOT NULL);
+INSERT INTO unpushed_counter (next_seq) SELECT COALESCE(MAX(seq),0) FROM unpushed;
+CREATE TRIGGER unpushed_assign_seq AFTER INSERT ON unpushed BEGIN
+  UPDATE unpushed_counter SET next_seq=next_seq+1;
+  UPDATE unpushed SET seq=(SELECT next_seq FROM unpushed_counter) WHERE revision_id=NEW.revision_id;
+END;
 `,
   },
 ];
@@ -76,6 +108,7 @@ export async function guardEnvironment(
       `Environment mismatch: local waypoint.db is ${local}, config is ${environment}`,
     );
   const verify = async () => {
+    if (sync.blockedReason) throw new Error(sync.blockedReason);
     if (sync.probe && !(await sync.probe())) throw new Error("Sync server unavailable");
     await sync.pull();
     const pulled = await read();
@@ -100,6 +133,14 @@ export async function guardEnvironment(
     }
     sync.beforePush = async () => {
       await verify();
+    };
+    sync.afterPull = async () => {
+      const pulled = await read();
+      if (pulled !== environment) {
+        sync.verified = false;
+        sync.blockedReason = `Environment mismatch: remote cloud DB is ${pulled ?? "missing"}, config is ${environment}`;
+        throw new Error(sync.blockedReason);
+      }
     };
   } else sync.verified = true;
   if (!local && !(await read())) {

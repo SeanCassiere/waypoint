@@ -101,6 +101,7 @@ The committer processes pending revisions in ID order (oldest first). For each o
 4. **Write to the bucket.**
    - The DR manifest `manifests/<revision id>.json`: the revision row, its files, and its renditions.
    - If the collection is still pending, its snapshot `collections/<collection id>.json`.
+   **Re-verification under the lock.** After steps 3–4, the committer takes the collection lock and re-checks four things: the revision is still pending, its parent is committed, its collection exists, and no purge is queued for it. If anything changed, it aborts this attempt. The `blobs` rows inserted are exactly the hashes uploaded in this attempt, and after the transaction every referenced hash must have a `blobs` row.
 5. **Insert rows** into `waypoint.db` in one transaction, using `INSERT OR IGNORE`:
    - if the collection is pending, the `collections` row, plus a tombstone if `deleted_at` is set
    - `blobs`
@@ -126,13 +127,14 @@ These are idempotent and **never give up**:
 ### Retry policy
 
 - **Committer schedule.** It runs right away when ingest wakes it. After that, each pending item is retried after a random delay of 5–10 minutes, over and over.
-- **Transient errors** (network failures, timeouts, 5xx, 429) are retried until 72 hours have passed since the first attempt. The limit is set by `WAYPOINT_QUEUE_GIVE_UP_HOURS`, default 72. After that the revision becomes `failed`.
+- **Transient errors** (network failures, timeouts, 5xx, 429, R2's `RequestTimeout` and `ConditionalRequestConflict`, and local `EMFILE`/`EBUSY` and similar) are retried until 72 hours have passed since the first attempt. The limit is set by `WAYPOINT_QUEUE_GIVE_UP_HOURS`, default 72. After that the revision becomes `failed`.
 - **Permanent errors** mark the revision `failed` immediately. Examples: a blob missing from the local store, a purged collection, a failed parent, a validation error.
 - **Failed revisions** stay in `queue.db`, and their blobs stay on disk. You can still view them on the tailnet, and they appear in the revision picker marked as failed and in `/api/status`.
   - **Retrying a failed revision** re-queues it along with its failed descendants.
   - **Dropping a failed revision** removes it and its descendants, and queues deletion of any DR manifests already written.
   - A bulk "retry all failed" operation is planned for later.
-- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed.
+- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`.
+- **An account-level 403 from the bucket** (bad or revoked credentials) pauses the committer and is reported in status. It doesn't fail every queued revision.
 
 ### Sync state of a revision
 
@@ -153,7 +155,12 @@ Purge is a queued operation (`pending_purges`) that resumes after crashes or out
 2. Delete its `revision_files`, `revisions`, `collection_tombstones`, and `collections` rows from `waypoint.db`, and push.
 3. **Blob garbage collection.** Find blobs and rendition outputs that no remaining `revision_files` or `renditions` row references. Exclude any hash still referenced by this writer's queue. Delete the rest from the bucket, the local store, and the `blobs`/`renditions` rows. Then push.
 
-Any queued revisions for the purged collection fail with `collection_purged`. Phase 1 assumes a single writer; see [data-model.md](data-model.md#deletion).
+GC also skips:
+- hashes held by in-flight ingests
+- rendition outputs whose source hash is still referenced by a queued revision
+- local blob files modified in the last 15 minutes
+
+GC runs under a writer-wide barrier that ingest also takes, as a shared lock. Purge also **drops the collection's queued revisions** and deletes their local blobs that nothing else references, so a leaked secret doesn't linger in the queue. Phase 1 assumes a single writer; see [data-model.md](data-model.md#deletion).
 
 ## Turso Sync
 
@@ -162,6 +169,9 @@ Any queued revisions for the purged collection fail with `collection_purged`. Ph
 - **Push:** after every commit, and on a 60 s timer that also retries failed pushes. Turso Sync doesn't retry on its own. Committed data stays durable locally and recoverable from the bucket, so a failed push is harmless. An offline push rejects cleanly, and local writes made during the outage are pushed later (S1).
 - **Push failure caused by a constraint** (for example a `UNIQUE` violation; S1 saw `BATCH_STEP_ERROR`) blocks the whole push. The writer pulls and then retries the push. If it fails again with the same constraint error, the writer reports it in `/api/status` and keeps the affected revisions out of `synced`. A pull can replace the conflicting local row with the remote one, so this must never be ignored. With derived public IDs it should only happen on a true hash collision.
 - **Pull:** on a 30 s timer, and opportunistically during ingest (see step 2).
+- **Push coalescing.** A push requested while another is in flight runs again once it finishes, and the request resolves only after a push that *started after the request* has completed. Purge step 2 relies on this.
+- **Neither push nor pull holds the application's DB statement mutex during network I/O.** "Database is locked/busy" errors from the engine during a pull are retried locally with a short backoff; they are never treated as transient commit failures.
+- **Timeouts:** bucket requests have connect and request timeouts. Push and pull have timeouts too. A hung request never stalls the committer.
 - **Checkpoint:** after each successful push, to keep the local WAL bounded.
 - **Conflicts** resolve as last-push-wins, observed in spike S1:
   - Updates to *different columns* of the same row **merge**. Updates to the same column: the last push wins.

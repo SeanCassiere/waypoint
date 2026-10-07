@@ -23,6 +23,7 @@ import {
 
 import type { BlobStore } from "./blob-store.js";
 import { inSeries, type Db, type SyncClient } from "./db.js";
+import { GcBarrier } from "./gc-barrier.js";
 import { ReadModel } from "./read-model.js";
 export interface Committer {
   /** The collection-commit step must run inside withCollectionLock(collectionId, fn). */
@@ -52,6 +53,7 @@ export class NullRenderer implements Renderer {
   }
 }
 export class IngestService {
+  readonly gcBarrier = new GcBarrier();
   private locks = new Map<string, Promise<unknown>>();
   private ingesting = new Map<string, number>();
   private inUseHashes = new Map<string, number>();
@@ -61,7 +63,7 @@ export class IngestService {
     readonly blobs: BlobStore,
     readonly reads: ReadModel,
     readonly sync: SyncClient,
-    readonly committer: Committer = new NoopCommitter(),
+    public committer: Committer = new NoopCommitter(),
     readonly renderer: Renderer = new NullRenderer(),
     readonly maxFiles: number = DEFAULT_LIMITS.maxFiles,
     readonly maxRevisionBytes: number = DEFAULT_LIMITS.maxRevisionBytes,
@@ -99,6 +101,9 @@ export class IngestService {
   withCollectionLock<T>(collectionId: string, fn: () => Promise<T>): Promise<T> {
     return this.locked(collectionId, fn);
   }
+  withGcExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.gcBarrier.write(fn);
+  }
   isCollectionIngesting(id: string): boolean {
     return (this.ingesting.get(id) ?? 0) > 0;
   }
@@ -120,7 +125,7 @@ export class IngestService {
   private async duringIngest<T>(id: string, fn: () => Promise<T>): Promise<T> {
     this.ingesting.set(id, (this.ingesting.get(id) ?? 0) + 1);
     try {
-      return await this.locked(id, fn);
+      return await this.locked(id, () => this.gcBarrier.read(fn));
     } finally {
       const count = (this.ingesting.get(id) ?? 1) - 1;
       if (count) this.ingesting.set(id, count);
@@ -131,6 +136,8 @@ export class IngestService {
     const now = Date.now();
     const id = request.collection_id ?? newId("col");
     const queued = await this.duringIngest(id, async () => {
+      if (await this.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
+        throw new WaypointError("conflict", "Collection purge is in progress");
       const existing = await this.reads.collection(id);
       if (existing) {
         const revisions = await this.reads.revisions(id);

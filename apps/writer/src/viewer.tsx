@@ -239,21 +239,29 @@ export function viewerApp(s: HttpServices): Hono {
   });
   app.get("/status", async (c) => {
     const status = await getStatus(s);
+    const syncState = !status.sync_enabled
+      ? "off"
+      : status.account_paused
+        ? "paused"
+        : status.sync_blocked
+          ? "blocked"
+          : status.sync_verified
+            ? "verified"
+            : "unverified";
     return noStore(
       c.html(
         <Layout title="Status">
           <main class="wrap">
             <h1>Status</h1>
             <p>
-              {status.sync_enabled
-                ? status.sync_verified
-                  ? badge("verified")
-                  : badge("blocked")
-                : badge("off")}{" "}
+              {badge(syncState)}{" "}
               <span class="muted">
-                Sync {status.sync_enabled ? (status.sync_verified ? "verified" : "blocked") : "off"}
+                Sync {syncState} · {status.environment}
               </span>
             </p>
+            {status.account_paused ? (
+              <p class="error">Bucket account paused: {status.account_error}</p>
+            ) : null}
             <div class="stats">
               {Object.entries(status.queue).map(([name, value]) => (
                 <div class="stat">
@@ -272,6 +280,21 @@ export function viewerApp(s: HttpServices): Hono {
               Last upload: {fmtDate(status.last_upload_at)} · Last push:{" "}
               {fmtDate(status.last_push_at)} · Last pull: {fmtDate(status.last_pull_at)}
             </p>
+            <p>Last error: {status.last_error ?? "None"}</p>
+            <h2>Queue errors</h2>
+            <div class="list">
+              {status.queue_errors.length ? (
+                status.queue_errors.map((row) => (
+                  <div class="row fail">
+                    <strong>{row.kind}</strong>
+                    <span class="row-title">{row.id}</span>
+                    <span class="error">{row.last_error}</span>
+                  </div>
+                ))
+              ) : (
+                <div class="row muted">No queue errors.</div>
+              )}
+            </div>
             <h2>Pending revisions</h2>
             <div class="list">
               {status.pending_items.length ? (

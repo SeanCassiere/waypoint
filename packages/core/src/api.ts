@@ -93,16 +93,21 @@ export interface FailedItem {
   collection_public_id?: string | null;
 }
 export interface StatusResponse {
+  environment: "dev" | "prod";
   queue: QueueCounts;
   oldest_pending_age_ms: number | null;
   failed_items: FailedItem[];
-  pending_items?: { id: string; collection_public_id: string | null }[];
-  sync_enabled?: boolean;
+  pending_items: { id: string; collection_public_id: string | null }[];
+  sync_enabled: boolean;
+  queue_errors: { kind: string; id: string; last_error: string }[];
   last_upload_at: number | null;
   last_push_at: number | null;
   last_pull_at: number | null;
   last_error: string | null;
   sync_verified: boolean;
+  sync_blocked: boolean;
+  account_paused: boolean;
+  account_error: string | null;
 }
 export interface ResolveResponse {
   collection_id: string;
