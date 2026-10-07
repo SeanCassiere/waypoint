@@ -9,40 +9,89 @@ import { onCommand } from "./keys.js";
 import { toast } from "./toast.js";
 
 const DAY = 86_400_000;
-/** Keep in step with STOPS_SOON in viewer/pages/share.tsx. */
+/** Keep in step with STOPS_SOON and NOT_PUSHED in viewer/pages/share.tsx. */
 const STOPS_SOON = "Public access stops within seconds.";
+const NOT_PUSHED = "Revoked, not yet pushed. Public access continues until it syncs.";
 
 function linkState(value: unknown): string {
   const state = field(field(value, "share_link"), "state");
   return typeof state === "string" ? state : "";
 }
 
+/** The revocation note on a card (Links tab) or row (/links): pushed yet, or not. */
+function setRevokeNote(holder: HTMLElement, pushed: boolean | null): void {
+  let note = $("[data-stops]", holder);
+  if (pushed === null) {
+    note?.remove();
+    return;
+  }
+  if (!note) {
+    const meta = $(":scope > .s", holder);
+    note = el(meta ? "span" : "p", { class: meta ? "stops" : "note stops" });
+    if (meta) meta.append(note);
+    else holder.append(note);
+  }
+  note.dataset.stops = String(pushed);
+  note.textContent = pushed ? STOPS_SOON : NOT_PUSHED;
+}
+
+function bump(node: HTMLElement | null, by: number): void {
+  if (node) node.textContent = String(Math.max(0, Number(node.textContent ?? "0") + by));
+}
+/** One fewer active link: the Links tab count, /links segment counts and Revoke all. */
+function countRevoked(): void {
+  bump($("#tab-links .n"), -1);
+  bump($('[data-count-of="active"]'), -1);
+  bump($('[data-count-of="revoked"]'), 1);
+  const all = $("[data-action=revoke-all]");
+  if (!all) return;
+  const left = Number(all.dataset.count ?? "0") - 1;
+  if (left < 2) {
+    (all.closest(".lnk-foot") ?? all).remove();
+    return;
+  }
+  all.dataset.count = String(left);
+  all.textContent = `Revoke all ${left} ${all.dataset.noun ?? "links"}…`;
+}
+
 /**
  * Shows a link as revoked the moment the writer has recorded it: the card (Links tab) or row
- * (/links) loses its actions, its chip reads Revoked, and a note says the public reader
- * catches up within seconds. No reload, so nothing else on the page moves.
+ * (/links) loses its actions and its chip reads Revoked. Its note says whether the
+ * revocation has reached the cloud yet (until then the public reader still serves the link),
+ * and follows it until it has. No reload, so nothing else on the page moves.
  */
-function markRevoked(holder: HTMLElement): void {
+function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
   holder.classList.add("dead");
   const chip = $("[data-link-state]", holder);
   if (chip) {
-    chip.className = "chip";
+    chip.className = holder.classList.contains("r") ? "chip xs" : "chip";
     chip.dataset.linkState = "revoking";
     chip.replaceChildren("Revoked");
   }
   for (const node of $$(".row, .acts, [data-url-missing]", holder))
     if (node.parentElement === holder) node.remove();
-  if (!$("[data-stops]", holder)) {
-    const note = el("p", { class: "note", text: STOPS_SOON, attrs: { "data-stops": "" } });
-    const meta = $(":scope > .s", holder);
-    if (meta) meta.append(el("span", { text: STOPS_SOON, attrs: { "data-stops": "" } }));
-    else holder.append(note);
-  }
-  const count = $("#tab-links .n");
-  if (count && holder.classList.contains("lnk"))
-    count.textContent = String(Math.max(0, Number(count.textContent ?? "0") - 1));
+  setRevokeNote(holder, pushed);
+  countRevoked();
   holder.tabIndex = -1;
   holder.focus();
+  const started = Date.now();
+  const check = () => {
+    api(`/api/share-links/${encodeURIComponent(id)}`)
+      .then((value) => {
+        const link = field(value, "share_link");
+        const state = field(link, "state");
+        if (state === "revoked") {
+          setRevokeNote(holder, null);
+          return;
+        }
+        setRevokeNote(holder, field(link, "revocation_pushed") === true);
+        if (Date.now() - started < 120_000) setTimeout(check, 2000);
+      })
+      .catch(() => {
+        if (Date.now() - started < 120_000) setTimeout(check, 2000);
+      });
+  };
+  setTimeout(check, 1000);
 }
 
 /**
@@ -61,8 +110,10 @@ export function bindShare(): void {
   bindInlineConfirms();
   registerAction("revoke-link", async (element) => {
     const id = element.dataset.id ?? "";
+    let pushed = false;
     const revoke = async () => {
-      await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
+      const result = await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
+      pushed = field(result, "revocation_pushed") === true;
     };
     if (element.dataset.confirm === "true") {
       const ok = await confirmDialog({
@@ -75,7 +126,7 @@ export function bindShare(): void {
     } else await revoke();
     toast("Link revoked");
     const holder = element.closest<HTMLElement>("[data-link]");
-    if (holder) markRevoked(holder);
+    if (holder) markRevoked(holder, id, pushed);
   });
   registerAction("revoke-all", async (element) => {
     const count = Number(element.dataset.count ?? "0");

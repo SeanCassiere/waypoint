@@ -11,11 +11,16 @@ export interface ShareLink {
   status: "active" | "revoked" | "expired";
   publicly_available: boolean;
   /**
-   * Lifecycle as the public experiences it (B3): "activating" until the writer pushes the
-   * link to the cloud, "revoking" until a revocation has been pushed and the reader's
-   * lookup cache (about 5 s) has expired.
+   * Lifecycle as the public experiences it (B3): "activating" until the writer has pushed the
+   * link to the cloud, "revoking" until a revocation has been pushed and 10 s more have passed
+   * (the reader caches a live link for at most 5 s and never caches denials).
    */
   state: "activating" | "active" | "expired" | "revoking" | "revoked";
+  /**
+   * For a revoked link, whether the writer has pushed the revocation to the cloud. Until it
+   * has, the public reader still serves the link. Null for a link that isn't revoked.
+   */
+  revocation_pushed: boolean | null;
   /** Display number of the pinned revision, or null for a link that follows latest. */
   revision_display_number: number | null;
   /** The revision the reader serves right now (latest = newest synced), or null for none. */

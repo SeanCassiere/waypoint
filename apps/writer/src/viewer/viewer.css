@@ -1343,6 +1343,27 @@ summary.txtbtn {
 summary.txtbtn::-webkit-details-marker {
   display: none;
 }
+/* "URL unavailable": a one-line chip that discloses why. */
+details.why > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details.why > summary::-webkit-details-marker {
+  display: none;
+}
+details.why > summary::after {
+  content: " ⓘ";
+}
+details.why[open] {
+  flex-basis: 100%;
+}
+details.why .note {
+  margin: 6px 0 0;
+}
+.note[data-stops="false"],
+.stops[data-stops="false"] {
+  color: var(--pending);
+}
 .note {
   margin: 0 0 8px;
   font-size: 12.5px;
@@ -1747,12 +1768,15 @@ details.sees > summary h3 {
   cursor: pointer;
   font-size: 14px;
   flex: none;
+  min-width: 7.5em;
+  white-space: nowrap;
 }
 .tok button[data-copied] {
   background: var(--ok);
   color: #fff;
 }
 .btn[data-copied] {
+  justify-content: center;
   color: var(--ok);
   border-color: var(--ok);
 }
@@ -2776,13 +2800,6 @@ h2.sec .n {
   .shell {
     height: calc(100dvh - var(--bar-h) - 58px - env(safe-area-inset-bottom));
   }
-  .shell.open .panel {
-    width: 100%;
-    top: auto;
-    bottom: 0;
-    height: 78dvh;
-    border-radius: 16px 16px 0 0;
-  }
   dialog.dlg {
     width: 100%;
     max-width: 100%;
@@ -2898,9 +2915,17 @@ h2.sec .n {
     display: none;
   }
 }
-/* Phones: menus and popovers are bottom sheets over a scrim. Tapping the scrim
-   light-dismisses them. */
-@media (max-width: 760px) {
+/* Phones (below 600 px): the panel, menus and popovers are bottom sheets over a scrim.
+   From 600 px (the iPad mini's 744 included) menus stay anchored to their trigger and the
+   panel is a side sheet, as on tablets. */
+@media (max-width: 599.98px) {
+  .shell.open .panel {
+    width: 100%;
+    top: auto;
+    bottom: 0;
+    height: 78dvh;
+    border-radius: 16px 16px 0 0;
+  }
   .pop2,
   .menu,
   .rmenu {
@@ -2932,21 +2957,27 @@ h2.sec .n {
     background: var(--rule-2);
     margin: 2px auto 8px;
   }
-  /* A popover's ::backdrop never takes pointer events, so a tap on it would also act on
-     whatever is underneath (a link, the document). This scrim takes the tap instead: the
-     tap still lands outside the popover, so it light-dismisses. */
+  .menu .mi {
+    min-height: 44px;
+  }
+  body .pop-scrim {
+    background: var(--scrim);
+  }
+}
+/* A tap that closes a menu must not also act on what's beneath it (a link in the document,
+   the status line). A popover's ::backdrop never takes pointer events, so on touch screens
+   (and under phone sheets) a real scrim takes that tap: it lands outside the popover, so it
+   still light-dismisses. It's tinted under phone sheets and transparent elsewhere. Mouse
+   pointers keep click-through, so one click can move from one menu to another (D51). */
+@media (pointer: coarse), (max-width: 599.98px) {
   body:has(:is(.menu, .pop2):popover-open) .pop-scrim {
     display: block;
     opacity: 1;
   }
-  /* The tap that closes a sheet light-dismisses it on pointerup, before its click: script
-     keeps the fading scrim a moment longer so that click lands here, not on a link or the
-     document beneath. */
+  /* The closing tap light-dismisses on pointerup, before its click: script keeps the
+     (fading) scrim a moment longer so that click lands here too. */
   .pop-scrim.linger {
     display: block;
-  }
-  .menu .mi {
-    min-height: 44px;
   }
 }
 .pop-scrim {
@@ -2955,7 +2986,7 @@ h2.sec .n {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: var(--scrim);
+  background: transparent;
 }
 /* Motion (owner feedback): only popovers, dialogs and the panel sheet open and close, and
    controls show state changes (hover, pressed, toggled, Copied). Pages, navigation and
@@ -2994,7 +3025,7 @@ h2.sec .n {
       opacity: 0;
     }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 599.98px) {
     [popover] > .mbox {
       transition:
         opacity 150ms ease-out,

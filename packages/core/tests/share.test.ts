@@ -47,7 +47,7 @@ describe("deterministic share tokens", () => {
   it("derives a known-answer token that isShareToken accepts", async () => {
     const key = parseShareTokenKey(keyText);
     const token = await deriveShareToken(key, linkId);
-    expect(token).toBe("wps_beKn1hOVbkpX2Y891_hOFffGpg3zHuN1YROOLENhke4");
+    expect(token).toBe("wps_enVLzDE6RxvO0DqXWcov6edk54nvE4xmomeMJBHOKLI");
     expect(isShareToken(token)).toBe(true);
     expect(await hashShareToken(token)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });

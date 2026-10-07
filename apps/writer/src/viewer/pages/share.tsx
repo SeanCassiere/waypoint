@@ -7,6 +7,7 @@ import {
   linkPage,
   LINKS_PAGE,
   sharingEnabled,
+  URL_UNAVAILABLE,
   type LinkFilter,
   type ShareView,
 } from "../../shares.js";
@@ -57,11 +58,30 @@ export function showsText(link: ShareView, newest: number | null): string {
   return `Latest · now #${sees}`;
 }
 
-/** Shown while a revocation propagates to the public reader. */
+/** Links can be listed and revoked without the token key, but not created or copied. */
+export const KEY_MISSING =
+  "WAYPOINT_SHARE_TOKEN_KEY isn't set on this writer, so new links can't be created and link URLs can't be shown. Existing links can still be revoked.";
+/** Shown once the revocation has been pushed, while the reader's 5 s cache runs out. */
 export const STOPS_SOON = "Public access stops within seconds.";
-/** A link minted before deterministic tokens: only its hash exists, so its URL is gone. */
-export const NOT_RECOVERABLE =
-  "URL not recoverable (created before links became copyable). Create a new link to get a copyable URL.";
+/** Shown while the revocation hasn't reached the cloud: the reader still serves the link. */
+export const NOT_PUSHED = "Revoked, not yet pushed. Public access continues until it syncs.";
+
+/** The note under a revoked link while the public reader may still serve it. */
+export function RevokeNote(props: { link: ShareView; inline?: boolean }) {
+  const { link } = props;
+  if (link.state !== "revoking") return null;
+  const text = link.revocation_pushed ? STOPS_SOON : NOT_PUSHED;
+  const pushed = link.revocation_pushed ? "true" : "false";
+  return props.inline ? (
+    <span class="stops" data-stops={pushed}>
+      {text}
+    </span>
+  ) : (
+    <p class="note stops" data-stops={pushed}>
+      {text}
+    </p>
+  );
+}
 
 /** Copy URL (the card's primary action) and Open, or why the URL can't be shown. */
 export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
@@ -70,9 +90,10 @@ export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
   if (props.sharing === false) return null;
   if (!url)
     return (
-      <p class="note" data-url-missing>
-        {NOT_RECOVERABLE}
-      </p>
+      <details class="why" data-url-missing>
+        <summary class="chip xs">URL unavailable</summary>
+        <p class="note">{URL_UNAVAILABLE}</p>
+      </details>
     );
   return (
     <>
@@ -95,14 +116,19 @@ export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
   );
 }
 
-function LinkCard(props: { link: ShareView; now: number; newest: number | null }) {
+function LinkCard(props: {
+  link: ShareView;
+  now: number;
+  newest: number | null;
+  sharing: boolean;
+}) {
   const { link, now } = props;
   const live = isLive(link);
   const soon = live && link.expires_at !== null && link.expires_at - now < DAY;
   return (
     <div class={`lnk${live ? "" : " dead"}`} data-link={link.id}>
       <div class="h">
-        <b>{link.label ?? "(no label)"}</b>
+        <b>{link.label || "(no label)"}</b>
         <StateChip link={link} />
       </div>
       <dl>
@@ -145,14 +171,10 @@ function LinkCard(props: { link: ShareView; now: number; newest: number | null }
           </>
         ) : null}
       </dl>
-      {link.state === "revoking" ? (
-        <p class="note" data-stops>
-          {STOPS_SOON}
-        </p>
-      ) : null}
+      <RevokeNote link={link} />
       {live ? (
         <div class="row">
-          <LinkUrlActions link={link} />
+          <LinkUrlActions link={link} sharing={props.sharing} />
           <span class="grow" />
           {soon ? (
             <details class="act">
@@ -234,16 +256,20 @@ export function LinksPanel(props: {
   return (
     <>
       <div class="lnk-acts">
-        <button type="button" class="btn public center" commandfor="share" command="show-modal">
-          <Globe />
-          New public link
-        </button>
+        {ctx.sharing ? (
+          <button type="button" class="btn public center" commandfor="share" command="show-modal">
+            <Globe />
+            New public link
+          </button>
+        ) : (
+          <p class="note">{KEY_MISSING}</p>
+        )}
         <a class="txtbtn" href={props.previewHref} target="_blank" rel="noopener">
           Preview as public ↗
         </a>
       </div>
       {live.map((link) => (
-        <LinkCard link={link} now={ctx.chrome.now} newest={newest} />
+        <LinkCard link={link} now={ctx.chrome.now} newest={newest} sharing={ctx.sharing} />
       ))}
       {!live.length ? <p class="legend">No active links. Create one with Share.</p> : null}
       {live.length >= 2 ? (
@@ -254,6 +280,7 @@ export function LinksPanel(props: {
             data-action="revoke-all"
             data-collection-id={ctx.collection.id}
             data-count={String(live.length)}
+            data-noun="links"
           >
             Revoke all {live.length} links…
           </button>
@@ -263,7 +290,7 @@ export function LinksPanel(props: {
         <details class="inactive">
           <summary>Show {dead.length} inactive</summary>
           {dead.map((link) => (
-            <LinkCard link={link} now={ctx.chrome.now} newest={newest} />
+            <LinkCard link={link} now={ctx.chrome.now} newest={newest} sharing={ctx.sharing} />
           ))}
         </details>
       ) : null}
@@ -583,11 +610,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                 Everything readable outside your tailnet right now. Revoking takes effect within
                 seconds.
               </p>
-              {sharing ? null : (
-                <p class="note">
-                  Sharing isn't configured on this writer, so link URLs can't be shown.
-                </p>
-              )}
+              {sharing ? null : <p class="note">{KEY_MISSING}</p>}
             </div>
           </div>
           <div class="filters">
@@ -595,7 +618,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
               {(["active", "expired", "revoked"] as const).map((key) => (
                 <a href={`/links?state=${key}`} aria-current={key === filter ? "page" : undefined}>
                   {key[0]?.toUpperCase()}
-                  {key.slice(1)} {counts[key]}
+                  {key.slice(1)} <span data-count-of={key}>{counts[key]}</span>
                 </a>
               ))}
             </nav>
@@ -612,7 +635,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     ) : (
                       <span>{link.collection.title || "Unknown collection"}</span>
                     )}{" "}
-                    · {link.label ?? "(no label)"}
+                    · {link.label || "(no label)"}
                   </span>
                   {isLive(link) ? (
                     <div class="acts">
@@ -629,17 +652,12 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     </div>
                   ) : null}
                   <span class="s">
+                    <StateChip link={link} />
                     <span class={`chip xs${link.revision_id ? "" : " public"}`}>
                       {link.revision_id ? null : <Globe />}
                       {showsText(link, null)}
                     </span>
-                    {link.state === "activating" ? (
-                      <span class="state pending">
-                        <Spinner /> Activating
-                      </span>
-                    ) : link.state === "revoking" ? (
-                      <span data-stops>{STOPS_SOON}</span>
-                    ) : null}
+                    <RevokeNote link={link} inline />
                     {link.collection.deleted ? <span>inactive while in Trash</span> : null}
                     {isLive(link) ? (
                       link.expires_at === null ? (
@@ -679,6 +697,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                 class="txtbtn danger"
                 data-action="revoke-all"
                 data-count={String(counts.active)}
+                data-noun="active links"
               >
                 Revoke all {counts.active} active links…
               </button>

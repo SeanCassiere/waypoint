@@ -731,7 +731,7 @@ function runGuard(directory: string) {
   });
 }
 describe("deterministic share tokens against node:crypto", () => {
-  it("equals wps_ + base64url(HMAC-SHA256(key, link ID)) for random keys and IDs", async () => {
+  it("equals wps_ + base64url(HMAC-SHA256(key, label + link ID)) for random keys and IDs", async () => {
     const cases = Array.from({ length: 100 }, () => ({
       key: randomBytes(32),
       id: newId("shl"),
@@ -741,7 +741,8 @@ describe("deterministic share tokens against node:crypto", () => {
     );
     expect(derived).toEqual(
       cases.map(
-        ({ key, id }) => `wps_${createHmac("sha256", key).update(id, "utf8").digest("base64url")}`,
+        ({ key, id }) =>
+          `wps_${createHmac("sha256", key).update(`waypoint/share-token/v1\n${id}`, "utf8").digest("base64url")}`,
       ),
     );
     expect(derived.every(isShareToken)).toBe(true);

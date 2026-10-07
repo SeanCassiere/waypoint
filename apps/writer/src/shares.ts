@@ -9,29 +9,43 @@ import {
 import type { HttpServices } from "./http.js";
 import type { RevisionRow } from "./read-model.js";
 
+type SharingServices = Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">;
 /**
- * Sharing needs both the reader's public base URL and the key that derives link tokens. With
- * either missing, the share-link API answers 409 and the viewer hides sharing.
+ * Links exist for the reader at WAYPOINT_PUBLIC_BASE_URL. Listing, revoking and extending
+ * them needs only that; creating links and showing their URLs also needs the key that
+ * derives tokens (D50). Without the base URL every share-link endpoint answers 409.
  */
-export function sharingEnabled(s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">): boolean {
+export function linksEnabled(s: SharingServices): boolean {
+  return Boolean(s.publicBaseUrl);
+}
+/** Whether new links can be created (and URLs shown): the base URL and the token key. */
+export function sharingEnabled(s: SharingServices): boolean {
   return sharingConfig(s) !== undefined;
 }
-function sharingConfig(
-  s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">,
-): { base: string; key: Uint8Array } | undefined {
+function sharingConfig(s: SharingServices): { base: string; key: Uint8Array } | undefined {
   return s.publicBaseUrl && s.shareTokenKey
     ? { base: s.publicBaseUrl, key: s.shareTokenKey }
     : undefined;
 }
-/** Answers 409 conflict unless sharing is configured. */
-export function requireSharing(s: Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">): {
-  base: string;
-  key: Uint8Array;
-} {
+/** Answers 409 conflict unless share links are configured (list, revoke, extend). */
+export function requireLinks(s: SharingServices): void {
+  if (!linksEnabled(s)) throw new WaypointError("conflict", "Sharing is not configured");
+}
+/** Answers 409 conflict unless links can be created (create, and a link's URL). */
+export function requireSharing(s: SharingServices): { base: string; key: Uint8Array } {
   const sharing = sharingConfig(s);
-  if (!sharing) throw new WaypointError("conflict", "Sharing is not configured");
+  if (!sharing)
+    throw new WaypointError(
+      "conflict",
+      s.publicBaseUrl
+        ? "Sharing is not configured: WAYPOINT_SHARE_TOKEN_KEY is not set"
+        : "Sharing is not configured",
+    );
   return sharing;
 }
+/** Why a link has no URL (the 409 from /url and the viewer's tooltip). */
+export const URL_UNAVAILABLE =
+  "URL unavailable: this link was created before links became copyable, or under a different share token key. It still works for whoever has it. Create a new link to get a copyable URL.";
 /**
  * A link's stable public URL, without a file path (the reader opens the head file). Null when
  * the token derived from the link ID doesn't hash to the stored token_hash: the link predates
@@ -61,11 +75,14 @@ export type ShareRow = Pick<
 >;
 export const SHARE_COLUMNS = "id,collection_id,revision_id,label,expires_at,revoked_at,created_at";
 /**
- * How long a revocation stays "revoking" once the writer has pushed it: the reader caches a
- * live link for at most 5 s (denials aren't cached), and the writer pushes right after a
- * revoke, so 10 s covers the cache with a margin.
+ * How long a revocation stays "revoking" after the push that carried it finished: the reader
+ * caches a live link for at most 5 s (denials are never cached), so 10 s covers it.
  */
 export const SETTLE_MS = 10_000;
+/** When a change committed at a time reached the cloud (SyncLoop.pushedAt). */
+export interface PushTimes {
+  pushedAt(at: number): number | null;
+}
 export interface ShareCollection {
   id: string;
   public_id: string;
@@ -74,18 +91,22 @@ export interface ShareCollection {
 }
 export type ShareView = ShareLink & { collection: ShareCollection };
 
-/** Derived lifecycle state (B3). */
+/**
+ * Derived lifecycle state (B3). "activating" until a push that started after the link was
+ * created has finished; "revoking" until a push that started after the revocation has
+ * finished and SETTLE_MS more have passed.
+ */
 export function shareState(
   row: ShareRow,
-  lastPushAt: number | null,
+  pushes: PushTimes | undefined,
   now: number,
 ): ShareLink["state"] {
-  if (row.revoked_at !== null)
-    return lastPushAt === null || lastPushAt < row.revoked_at || now - row.revoked_at < SETTLE_MS
-      ? "revoking"
-      : "revoked";
+  if (row.revoked_at !== null) {
+    const pushed = pushes?.pushedAt(row.revoked_at) ?? null;
+    return pushed === null || now - pushed < SETTLE_MS ? "revoking" : "revoked";
+  }
   if (row.expires_at !== null && row.expires_at <= now) return "expired";
-  return lastPushAt === null || row.created_at > lastPushAt ? "activating" : "active";
+  return (pushes?.pushedAt(row.created_at) ?? null) === null ? "activating" : "active";
 }
 
 /**
@@ -100,16 +121,17 @@ export async function shareViews(s: HttpServices, rows: readonly ShareRow[]): Pr
   const [index, collections, hashes] = await Promise.all([
     s.reads.revisionIndex(ids),
     s.reads.collectionsById(ids),
+    // Only this page's links: never every link of a collection.
     sharing
       ? s.waypoint.all<{ id: string; token_hash: string }>(
-          `SELECT id,token_hash FROM share_links WHERE collection_id IN (${ids.map(() => "?").join(",")})`,
-          ids,
+          `SELECT id,token_hash FROM share_links WHERE id IN (${rows.map(() => "?").join(",")})`,
+          rows.map((row) => row.id),
         )
       : Promise.resolve([]),
   ]);
   const tokenHashes = new Map(hashes.map((row) => [row.id, row.token_hash]));
   const now = Date.now();
-  const lastPushAt = s.syncLoop?.lastPushAt ?? null;
+  const pushes = s.syncLoop;
   return Promise.all(
     rows.map(async (row): Promise<ShareView> => {
       const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
@@ -137,7 +159,9 @@ export async function shareViews(s: HttpServices, rows: readonly ShareRow[]): Pr
         mode: row.revision_id ? "pinned" : "latest",
         status,
         publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
-        state: shareState(row, lastPushAt, now),
+        state: shareState(row, pushes, now),
+        revocation_pushed:
+          row.revoked_at === null ? null : (pushes?.pushedAt(row.revoked_at) ?? null) !== null,
         revision_display_number: pinned?.display_number ?? null,
         public_sees:
           status === "active" && !deleted && sees

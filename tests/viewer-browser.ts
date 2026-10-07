@@ -148,13 +148,31 @@ try {
   const card = page.locator(".lnk", { hasText: "Browser review" });
   await card.waitFor();
   assert.equal(await page.locator("header .chip.public").count(), 1, "Public chip shows");
-  // Copy URL on an existing link copies the same URL the dialog showed; Open points at it.
+  // Copy URL on an existing link copies the same URL the dialog showed; Open points at it,
+  // and the button keeps its width while it says Copied.
   await page.evaluate("navigator.clipboard.writeText('')");
-  await card.getByRole("button", { name: /Copy URL/ }).click();
+  const copyUrl = card.getByRole("button", { name: /Copy URL/ });
+  const before = (await copyUrl.boundingBox())?.width ?? 0;
+  await copyUrl.click();
   await card.locator("[data-copy-url][data-copied]").waitFor();
+  assert.equal((await card.locator("[data-copy-url]").boundingBox())?.width, before, "no shift");
   assert.equal(await page.evaluate("navigator.clipboard.readText()"), created);
   assert.equal(await card.locator("[data-open-url]").getAttribute("href"), created);
-  // Revocation shows at once: no reload, the card reads Revoked and notes the reader lag.
+  // Two more links, so "Revoke all" shows (it needs 2+ active links).
+  for (const label of ["Second reviewer", "Third reviewer"]) {
+    const made = await fetch(`${base}/api/collections/${first.collection_id}/share-links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    assert.equal(made.status, 201);
+  }
+  await page.reload();
+  await card.waitFor();
+  const revokeAll = page.locator("#tp-links [data-action=revoke-all]");
+  assert.equal(await revokeAll.textContent(), "Revoke all 3 links…");
+  // Revocation shows at once: no reload, the card reads Revoked, notes that the revocation
+  // hasn't reached the cloud (sync is off here), and the counts follow.
   const revokeUrl = page.url();
   await card.locator("summary", { hasText: "Revoke…" }).click();
   await card.getByRole("button", { name: "Revoke link" }).click();
@@ -162,7 +180,30 @@ try {
   assert.equal(await card.locator("[data-link-state]").textContent(), "Revoked");
   assert.equal(await card.locator("[data-copy-url]").count(), 0, "a revoked link has no Copy URL");
   assert.equal(page.url(), revokeUrl);
-  await page.reload();
+  assert.equal(
+    await card.locator("[data-stops]").textContent(),
+    "Revoked, not yet pushed. Public access continues until it syncs.",
+  );
+  assert.equal(await revokeAll.textContent(), "Revoke all 2 links…");
+  assert.equal(await revokeAll.getAttribute("data-count"), "2");
+  assert.equal(await page.locator("#tab-links .n").textContent(), "2");
+  // /links: a row revoked there gets a Revoked chip and the same note; counts follow, and
+  // Revoke all goes once fewer than two active links remain.
+  await page.goto(`${base}/links`);
+  assert.equal(await page.locator('[data-count-of="active"]').textContent(), "2");
+  const row = page.locator(".r", { hasText: "Second reviewer" });
+  await row.getByRole("button", { name: "Revoke…" }).click();
+  await page.locator("#confirm [data-confirm-ok]").click();
+  await row.locator("[data-stops]").waitFor();
+  assert.equal(await row.locator("[data-link-state]").textContent(), "Revoked");
+  assert.equal(
+    await row.locator("[data-stops]").textContent(),
+    "Revoked, not yet pushed. Public access continues until it syncs.",
+  );
+  assert.equal(await page.locator('[data-count-of="active"]').textContent(), "1");
+  assert.equal(await page.locator('[data-count-of="revoked"]').textContent(), "2");
+  assert.equal(await page.locator("[data-action=revoke-all]").count(), 0);
+  await page.goto(revokeUrl);
   await page.locator(".lnk.dead", { hasText: "Browser review" }).waitFor({ state: "attached" });
   await page.goto(`${base}${latest}`);
   assert.notEqual(
@@ -285,6 +326,7 @@ try {
     { width: 390, height: 844, touch: true },
     { width: 744, height: 1133, touch: true },
     { width: 1024, height: 768, touch: true },
+    { width: 1024, height: 768, touch: false },
     { width: 1440, height: 900, touch: false },
   ];
   // Browser-side checks are strings: this project type-checks tests without the DOM lib.
@@ -304,20 +346,26 @@ try {
   });
   const chrome: Browser = browser;
   for (const { width, height, touch } of widths) {
-    const sized = await chrome.newContext({ viewport: { width, height }, hasTouch: touch });
+    const sized = await chrome.newContext({
+      viewport: { width, height },
+      hasTouch: touch,
+      permissions: ["clipboard-read", "clipboard-write"],
+    });
     const view = await sized.newPage();
     view.on("pageerror", (error) => pageErrors.push(`${width}px: ${error.message}`));
     await view.goto(`${base}${latest}`);
     await view.locator("iframe.frame").waitFor();
-    const phone = width <= 760;
+    // Below 600 px menus are bottom sheets; up to 760 px the tab bar holds Copy and More.
+    const phone = width < 600;
+    const tabbar = width <= 760;
     const triggers: [string, string][] = [
       [
         "copy-menu",
-        phone ? '.tabbar [popovertarget="copy-menu"]' : 'header [popovertarget="copy-menu"]',
+        tabbar ? '.tabbar [popovertarget="copy-menu"]' : 'header [popovertarget="copy-menu"]',
       ],
       [
         "more-menu",
-        phone ? '.tabbar [popovertarget="more-menu"]' : 'header [popovertarget="more-menu"]',
+        tabbar ? '.tabbar [popovertarget="more-menu"]' : 'header [popovertarget="more-menu"]',
       ],
       ["rev-menu", ".revbtn"],
       ["health-pop", "header .health"],
@@ -349,9 +397,7 @@ try {
             await view.evaluate(`(() => {
               const box = document.querySelector("#${id} > .mbox");
               const [x = 0, y = 0] = getComputedStyle(box).transformOrigin.split(" ").map(parseFloat);
-              const trigger = [...document.querySelectorAll('[popovertarget="${id}"]')].find(
-                (node) => !node.closest("[popover]") && node.checkVisibility(),
-              );
+              const trigger = document.querySelector(${JSON.stringify(selector)});
               return JSON.stringify({ rect: box.getBoundingClientRect(), x, y, trigger: trigger?.getBoundingClientRect() ?? null });
             })()`),
           ),
@@ -386,7 +432,10 @@ try {
         [frame.x + frame.width - 16, frame.y + 16],
       ].find(
         ([px = 0, py = 0]) =>
-          px < rect.left || px > rect.right || py < rect.top || py > rect.bottom,
+          px < rect.left - 24 ||
+          px > rect.right + 24 ||
+          py < rect.top - 24 ||
+          py > rect.bottom + 24,
       );
       assert.ok(spot, `${label}: part of the document is uncovered`);
       await press(spot[0] ?? 0, spot[1] ?? 0);
@@ -396,7 +445,17 @@ try {
       await open(id, selector);
       const bar = await view.locator("header.bar").boundingBox();
       assert.ok(bar);
-      await press(phone ? width / 2 : bar.x + 4, bar.y + bar.height + (phone ? 6 : 2));
+      const below = bar.y + bar.height + (touch ? 6 : 2);
+      const outside = [touch ? width / 2 : bar.x + 4, 8, width - 8].find(
+        // Clear of the box by more than touch adjustment's reach.
+        (px) =>
+          px < rect.left - 24 ||
+          px > rect.right + 24 ||
+          below < rect.top - 24 ||
+          below > rect.bottom + 24,
+      );
+      assert.ok(outside !== undefined, `${label}: part of the status line is uncovered`);
+      await press(outside, below);
       await closed(id);
       assert.equal(await isOpen(id), false, `${label}: a press outside closes it`);
       // The closing press doesn't also act on what's beneath (on phones, the status line's
@@ -414,6 +473,63 @@ try {
       await view.keyboard.press("Escape");
       assert.equal(await isOpen(id), false, `${label}: Esc closes it`);
     }
+    // Choosing a menu item closes its menu (the item's action cancels the native hide), and
+    // the toast it shows never holds the touch scrim.
+    const copyTrigger = triggers[0]?.[1] ?? "";
+    await open("copy-menu", copyTrigger);
+    const item = view.locator("#copy-menu").getByRole("menuitem", { name: /Collection ID/ });
+    if (touch) await item.tap();
+    else await item.click();
+    await closed("copy-menu");
+    assert.equal(await isOpen("copy-menu"), false, `a menu item closes its menu at ${width}px`);
+    await view.locator("[data-toast]").waitFor({ state: "visible", timeout: 4000 });
+    await view.locator("[data-toast]").waitFor({ state: "hidden", timeout: 4000 });
+    assert.equal(
+      await view.evaluate(
+        'getComputedStyle(document.querySelector(".pop-scrim")).display === "none" && !document.querySelector(".pop-scrim").classList.contains("linger")',
+      ),
+      true,
+      `no scrim is left behind after the toast at ${width}px`,
+    );
+    await open("rev-menu", ".revbtn");
+    const historyItem = view
+      .locator("#rev-menu")
+      .getByRole("button", { name: /Open History panel/ });
+    if (touch) await historyItem.tap();
+    else await historyItem.click();
+    await closed("rev-menu");
+    assert.equal(
+      await isOpen("rev-menu"),
+      false,
+      `Open History panel closes the menu at ${width}px`,
+    );
+    assert.equal(await view.locator("#tp-history").isVisible(), true);
+    await view.keyboard.press("Escape");
+    // On touch screens a tap that closes a menu doesn't also follow a link in the document.
+    if (touch && !phone) {
+      // #1's head file links to notes/b.md.
+      await view.goto(`${base}${pinned}`);
+      await view.locator("iframe.frame").waitFor();
+      const notes = await view
+        .frameLocator("iframe.frame")
+        .getByRole("link", { name: "Notes" })
+        .boundingBox();
+      assert.ok(notes);
+      await open("health-pop", "header .health");
+      await press(notes.x + 4, notes.y + notes.height / 2);
+      await closed("health-pop");
+      assert.equal(await isOpen("health-pop"), false);
+      await view.waitForTimeout(500);
+      assert.match(
+        String(
+          await view.evaluate(
+            'document.querySelector("iframe.frame").contentWindow.location.pathname',
+          ),
+        ),
+        /\/index\.md$/,
+        `the closing tap didn't follow the document's link at ${width}px`,
+      );
+    }
     // Esc pressed while focus is inside the document closes an open popover too.
     const frame = await view.locator("iframe.frame").boundingBox();
     assert.ok(frame);
@@ -423,6 +539,21 @@ try {
     assert.equal(await isOpen("health-pop"), false, `Esc inside the document at ${width}px`);
     await sized.close();
   }
+  // On the iPad mini (744 px) the History side sheet stays open while stepping revisions.
+  const mini = await chrome.newContext({ viewport: { width: 744, height: 1133 }, hasTouch: true });
+  const miniPage = await mini.newPage();
+  await miniPage.goto(`${base}${thirdPinned}`);
+  await miniPage.locator('.tabbar [data-tab="history"]').tap();
+  await miniPage.locator("#tp-history").waitFor({ state: "visible" });
+  await miniPage.locator("#tp-history").getByRole("link", { name: "Second" }).tap();
+  await miniPage.waitForURL((url) => url.pathname === `${secondPinned}index.md`);
+  await miniPage.locator("#tp-history").waitFor({ state: "visible" });
+  assert.equal(
+    await miniPage.evaluate('document.querySelector("#shell").classList.contains("open")'),
+    true,
+    "the History sheet reopens at 744 px",
+  );
+  await mini.close();
   // Without anchored container queries, script sets the origin from the actual placement.
   const legacy = await chrome.newContext({ viewport: { width: 1440, height: 900 } });
   await legacy.addInitScript({
@@ -446,7 +577,7 @@ try {
   await legacy.close();
   assert.deepEqual(pageErrors, [], "no script errors");
   console.log(
-    "Chromium viewer: landmarks, share create/copy/revoke, copy URL, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts, History tab persistence, light dismiss and popover origins at 390/744/1024/1440: passed",
+    "Chromium viewer: landmarks, share create/copy/revoke, copy URL, copy menu, frame navigation, history, source/hash, revision stepping, revision menu, shortcuts, History tab persistence (744 sheet reopens), light dismiss, menu items closing menus, touch taps not reaching the document, live revoke counts and popover origins at 390/744/1024 (touch and mouse)/1440: passed",
   );
 } finally {
   await browser?.close();

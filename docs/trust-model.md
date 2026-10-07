@@ -43,9 +43,9 @@ All secrets on agent-1 are in `~/.config/waypoint/` (directory mode 700, files 6
 
 ## Share links
 
-- **Format:** `https://waypoint.pingstash.com/s/<token>/c/<collection public id>/…`. The token is `wps_` plus base64url(HMAC-SHA256(share token key, link ID)): 32 bytes that only a holder of the writer's key can produce (D50). The prefix makes leaked tokens easy for secret scanners to spot.
+- **Format:** `https://waypoint.pingstash.com/s/<token>/c/<collection public id>/…`. The token is `wps_` plus base64url(HMAC-SHA256(share token key, `"waypoint/share-token/v1\n"` + link ID)): 32 bytes that only a holder of the writer's key can produce (D50). The prefix makes leaked tokens easy for secret scanners to spot.
 - **Recoverable, not stored:** the database keeps only `sha256(token)`, and the reader checks that hash. The writer re-derives a link's token from its ID whenever the owner asks for its URL, so the URL isn't a secret from the owner. A leaked database alone doesn't leak working URLs; the database plus the key does.
-- **Rotating the key:** existing links keep working (the reader checks the stored hash), but the writer can no longer show their URLs (`url: null`); new links use the new key. If the key leaks, rotate it and revoke and recreate the links that matter. Links created before D50 used random tokens and never had a recoverable URL.
+- **Rotating the key:** existing links keep working (the reader checks the stored hash), but the writer can no longer show their URLs (`url: null`); new links use the new key. If the key leaks, rotate it and revoke and recreate the links that matter. Links created before D50 used random tokens and never had a recoverable URL. The writer keeps no previous key, so the UI shows such links as "URL unavailable".
 - **Scope:** one collection. A link either **follows the latest** revision or is **pinned** to one revision (D20). Viewers of a following link never see older revisions, since an older revision may contain something later removed.
 - **Lifecycle:** created and revoked only on the tailnet. They can carry an expiry. Revocation takes effect within about 5 s of the writer's push, which starts immediately after the revoke (the reader caches live links for at most 5 s per isolate and never caches denials).
 - **Tombstones win:** deleting a collection makes every link to it return 404. Undeleting reactivates links that were not revoked or expired; accepting a purge immediately revokes all its links.
@@ -61,7 +61,7 @@ All secrets on agent-1 are in `~/.config/waypoint/` (directory mode 700, files 6
 
 Content is written by agents, so treat it as **untrusted HTML** wherever someone other than the owner might view it.
 
-- **On the tailnet** (D23): agent HTML and markdown renditions are served from the writer's own origin without sandboxing. The owner trusts their own agents, and the convenience is worth it. Consequence: a malicious document opened in the tailnet viewer could call the writer API. The writer's CSRF checks (`Origin`/`Sec-Fetch-Site`, JSON-only) stop *other* websites, but not same-origin content. Revisit this if untrusted parties ever get tailnet access.
+- **On the tailnet** (D23): agent HTML and markdown renditions are served from the writer's own origin without sandboxing. The owner trusts their own agents, and the convenience is worth it. Consequence: a malicious document opened in the tailnet viewer could call the writer API. The writer's CSRF checks (`Origin`/`Sec-Fetch-Site`, JSON-only) stop *other* websites, but not same-origin content. Revisit this if untrusted parties ever get tailnet access. Such content can also read working public share URLs (`GET /api/share-links`, D50). That's no new power: it could already create links.
 - **In public**, content is sandboxed so a shared document can't act as the reader's origin:
   - Raw content responses carry `Content-Security-Policy: sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms`, **without** `allow-same-origin`, so they run in an opaque origin.
   - The reader shell embeds content in `<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox">`.

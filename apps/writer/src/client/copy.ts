@@ -35,6 +35,8 @@ export function showCopied(button: HTMLElement, ms = 1600): void {
   const previous = restore.get(button);
   if (previous) clearTimeout(previous.timer);
   const nodes = previous?.nodes ?? [...button.childNodes];
+  // Keep the button's width while it says "✓ Copied", so nothing next to it moves.
+  if (!previous) button.style.minWidth = `${button.getBoundingClientRect().width}px`;
   button.dataset.copied = "";
   button.replaceChildren("✓ Copied");
   restore.set(button, {
@@ -43,6 +45,7 @@ export function showCopied(button: HTMLElement, ms = 1600): void {
       restore.delete(button);
       delete button.dataset.copied;
       button.replaceChildren(...nodes);
+      button.style.minWidth = "";
     }, ms),
   });
 }

@@ -331,7 +331,11 @@ export function bindActions(): void {
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
     const action = target ? actions.get(target.dataset.action ?? "") : undefined;
     if (!target || !action) return;
+    // preventDefault also cancels the item's popovertargetaction="hide", so a menu item
+    // closes its own menu before acting (focus may move to what the action shows).
     event.preventDefault();
+    const menu = target.closest<HTMLElement>("[popover]");
+    if (menu?.matches(":popover-open") && menu.popover === "auto") menu.hidePopover();
     run(async () => {
       await action(target);
     }, toast);

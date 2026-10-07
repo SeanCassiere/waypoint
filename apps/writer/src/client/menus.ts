@@ -91,7 +91,8 @@ export function bindMenus(): void {
     true,
   );
   const anchored = CSS.supports("container-type: anchored");
-  for (const popover of $$("[popover]")) {
+  // Menus and popovers only: the toast is a manual popover and must never hold the scrim.
+  for (const popover of $$(".menu[popover], .pop2[popover]")) {
     // beforetoggle fires synchronously as the popover hides, before the tap's click.
     popover.addEventListener("beforetoggle", (event) => {
       if (event instanceof ToggleEvent && event.newState === "closed") linger();

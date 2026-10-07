@@ -121,7 +121,9 @@ try {
   }
   if (Boolean(config.publicBaseUrl) !== Boolean(config.shareTokenKey))
     console.error(
-      `Sharing is off: ${config.publicBaseUrl ? "WAYPOINT_SHARE_TOKEN_KEY" : "WAYPOINT_PUBLIC_BASE_URL"} is not set`,
+      config.publicBaseUrl
+        ? "WAYPOINT_SHARE_TOKEN_KEY is not set: existing links can be listed and revoked, but new links can't be created and URLs can't be shown"
+        : "Sharing is off: WAYPOINT_PUBLIC_BASE_URL is not set",
     );
   const shutdownController = new AbortController();
   const server = serve({
@@ -135,7 +137,9 @@ try {
       ingest,
       bucket,
       committer,
-      syncLoop,
+      // With sync off nothing reaches a cloud: no push times, so links stay "activating" or
+      // "revoking" (not yet pushed) instead of pretending the local no-op push published them.
+      ...(config.sync ? { syncLoop } : {}),
       environment: config.environment,
       port: config.port,
       shutdownSignal: shutdownController.signal,

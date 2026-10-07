@@ -55,7 +55,14 @@ function hmacKey(key: Uint8Array): Promise<HmacKey> {
 }
 
 /**
- * The share token of a link: `wps_` + base64url(HMAC-SHA256(key, utf8(shareLinkId))). Any
+ * Domain separation for the HMAC input, so the share token key can never produce a value
+ * that means something else (D50). A new version would mint different tokens.
+ */
+export const SHARE_TOKEN_LABEL = "waypoint/share-token/v1\n";
+
+/**
+ * The share token of a link: `wps_` + base64url(HMAC-SHA256(key, utf8(SHARE_TOKEN_LABEL +
+ * shareLinkId))). Any
  * writer holding the key can reproduce a link's URL from its ID; the database stores only
  * hashShareToken(token).
  */
@@ -66,7 +73,7 @@ export async function deriveShareToken(key: Uint8Array, shareLinkId: string): Pr
   const mac = await crypto.subtle.sign(
     "HMAC",
     await hmacKey(key),
-    new TextEncoder().encode(shareLinkId),
+    new TextEncoder().encode(SHARE_TOKEN_LABEL + shareLinkId),
   );
   return `wps_${base64url(new Uint8Array(mac))}`;
 }

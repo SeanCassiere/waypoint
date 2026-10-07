@@ -14,7 +14,7 @@ import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.js";
 import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.js";
-import { collectionLinks, sharingEnabled, type ShareView } from "../../shares.js";
+import { collectionLinks, linksEnabled, sharingEnabled, type ShareView } from "../../shares.js";
 import { rawPath, shellPath } from "../../viewer-paths.js";
 import { getChrome } from "../chrome.js";
 import {
@@ -55,8 +55,9 @@ export interface CollectionContext {
   byId: Map<string, TimelineRow>;
   publicSees: RevisionRow | undefined;
   url: URL;
-  /** Share links (any state); empty when sharing isn't configured. */
+  /** Share links (any state); empty without WAYPOINT_PUBLIC_BASE_URL. */
   links: ShareView[];
+  /** Whether links can be created and copied (the token key is set too). */
   sharing: boolean;
 }
 
@@ -146,7 +147,7 @@ export async function loadCollection(
   const [manifest, changes, links] = await Promise.all([
     s.reads.manifestOf(revision),
     s.reads.changesFor([...new Set(shown)]),
-    sharingEnabled(s) ? collectionLinks(s, collection.id) : Promise.resolve([]),
+    linksEnabled(s) ? collectionLinks(s, collection.id) : Promise.resolve([]),
   ]);
   const timeline: TimelineRow[] = rows.map((row) => ({
     id: row.id,
@@ -580,13 +581,13 @@ export function TabBar() {
         </span>
         <span>History</span>
       </button>
-      <button type="button" popovertarget="copy-menu">
+      <button type="button" popovertarget="copy-menu" aria-haspopup="menu">
         <span class="i" aria-hidden="true">
           ⧉
         </span>
         <span>Copy</span>
       </button>
-      <button type="button" popovertarget="more-menu">
+      <button type="button" popovertarget="more-menu" aria-haspopup="menu">
         <span class="i" aria-hidden="true">
           ⋯
         </span>
