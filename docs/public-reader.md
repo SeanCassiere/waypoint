@@ -1,8 +1,8 @@
-# Public reader (phase 2)
+# Public reader
 
 The reader is a Cloudflare Worker on **`waypoint.pingstash.com`** that serves shared collections to people outside the tailnet. It is **read-only forever**. There is no upload, edit, or delete path, and no admin UI.
 
-Phase 2 implements the writer share-link API and the read-only Worker. Deployment is separate.
+It is live: `waypoint-reader` serves prod at `waypoint.pingstash.com`, and `waypoint-reader-dev` serves the dev environment at `waypoint-dev.pingstash.com`. Both deploy automatically after the writer ([infrastructure.md](infrastructure.md#cloudflare-workers-p2)).
 
 ## Why Workers (not Railway)
 
@@ -111,7 +111,7 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 | Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
 | Shell runs only its own code | Hash-only CSP for the one inline style and script; frame messages are validated against the frame's window and the shell's own links |
 
-## Later (not phase 2)
+## Later
 
 - **Password-protected links:** a password page with Turnstile, then a short-lived session token in the path.
 - **Audience grants:** one grant per person, scoped to an audience of collections.

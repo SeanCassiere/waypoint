@@ -6,7 +6,7 @@ Waypoint stores and serves the artifacts that AI-agent-driven development produc
 - **The reader** runs on Cloudflare Workers at `waypoint.pingstash.com`. It is read-only forever, and it serves only what a share link allows.
 - **Durability** comes from the cloud: Turso (SQLite) holds metadata and Cloudflare R2 holds file contents.
 
-> Status: **phase 1 complete** (2026-10-07). The writer runs on agent-1 at **https://waypoint.tail7aca06.ts.net** (tailnet only), backed by Turso and Cloudflare R2. Agents write through the MCP server; open `/mcp` on the writer for setup snippets. New here? Start with the [glossary](docs/glossary.md), then the [overview](docs/overview.md).
+> Status: **phase 2 complete** (2026-10-08). The writer runs on agent-1 at **https://waypoint.tail7aca06.ts.net** (tailnet only) with the Folio UI, backed by Turso and Cloudflare R2. Share links are live: the public reader serves them at **https://waypoint.pingstash.com** (prod) and **https://waypoint-dev.pingstash.com** (dev). Agents write through the MCP server; open `/mcp` on the writer for setup snippets. New here? Start with the [glossary](docs/glossary.md), then the [overview](docs/overview.md).
 
 ## Repository layout
 
@@ -14,12 +14,15 @@ Waypoint stores and serves the artifacts that AI-agent-driven development produc
 |---|---|
 | `packages/core` | Runtime-agnostic domain logic: IDs, public IDs, paths, manifests, errors, URLs, API types |
 | `packages/render` | Markdown renditions (deterministic, self-contained HTML) |
+| `packages/ui` | Runtime-agnostic UI shared by the writer and the reader: design tokens, escaping, the public shell |
 | `packages/mcp` | Stdio MCP server for agents, bundled into a tarball the writer serves |
 | `apps/writer` | The tailnet writer: API, viewer, queue, committer, sync, restore |
-| `deploy/` | Docker Compose (writer + Tailscale sidecar), deploy script, operator runbook |
-| `spikes/` | Phase 0 experiments and their results |
+| `apps/reader` | The public read-only reader (Cloudflare Worker) and its Wrangler config |
+| `deploy/` | Docker Compose (writer + Tailscale sidecar), writer and reader deploy scripts, operator runbook |
+| `scripts/` | Dev helpers: `fetch-tursodb.sh`, `demo-writer.ts` (seeded local writer for UI work), `live-smoke.ts` (dev-cloud smoke test), `check-core-imports.mjs` |
+| `tests/` | Cross-package tests, including the real-Chromium browser checks |
 
-Development: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and `pnpm build`. Sync tests need `scripts/fetch-tursodb.sh` and `TURSODB_BIN`.
+Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and `pnpm build`. Sync tests also need a local `tursodb`: run `scripts/fetch-tursodb.sh` (Linux x64), then `export TURSODB_BIN=$PWD/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb`. After a build, `pnpm test:browser` and `pnpm test:browser:reader` run the writer viewer and the public reader shell in Chromium. To run a writer locally, see [AGENTS.md](AGENTS.md#developing).
 
 ## Docs
 
@@ -32,8 +35,9 @@ Development: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and 
 | [Data model](docs/data-model.md) | Schema, IDs, invariants, migrations |
 | [Write path & sync](docs/write-path-and-sync.md) | Ingest, local queue, R2 upload, Turso Sync, retries, restore |
 | [API & MCP](docs/api-and-mcp.md) | HTTP API and MCP tools for agents |
-| [Public reader](docs/public-reader.md) | Phase 2: Workers reader, share links, safeguards |
+| [Public reader](docs/public-reader.md) | The Workers reader, share links, safeguards |
 | [Infrastructure](docs/infrastructure.md) | Turso, R2, Cloudflare, and Tailscale setup checklist |
 | [Provisioning](docs/provisioning.md) | Step-by-step: obtaining and verifying every account, token, bucket, and DNS item for the writer and the reader |
-| [Roadmap](docs/roadmap.md) | Phases, spikes, deferred work |
+| [Roadmap](docs/roadmap.md) | Phases, what's next, deferred work |
+| [Turso Sync notes](docs/turso-sync-notes.md) | Phase 0 findings on Turso Sync, the Turso clients and R2 |
 | [Decisions](docs/decisions.md) | Decision log with rationale |

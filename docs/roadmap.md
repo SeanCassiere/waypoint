@@ -1,26 +1,16 @@
 # Roadmap
 
-## Phase 0: setup and spikes (before writing product code)
+## Phase 0: setup and spikes
 
-> **Results, 2026-10-07:** S1, S2 (Linux), S3, and S4 are done. See [`spikes/RESULTS.md`](../spikes/RESULTS.md). Still unverified:
-> - Turso Sync on macOS arm64
-> - a read-only Turso token with the serverless client
-> - the serverless client inside the Workers runtime
-> - whether R2 bills for 412 responses
-> - undelete races between writers
+> **Done, 2026-10-07.** Four throwaway spikes (S1–S4) checked Turso Sync, the Turso clients and R2 before any product code was written; the repo scaffold and the dev environment were set up. The spike code has since been removed.
 
-Each spike is a short, throwaway experiment whose result goes back into these docs.
-
-| Spike | Question | Affects |
-|---|---|---|
-| **S1: Turso Sync multi-writer** | With two local replicas, using `tursodb --sync-server`: <ul><li>Is last-push-wins decided per row or per column?</li><li>What happens when a pushed insert violates a `UNIQUE` index on the other side?</li><li>Do deletes (purge, undelete) propagate correctly?</li><li>Do identical inserts from two writers merge cleanly?</li><li>Do pulls apply rows in an order that satisfies foreign keys, and does the sync layer respect `PRAGMA foreign_keys`?</li><li>Purge races: writer B commits a revision for a collection that writer A has purged; B pushes a title update after the purge; A's blob GC deletes a hash that B's queue still references.</li></ul> | Tombstone design, `UNIQUE(public_id)`, FK policy, multi-writer purge |
-| **S2: Turso platform check** | <ul><li>Does `@tursodatabase/sync` run under Node 24 on agent-1 (Linux x64) and on the MacBook Air (macOS arm64)?</li><li>How do bootstrap, `checkpoint()`, and a push while offline behave?</li><li>Can `@tursodatabase/serverless` with a `--read-only` token query a `--tursodb` (Sync) database? The reader depends on this.</li></ul> | Writer runtime, reader feasibility |
-| **S3: R2 conditional PUT** | Using `@aws-sdk/client-s3` against R2: does `If-None-Match: *` return 412 for an existing key, and does that 412 count as a billable Class A operation?<br>**2026-10-07: the 412 is confirmed** (AWS CLI 2.37.9, `--if-none-match '*'` → `PreconditionFailed`). Whether it is billed is still unknown. | Commit procedure |
-| **S4: Migration rehearsal harness** | A script that applies a migration on two replicas and checks they converge. It is reused for every future migration. | Migration discipline |
-
-Also in phase 0:
-- Provision the **dev** environment ([infrastructure.md](infrastructure.md), the P1 items).
-- Set up the repo scaffold: pnpm workspace, TypeScript, lint and format, and the core/writer/reader/mcp layout.
+Phase 0 findings, in short (details in [turso-sync-notes.md](turso-sync-notes.md)):
+- **Turso Sync merges per column**, last push wins; a `UNIQUE` violation fails the whole push and a pull replaces the local row (so constraint failures are surfaced, D35).
+- **Pulls bypass foreign keys**, so FKs are off on `waypoint.db` and the committer enforces invariants (D33). A purge can race an unpushed child row, so purge stays single-writer.
+- **Offline pushes fail cleanly** and succeed later; `checkpoint()` after a push keeps the WAL bounded; `bootstrapIfEmpty: false` is ignored in 0.8.2, so a first start needs the cloud.
+- **`queue.db` uses `@tursodatabase/database`** alongside the sync DB (D34); the serverless client reads a Sync DB and accepts `turso://` URLs.
+- **R2 conditional PUT** (`If-None-Match: *`) returns 412 for an existing key.
+- **Additive migrations** converge across two replicas when rolled out one writer at a time.
 
 ## Phase 1: MVP (tailnet writer + cloud durability)
 
@@ -47,33 +37,44 @@ Also in phase 0:
   - Raw routes, Trash view
   - Status page: queue, failed items, retry and drop
 - **Restore:** bootstrapping a fresh writer from the cloud, `waypoint-writer restore --from-bucket`, and `--merge`, all **exercised in a test**
-- **Prod environment provisioned;** writer running on agent-1 as a service (systemd)
+- **Prod environment provisioned;** writer running on agent-1 in Docker Compose behind a Tailscale sidecar
 - **MCP server configured** on agent-1 and the MacBook Air
 
 **Done when:** an agent on the MacBook Air can create a collection and add revisions over MCP, the URL opens on any tailnet device, and wiping agent-1's data directory followed by a restart loses nothing that had reached `synced`. Anything that was only `committed` is recovered with `restore --merge`.
 
-## Phase 2: public reader
+## Phase 2: public reader and Folio
 
-- The `share_links` table, with share and revoke in the writer's API and viewer. The viewer's share button creates a following link from "latest" and a pinned link from a pinned revision.
-- The Worker reader on `waypoint.pingstash.com`, with all safeguards in [public-reader.md](public-reader.md)
-- Access events written to Analytics Engine
-- The prod Worker, bindings, and custom domain provisioned
+> **Done, 2026-10-08.** PRs #17 (share links and the reader), #19 (Folio UI, rendition v2), #20 (sharp override), #21 (CI-tolerant CPU budget). Verified:
+> - **Live:** the reader Workers serve `https://waypoint.pingstash.com` (prod) and `https://waypoint-dev.pingstash.com` (dev), each on its own custom domain with read-only Turso and R2 credentials. Share links were exercised end to end on the dev reader, and `/healthz/deep` reaches Turso and R2 on both.
+> - **Deploys:** one pipeline after CI on `main`: the writer, then the dev reader, then the prod reader. Each reader deploy smoke-tests the live hostname (health, deep health, a uniform 404, the root page, `robots.txt`) and rolls back on failure.
+> - **Security:** an adversarial review of the reader (enumeration, capability tampering, cross-collection and pinned-revision scope, token leakage, CSP and sandbox escapes) was ported into `tests/reader-probe.test.ts`, `tests/reader-security.test.ts` and the Chromium check `pnpm test:browser:reader`. A 2,000-file shell stays under the Workers CPU budget (`tests/reader-cpu.test.ts`).
+> - **Renditions v2:** `RENDERER_VERSION` is 2 (the Folio reading template with the frame location reporter), and existing markdown on prod was re-rendered with `waypoint-writer rerender`.
 
-## Later (unscheduled)
+- **Share links:** the `share_links` table; create, list, extend and revoke (single and bulk) in the writer API and viewer; following vs. pinned links; expiry; purge revokes immediately; token hashes in collection snapshots, so restore keeps links valid.
+- **The reader:** a Cloudflare Worker with every safeguard in [public-reader.md](public-reader.md): deny by default with one uniform 404, per-revision raw capabilities, sandboxed content, hash-only CSP, rate limiting on denials, and access events in Analytics Engine.
+- **Folio:** the redesigned writer viewer (Recent, collection shell, Changes, Gallery, Links, Trash, Status, Connect an agent), the public shell shared through `packages/ui`, and a public preview (`?as=public`) on the writer.
+- **Provisioned:** both reader Workers, their custom domains, bindings and secrets; see [infrastructure.md](infrastructure.md).
 
+## In progress
+
+- **PR previews.** _(In progress; details to follow.)_
+
+## Next and deferred (unscheduled)
+
+- **Grants beyond share links:** password-protected links and audience grants (see [public-reader.md](public-reader.md#later))
+- **Comments** from share viewers (the first non-read public operation; needs its own design)
+- **Multi-writer-safe purge:** purge markers that survive sync, plus a grace period before blob GC. Required before a second writer goes live.
+- **Multiple writers in practice:** a second writer machine, or Kubernetes
+- **Tailscale Services** for the writer, instead of a sidecar node per service
 - Bulk "retry all failed" for the queue
-- Mermaid diagrams in renditions, as a versioned script under `/assets/`
-- Multi-writer-safe purge: purge markers that survive sync, plus a grace period before blob GC. Required before a second writer goes live.
 - A CLI, a thin wrapper over the HTTP API, if it turns out to be useful
-- Grants beyond share links: passwords and audiences
-- Comments
+- Mermaid diagrams in renditions, as a versioned script under `/assets/`
 - Single-file redaction
-- Search
 - Pruning the local blob cache
 - Owner-facing collection edits beyond the current viewer
-- Multiple writers in practice: a second writer machine, or Kubernetes
 
 ## Open questions
 
-- **Renderer details:** which markdown library and highlighter, and the default styling for rendered markdown.
-- **Viewer shell/iframe URL syncing:** confirm that same-origin iframe navigation tracking works smoothly with the browser's back and forward buttons.
+- Whether R2 bills a 412 from a conditional PUT as a Class A operation.
+- Turso Sync on macOS arm64, if the MacBook Air ever runs a writer.
+- Undelete races between two writers (untested; see [turso-sync-notes.md](turso-sync-notes.md#still-unverified)).
