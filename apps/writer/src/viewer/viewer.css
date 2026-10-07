@@ -1058,40 +1058,34 @@ a.chip.public:hover {
 .status1 {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px 10px;
   padding: 7px 16px;
   border-bottom: 1px solid var(--rule);
   font-size: 13px;
   background: var(--surface);
   flex-wrap: wrap;
 }
-/* One line: segments truncate; on narrower screens their long explanations give way. */
-@media (max-width: 1100px) {
+/* Segments stay short; on narrower screens their long explanations give way. The line wraps
+   to a second row rather than clip what it exists to say (spec §4.12). */
+@media (max-width: 1099.98px) {
   .status1:has(.sepdot) .long,
   .status1 .seg1:has(> .long:only-child),
   .status1 .sepdot:has(+ .seg1 > .long:only-child) {
     display: none;
   }
 }
-.status1 {
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-.status1 .seg1 {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 0;
-}
-/* Short state segments (failed, uploading) keep their words; explanations truncate. */
-.status1 .seg1:has(.long) {
-  flex-shrink: 1;
-}
 .status1 .seg1 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+/* State words (failed, uploading, public) never break or shrink; explanations wrap. */
+.status1 .f,
+.status1 .p,
+.status1 .pubseg {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .status1 .sepdot {
   color: var(--faint);
@@ -1108,20 +1102,9 @@ a.chip.public:hover {
   color: var(--public);
   font-weight: 650;
 }
-.status1.failed {
-  background: var(--failed-bg);
-  border-color: var(--failed-line);
-}
-.status1.pending {
-  background: var(--pending-bg);
-  border-color: var(--pending-line);
-}
-.status1.public {
-  background: var(--public-bg);
-  border-color: var(--public-line);
-}
-.status1.info {
-  background: var(--sunken);
+/* The phone line: one tap target with a real ellipsis (spec §4.12, §7). */
+.status1 .stap {
+  display: none;
 }
 .status1 .err {
   display: inline;
@@ -2654,13 +2637,34 @@ h3.sec .n {
   }
   .status1 {
     flex-wrap: nowrap;
+    padding: 0 10px 0 0;
+    min-height: 44px;
+  }
+  .status1 > .seg1,
+  .status1 > .sepdot,
+  .status1 > .grow {
+    display: none;
+  }
+  .status1 .stap {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    padding: 0 16px;
+    line-height: 44px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-height: 44px;
+    text-decoration: none;
+    color: var(--ink-2);
   }
-  .status1 .long {
-    display: none;
+  .status1.failed .stap {
+    color: var(--failed);
+  }
+  .status1.pending .stap {
+    color: var(--pending);
+  }
+  .status1.public .stap {
+    color: var(--public);
   }
   details.sees .sum-sm {
     display: inline;

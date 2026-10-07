@@ -1,6 +1,7 @@
 import { shellPath } from "../viewer-paths.js";
 import { clockOf, dayLabel, formatTime } from "../viewer/timefmt.js";
 import { $, $$, el, shellRoot, storage } from "./dom.js";
+import { refreshStatusLine } from "./status-line.js";
 
 export interface ReadMark {
   id: string;
@@ -114,11 +115,18 @@ export function bindReadMarks(): void {
         segment.remove();
         changes.remove();
         dismiss.remove();
-        if (!line.querySelector(".seg1")) line.hidden = true;
+        refreshStatusLine();
       });
       const empty = line.hidden || !line.querySelector(".seg1");
       if (empty) {
-        line.replaceChildren(segment, el("span", { class: "grow" }), changes, dismiss);
+        const tap = $("[data-status-tap]", line);
+        line.replaceChildren(
+          ...(tap ? [tap] : []),
+          segment,
+          el("span", { class: "grow" }),
+          changes,
+          dismiss,
+        );
         line.className = "status1 info";
       } else {
         // Spec order: failed, uploading, public, then new since last read, then older revision.
@@ -134,9 +142,12 @@ export function bindReadMarks(): void {
         // One primary action per line: See changes only when the line has none yet.
         if (!line.querySelector(".btn")) line.append(changes);
         line.append(dismiss);
-        dismiss.addEventListener("click", () => separator.remove());
+        dismiss.addEventListener("click", () => {
+          separator.remove();
+          refreshStatusLine();
+        });
       }
-      line.hidden = false;
+      refreshStatusLine();
     }
   }
   if (root.dataset.revisionId === latestId) setTimeout(markRead, 3000);

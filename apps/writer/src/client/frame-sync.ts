@@ -2,6 +2,7 @@ import { frameLocationHref } from "@waypoint/ui";
 
 import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.js";
 import { $, $$, el, shellRoot } from "./dom.js";
+import { refreshStatusLine } from "./status-line.js";
 
 /** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
 const SHELL_PARAMS = ["panel", "history"];
@@ -21,15 +22,16 @@ export function withShellParams(search: string): string {
 function frameNotice(message: string | null, back?: { href: string; label: string }): void {
   const line = $("[data-status]");
   if (!line) return;
-  $("[data-frame-notice]", line)?.remove();
+  const had = $("[data-frame-notice]", line);
+  had?.remove();
   if (!message) {
-    if (!line.querySelector(".seg1")) line.hidden = true;
+    if (had) refreshStatusLine();
     return;
   }
   const segment = el("span", { class: "seg1", attrs: { "data-frame-notice": "" } }, message);
   if (back) segment.append(" ", el("a", { text: back.label, attrs: { href: back.href } }));
   line.prepend(segment);
-  line.hidden = false;
+  refreshStatusLine();
 }
 
 export function bindFrameSync(): void {
