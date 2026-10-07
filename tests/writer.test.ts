@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm, unlink, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -19,7 +19,7 @@ import {
 } from "../apps/writer/src/migrations.js";
 import { ReadModel } from "../apps/writer/src/read-model.js";
 import { writerRenderer } from "../apps/writer/src/renderer.js";
-import { newId, mintRevisionId } from "../packages/core/src/index.js";
+import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.js";
 function noop(): void {}
 let dir: string;
 let close: () => Promise<void>;
@@ -241,17 +241,335 @@ describe("ingest and read model", () => {
   });
   it("soft deletes pending collections and allows undelete", async () => {
     const first = await ingest.create({ title: "Delete me", files: [await stored("one")] });
-    expect(await reads.listCollections()).toHaveLength(1);
+    expect((await reads.searchCollections()).collections).toHaveLength(1);
     expect(
       (await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" })).status,
     ).toBe(200);
-    expect(await reads.listCollections()).toHaveLength(0);
-    expect(await reads.listCollections("", 50, true)).toHaveLength(1);
+    expect((await reads.searchCollections()).collections).toHaveLength(0);
+    expect((await reads.searchCollections({ include_deleted: true })).collections).toHaveLength(1);
     expect(
       (await app.request(`/api/collections/${first.collection_id}/undelete`, { method: "POST" }))
         .status,
     ).toBe(200);
-    expect(await reads.listCollections()).toHaveLength(1);
+    expect((await reads.searchCollections()).collections).toHaveLength(1);
+  });
+  it("searches titles and nested metadata, filters, identifiers, and paginates", async () => {
+    const file = await stored("head");
+    const a = await ingest.create({
+      title: "Atlas plan",
+      metadata: { project: "waypoint", tags: ["research"], nested: { label: "deep value" } },
+      files: [file],
+    });
+    const b = await ingest.create({ title: "Other", metadata: { tags: ["atlas"] }, files: [file] });
+    const c = await ingest.create({ title: "Third", files: [file] });
+    const search = async (query: string) => (await reads.searchCollections({ query })).collections;
+    expect((await search("atlas")).map((item) => [item.id, item.match])).toEqual(
+      expect.arrayContaining([
+        [a.collection_id, "title"],
+        [b.collection_id, "metadata"],
+      ]),
+    );
+    expect((await search("research"))[0]?.id).toBe(a.collection_id);
+    expect((await search("deep value"))[0]?.id).toBe(a.collection_id);
+    expect(await search("nested")).toHaveLength(0);
+    const detail = await reads.getCollection(a.collection_id);
+    for (const query of [
+      a.collection_id,
+      detail.public_id,
+      detail.public_id.toUpperCase(),
+      a.latest_url,
+      a.url,
+      detail.revision?.files[0]?.url ?? "",
+    ])
+      expect((await search(query))[0]).toMatchObject({ id: a.collection_id, match: "id" });
+    expect(
+      (
+        await reads.searchCollections({ metadata: { tags: "research", project: "waypoint" } })
+      ).collections.map((item) => item.id),
+    ).toEqual([a.collection_id]);
+    expect(
+      (await reads.searchCollections({ metadata: { project: "wrong" } })).collections,
+    ).toHaveLength(0);
+    expect(
+      (await reads.searchCollections({ updated_after: Date.now() + 1000 })).collections,
+    ).toHaveLength(0);
+    const committedQueries = vi.spyOn(waypoint, "all");
+    const queueQueries = vi.spyOn(queue, "all");
+    await reads.searchCollections({ limit: 1 });
+    const onePageQueries = committedQueries.mock.calls.length + queueQueries.mock.calls.length;
+    committedQueries.mockClear();
+    queueQueries.mockClear();
+    await reads.searchCollections({ limit: 3 });
+    expect(committedQueries.mock.calls.length + queueQueries.mock.calls.length).toBe(
+      onePageQueries,
+    );
+    committedQueries.mockRestore();
+    queueQueries.mockRestore();
+    expect((await reads.searchCollections({ sort: "created" })).collections[0]?.id).toBe(
+      c.collection_id,
+    );
+    const first = await reads.searchCollections({ limit: 2 });
+    const inserted = await ingest.create({ title: "Concurrent", files: [file] });
+    const remainingId = [a.collection_id, b.collection_id, c.collection_id].find(
+      (id) => !first.collections.some((item) => item.id === id),
+    );
+    if (!remainingId) throw new Error("Missing second-page collection");
+    const originalTitle = (await reads.getCollection(remainingId)).title;
+    const edited = await app.request(`/api/collections/${remainingId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Changed during scan" }),
+    });
+    expect(edited.status).toBe(200);
+    const second = await reads.searchCollections({ limit: 2, cursor: first.next_cursor ?? "" });
+    expect([...first.collections, ...second.collections].map((item) => item.id).toSorted()).toEqual(
+      [a.collection_id, b.collection_id, c.collection_id].toSorted(),
+    );
+    expect(second.collections.some((item) => item.id === inserted.collection_id)).toBe(false);
+    expect(second.collections.find((item) => item.id === remainingId)?.title).toBe(originalTitle);
+    const unicode = await ingest.create({
+      title: "Café",
+      metadata: { label: "Résumé" },
+      files: [file],
+    });
+    expect((await search("CAFÉ"))[0]?.id).toBe(unicode.collection_id);
+    expect((await search("résumé"))[0]?.id).toBe(unicode.collection_id);
+    const boolean = await ingest.create({
+      title: "Flags",
+      metadata: { active: true, archived: false },
+      files: [file],
+    });
+    expect((await search("true"))[0]?.id).toBe(boolean.collection_id);
+    expect((await search("false"))[0]?.id).toBe(boolean.collection_id);
+    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [a.revision_id]);
+    const failed = (await reads.searchCollections({ query: a.collection_id })).collections[0];
+    expect(failed).toMatchObject({
+      revision_count: 1,
+      latest_revision: null,
+      updated_at: detail.created_at,
+    });
+    await app.request(`/api/collections/${b.collection_id}`, { method: "DELETE" });
+    expect(await search(b.collection_id)).toHaveLength(0);
+    expect(
+      (await reads.searchCollections({ query: b.collection_id, include_deleted: true }))
+        .collections[0]?.deleted,
+    ).toBe(true);
+  });
+  it("validates search filters and returns text and binary heads", async () => {
+    const markdown = await ingest.create({
+      title: "Head",
+      files: [await stored("VERSION ONE", "index.md")],
+    });
+    const response = await app.request(
+      `/api/collections/${(await reads.getCollection(markdown.collection_id)).public_id.toUpperCase()}?include_head=1`,
+    );
+    expect(await response.json()).toMatchObject({
+      head: { path: "index.md", text: "VERSION ONE", truncated: false },
+    });
+    const binary = await ingest.create({
+      title: "Binary",
+      files: [await stored("\u0000\u0001", "image.png")],
+    });
+    expect(
+      await (await app.request(`/api/collections/${binary.collection_id}?include_head=1`)).json(),
+    ).toMatchObject({ head: { text: null } });
+    const html = await ingest.create({
+      title: "HTML",
+      files: [await stored("<h1>Hi</h1>", "index.html")],
+    });
+    expect(
+      await (await app.request(`/api/collections/${html.collection_id}?include_head=1`)).json(),
+    ).toMatchObject({ head: { mime: "text/html", text: "<h1>Hi</h1>" } });
+    const long = await ingest.create({
+      title: "Long",
+      files: [await stored("a".repeat(64 * 1024 - 1) + "💡tail")],
+    });
+    const longDetail: unknown = await (
+      await app.request(`/api/collections/${long.collection_id}?include_head=1`)
+    ).json();
+    if (
+      !longDetail ||
+      typeof longDetail !== "object" ||
+      !("head" in longDetail) ||
+      !longDetail.head ||
+      typeof longDetail.head !== "object" ||
+      !("text" in longDetail.head) ||
+      !("truncated" in longDetail.head)
+    )
+      throw new Error("Invalid head response");
+    expect(longDetail.head.truncated).toBe(true);
+    expect(longDetail.head.text).toBe("a".repeat(64 * 1024 - 1));
+    expect((await app.request("/api/collections?metadata=%5B%5D")).status).toBe(400);
+    expect((await app.request("/api/collections?metadata=%7Bbad")).status).toBe(400);
+    expect((await app.request("/api/collections?updated_after=2026-10-07")).status).toBe(200);
+    expect(
+      (await app.request("/api/collections?updated_after=2026-10-07T12%3A00%3A00%2B12%3A00"))
+        .status,
+    ).toBe(200);
+    const secondHead = await ingest.add(markdown.collection_id, {
+      files: [await stored("VERSION TWO", "index.md")],
+    });
+    const selected = await app.request(
+      `/api/collections/${markdown.collection_id}?revision_id=${markdown.revision_id}&include_head=1`,
+    );
+    expect(await selected.json()).toMatchObject({
+      revision: { id: markdown.revision_id },
+      head: { text: "VERSION ONE" },
+      latest_revision: { id: secondHead.revision_id },
+    });
+    const original = await reads.getRevision(markdown.revision_id);
+    const originalHead = original.files.find((entry) => entry.path === "index.md");
+    if (!originalHead) throw new Error("Missing head");
+    await unlink(blobs.path(originalHead.hash));
+    expect(
+      await (
+        await app.request(
+          `/api/collections/${markdown.collection_id}?revision_id=${markdown.revision_id}&include_head=1`,
+        )
+      ).json(),
+    ).toMatchObject({ head: { text: null, unavailable: true } });
+  });
+  it("imports the HTTP module without installing signal handlers", async () => {
+    const beforeInt = process.listenerCount("SIGINT");
+    const beforeTerm = process.listenerCount("SIGTERM");
+    vi.resetModules();
+    await import("../apps/writer/src/http.js");
+    expect(process.listenerCount("SIGINT")).toBe(beforeInt);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeTerm);
+  });
+  it("long polls, times out, and rejects a revision from another collection", async () => {
+    const file = await stored("one");
+    const a = await ingest.create({ title: "Watch", files: [file] });
+    const b = await ingest.create({ title: "Other", files: [file] });
+    const path = `/api/collections/${a.collection_id}/revisions?after=${a.revision_id}&wait=0.1`;
+    expect(await (await app.request(path)).json()).toMatchObject({ changed: false, revisions: [] });
+    expect(
+      (await app.request(`/api/collections/${a.collection_id}/revisions?after=${b.revision_id}`))
+        .status,
+    ).toBe(404);
+    const waiting = app.request(
+      `/api/collections/${a.collection_id}/revisions?after=${a.revision_id}&wait=2`,
+    );
+    const next = await ingest.add(a.collection_id, { files: [await stored("two")] });
+    expect(await (await waiting).json()).toMatchObject({
+      changed: true,
+      revisions: [{ id: next.revision_id }],
+    });
+  });
+  it("does not miss a revision emitted during the first long-poll read", async () => {
+    const first = await ingest.create({ title: "Race", files: [await stored("one")] });
+    const snapshot = await reads.listRevisions(first.collection_id);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const list = vi.spyOn(reads, "listRevisions").mockImplementationOnce(async () => {
+      await gate;
+      return snapshot;
+    });
+    const waiting = app.request(
+      `/api/collections/${first.collection_id}/revisions?after=${first.revision_id}&wait=2`,
+    );
+    while (reads.revisionEvents.listenerCount("revision") === 0)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    const added = await app.request(`/api/collections/${first.collection_id}/revisions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ files: [await stored("two")] }),
+    });
+    expect(added.status).toBe(200);
+    release?.();
+    expect(await (await waiting).json()).toMatchObject({ changed: true, revisions: [{}] });
+    list.mockRestore();
+  });
+  it("sees a revision inserted directly into the committed database while waiting", async () => {
+    const first = await ingest.create({ title: "Pulled", files: [await stored("one")] });
+    const row = await queue.get<{
+      public_id: string;
+      title: string;
+      metadata: string;
+      created_at: number;
+    }>("SELECT public_id,title,metadata,created_at FROM pending_collections WHERE id=?", [
+      first.collection_id,
+    ]);
+    if (!row) throw new Error("Missing pending collection");
+    await waypoint.run(
+      "INSERT INTO collections(id,public_id,title,metadata,created_at) VALUES (?,?,?,?,?)",
+      [first.collection_id, row.public_id, row.title, row.metadata, row.created_at],
+    );
+    const waiting = app.request(
+      `/api/collections/${first.collection_id}/revisions?after=${first.revision_id}&wait=3`,
+    );
+    const id = mintRevisionId({ now: Date.now() + 10, parentId: first.revision_id });
+    await waypoint.run(
+      "INSERT INTO revisions(id,public_id,collection_id,parent_revision_id,head_path,message,metadata,created_at) VALUES (?,?,?,?,?,?,?,?)",
+      [
+        id,
+        await publicIdFor(id),
+        first.collection_id,
+        null,
+        "index.md",
+        "pulled",
+        "{}",
+        Date.now() + 10,
+      ],
+    );
+    expect(await (await waiting).json()).toMatchObject({ changed: true, revisions: [{ id }] });
+    const found = (await reads.searchCollections({ query: first.collection_id })).collections[0];
+    expect(found).toMatchObject({ revision_count: 2, latest_revision: { id } });
+    expect(typeof found?.updated_at).toBe("number");
+  });
+  it("releases a long poll when its request is aborted", async () => {
+    const first = await ingest.create({ title: "Abort", files: [await stored("one")] });
+    const controller = new AbortController();
+    const request = new Request(
+      `http://localhost/api/collections/${first.collection_id}/revisions?after=${first.revision_id}&wait=30`,
+      { signal: controller.signal },
+    );
+    const waiting = app.fetch(request);
+    controller.abort();
+    expect(await (await waiting).json()).toMatchObject({ changed: false });
+  });
+  it("caps concurrent waiters and clears them after abort", async () => {
+    const first = await ingest.create({ title: "Cap", files: [await stored("one")] });
+    const url = `http://localhost/api/collections/${first.collection_id}/revisions?after=${first.revision_id}&wait=10`;
+    const controllers = Array.from({ length: 200 }, () => new AbortController());
+    const waits = controllers.map((controller) =>
+      Promise.resolve(app.fetch(new Request(url, { signal: controller.signal }))),
+    );
+    for (
+      let attempt = 0;
+      attempt < 200 && reads.revisionEvents.listenerCount("revision") < 200;
+      attempt++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reads.revisionEvents.listenerCount("revision")).toBe(200);
+    const overCap = await app.request(url);
+    expect(overCap.status).toBe(503);
+    expect(overCap.headers.get("retry-after")).toBe("2");
+    controllers.forEach((controller) => controller.abort());
+    await Promise.all(waits);
+    expect(reads.revisionEvents.listenerCount("revision")).toBe(0);
+  }, 10_000);
+  it("releases waiters on writer shutdown", async () => {
+    const first = await ingest.create({ title: "Shutdown", files: [await stored("one")] });
+    const controller = new AbortController();
+    const shuttingApp = createApp({
+      waypoint,
+      queue,
+      blobs,
+      reads,
+      ingest,
+      shutdownSignal: controller.signal,
+    });
+    const waiting = shuttingApp.request(
+      `/api/collections/${first.collection_id}/revisions?after=${first.revision_id}&wait=30`,
+    );
+    while (reads.revisionEvents.listenerCount("revision") === 0)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    expect(await (await waiting).json()).toMatchObject({ changed: false, revisions: [] });
+    expect(reads.revisionEvents.listenerCount("revision")).toBe(0);
   });
   it("returns error envelopes for path case conflicts and conflicting IDs", async () => {
     const a = await stored("a", "A.txt");

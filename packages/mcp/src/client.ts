@@ -20,7 +20,8 @@ import {
   type ManifestEntry,
   type RevisionDetail,
   type WriteResult,
-  type ListCollectionsResponse,
+  type SearchCollectionsResponse,
+  type WaitForRevisionResponse,
   type ListRevisionsResponse,
   type ResolveResponse,
   type StatusResponse,
@@ -106,10 +107,46 @@ const collectionDetail = z.looseObject({
   latest_revision: revisionSummary.nullable(),
   latest_url: z.string(),
   revision: revisionDetail.nullable(),
+  head: z
+    .looseObject({
+      path: z.string(),
+      mime: z.string(),
+      text: z.string().nullable(),
+      truncated: z.boolean(),
+      url: z.string(),
+      unavailable: z.boolean().optional(),
+    })
+    .nullable()
+    .optional(),
 });
-const listCollectionsResult = z.looseObject({
-  collections: z.array(collectionDetail.omit({ revision: true })),
-}) satisfies z.ZodType<ListCollectionsResponse>;
+const searchCollectionsResult = z.looseObject({
+  collections: z.array(
+    z.looseObject({
+      id: z.string(),
+      public_id: z.string(),
+      title: z.string(),
+      metadata: z.record(z.string(), z.unknown()),
+      created_at: z.number(),
+      updated_at: z.number(),
+      deleted: z.boolean(),
+      revision_count: z.number(),
+      latest_revision: z
+        .looseObject({
+          id: z.string(),
+          display_number: z.number(),
+          message: z.string().nullable(),
+          created_at: z.number(),
+          sync_state: z.enum(["pending", "committed", "synced", "failed"]),
+          head_path: z.string(),
+          file_count: z.number(),
+        })
+        .nullable(),
+      latest_url: z.string(),
+      match: z.enum(["id", "title", "metadata"]).nullable(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+}) satisfies z.ZodType<SearchCollectionsResponse>;
 const listRevisionsResult = z.looseObject({
   revisions: z.array(revisionSummary),
 }) satisfies z.ZodType<ListRevisionsResponse>;
@@ -258,8 +295,9 @@ export class WaypointClient {
     init: (RequestInit & { duplex?: "half" }) | (() => RequestInit & { duplex?: "half" }) = {},
     signal?: AbortSignal,
     timeoutMs = this.requestTimeoutMs,
+    retryBudgetMs = this.retryBudgetMs,
   ): Promise<Response> {
-    const deadline = Date.now() + this.retryBudgetMs;
+    const deadline = Date.now() + retryBudgetMs;
     let attempt = 0;
     for (;;) {
       abortIfNeeded(signal);
@@ -514,6 +552,7 @@ export class WaypointClient {
     throw new Error("Could not create collection");
   }
   async add(input: AddInput, signal?: AbortSignal): Promise<WriteOutcome> {
+    input = { ...input, collection_id: await this.collectionId(input.collection_id, signal) };
     parseId(input.collection_id, "col");
     if (input.parent_revision_id) parseId(input.parent_revision_id, "rev");
     const files = await prepareFiles(input.files, input.source_dir, this.limits, signal);
@@ -644,16 +683,22 @@ export class WaypointClient {
     id: string,
     revisionId?: string,
     signal?: AbortSignal,
+    includeHead = false,
   ): Promise<CollectionDetail> {
-    parseId(id, "col");
+    id = await this.collectionId(id, signal);
+    if (revisionId) parseId(revisionId, "rev");
+    const params = new URLSearchParams();
+    if (revisionId) params.set("revision_id", revisionId);
+    if (includeHead) params.set("include_head", "1");
     const collection = collectionDetail.parse(
-      await this.json(`/api/collections/${id}`, "GET", undefined, signal),
+      await this.json(
+        `/api/collections/${id}${params.size ? `?${params.toString()}` : ""}`,
+        "GET",
+        undefined,
+        signal,
+      ),
     );
-    const revision = revisionId
-      ? revisionDetail.parse(
-          await this.json(`/api/revisions/${parseId(revisionId, "rev")}`, "GET", undefined, signal),
-        )
-      : collection.revision;
+    const revision = collection.revision;
     if (revision && revision.collection_id !== id)
       throw new WaypointError(
         "not_found",
@@ -661,26 +706,71 @@ export class WaypointClient {
       );
     return { ...collection, revision };
   }
-  listCollections(
-    query?: string,
-    limit = 50,
-    includeDeleted = false,
+  private async collectionId(input: string, signal?: AbortSignal): Promise<string> {
+    if (input.startsWith("col_")) return parseId(input, "col");
+    if (/^[0-9a-hjkmnp-tv-z]{12}$/i.test(input)) {
+      const detail = collectionDetail.parse(
+        await this.json(`/api/collections/${input.toLowerCase()}`, "GET", undefined, signal),
+      );
+      return detail.id;
+    }
+    const result = resolveResult.parse(await this.resolve(input, signal));
+    return result.collection_id;
+  }
+  searchCollections(
+    options: {
+      query?: string | undefined;
+      metadata?: Record<string, unknown> | undefined;
+      updated_after?: string | number | undefined;
+      sort?: "updated" | "created" | undefined;
+      limit?: number | undefined;
+      cursor?: string | undefined;
+      include_deleted?: boolean | undefined;
+    },
     signal?: AbortSignal,
-  ): Promise<unknown> {
-    const params = new URLSearchParams({
-      limit: String(limit),
-      include_deleted: String(includeDeleted),
-    });
-    if (query) params.set("query", query);
+  ): Promise<SearchCollectionsResponse> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(options))
+      if (value !== undefined)
+        params.set(
+          key,
+          key === "metadata"
+            ? JSON.stringify(value)
+            : typeof value === "string"
+              ? value
+              : typeof value === "number" || typeof value === "boolean"
+                ? String(value)
+                : "",
+        );
     return this.json(`/api/collections?${params.toString()}`, "GET", undefined, signal).then(
-      (value) => listCollectionsResult.parse(value),
+      (value) => searchCollectionsResult.parse(value),
     );
   }
-  listRevisions(id: string, signal?: AbortSignal): Promise<unknown> {
-    parseId(id, "col");
+  async listRevisions(id: string, signal?: AbortSignal): Promise<unknown> {
+    id = await this.collectionId(id, signal);
     return this.json(`/api/collections/${id}/revisions`, "GET", undefined, signal).then((value) =>
       listRevisionsResult.parse(value),
     );
+  }
+  async waitForRevision(
+    id: string,
+    after: string,
+    seconds = 30,
+    signal?: AbortSignal,
+  ): Promise<WaitForRevisionResponse> {
+    id = await this.collectionId(id, signal);
+    parseId(after, "rev");
+    const params = new URLSearchParams({ after, wait: String(seconds) });
+    const response = await this.request(
+      `/api/collections/${id}/revisions?${params.toString()}`,
+      {},
+      signal,
+      (seconds + 5) * 1000,
+      (seconds + 5) * 1000,
+    );
+    return z
+      .looseObject({ changed: z.boolean(), revisions: z.array(revisionSummary) })
+      .parse(await response.json());
   }
   resolve(url: string, signal?: AbortSignal): Promise<unknown> {
     return this.json("/api/resolve", "POST", { url }, signal).then((value) =>
@@ -699,6 +789,7 @@ export class WaypointClient {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const selected = await this.getCollection(collectionId, revisionId, signal);
+    collectionId = selected.id;
     const revision = selected.revision;
     if (!revision) throw new WaypointError("not_found", "Collection has no revision");
     const normalized = validatePath(path);

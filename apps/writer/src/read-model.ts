@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+
 import {
   parseWriterUrl,
   latestCollectionUrl,
@@ -10,12 +13,13 @@ import {
   WaypointError,
   type Manifest,
   type SyncState,
-  type CollectionSummary,
   type CollectionDetail,
   type RevisionSummary,
   type RevisionDetail,
   type ListRevisionsResponse,
   type ResolveResponse,
+  type CollectionSearchResult,
+  type SearchCollectionsResponse,
 } from "@waypoint/core";
 import { z } from "zod";
 
@@ -82,7 +86,91 @@ export interface RevisionRow {
   sync_state?: SyncState | undefined;
   display_number?: number | undefined;
 }
+export interface SearchOptions {
+  query?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
+  updated_after?: number | undefined;
+  sort?: "updated" | "created" | undefined;
+  limit?: number | undefined;
+  cursor?: string | undefined;
+  include_deleted?: boolean | undefined;
+}
+function containsValue(value: unknown, query: string): boolean {
+  if (typeof value === "string") return value.toLowerCase().includes(query);
+  if (Array.isArray(value)) return value.some((part) => containsValue(part, query));
+  if (value && typeof value === "object")
+    return Object.values(value).some((part) => containsValue(part, query));
+  return (
+    (typeof value === "number" || typeof value === "boolean") &&
+    String(value).toLowerCase().includes(query)
+  );
+}
+function deepEqual(actual: unknown, expected: unknown): boolean {
+  if (actual === expected) return true;
+  if (Array.isArray(actual) && Array.isArray(expected))
+    return (
+      actual.length === expected.length &&
+      actual.every((value, index) => deepEqual(value, expected[index]))
+    );
+  if (
+    actual &&
+    expected &&
+    typeof actual === "object" &&
+    typeof expected === "object" &&
+    !Array.isArray(actual) &&
+    !Array.isArray(expected)
+  ) {
+    const entries = Object.entries(actual);
+    const expectedEntries = new Map(Object.entries(expected));
+    return (
+      entries.length === expectedEntries.size &&
+      entries.every(
+        ([key, value]) => expectedEntries.has(key) && deepEqual(value, expectedEntries.get(key)),
+      )
+    );
+  }
+  return false;
+}
+function equalsFilter(actual: unknown, expected: unknown): boolean {
+  return (
+    deepEqual(actual, expected) ||
+    (Array.isArray(actual) && actual.some((value) => deepEqual(value, expected)))
+  );
+}
+function decodeCursor(value: string): {
+  last: [number, number, string];
+  snapshotId: string;
+} {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || !("last" in parsed) || !("snapshotId" in parsed))
+      throw new Error("cursor");
+    const cursor = parsed;
+    if (
+      !Array.isArray(cursor.last) ||
+      typeof cursor.last[0] !== "number" ||
+      typeof cursor.last[1] !== "number" ||
+      typeof cursor.last[2] !== "string" ||
+      typeof cursor.snapshotId !== "string"
+    )
+      throw new Error("cursor");
+    return {
+      last: [cursor.last[0], cursor.last[1], cursor.last[2]],
+      snapshotId: cursor.snapshotId,
+    };
+  } catch {
+    throw new WaypointError("validation_failed", "Invalid cursor");
+  }
+}
 export class ReadModel {
+  readonly revisionEvents = new EventEmitter().setMaxListeners(220);
+  private readonly searchSnapshots = new Map<
+    string,
+    { results: CollectionSearchResult[]; sort: "updated" | "created"; createdAt: number }
+  >();
+  notifyRevision(collectionId: string): void {
+    this.revisionEvents.emit("revision", collectionId);
+  }
   constructor(
     readonly waypoint: Db,
     readonly queue: Db,
@@ -249,82 +337,229 @@ export class ReadModel {
       ),
     };
   }
-  async listCollections(
-    query = "",
-    limit = 50,
-    includeDeleted = false,
-  ): Promise<CollectionSummary[]> {
+  async searchCollections(options: SearchOptions = {}): Promise<SearchCollectionsResponse> {
+    const query = options.query?.trim().toLowerCase() ?? "";
+    const limit = options.limit ?? 20;
+    const sort = options.sort ?? "updated";
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !["updated", "created"].includes(sort)
+    )
+      throw new WaypointError("validation_failed", "Invalid search options");
+    const cursor = options.cursor ? decodeCursor(options.cursor) : undefined;
+    if (cursor) {
+      const snapshot = this.searchSnapshots.get(cursor.snapshotId);
+      if (!snapshot || Date.now() - snapshot.createdAt > 10 * 60_000)
+        throw new WaypointError("validation_failed", "Search cursor expired; start a new search");
+      const position = snapshot.results.findIndex((item) => item.id === cursor.last[2]);
+      if (position < 0) throw new WaypointError("validation_failed", "Invalid cursor");
+      return this.searchPage(
+        snapshot.results.slice(position + 1),
+        limit,
+        cursor.snapshotId,
+        snapshot.sort,
+      );
+    }
+    const snapshotNow = Date.now();
+    const ceilingIds = new Set<string>();
+    const ceilingRevisionIds = new Set<string>();
+    let exactId: string | undefined;
+    if (query.startsWith("col_")) exactId = query;
+    else if (/^[0-9a-hjkmnp-tv-z]{12}$/i.test(query))
+      exactId = (await this.collectionByPublicId(query))?.id;
+    else if (/^https?:\/\//i.test(query) || query.startsWith("/")) {
+      try {
+        exactId = (await this.resolve(query)).collection_id;
+      } catch (error) {
+        if (!(error instanceof WaypointError)) throw error;
+      }
+    }
+    // The bundled Turso engine supports json_tree (verified against @tursodatabase/database).
+    // Only leaf values are searched, so a metadata key by itself cannot match.
+    // SQLite lower() is ASCII-only; non-ASCII terms use the value walk below.
+    const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
+    const filter =
+      query && !exactId && Buffer.byteLength(query, "utf8") === query.length
+        ? " WHERE lower(title) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM json_tree(metadata) j WHERE j.type IN ('text','integer','real','true','false') AND lower(CAST(CASE WHEN j.type IN ('true','false') THEN j.type ELSE j.value END AS TEXT)) LIKE ? ESCAPE '\\')"
+        : "";
+    const args = filter ? [pattern, pattern] : [];
     const [committed, pending, tombstones, committedRevisions, pendingRevisions, unpushed] =
       await Promise.all([
-        this.waypoint.all<CollectionRow>("SELECT * FROM collections"),
-        this.queue.all<CollectionRow>("SELECT * FROM pending_collections"),
+        this.waypoint.all<CollectionRow>(
+          `SELECT id,public_id,title,metadata,created_at FROM collections${filter}`,
+          args,
+        ),
+        this.queue.all<CollectionRow>(
+          `SELECT id,public_id,title,metadata,created_at,deleted_at FROM pending_collections${filter}`,
+          args,
+        ),
         this.waypoint.all<{ collection_id: string; deleted_at: number }>(
           "SELECT collection_id,deleted_at FROM collection_tombstones",
         ),
-        this.waypoint.all<RevisionRow>("SELECT * FROM revisions"),
-        this.queue.all<RevisionRow>("SELECT * FROM pending_revisions"),
+        this.waypoint.all<RevisionRow>(
+          "SELECT id,public_id,collection_id,parent_revision_id,head_path,message,metadata,created_at FROM revisions",
+        ),
+        this.queue.all<RevisionRow>(
+          "SELECT id,public_id,collection_id,parent_revision_id,head_path,message,metadata,created_at,state FROM pending_revisions",
+        ),
         this.queue.all<{ revision_id: string }>("SELECT revision_id FROM unpushed"),
       ]);
-    const map = new Map(committed.map((x) => [x.id, x]));
-    for (const row of pending) map.set(row.id, row);
+    const ceiling = [...committed, ...pending, ...committedRevisions, ...pendingRevisions].reduce(
+      (max, row) => Math.max(max, row.created_at),
+      snapshotNow,
+    );
+    const rows = new Map(committed.map((row) => [row.id, row]));
+    for (const row of pending) rows.set(row.id, row);
+    for (const row of rows.values()) if (row.created_at === ceiling) ceilingIds.add(row.id);
     const deleted = new Map(tombstones.map((row) => [row.collection_id, row.deleted_at]));
     const pendingIds = new Set(pendingRevisions.map((row) => row.id));
     const unpushedIds = new Set(unpushed.map((row) => row.revision_id));
-    const allRevisions = new Map<string, RevisionRow>();
+    const revisions = new Map<string, RevisionRow>();
+    for (const row of [...pendingRevisions, ...committedRevisions])
+      if (row.created_at === ceiling) ceilingRevisionIds.add(row.id);
     for (const row of pendingRevisions)
-      allRevisions.set(row.id, { ...row, sync_state: row.state ?? "pending" });
+      if (
+        row.created_at < ceiling ||
+        (row.created_at === ceiling && ceilingRevisionIds.has(row.id))
+      )
+        revisions.set(row.id, { ...row, sync_state: row.state ?? "pending" });
     for (const row of committedRevisions)
-      allRevisions.set(row.id, {
-        ...row,
-        sync_state: pendingIds.has(row.id) || unpushedIds.has(row.id) ? "committed" : "synced",
-      });
+      if (
+        row.created_at < ceiling ||
+        (row.created_at === ceiling && ceilingRevisionIds.has(row.id))
+      )
+        revisions.set(row.id, {
+          ...row,
+          sync_state: pendingIds.has(row.id) || unpushedIds.has(row.id) ? "committed" : "synced",
+        });
     const grouped = new Map<string, RevisionRow[]>();
-    for (const row of allRevisions.values()) {
+    for (const row of revisions.values()) {
       const group = grouped.get(row.collection_id) ?? [];
       group.push(row);
       grouped.set(row.collection_id, group);
     }
-    const result: CollectionSummary[] = [];
-    for (const row of map.values()) {
-      const deletedAt = row.deleted_at ?? deleted.get(row.id) ?? null;
+    const results: CollectionSearchResult[] = [];
+    for (const row of rows.values()) {
+      if (row.created_at > ceiling || (row.created_at === ceiling && !ceilingIds.has(row.id)))
+        continue;
+      const isDeleted = (row.deleted_at ?? deleted.get(row.id) ?? null) !== null;
+      if (isDeleted && !options.include_deleted) continue;
+      const meta = metadata(row.metadata);
       if (
-        (!includeDeleted && deletedAt !== null) ||
-        !row.title.toLowerCase().includes(query.toLowerCase())
+        options.metadata &&
+        !Object.entries(options.metadata).every(([key, value]) => equalsFilter(meta[key], value))
       )
         continue;
-      const revisions = (grouped.get(row.id) ?? []).toSorted((a, b) =>
+      const match = !query
+        ? null
+        : row.id.toLowerCase() === query ||
+            row.public_id.toLowerCase() === query ||
+            row.id === exactId
+          ? "id"
+          : row.title.toLowerCase().includes(query)
+            ? "title"
+            : containsValue(meta, query)
+              ? "metadata"
+              : undefined;
+      if (match === undefined) continue;
+      const history = (grouped.get(row.id) ?? []).toSorted((a, b) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
       );
-      const latest = revisions.findLast((revision) => revision.sync_state !== "failed");
-      const numbers = displayNumbers(revisions.map((revision) => parseId(revision.id, "rev")));
-      result.push({
+      const latest = history.findLast((revision) => revision.sync_state !== "failed");
+      const updatedAt = latest?.created_at ?? row.created_at;
+      if (options.updated_after !== undefined && (!latest || updatedAt <= options.updated_after))
+        continue;
+      const numbers = displayNumbers(history.map((revision) => parseId(revision.id, "rev")));
+      results.push({
         id: row.id,
         public_id: row.public_id,
         title: row.title,
-        metadata: metadata(row.metadata),
+        metadata: meta,
         created_at: row.created_at,
-        deleted: deletedAt !== null,
+        updated_at: updatedAt,
+        deleted: isDeleted,
+        revision_count: history.length,
         latest_revision: latest
-          ? this.summaryFor({ ...latest, display_number: numbers[latest.id] }, row)
+          ? {
+              id: latest.id,
+              display_number: numbers[latest.id] ?? 0,
+              message: latest.message,
+              created_at: latest.created_at,
+              sync_state: latest.sync_state ?? "synced",
+              head_path: latest.head_path,
+              file_count: 0,
+            }
           : null,
         latest_url: latestCollectionUrl(this.baseUrl, row.public_id),
+        match,
       });
     }
-    return result
-      .toSorted((a, b) =>
-        (b.latest_revision?.id ?? "") > (a.latest_revision?.id ?? "")
-          ? 1
-          : (b.latest_revision?.id ?? "") < (a.latest_revision?.id ?? "")
-            ? -1
-            : 0,
-      )
-      .slice(0, limit);
+    results.sort((a, b) => {
+      const rank = (a.match === "id" ? 1 : 0) - (b.match === "id" ? 1 : 0);
+      if (rank) return -rank;
+      const av = sort === "created" ? a.created_at : a.updated_at;
+      const bv = sort === "created" ? b.created_at : b.updated_at;
+      return bv - av || (b.id < a.id ? -1 : b.id > a.id ? 1 : 0);
+    });
+    const snapshotId = randomUUID();
+    if (results.length > limit) {
+      for (const [id, snapshot] of this.searchSnapshots)
+        if (Date.now() - snapshot.createdAt > 10 * 60_000) this.searchSnapshots.delete(id);
+      this.searchSnapshots.set(snapshotId, { results, sort, createdAt: Date.now() });
+      if (this.searchSnapshots.size > 32)
+        this.searchSnapshots.delete(this.searchSnapshots.keys().next().value ?? "");
+    }
+    return this.searchPage(results, limit, snapshotId, sort);
   }
-  async getCollection(id: string): Promise<CollectionDetail> {
+  private async searchPage(
+    results: CollectionSearchResult[],
+    limit: number,
+    snapshotId: string,
+    sort: "updated" | "created",
+  ): Promise<SearchCollectionsResponse> {
+    // File counts are fetched once for the page, regardless of its size.
+    const page = results.slice(0, limit).map((item) => ({
+      ...item,
+      latest_revision: item.latest_revision ? { ...item.latest_revision } : null,
+    }));
+    const counts = await this.fileCounts(
+      page.flatMap((item) => (item.latest_revision ? [item.latest_revision.id] : [])),
+    );
+    for (const item of page)
+      if (item.latest_revision)
+        item.latest_revision.file_count =
+          counts.get(item.latest_revision.id) ?? item.latest_revision.file_count;
+    const last = page.at(-1);
+    return {
+      collections: page,
+      next_cursor:
+        results.length > limit && last
+          ? Buffer.from(
+              JSON.stringify({
+                last: [
+                  last.match === "id" ? 1 : 0,
+                  sort === "created" ? last.created_at : last.updated_at,
+                  last.id,
+                ],
+                snapshotId,
+              }),
+            ).toString("base64url")
+          : null,
+    };
+  }
+  async getCollection(id: string, revisionId?: string): Promise<CollectionDetail> {
     const row = await this.collection(id);
     if (!row) throw new WaypointError("collection_not_found", "Collection not found");
     const latest = await this.latest(id);
-    const detail = latest ? await this.getRevision(latest.id) : null;
+    const detail = revisionId
+      ? await this.getRevision(revisionId)
+      : latest
+        ? await this.getRevision(latest.id)
+        : null;
+    if (detail && detail.collection_id !== id)
+      throw new WaypointError("not_found", "Revision does not belong to collection");
     return {
       id: row.id,
       public_id: row.public_id,

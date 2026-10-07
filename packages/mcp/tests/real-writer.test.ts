@@ -123,7 +123,150 @@ it("uses real read shapes for merge, unchanged, source markdown, binary URLs, re
     collection_id: created.collection_id,
   });
   expect(await waypoint.status()).toMatchObject({ queue: { pending_collections: 1 } });
-  expect(await reads.listCollections()).toHaveLength(1);
+  expect((await reads.searchCollections()).collections).toHaveLength(1);
+});
+
+it("hands off a collection through MCP search, URL reading, and revision waiting", async () => {
+  const { waypoint, fetcher } = await writer();
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const server = createServer(waypoint);
+  const mcp = new Client({ name: "handoff", version: "1" });
+  await Promise.all([server.connect(serverTransport), mcp.connect(clientTransport)]);
+  closers.push(async () => {
+    await mcp.close();
+    await server.close();
+  });
+  const created = await waypoint.create({
+    title: "Handoff plan",
+    metadata: { project: "agent-test", tags: ["research"] },
+    files: [{ path: "index.md", content: "# Plan" }],
+  });
+  const found = await mcp.callTool({
+    name: "search_collections",
+    arguments: { query: "research" },
+  });
+  expect(found.isError).toBeFalsy();
+  expect(found.structuredContent).toMatchObject({
+    collections: [{ id: created.collection_id, match: "metadata" }],
+  });
+  const latestUrl = z.object({ latest_url: z.string() }).parse(created).latest_url;
+  const read = await mcp.callTool({
+    name: "get_collection",
+    arguments: { collection: latestUrl, include_head: true },
+  });
+  expect(read.structuredContent).toMatchObject({
+    id: created.collection_id,
+    head: { text: "# Plan" },
+  });
+  expect(
+    (await mcp.callTool({ name: "list_revisions", arguments: { collection: latestUrl } }))
+      .structuredContent,
+  ).toMatchObject({ revisions: [{ id: created.revision_id }] });
+  expect(
+    (
+      await mcp.callTool({
+        name: "read_file",
+        arguments: { collection: latestUrl, path: "index.md" },
+      })
+    ).structuredContent,
+  ).toMatchObject({ content: "# Plan" });
+  expect(
+    (await mcp.callTool({ name: "search_collections", arguments: { updated_after: "2026-10-07" } }))
+      .isError,
+  ).toBeFalsy();
+  const waiting = mcp.callTool({
+    name: "wait_for_revision",
+    arguments: {
+      collection: latestUrl,
+      after_revision_id: created.revision_id,
+      timeout_seconds: 2,
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const other = new WaypointClient(waypoint.base, "second-agent", undefined, fetcher);
+  const added = await other.add({
+    collection_id: created.collection_id,
+    files: [{ path: "results.md", content: "Done" }],
+  });
+  expect((await waiting).structuredContent).toMatchObject({
+    changed: true,
+    revisions: [{ id: added.revision_id }],
+  });
+  expect(
+    (
+      await mcp.callTool({
+        name: "add_revision",
+        arguments: {
+          collection: latestUrl,
+          files: [{ path: "followup.md", content: "Follow-up" }],
+        },
+      })
+    ).isError,
+  ).toBeFalsy();
+});
+
+it("reads an older revision's head through get_collection", async () => {
+  const { waypoint } = await writer();
+  const first = await waypoint.create({
+    title: "Versions",
+    files: [{ path: "index.md", content: "VERSION ONE" }],
+  });
+  const second = await waypoint.add({
+    collection_id: first.collection_id,
+    files: [{ path: "index.md", content: "VERSION TWO" }],
+  });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const server = createServer(waypoint);
+  const mcp = new Client({ name: "versions", version: "1" });
+  await Promise.all([server.connect(serverTransport), mcp.connect(clientTransport)]);
+  closers.push(async () => {
+    await mcp.close();
+    await server.close();
+  });
+  const url = z.object({ latest_url: z.string() }).parse(first).latest_url;
+  const result = await mcp.callTool({
+    name: "get_collection",
+    arguments: { collection: url, revision_id: first.revision_id, include_head: true },
+  });
+  expect(result.structuredContent).toMatchObject({
+    revision: { id: first.revision_id },
+    latest_revision: { id: second.revision_id },
+    head: { text: "VERSION ONE" },
+  });
+});
+
+it("retries an over-cap revision wait within its request budget", async () => {
+  const { waypoint, fetcher } = await writer();
+  const first = await waypoint.create({
+    title: "Retry wait",
+    files: [{ path: "index.txt", content: "one" }],
+  });
+  const second = await waypoint.add({
+    collection_id: first.collection_id,
+    files: [{ path: "index.txt", content: "two" }],
+  });
+  let calls = 0;
+  const retryingFetch: typeof fetch = (input, init) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("/revisions?after=")) {
+      calls++;
+      if (calls === 1)
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "unavailable", message: "busy" } }), {
+            status: 503,
+            headers: { "retry-after": "0" },
+          }),
+        );
+    }
+    return fetcher(input, init);
+  };
+  const reader = new WaypointClient(waypoint.base, "retrying", undefined, retryingFetch);
+  expect(await reader.waitForRevision(first.collection_id, first.revision_id, 1)).toMatchObject({
+    changed: true,
+    revisions: [{ id: second.revision_id }],
+  });
+  expect(calls).toBe(2);
 });
 
 it("reuses minted IDs when an agent repeats the same MCP call", async () => {
@@ -141,7 +284,8 @@ it("reuses minted IDs when an agent repeats the same MCP call", async () => {
     "create_collection",
     "add_revision",
     "get_collection",
-    "list_collections",
+    "search_collections",
+    "wait_for_revision",
     "list_revisions",
     "read_file",
     "resolve_url",
@@ -180,7 +324,7 @@ it("reuses minted IDs when an agent repeats the same MCP call", async () => {
     .object({ collection_id: z.string(), revision_id: z.string() })
     .parse(first.structuredContent);
   expect(second.structuredContent).toMatchObject(result);
-  expect(await reads.listCollections()).toHaveLength(1);
+  expect((await reads.searchCollections()).collections).toHaveLength(1);
   const addArgs = {
     collection_id: result.collection_id,
     files: [{ path: "next.txt", content: "next" }],
@@ -358,7 +502,7 @@ it("retries transient write failures with the same IDs, including a lost committ
   });
   expect(ids).toHaveLength(3);
   expect(new Set(ids).size).toBe(1);
-  expect(await reads.listCollections()).toHaveLength(1);
+  expect((await reads.searchCollections()).collections).toHaveLength(1);
   expect((await client.getCollection(result.collection_id)).revision?.id).toBe(result.revision_id);
 });
 

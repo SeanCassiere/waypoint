@@ -107,9 +107,26 @@ async function run(label: string, expectedSource: string, cacheDir = cache): Pro
     send({ jsonrpc: "2.0", method: "notifications/initialized" });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     const listed = await waitFor(2);
-    const tools = z.object({ tools: z.array(z.unknown()) }).parse(listed.result).tools;
-    if (tools.length !== 8 || !errors.includes(`using ${expectedSource} bundle`))
-      throw new Error(`${label}: expected ${expectedSource} and 8 tools: ${errors}`);
+    const tools = z
+      .object({ tools: z.array(z.object({ name: z.string() })) })
+      .parse(listed.result).tools;
+    const names = tools.map((tool) => tool.name);
+    const expected = [
+      "create_collection",
+      "add_revision",
+      "get_collection",
+      "search_collections",
+      "wait_for_revision",
+      "list_revisions",
+      "read_file",
+      "resolve_url",
+      "waypoint_status",
+    ];
+    if (
+      JSON.stringify(names) !== JSON.stringify(expected) ||
+      !errors.includes(`using ${expectedSource} bundle`)
+    )
+      throw new Error(`${label}: expected ${expectedSource} and ${expected.join(", ")}: ${errors}`);
     console.log(`${label}: ${expectedSource}, ${tools.length} tools`);
   } finally {
     child.kill();

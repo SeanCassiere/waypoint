@@ -13,7 +13,7 @@ Use the `waypoint` MCP server's tools. If they aren't available, tell the user t
 
 - You wrote a plan, design doc, report, or research summary the user should review. Publish it instead of only leaving it on disk.
 - You produced screenshots, images, or several related files from a run. Publish them together as one collection.
-- The user hands you a Waypoint URL. Call `resolve_url` to get IDs, then `get_collection` or `read_file`.
+- The user hands you a Waypoint URL, an ID, or a title, or asks you to act on work another agent published. See [Picking up existing work](#picking-up-existing-work).
 - You're revising something you published earlier in this task. Add a revision; don't create a new collection.
 
 ## How to write
@@ -26,6 +26,21 @@ Use the `waypoint` MCP server's tools. If they aren't available, tell the user t
 2. **Updating it:** `add_revision` with the `collection_id`. It **merges** by default: send only the changed files, and list deleted paths in `remove`. Use `mode: "replace"` only when the file set should be exactly what you send. The head document carries over from the previous revision, so pass `head_path` only to change it.
 3. Write a short `message` on each revision describing what changed, like a commit message.
 4. Relative links between files in the same collection work, for example `[details](notes/details.md)` and `![chart](img/chart.png)`.
+
+## Picking up existing work
+
+Another agent (or an earlier session) may have built a collection for you to act on.
+
+1. **Find it:** `search_collections`.
+   - Pass a title fragment, ID, public ID, or URL as `query`, or filter by `metadata` (e.g. `{ "project": "api" }`).
+   - With no arguments it lists the most recently updated collections, with titles and metadata.
+   - If several match, prefer the most recently updated one, or ask the user when it's ambiguous.
+2. **Read it:** `get_collection` with `include_head: true` returns the manifest and the head document's text in one call. Read the other files it references with `read_file`.
+3. **Note the revision you read** (`latest_revision.id`), and say which revision your work is based on.
+4. **Watch for changes** if you're waiting on another agent: `wait_for_revision` with that revision ID. It returns as soon as a newer revision exists, or `changed: false` after the timeout; call it again to keep waiting.
+5. **Report back into the same collection** with `add_revision` (e.g. a `results.md`) when the user wants your outcome kept alongside the plan. Otherwise create your own collection and mention the source collection's `latest_url` in it.
+
+When publishing work that others should pick up, set `metadata` such as `{ "project": "<repo or topic>", "tags": ["research"] }` so it can be found by filter.
 
 ## What to tell the user
 
