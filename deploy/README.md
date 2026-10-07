@@ -1,5 +1,8 @@
 # Waypoint production deployment
 
+Start with [AGENTS.md](../AGENTS.md) for how updates reach production and the
+rules for operating on agent-1.
+
 The production writer runs on agent-1 in the `waypoint` Compose project. The
 `ts-waypoint` sidecar owns a separate Tailscale node named `waypoint` and serves
 `https://waypoint.tail7aca06.ts.net` to the writer on the shared container
@@ -26,8 +29,11 @@ If the files already exist, leave their contents intact. `prod.env` contains
 the writer's production Turso and R2 credentials and must include
 `WAYPOINT_ENV=prod`, `WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net`,
 and `WAYPOINT_PORT=7410`. The deploy script sets `WAYPOINT_DATA_DIR=/data`
-inside the container. `ts.env` contains only `TS_AUTHKEY=...`; use a reusable,
-preauthorized Tailscale auth key tagged `tag:waypoint`. In the Tailscale admin
+inside the container. `ts.env` contains only `TS_AUTHKEY=...`: a single-use
+Tailscale auth key tagged `tag:waypoint`. It's used only for the sidecar's first
+login (`TS_AUTH_ONCE=true`); afterwards the node identity lives in the
+`waypoint_tailscale-state` volume. Only if that volume is lost do you need a new
+key. In the Tailscale admin
 console, set the tag owner for `tag:waypoint` to the account or group authorized
 to create this node before generating the key. Enable HTTPS certificates for
 the tailnet so Tailscale Serve can use the node's certificate. Never put these

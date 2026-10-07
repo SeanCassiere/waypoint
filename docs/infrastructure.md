@@ -32,12 +32,12 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 ### Tailscale
 - [x] **(P1)** The tag owner `tag:waypoint` is in the tailnet policy (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`). The policy is otherwise allow-all.
 - [x] **(P1)** A single-use, tagged auth key is stored in `~/.config/waypoint/ts.env` (`TS_AUTHKEY`, expires 2027-01-05). It's only needed for the sidecar's first login; node state lives in a Docker volume after that, and `TS_AUTH_ONCE=true`.
-- [ ] **(P1)** The writer is reachable at **`https://waypoint.tail7aca06.ts.net`** through its own Tailscale **sidecar container** (`ts-waypoint`, hostname `waypoint`, userspace networking), which serves HTTPS to the writer on `127.0.0.1:7410` in the shared network namespace. The host's tailscaled and its `tailscale serve` config (T3 Code on `:443`) are never touched. Agents use this URL as `WAYPOINT_URL`. See [`deploy/README.md`](../deploy/README.md).
+- [x] **(P1)** The writer is reachable at **`https://waypoint.tail7aca06.ts.net`** through its own Tailscale **sidecar container** (`ts-waypoint`, hostname `waypoint`, userspace networking), which serves HTTPS to the writer on `127.0.0.1:7410` in the shared network namespace. The host's tailscaled and its `tailscale serve` config (T3 Code on `:443`) are never touched. Agents use this URL as `WAYPOINT_URL`. It is **not reachable from the plain LAN**: the writer publishes no host port (decision D37). See [`deploy/README.md`](../deploy/README.md) and [`AGENTS.md`](../AGENTS.md).
 
 ### Deployment (P1)
 - [x] **Docker** is installed on agent-1, and `agent-1` is in the `docker` group. Deploys use `sg docker` when a session predates the group change, so no logout or reboot is ever needed.
 - [x] **Self-hosted GitHub Actions runner** `agent-1-waypoint` (label `waypoint-deploy`) runs as the systemd user unit `waypoint-gh-runner.service` from `~/actions-runner-waypoint`, with low priority (Nice=10, MemoryHigh=2G).
-- [ ] **Deploy workflow:** each successful CI run on `main` runs `deploy/deploy.sh`, which builds the image locally, recreates only the writer, health-checks it (container health check plus HTTPS via the tailnet), and rolls back to the previous image on failure.
+- [x] **Deploy workflow:** each successful CI run on `main` runs `deploy/deploy.sh`, which builds the image locally, recreates only the writer, health-checks it (container health check plus HTTPS via the tailnet), and rolls back to the previous image on failure.
 - **Secrets** stay in `~/.config/waypoint/{prod,ts}.env` (mode 600) and are passed at runtime with `env_file`. They never go into the repo, the image, or its layers.
 - **Resource limits:** writer 1 GB / 1.5 CPU / 512 pids; sidecar 256 MB / 0.5 CPU; Docker logs rotate at 10 MB × 3.
 

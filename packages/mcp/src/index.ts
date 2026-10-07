@@ -2,7 +2,14 @@ import { hostname } from "node:os";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DEFAULT_LIMITS, isWaypointError, type Limits } from "@waypoint/core";
+import {
+  DEFAULT_LIMITS,
+  isWaypointError,
+  withBase,
+  type Limits,
+  type McpStatusResponse,
+  type McpVersionResponse,
+} from "@waypoint/core";
 import { z } from "zod";
 
 import manifest from "../package.json" with { type: "json" };
@@ -102,7 +109,13 @@ export function limitsFromEnv(env: NodeJS.ProcessEnv): Limits {
   return { maxFiles, maxBlobBytes, maxRevisionBytes };
 }
 
-export function createServer(client: WaypointClient): McpServer {
+export interface LauncherInfo {
+  version: number;
+  bundleSha256: string;
+  source: "fresh" | "cache" | "embedded";
+}
+
+export function createServer(client: WaypointClient, launcher?: LauncherInfo): McpServer {
   const server = new McpServer({ name: "waypoint-mcp", version: manifest.version });
   function register(
     name: string,
@@ -226,12 +239,44 @@ export function createServer(client: WaypointClient): McpServer {
     "waypoint_status",
     "Check writer queue counts, failed items, recent uploads and sync activity, and the last error.",
     {},
-    (_input, signal) => client.status(signal),
+    async (_input, signal) => {
+      const status = await client.status(signal);
+      let latestSha256: string | null = null;
+      try {
+        const response = await client.fetcher(withBase(client.base, "/mcp/version"), {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+        });
+        if (response.ok) {
+          const value = z.object({
+            server_sha256: z.string(),
+            package_sha256: z.string(),
+            launcher_sha256: z.string(),
+            launcher_api: z.number().int(),
+          }) satisfies z.ZodType<McpVersionResponse>;
+          const parsed = value.safeParse(await response.json());
+          if (parsed.success) latestSha256 = parsed.data.server_sha256;
+        }
+      } catch {
+        // Status remains useful when the version endpoint is unavailable.
+      }
+      const runningSha256 = launcher?.bundleSha256 ?? null;
+      const result: McpStatusResponse = {
+        ...status,
+        mcp: {
+          running_sha256: runningSha256,
+          source: launcher?.source ?? "embedded",
+          latest_sha256: latestSha256,
+          update_available:
+            latestSha256 !== null && runningSha256 !== null && latestSha256 !== runningSha256,
+        },
+      };
+      return result;
+    },
   );
   return server;
 }
 
-export async function main(): Promise<void> {
+export async function startServer(options?: { launcher?: LauncherInfo }): Promise<void> {
   const base = process.env.WAYPOINT_URL;
   if (!base) throw new Error("WAYPOINT_URL is required");
   await createServer(
@@ -240,5 +285,8 @@ export async function main(): Promise<void> {
       process.env.WAYPOINT_SOURCE_HOST ?? hostname(),
       limitsFromEnv(process.env),
     ),
+    options?.launcher,
   ).connect(new StdioServerTransport());
 }
+
+export const main = startServer;

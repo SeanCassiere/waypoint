@@ -109,6 +109,20 @@ export interface StatusResponse {
   account_paused: boolean;
   account_error: string | null;
 }
+export const MCP_LAUNCHER_API = 1;
+export interface McpVersionResponse {
+  server_sha256: string;
+  package_sha256: string;
+  launcher_sha256: string;
+  launcher_api: number;
+}
+export interface McpRuntimeStatus {
+  running_sha256: string | null;
+  source: "fresh" | "cache" | "embedded";
+  latest_sha256: string | null;
+  update_available: boolean;
+}
+export type McpStatusResponse = StatusResponse & { mcp: McpRuntimeStatus };
 export interface ResolveResponse {
   collection_id: string;
   revision_id?: string;
