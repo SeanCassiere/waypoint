@@ -9,7 +9,7 @@ A private store for the artifacts agents produce: plans, screenshots, research d
 "Waypoint" names the product only. There is no entity called "a waypoint": the thing you create, view, and share is a [collection](#content).
 
 **Tailnet**
-The user's private Tailscale network (agent-1, the MacBook Air, and so on). Everything on the tailnet is **trusted**.
+The user's private Tailscale network (agent-1, the MacBook Air, and so on). Everything on the tailnet is **trusted**. See [trust-model.md](trust-model.md).
 
 **Writer**
 A Waypoint instance running on the tailnet in *write mode*. It accepts writes from agents, renders content, serves the viewer, keeps a local replica of the database, and syncs to the cloud. Writers have no auth: being on the tailnet is the credential. There is one writer today (on agent-1), and the design allows several.

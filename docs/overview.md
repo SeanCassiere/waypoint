@@ -32,19 +32,7 @@ Today these artifacts are scattered across machines' disks. Waypoint gives them 
 
 ## Trust model
 
-| Zone | Who | Can read | Can write |
-|---|---|---|---|
-| **Tailnet** | Any device on the user's Tailscale network | Everything, including deleted and failed items | Everything. No auth, but cross-site browser requests are rejected (see [api-and-mcp.md](api-and-mcp.md#request-safety)). |
-| **Public** | Anyone on the internet | Only what a valid share link allows. Everything else returns 404. | Nothing, ever |
-
-The cloud DB and bucket hold *everything*, private content included. Being stored in the cloud **does not** mean being exposed. The reader denies every request unless a share link permits it.
-
-Because the reader can technically reach private content, read-only and deny-by-default are enforced structurally rather than just by convention:
-- The reader's Turso token is read-only.
-- Write routes are absent from the reader's build.
-- Access logs go to a separate sink, never the main DB.
-
-See [public-reader.md](public-reader.md).
+The tailnet is trusted, with full read and write access and no auth. The public internet is read-only forever, and sees only what a share link allows. Everything is stored in the cloud, but storage doesn't mean exposure. The full model (zones, credentials, share links, untrusted content, deploy pipeline, and accepted risks) is in **[trust-model.md](trust-model.md)**.
 
 ## Core principles
 

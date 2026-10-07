@@ -15,6 +15,10 @@ Read this before changing or operating Waypoint. Background on what Waypoint is:
 
 The writer publishes **no host port**. It's reachable only through the sidecar's tailnet HTTPS endpoint, not from the plain LAN.
 
+## Trust model
+
+Before changing anything that affects access, credentials, share links, or content serving, read [docs/trust-model.md](docs/trust-model.md) and keep it up to date.
+
 ## agent-1 must stay up
 
 agent-1 runs the user's other agent workloads, including T3 Code on the host's own Tailscale `:443`. When operating Waypoint:

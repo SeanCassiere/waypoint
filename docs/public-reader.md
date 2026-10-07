@@ -6,7 +6,7 @@ It isn't built in phase 1. It is specified here so phase 1 doesn't paint it into
 
 ## Why Workers (not Railway)
 
-- **R2 binding:** reads blobs directly, with no S3 credentials and free egress. Railway would charge $0.05/GB to proxy every blob.
+- **R2 next door, free egress:** the reader reads blobs over R2's S3 API with a read-only token (D38). Egress is free, whereas Railway would charge $0.05/GB to proxy every blob.
 - **Edge cache:** blobs are immutable and content-addressed, so they can be cached forever.
 - **Built-in tools for future grant features:** Turnstile, the Rate Limiting binding, and WAF rules.
 - **Free plan headroom:** 100k requests a day and 10 ms of CPU per request cover expected use. Markdown is pre-rendered by the writer, so the reader only looks things up and streams.
@@ -68,6 +68,8 @@ share_links (
 
 ## Safeguards (enforced by structure, not convention)
 
+The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
+
 | Safeguard | How |
 |---|---|
 | No writes to metadata | The reader's Turso token is created with `--read-only` |
@@ -79,6 +81,7 @@ share_links (
 | No enumeration | 404 for everything not explicitly allowed; rate limiting on token misses |
 | No stale shared caches | `Cache-Control: private` on all tokenized responses |
 | Environment isolation | The prod reader is bound only to the prod bucket and the prod DB |
+| Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
 
 ## Later (not phase 2)
 

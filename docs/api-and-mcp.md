@@ -9,6 +9,8 @@ Conventions:
 
 ## Request safety
 
+Part of the [trust model](trust-model.md).
+
 The writer has no auth (the tailnet is trusted). A website open in a browser on the tailnet could still try cross-site requests (CSRF), so:
 - JSON endpoints require `Content-Type: application/json`.
 - Every mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) is rejected with `403` if it comes from a browser on another origin. The check is `Sec-Fetch-Site` of `cross-site` or `same-site`, or an `Origin` header that isn't the writer's own origin.
