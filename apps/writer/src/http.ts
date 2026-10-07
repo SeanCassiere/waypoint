@@ -1325,7 +1325,11 @@ async function prunePendingStorage(tx: DbHandle, waypoint: Db): Promise<string[]
     "SELECT source_hash,output_hash FROM pending_renditions",
   );
   await inSeries(renditions, async (rendition) => {
-    if (!referenced.has(rendition.source_hash))
+    // Rows queued by `rerender` belong to an already committed source, not to a queued revision.
+    if (
+      !referenced.has(rendition.source_hash) &&
+      !(await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.source_hash]))
+    )
       await tx.run("DELETE FROM pending_renditions WHERE source_hash=?", [rendition.source_hash]);
     else referenced.add(rendition.output_hash);
   });

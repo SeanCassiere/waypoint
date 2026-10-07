@@ -60,6 +60,8 @@ function parseManifest(json: string): Manifest {
   }
   return { headPath: parsed.headPath, files };
 }
+/** Queued renditions (a rerender backlog) committed per committer pass before revisions get a turn. */
+export const RENDITIONS_PER_PASS = 50;
 export const blobKey = (hash: string): string => `blobs/sha256/${hash.slice(7)}`;
 export const manifestKey = (id: string): string => `manifests/${id}.json`;
 export const collectionKey = (id: string): string => `collections/${id}.json`;
@@ -94,6 +96,9 @@ export class WriterCommitter implements Committer {
   accountError: string | null = null;
   lastUploadAt: number | null = null;
   private renditionsRetryAt: number | null = null;
+  /** Where the next pass resumes in pending_renditions; null starts from the beginning. */
+  private renditionCursor: Pick<Rendition, "source_hash" | "renderer" | "renderer_version"> | null =
+    null;
   constructor(
     readonly waypoint: Db,
     readonly queue: Db,
@@ -671,9 +676,28 @@ export class WriterCommitter implements Committer {
     if (this.renditionsRetryAt !== null && this.renditionsRetryAt > this.now()) return;
     this.renditionsRetryAt = null;
     let pendingSources: Set<string> | undefined;
-    for (const rendition of await this.queue.all<Rendition>(
-      "SELECT * FROM pending_renditions ORDER BY source_hash,renderer,renderer_version",
-    )) {
+    // A rerender backlog can hold thousands of rows. Each pass takes the next batch after a
+    // cursor and asks for another pass, so new revisions are committed between batches.
+    const after = this.renditionCursor;
+    const batch = await this.queue.all<Rendition>(
+      after
+        ? "SELECT * FROM pending_renditions WHERE source_hash>? OR (source_hash=? AND (renderer>? OR (renderer=? AND renderer_version>?))) ORDER BY source_hash,renderer,renderer_version LIMIT ?"
+        : "SELECT * FROM pending_renditions ORDER BY source_hash,renderer,renderer_version LIMIT ?",
+      after
+        ? [
+            after.source_hash,
+            after.source_hash,
+            after.renderer,
+            after.renderer,
+            after.renderer_version,
+            RENDITIONS_PER_PASS,
+          ]
+        : [RENDITIONS_PER_PASS],
+    );
+    const last = batch.at(-1);
+    this.renditionCursor = batch.length === RENDITIONS_PER_PASS && last ? last : null;
+    if (this.renditionCursor) this.rerun = true;
+    for (const rendition of batch) {
       if (this.stopping || this.accountError) return;
       const key = [rendition.source_hash, rendition.renderer, rendition.renderer_version] as const;
       if (!(await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [rendition.source_hash]))) {
@@ -1023,7 +1047,11 @@ export class WriterCommitter implements Committer {
         for (const file of Object.values(parseManifest(item.manifest_json).files))
           sources.add(file.hash);
       for (const item of await tx.all<Rendition>("SELECT * FROM pending_renditions")) {
-        if (!sources.has(item.source_hash))
+        // Rerender rows stand alone: their source is already committed, not in a dropped revision.
+        if (
+          !sources.has(item.source_hash) &&
+          !(await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [item.source_hash]))
+        )
           await tx.run(
             "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
             [item.source_hash, item.renderer, item.renderer_version],

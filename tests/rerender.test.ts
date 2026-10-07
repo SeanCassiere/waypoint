@@ -7,14 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BlobStore } from "../apps/writer/src/blob-store.js";
 import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.js";
-import { blobKey, SimulatedCrash, WriterCommitter } from "../apps/writer/src/committer.js";
+import {
+  blobKey,
+  RENDITIONS_PER_PASS,
+  SimulatedCrash,
+  WriterCommitter,
+} from "../apps/writer/src/committer.js";
 import type { Config } from "../apps/writer/src/config.js";
 import { openDatabases, type Db, type SyncClient } from "../apps/writer/src/db.js";
+import { createApp } from "../apps/writer/src/http.js";
 import { IngestService, type Renderer } from "../apps/writer/src/ingest.js";
 import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
 import { ReadModel } from "../apps/writer/src/read-model.js";
 import { writerRenderer } from "../apps/writer/src/renderer.js";
-import { parseRerenderArgs, rerender } from "../apps/writer/src/rerender.js";
+import { formatRerenderSummary, parseRerenderArgs, rerender } from "../apps/writer/src/rerender.js";
 import { SyncLoop } from "../apps/writer/src/sync-loop.js";
 
 class FakeRenderer implements Renderer {
@@ -454,5 +460,122 @@ describe("rerender", () => {
     expect([readme, notes, shared]).toContain(row.source_hash);
     const html = await readFile(blobs.path(row.output_hash), "utf8");
     expect(html).toContain('"waypoint:location"');
+  });
+
+  /** Commits `count` markdown files, then queues their standalone renditions as `rerender` does. */
+  async function backlog(count: number): Promise<string[]> {
+    const sources: string[] = [];
+    for (let index = 0; index < count; index++) sources.push(await put(`# Backlog ${index}`));
+    await ingest.create({
+      title: "Backlog",
+      head_path: "doc-0.md",
+      files: sources.map((hash, index) => ({ path: `doc-${index}.md`, hash })),
+    });
+    await commitAll();
+    for (const [index, source] of sources.entries()) {
+      const text = `<v2># Backlog ${index}`;
+      const output = await put(text);
+      await queue.run("INSERT OR IGNORE INTO pending_blobs (hash,size) VALUES (?,?)", [
+        output,
+        text.length,
+      ]);
+      await queue.run(
+        "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+        [source, "markdown", 2, output, "text/html", clock],
+      );
+    }
+    return sources;
+  }
+
+  it("commits a rerender backlog in batches so new revisions don't wait behind it", async () => {
+    await seed();
+    const total = RENDITIONS_PER_PASS * 2 + 20;
+    await backlog(total);
+    let done = 0;
+    let revisionId: string | undefined;
+    let committedAfter: number | undefined;
+    steps = async (step) => {
+      if (step !== "rendition_after_rows") return;
+      done++;
+      if (done === 5) {
+        // An agent writes while the backlog uploads.
+        revisionId = (
+          await ingest.create({ title: "Fresh", files: [{ path: "a.md", hash: await put("# A") }] })
+        ).revision_id;
+        committer.wake();
+      }
+      if (
+        revisionId &&
+        committedAfter === undefined &&
+        (await waypoint.get("SELECT 1 FROM revisions WHERE id=?", [revisionId]))
+      )
+        committedAfter = done;
+    };
+    await commitAll();
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    expect(done).toBe(total);
+    // Committed right after the first batch, not after the whole backlog.
+    expect(committedAfter).toBeDefined();
+    expect(committedAfter!).toBeLessThanOrEqual(RENDITIONS_PER_PASS + 1);
+  });
+
+  it("keeps standalone rerender rows when a queued revision or collection is dropped", async () => {
+    await seed();
+    const sources = await backlog(3);
+    const app = createApp({ waypoint, queue, blobs, reads, ingest });
+    // A queued revision dropped from Status (prunePendingStorage).
+    const fresh = await ingest.create({
+      title: "Dropped",
+      files: [{ path: "x.md", hash: await put("# Dropped") }],
+    });
+    const dropped = await app.request(`/api/queue/${fresh.revision_id}`, { method: "DELETE" });
+    expect(dropped.status).toBe(200);
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(3);
+    // A queued-only collection purged by the committer (dropQueuedCollection).
+    const purged = await ingest.create({
+      title: "Purged",
+      files: [{ path: "y.md", hash: await put("# Purged") }],
+    });
+    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [purged.revision_id]);
+    await queue.run("INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)", [
+      purged.collection_id,
+      clock,
+    ]);
+    // Hold the renditions back (uploads fail) while the purge runs, then let them commit.
+    const uploads = vi
+      .spyOn(bucket, "putIfAbsent")
+      .mockRejectedValue(new BucketError("unavailable", "transient", 503));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await commitAll();
+    spy.mockRestore();
+    uploads.mockRestore();
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_purges")).toBe(0);
+    expect(
+      await count(queue, "SELECT COUNT(*) AS n FROM pending_revisions WHERE collection_id=?", [
+        purged.collection_id,
+      ]),
+    ).toBe(0);
+    const left = await queue.all<{ source_hash: string; output_hash: string }>(
+      "SELECT source_hash,output_hash FROM pending_renditions ORDER BY source_hash",
+    );
+    expect(left.map((row) => row.source_hash)).toEqual(sources.toSorted());
+    for (const row of left)
+      expect(
+        await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs WHERE hash=?", [
+          row.output_hash,
+        ]),
+      ).toBe(1);
+    committer.stop();
+    committer = newCommitter();
+    await commitAll();
+    expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(0);
+    for (const source of sources)
+      expect(
+        await count(
+          waypoint,
+          "SELECT COUNT(*) AS n FROM renditions WHERE source_hash=? AND renderer_version=2",
+          [source],
+        ),
+      ).toBe(1);
   });
 });
