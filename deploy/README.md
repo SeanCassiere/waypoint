@@ -100,7 +100,8 @@ The Turso engine leaks native memory for each statement it prepares, so the
 writer caches prepared statements by SQL text and reuses them (see
 [Prepared statements and native memory](../docs/architecture.md#prepared-statements-and-native-memory)).
 With the cache, RSS grows by about 0.16 KB per query and flattens over time,
-instead of the 12.5 KB per query that took prod from start to 294 MB in 14 h.
+instead of about 12.5 KB per query before (when prod reached 294 MiB of its
+1 GiB after 14 h).
 If usage still climbs toward the limit, restarting the writer is safe, because
 queued writes survive in `queue.db`:
 
