@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release to deploy (X.Y.Z). Honoured only for WAYPOINT_DEPLOY_ADMIN; anyone else deploys the latest release.
+        description: Release to deploy (X.Y.Z). Honoured only when WAYPOINT_DEPLOY_ADMIN starts the run; anyone else deploys the latest release. If WAYPOINT_DEPLOY_ADMIN is an organization (the default for an organization-owned repository), any version input fails the run.
         required: false
         default: ""
 permissions:
@@ -119,7 +119,11 @@ jobs:
           if [[ -n "$REQUESTED" ]]; then
             # The default admin of an organization-owned repository is the organization, which is
             # never a run's actor: fail instead of quietly deploying the latest release.
-            if [[ "$("$GH" api "users/$DEPLOY_ADMIN" --jq .type)" != User ]]; then
+            admin_type="$("$GH" api "users/$DEPLOY_ADMIN" --jq .type)" || {
+              echo "::error::couldn't look up WAYPOINT_DEPLOY_ADMIN ($DEPLOY_ADMIN) on GitHub (see the error above)"
+              exit 1
+            }
+            if [[ "$admin_type" != User ]]; then
               echo "::error::WAYPOINT_DEPLOY_ADMIN ($DEPLOY_ADMIN) isn't a user, so no one can choose a version; set the variable to your login"
               exit 1
             fi
