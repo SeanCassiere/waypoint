@@ -110,6 +110,8 @@ Secrets are uploaded with `wrangler secret bulk`; bindings come from `wrangler.j
 | `TOKEN_MISS_LIMITER` | Rate Limiting binding | no | Counts denials and deep health probes per IP; missing skips rate limiting. |
 | `ACCESS_LOG` | Analytics Engine binding | no | Access log; missing skips logging. |
 
+The Worker reads all of these, but this repo's reader deploy scripts (`deploy/deploy-reader.sh`, via `deploy/reader-env.sh`) still accept only the seven R2-era secrets and require `R2_ACCOUNT_ID`. Until the generic deploy tooling lands, a reader on another S3-compatible store needs `WAYPOINT_S3_ENDPOINT` (and `WAYPOINT_S3_REGION`) set by hand, with `wrangler secret put` or as a `vars` entry in its Wrangler config.
+
 ## Version reporting
 
 | Endpoint | Shape |
