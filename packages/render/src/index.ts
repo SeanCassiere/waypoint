@@ -2,9 +2,9 @@ import { Worker } from "node:worker_threads";
 
 import { isMarkdown } from "@waypoint/core";
 
-import { fallbackDocument, RENDERER_NAME, RENDERER_VERSION } from "./render.js";
+import { fallbackDocument, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
 
-export { renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "./render.js";
+export { renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
 
 type Result = { bytes: Uint8Array; mime: "text/html" };
 type Renderer = {
@@ -17,7 +17,16 @@ type Slot = { worker: Worker; jobs: Map<number, Job>; failed: boolean };
 
 const slots: Slot[] = [];
 let nextId = 0;
-const workerUrl = new URL("./worker.js", import.meta.resolve("@waypoint/render"));
+// The worker is a sibling module: dist/render-worker.js next to this bundle (in this package and
+// in the writer, whose bundle has a render-worker.js entry), or src/render-worker.ts when this
+// module runs from source (tests). Node runs that source directly, resolving workspace packages
+// to their source as well.
+const fromSource = import.meta.url.endsWith(".ts");
+const workerUrl = new URL(
+  fromSource ? "./render-worker.ts" : "./render-worker.js",
+  import.meta.url,
+);
+const workerExecArgv = fromSource ? ["--conditions=@waypoint/source"] : [];
 
 function discardSlot(slot: Slot): void {
   if (slot.failed) return;
@@ -29,7 +38,10 @@ function discardSlot(slot: Slot): void {
 }
 
 function createSlot(): Slot {
-  const worker = new Worker(workerUrl, { execArgv: [], resourceLimits: { stackSizeMb: 4 } });
+  const worker = new Worker(workerUrl, {
+    execArgv: workerExecArgv,
+    resourceLimits: { stackSizeMb: 4 },
+  });
   const slot: Slot = { worker, jobs: new Map(), failed: false };
   function fail(): void {
     discardSlot(slot);
@@ -69,7 +81,7 @@ function renderInWorker(source: string): Promise<string> {
   });
 }
 
-export const markdownRenderer = {
+export const markdownRenderer: Renderer = {
   name: RENDERER_NAME,
   version: RENDERER_VERSION,
   async render(source: Uint8Array, mime: string): Promise<Result | null> {
@@ -91,11 +103,11 @@ export const markdownRenderer = {
     }
     return { bytes: new TextEncoder().encode(html), mime: "text/html" };
   },
-} as const satisfies Renderer;
+};
 export {
   markWords,
   MAX_FRAGMENT_SOURCE,
   renderFragment,
   renderFragments,
   SENTINELS,
-} from "./fragment.js";
+} from "./fragment.ts";

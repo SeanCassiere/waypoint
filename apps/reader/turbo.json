@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Wrangler's dry-run bundle of the Worker (dist/index.js), from the libraries' dist.
+    "build": {
+      "inputs": ["src/**", "wrangler.jsonc", "package.json"]
+    }
+  }
+}

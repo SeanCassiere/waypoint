@@ -1,7 +1,7 @@
 import { TypeID, typeid } from "typeid-js";
 
-import { brand } from "./brand.js";
-import { WaypointError } from "./errors.js";
+import { brand } from "./brand.ts";
+import { WaypointError } from "./errors.ts";
 
 export const ID_PREFIXES = ["col", "rev", "shl", "grt", "aud", "cmt"] as const;
 export type IdPrefix = (typeof ID_PREFIXES)[number];

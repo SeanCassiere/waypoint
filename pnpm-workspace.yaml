@@ -1,6 +1,10 @@
 packages:
   - "packages/*"
   - "apps/*"
+  - "tests"
+# Build tools pinned once for every package that uses them.
+catalog:
+  tsdown: 0.23.0
 allowBuilds:
   esbuild: true
   workerd: true

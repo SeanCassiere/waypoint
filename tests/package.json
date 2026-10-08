@@ -1,0 +1,23 @@
+{
+  "name": "@waypoint/integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --project unit",
+    "test:browser": "node --conditions=@waypoint/source viewer-browser.ts",
+    "test:browser:reader": "node --conditions=@waypoint/source reader-browser.ts"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^2.1.3",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@waypoint/core": "workspace:*",
+    "@waypoint/mcp": "workspace:*",
+    "@waypoint/reader": "workspace:*",
+    "@waypoint/render": "workspace:*",
+    "@waypoint/ui": "workspace:*",
+    "@waypoint/writer": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

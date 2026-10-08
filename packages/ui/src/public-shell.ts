@@ -1,5 +1,5 @@
-import { escapeHtml } from "./html.js";
-import { tokensCss } from "./tokens.js";
+import { escapeHtml } from "./html.ts";
+import { tokensCss } from "./tokens.ts";
 
 /**
  * The Folio public shell (spec §9): a quiet letterhead, the file tabs or a "Files (N)" tree,
@@ -96,7 +96,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--pap
 `;
 
 /** The public shell's complete stylesheet: Folio tokens plus the shell rules. */
-export const publicShellCss = tokensCss + shellCss;
+export const publicShellCss: string = tokensCss + shellCss;
 
 /**
  * The shell's only script, progressive enhancement over server-rendered links:

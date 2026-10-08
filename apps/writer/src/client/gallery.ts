@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$ } from "./dom.ts";
 
 /** Gallery: image dimensions in captions and the compare lightbox (spec §5.6). */
 export function bindGallery(): void {

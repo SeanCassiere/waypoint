@@ -1,4 +1,4 @@
-import { WaypointError } from "./errors.js";
+import { WaypointError } from "./errors.ts";
 
 export function normalizePath(path: string): string {
   return path.normalize("NFC");

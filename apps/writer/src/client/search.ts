@@ -1,5 +1,5 @@
-import { api, field } from "./api.js";
-import { $, el } from "./dom.js";
+import { api, field } from "./api.ts";
+import { $, el } from "./dom.ts";
 
 interface Suggestion {
   title: string;

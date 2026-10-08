@@ -1,7 +1,7 @@
 import type { StatusResponse } from "@waypoint/core";
 
-import { LocalSyncClient } from "./db.js";
-import type { HttpServices } from "./http.js";
+import { LocalSyncClient } from "./db.ts";
+import type { HttpServices } from "./http.ts";
 
 export interface ViewerStatus extends StatusResponse {
   sync_enabled: boolean;

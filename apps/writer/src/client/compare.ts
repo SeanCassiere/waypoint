@@ -1,4 +1,4 @@
-import { $, shellRoot } from "./dom.js";
+import { $, shellRoot } from "./dom.ts";
 
 /** The revision menu's Compare… picker (the dialog itself opens natively). */
 export function bindCompare(): void {

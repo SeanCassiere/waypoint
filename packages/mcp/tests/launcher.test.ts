@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { cacheDirectory, candidates, launch, normalizedUrl } from "../src/launcher.js";
+import { cacheDirectory, candidates, launch, normalizedUrl } from "../src/launcher.ts";
 
 const dirs: string[] = [];
 afterEach(async () => {

@@ -4,11 +4,11 @@ import { stat } from "node:fs/promises";
 import { isContentHash, type Manifest, type SyncState } from "@waypoint/core";
 import { z, ZodError } from "zod";
 
-import type { BlobStore } from "./blob-store.js";
-import { Bucket, BucketError } from "./bucket.js";
-import { type Db } from "./db.js";
-import type { Committer, IngestService } from "./ingest.js";
-import { SyncLoop } from "./sync-loop.js";
+import type { BlobStore } from "./blob-store.ts";
+import { type Bucket, BucketError } from "./bucket.ts";
+import { type Db } from "./db.ts";
+import type { Committer, IngestService } from "./ingest.ts";
+import { SyncLoop } from "./sync-loop.ts";
 
 type Revision = {
   id: string;
@@ -99,20 +99,44 @@ export class WriterCommitter implements Committer {
   /** Where the next pass resumes in pending_renditions; null starts from the beginning. */
   private renditionCursor: Pick<Rendition, "source_hash" | "renderer" | "renderer_version"> | null =
     null;
+  readonly waypoint: Db;
+  readonly queue: Db;
+  readonly blobs: BlobStore;
+  readonly bucket: Bucket;
+  readonly sync: SyncLoop;
+  readonly lock: Pick<IngestService, "withCollectionLock"> &
+    Partial<Pick<IngestService, "withGcExclusive" | "isBlobInUse">>;
+  readonly now: () => number;
+  readonly random: () => number;
+  readonly giveUpHours: number;
+  readonly onStep: ((step: CommitterStep) => Promise<void> | void) | undefined;
+  readonly onCommitted: ((collectionId: string) => void) | undefined;
   constructor(
-    readonly waypoint: Db,
-    readonly queue: Db,
-    readonly blobs: BlobStore,
-    readonly bucket: Bucket,
-    readonly sync: SyncLoop,
-    readonly lock: Pick<IngestService, "withCollectionLock"> &
+    waypoint: Db,
+    queue: Db,
+    blobs: BlobStore,
+    bucket: Bucket,
+    sync: SyncLoop,
+    lock: Pick<IngestService, "withCollectionLock"> &
       Partial<Pick<IngestService, "withGcExclusive" | "isBlobInUse">>,
-    readonly now: () => number = Date.now,
-    readonly random: () => number = Math.random,
-    readonly giveUpHours = 72,
-    readonly onStep?: (step: CommitterStep) => Promise<void> | void,
-    readonly onCommitted?: (collectionId: string) => void,
-  ) {}
+    now: () => number = Date.now,
+    random: () => number = Math.random,
+    giveUpHours = 72,
+    onStep?: (step: CommitterStep) => Promise<void> | void,
+    onCommitted?: (collectionId: string) => void,
+  ) {
+    this.waypoint = waypoint;
+    this.queue = queue;
+    this.blobs = blobs;
+    this.bucket = bucket;
+    this.sync = sync;
+    this.lock = lock;
+    this.now = now;
+    this.random = random;
+    this.giveUpHours = giveUpHours;
+    this.onStep = onStep;
+    this.onCommitted = onCommitted;
+  }
   private async step(name: CommitterStep): Promise<void> {
     await this.onStep?.(name);
   }

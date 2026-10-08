@@ -127,7 +127,7 @@ export function markWords(
  * Fragments longer than this aren't rendered. Markdown parsing is superlinear on some inputs
  * (nested brackets and emphasis), so this keeps one fragment's cost to a few hundred ms.
  */
-export const MAX_FRAGMENT_SOURCE = 8 * 1024;
+export const MAX_FRAGMENT_SOURCE: number = 8 * 1024;
 
 /**
  * Renders a batch of fragments within a time budget. A fragment that is too long, or comes

@@ -9,7 +9,7 @@ import {
   publicShellScript,
   renderPublicShell,
   type PublicShellOptions,
-} from "../src/index.js";
+} from "../src/index.ts";
 
 const base: PublicShellOptions = {
   title: "Plan",

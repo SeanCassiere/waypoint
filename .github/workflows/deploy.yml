@@ -38,6 +38,7 @@ jobs:
         with:
           node-version-file: .node-version
       - run: pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
-      - run: pnpm --filter @waypoint/reader build
+      # The reader and the workspace packages it bundles (`...`): Wrangler reads their dist.
+      - run: pnpm --filter "@waypoint/reader..." build
       - run: bash deploy/deploy-reader.sh dev
       - run: bash deploy/deploy-reader.sh prod

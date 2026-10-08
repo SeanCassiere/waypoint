@@ -1,14 +1,22 @@
 {
+  // TypeScript only type-checks: tsdown, esbuild and Wrangler emit everything. Workspace packages
+  // resolve to their TypeScript source through the `@waypoint/source` export condition, so type
+  // checking never needs a build, and relative imports name the real `.ts` file, so Node 24 can
+  // run the source directly (worker threads, browser suites and scripts started from source).
+  // erasableSyntaxOnly makes syntax Node's type stripping can't erase (enums, namespaces,
+  // parameter properties) a type error instead of a runtime crash.
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "customConditions": ["@waypoint/source"],
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "sourceMap": true,
-    "composite": true
+    "skipLibCheck": true
   }
 }

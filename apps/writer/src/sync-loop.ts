@@ -1,4 +1,4 @@
-import type { Db, SyncClient } from "./db.js";
+import type { Db, SyncClient } from "./db.ts";
 
 function constraint(error: unknown): boolean {
   return error instanceof Error && /UNIQUE|CONSTRAINT|BATCH_STEP_ERROR/i.test(error.message);
@@ -76,13 +76,24 @@ export class SyncLoop {
   lastOkAt: number | null = null;
   /** Whether the most recent push or pull attempt failed. */
   lastAttemptFailed = false;
+  readonly queue: Db;
+  readonly client: SyncClient;
+  readonly now: () => number;
+  readonly waypoint: Db | undefined;
+  readonly timeouts: { pushMs?: number; pullMs?: number; checkpointMs?: number };
   constructor(
-    readonly queue: Db,
-    readonly client: SyncClient,
-    readonly now: () => number = Date.now,
-    readonly waypoint?: Db,
-    readonly timeouts: { pushMs?: number; pullMs?: number; checkpointMs?: number } = {},
-  ) {}
+    queue: Db,
+    client: SyncClient,
+    now: () => number = Date.now,
+    waypoint?: Db,
+    timeouts: { pushMs?: number; pullMs?: number; checkpointMs?: number } = {},
+  ) {
+    this.queue = queue;
+    this.client = client;
+    this.now = now;
+    this.waypoint = waypoint;
+    this.timeouts = timeouts;
+  }
   private async pushNative(label: string): Promise<void> {
     if (this.nativePush)
       await timed(

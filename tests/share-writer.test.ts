@@ -2,22 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-
-import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { MemoryBucket } from "../apps/writer/src/bucket.js";
-import { WriterCommitter } from "../apps/writer/src/committer.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
-import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { restore } from "../apps/writer/src/restore.js";
-import { URL_UNAVAILABLE } from "../apps/writer/src/shares.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
 import {
   deriveShareToken,
   hashShareToken,
@@ -25,7 +9,23 @@ import {
   newId,
   newShareToken,
   publicIdFor,
-} from "../packages/core/src/index.js";
+} from "@waypoint/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.ts";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { MemoryBucket } from "../apps/writer/src/bucket.ts";
+import { WriterCommitter } from "../apps/writer/src/committer.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
+import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { restore } from "../apps/writer/src/restore.ts";
+import { URL_UNAVAILABLE } from "../apps/writer/src/shares.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
   method: "POST",

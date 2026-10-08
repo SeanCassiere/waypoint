@@ -9,8 +9,8 @@ import {
 import { encodeLinkPath, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
-import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.js";
-import { deniedPage, rootPage } from "./pages.js";
+import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.ts";
+import { deniedPage, rootPage } from "./pages.ts";
 
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;

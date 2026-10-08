@@ -6,8 +6,8 @@ import {
   type ShareLink,
 } from "@waypoint/core";
 
-import type { HttpServices } from "./http.js";
-import type { RevisionRow } from "./read-model.js";
+import type { HttpServices } from "./http.ts";
+import type { RevisionRow } from "./read-model.ts";
 
 type SharingServices = Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">;
 /**

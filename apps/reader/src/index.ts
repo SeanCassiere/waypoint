@@ -1,7 +1,7 @@
 import { connect } from "@tursodatabase/serverless";
 import { AwsClient } from "aws4fetch";
 
-import { createReaderApp, type ReaderBlob, type ReaderDb, type ReaderEnv } from "./app.js";
+import { createReaderApp, type ReaderBlob, type ReaderDb, type ReaderEnv } from "./app.ts";
 
 declare const caches: { default: Cache };
 

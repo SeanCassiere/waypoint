@@ -1,7 +1,7 @@
-import { brand } from "./brand.js";
-import { WaypointError } from "./errors.js";
-import type { PublicId } from "./ids.js";
-import { validatePath } from "./paths.js";
+import { brand } from "./brand.ts";
+import { WaypointError } from "./errors.ts";
+import type { PublicId } from "./ids.ts";
+import { validatePath } from "./paths.ts";
 
 export type WriterUrl =
   | { kind: "latest"; collectionPublicId: PublicId; path?: string }

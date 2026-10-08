@@ -12,11 +12,11 @@ import {
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
-import type { HttpServices } from "../../http.js";
-import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.js";
-import { collectionLinks, linksEnabled, sharingEnabled, type ShareView } from "../../shares.js";
-import { rawPath, shellPath } from "../../viewer-paths.js";
-import { getChrome } from "../chrome.js";
+import type { HttpServices } from "../../http.ts";
+import { sourceHost, type CollectionRow, type RevisionRow } from "../../read-model.ts";
+import { collectionLinks, linksEnabled, sharingEnabled, type ShareView } from "../../shares.ts";
+import { rawPath, shellPath } from "../../viewer-paths.ts";
+import { getChrome } from "../chrome.ts";
 import {
   FileTree,
   Globe,
@@ -26,15 +26,15 @@ import {
   Timeline,
   type Glyph,
   type TimelineRow,
-} from "../components.js";
-import { bytes, ext, projectAndTags } from "../format.js";
-import { HomeBar, Layout, NotFoundBody, type Chrome } from "../layout.js";
-import { noStore } from "../respond.js";
-import { changesPage, CompareDialog } from "./changes.js";
-import { galleryPage } from "./gallery.js";
-import { publicPreview } from "./public-preview.js";
-import { isLive, LinksPanel, previewHref, publicSegment, ShareDialog } from "./share.js";
-import type { ViewerExtras } from "./status.js";
+} from "../components.tsx";
+import { bytes, ext, projectAndTags } from "../format.ts";
+import { HomeBar, Layout, NotFoundBody, type Chrome } from "../layout.tsx";
+import { noStore } from "../respond.ts";
+import { changesPage, CompareDialog } from "./changes.tsx";
+import { galleryPage } from "./gallery.tsx";
+import { publicPreview } from "./public-preview.tsx";
+import { isLive, LinksPanel, previewHref, publicSegment, ShareDialog } from "./share.tsx";
+import type { ViewerExtras } from "./status.tsx";
 
 const HISTORY_PAGE = 50;
 const shortUrl = (url: string) => `…${new URL(url).pathname}`;

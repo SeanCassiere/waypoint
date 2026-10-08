@@ -20,6 +20,7 @@ import yaml from "@shikijs/langs/yaml";
 import githubDark from "@shikijs/themes/github-dark";
 import githubLight from "@shikijs/themes/github-light";
 import type { Element, Root, RootContent } from "hast";
+import type { Root as MdastRoot } from "mdast";
 import rehypeRaw from "rehype-raw";
 import rehypeSlug from "rehype-slug";
 import rehypeStringify from "rehype-stringify";
@@ -27,11 +28,11 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
-import { unified } from "unified";
+import { unified, type Processor } from "unified";
 
 export const RENDERER_NAME = "markdown";
 // Bump this version for any dependency, CSS, language set, template, or option change, and
-// update the golden hash in tests/render.test.ts in the same change. Renditions are keyed by
+// update the golden hash in tests/golden.ts in the same change. Renditions are keyed by
 // (source hash, renderer, version) and readers serve the highest version, so an unbumped change
 // would leave two different outputs claiming the same key. Existing blobs get the new version
 // through `waypoint-writer rerender`.
@@ -173,7 +174,7 @@ function rehypeAlerts() {
   };
 }
 
-export const processor = unified()
+export const processor: Processor<MdastRoot, MdastRoot, Root, Root, string> = unified()
   .use(remarkParse)
   .use(remarkFrontmatter, ["yaml"])
   .use(remarkGfm)

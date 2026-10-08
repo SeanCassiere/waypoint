@@ -1,7 +1,7 @@
-import { shellPath } from "../viewer-paths.js";
-import { dayLabel, sinceText } from "../viewer/timefmt.js";
-import { $, $$, el, shellRoot, storage } from "./dom.js";
-import { refreshStatusLine } from "./status-line.js";
+import { shellPath } from "../viewer-paths.ts";
+import { dayLabel, sinceText } from "../viewer/timefmt.ts";
+import { $, $$, el, shellRoot, storage } from "./dom.ts";
+import { refreshStatusLine } from "./status-line.ts";
 
 export interface ReadMark {
   id: string;

@@ -1,0 +1,28 @@
+import { bindActions } from "./actions.ts";
+import { bindCollection } from "./collection.ts";
+import { bindCommandFallback } from "./commands.ts";
+import { bindCompare } from "./compare.ts";
+import { bindFocusReturn } from "./dialogs.ts";
+import { bindFrameSync } from "./frame-sync.ts";
+import { bindKeys } from "./keys.ts";
+import { bindReadMarks, bindRecentMarks } from "./lastread.ts";
+import { bindMenus } from "./menus.ts";
+import { bindPanel } from "./panel.ts";
+import { bindSearch } from "./search.ts";
+import { bindShare } from "./share.ts";
+import { localizeTimes } from "./time.ts";
+
+localizeTimes();
+bindCommandFallback();
+bindMenus();
+bindFocusReturn();
+bindActions();
+bindKeys();
+bindSearch();
+bindPanel();
+bindRecentMarks();
+bindCollection();
+bindCompare();
+bindFrameSync();
+bindReadMarks();
+bindShare();

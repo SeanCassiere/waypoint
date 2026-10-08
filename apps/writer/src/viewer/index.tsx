@@ -1,17 +1,17 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from "hono";
 
-import type { HttpServices } from "../http.js";
-import { linksEnabled } from "../shares.js";
-import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.js";
-import { getChrome } from "./chrome.js";
-import { collectionPage, notFound } from "./pages/collection.js";
-import { recentPage } from "./pages/recent.js";
-import { linksPage } from "./pages/share.js";
-import { statusPage, type ViewerExtras } from "./pages/status.js";
-import { trashPage, trashLinks } from "./pages/trash.js";
+import type { HttpServices } from "../http.ts";
+import { linksEnabled } from "../shares.ts";
+import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.ts";
+import { getChrome } from "./chrome.ts";
+import { collectionPage, notFound } from "./pages/collection.tsx";
+import { recentPage } from "./pages/recent.tsx";
+import { linksPage } from "./pages/share.tsx";
+import { statusPage, type ViewerExtras } from "./pages/status.tsx";
+import { trashPage, trashLinks } from "./pages/trash.tsx";
 
-export type { ViewerExtras } from "./pages/status.js";
+export type { ViewerExtras } from "./pages/status.tsx";
 
 export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
   const app = new Hono();

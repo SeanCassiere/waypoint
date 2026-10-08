@@ -177,7 +177,7 @@ Turso Sync currently has open bugs: `RENAME`, `DROP COLUMN`, `RENAME COLUMN`, an
 - **Additive only.** Migrations add tables, nullable columns, and indexes. Nothing is renamed or dropped; to deprecate something, stop reading it.
 - **Idempotent and automatic.** Migrations use `IF NOT EXISTS` and guarded `ADD COLUMN`, run at writer startup, and are recorded in `schema_migrations`.
 - Prefer a new table over a new column on a heavily used table.
-- **Rehearsed.** `tests/sync.test.ts` (needs `TURSODB_BIN`) runs the full migration set on one replica, pushes to a local `tursodb --sync-server`, bootstraps a second replica and migrates it again, so every new migration is checked for idempotence across replicas. A migration that alters an existing table should also be rehearsed against a replica that already holds data, as spike S4 did ([Turso Sync notes](turso-sync-notes.md#migration-rehearsal-s4)).
+- **Rehearsed.** `apps/writer/tests/sync.test.ts` (needs `TURSODB_BIN`) runs the full migration set on one replica, pushes to a local `tursodb --sync-server`, bootstraps a second replica and migrates it again, so every new migration is checked for idempotence across replicas. A migration that alters an existing table should also be rehearsed against a replica that already holds data, as spike S4 did ([Turso Sync notes](turso-sync-notes.md#migration-rehearsal-s4)).
 
 ## Future tables (not built; listed to show they fit)
 

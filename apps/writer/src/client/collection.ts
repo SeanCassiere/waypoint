@@ -1,10 +1,10 @@
-import { shellPath } from "../viewer-paths.js";
-import { copyHandoff, copyLatest, copyPinned } from "./actions.js";
-import { $, $$, run, shellRoot } from "./dom.js";
-import { withShellParams } from "./frame-sync.js";
-import { onCommand } from "./keys.js";
-import { rememberSheet } from "./panel.js";
-import { toast } from "./toast.js";
+import { shellPath } from "../viewer-paths.ts";
+import { copyHandoff, copyLatest, copyPinned } from "./actions.ts";
+import { $, $$, run, shellRoot } from "./dom.ts";
+import { withShellParams } from "./frame-sync.ts";
+import { onCommand } from "./keys.ts";
+import { rememberSheet } from "./panel.ts";
+import { toast } from "./toast.ts";
 
 /** A revision's URL for the current file, keeping the shell's panel state (?panel=history). */
 function revisionUrl(rpub: string): string {

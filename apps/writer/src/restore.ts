@@ -1,9 +1,9 @@
 import { isContentHash, parseId, publicIdFor, validatePath } from "@waypoint/core";
 import { z } from "zod";
 
-import type { Bucket } from "./bucket.js";
-import type { Db, DbHandle } from "./db.js";
-import { SyncLoop } from "./sync-loop.js";
+import type { Bucket } from "./bucket.ts";
+import type { Db, DbHandle } from "./db.ts";
+import { SyncLoop } from "./sync-loop.ts";
 
 const collectionSchema = z.object({
   id: z.string(),

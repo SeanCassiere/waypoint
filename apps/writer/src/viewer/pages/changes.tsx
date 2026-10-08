@@ -14,13 +14,13 @@ import {
   type LineDiffRow,
   type TruncatedReason,
   type WordOp,
-} from "../../compare.js";
-import type { HttpServices } from "../../http.js";
-import { rawPath, shellPath } from "../../viewer-paths.js";
-import { Time } from "../components.js";
-import { bytes, plural } from "../format.js";
-import { Layout } from "../layout.js";
-import { noStore } from "../respond.js";
+} from "../../compare.ts";
+import type { HttpServices } from "../../http.ts";
+import { rawPath, shellPath } from "../../viewer-paths.ts";
+import { Time } from "../components.tsx";
+import { bytes, plural } from "../format.ts";
+import { Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
 import {
   CollectionBar,
   CopyMenu,
@@ -32,9 +32,9 @@ import {
   TabBar,
   CollectionDialogs,
   type CollectionContext,
-} from "./collection.js";
-import { isLive, LinksPanel, previewHref, ShareDialog } from "./share.js";
-import type { ViewerExtras } from "./status.js";
+} from "./collection.tsx";
+import { isLive, LinksPanel, previewHref, ShareDialog } from "./share.tsx";
+import type { ViewerExtras } from "./status.tsx";
 
 const RENDER_FIRST = 5;
 const ADDED_PREVIEW = 20;
@@ -439,7 +439,10 @@ export function unitCount(ops: readonly DiffBlock[]): number {
 class HtmlCache {
   private readonly entries = new Map<string, string>();
   private bytes = 0;
-  constructor(private readonly maxBytes: number) {}
+  private readonly maxBytes: number;
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
   get(key: string): string | undefined {
     const value = this.entries.get(key);
     if (value === undefined) return undefined;

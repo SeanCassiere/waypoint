@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-// Both files are produced by apps/writer/viewer.build.ts. They're hashed once at startup and
-// served immutably, so a deploy changes their URLs.
+import { distDirectory } from "../layout.ts";
+
+// The viewer's browser bundles and stylesheet, built by apps/writer/viewer.build.ts into
+// dist/viewer/. They're hashed once at startup and served immutably, so a deploy changes their URLs.
 function asset(file: string, extension: "js" | "css", type: string) {
-  const bytes = readFileSync(new URL(`../../dist/${file}`, import.meta.url));
+  const bytes = readFileSync(new URL(`viewer/${file}`, distDirectory));
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   return { bytes, url: `/assets/viewer/${hash}.${extension}`, type };
 }

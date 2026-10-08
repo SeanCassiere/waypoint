@@ -11,7 +11,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
-import type { Config } from "./config.js";
+import type { Config } from "./config.ts";
 
 export interface Bucket {
   putIfAbsent(
@@ -33,13 +33,19 @@ export interface Bucket {
 }
 
 export class BucketError extends Error {
+  readonly kind: "transient" | "permanent" | "account";
+  readonly status: number | undefined;
+  readonly code: string | undefined;
   constructor(
     message: string,
-    readonly kind: "transient" | "permanent" | "account",
-    readonly status?: number,
-    readonly code?: string,
+    kind: "transient" | "permanent" | "account",
+    status?: number,
+    code?: string,
   ) {
     super(message);
+    this.kind = kind;
+    this.status = status;
+    this.code = code;
   }
 }
 

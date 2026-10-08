@@ -24,7 +24,7 @@ import {
 } from "@waypoint/core";
 import { z } from "zod";
 
-import type { Db } from "./db.js";
+import type { Db } from "./db.ts";
 function parseManifest(json: string): Manifest {
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== "object" || !("headPath" in parsed) || !("files" in parsed))
@@ -229,11 +229,14 @@ export class ReadModel {
   }
   /** Change counts of committed revisions, least recently used first (see changesFor). */
   private readonly changeCache = new Map<string, RevisionChanges>();
-  constructor(
-    readonly waypoint: Db,
-    readonly queue: Db,
-    readonly baseUrl: string,
-  ) {}
+  readonly waypoint: Db;
+  readonly queue: Db;
+  readonly baseUrl: string;
+  constructor(waypoint: Db, queue: Db, baseUrl: string) {
+    this.waypoint = waypoint;
+    this.queue = queue;
+    this.baseUrl = baseUrl;
+  }
   private cacheChanges(id: string, changes: RevisionChanges): void {
     this.changeCache.delete(id);
     this.changeCache.set(id, { ...changes });

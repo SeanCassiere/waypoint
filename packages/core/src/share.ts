@@ -1,6 +1,6 @@
-import { WaypointError } from "./errors.js";
-import { validatePath } from "./paths.js";
-import { encodePath, withBase } from "./urls.js";
+import { WaypointError } from "./errors.ts";
+import { validatePath } from "./paths.ts";
+import { encodePath, withBase } from "./urls.ts";
 
 const tokenPattern = /^wps_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 const publicIdPattern = /^[0-9a-hjkmnp-tv-z]{12}$/i;

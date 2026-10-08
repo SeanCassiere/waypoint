@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // core.test.ts runs the core import guard against fixtures.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/check-core-imports.mjs"]
+    }
+  }
+}

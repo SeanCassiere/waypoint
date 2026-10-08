@@ -2,13 +2,13 @@
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
-import type { HttpServices } from "../../http.js";
-import { SHARE_COLUMNS, shareViews, type ShareRow } from "../../shares.js";
-import { getChrome } from "../chrome.js";
-import { Globe, Time } from "../components.js";
-import { plural, shortId } from "../format.js";
-import { HomeBar, Layout } from "../layout.js";
-import { noStore } from "../respond.js";
+import type { HttpServices } from "../../http.ts";
+import { SHARE_COLUMNS, shareViews, type ShareRow } from "../../shares.ts";
+import { getChrome } from "../chrome.ts";
+import { Globe, Time } from "../components.tsx";
+import { plural, shortId } from "../format.ts";
+import { HomeBar, Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
 
 export interface TrashLinks {
   /** Active links (not revoked, not expired) that would work again after a restore. */

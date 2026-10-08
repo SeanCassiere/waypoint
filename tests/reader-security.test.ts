@@ -4,13 +4,13 @@
 import { createHash, createHmac } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
+import { hashShareToken, newShareToken } from "@waypoint/core";
+import { encodePathSegments, publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.js";
-import { deniedPage, rootPage, staticCss } from "../apps/reader/src/pages.js";
-import { waypointMigrations } from "../apps/writer/src/migrations.js";
-import { hashShareToken, newShareToken } from "../packages/core/src/index.js";
-import { encodePathSegments, publicShellCss, publicShellScript } from "../packages/ui/src/index.js";
+import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.ts";
+import { deniedPage, rootPage, staticCss } from "../apps/reader/src/pages.ts";
+import { waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",

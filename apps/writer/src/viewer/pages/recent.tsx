@@ -3,17 +3,17 @@ import { WaypointError, type CollectionSearchResult } from "@waypoint/core";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
-import { STUCK_AFTER_MS, type Health } from "../../health.js";
-import type { HttpServices } from "../../http.js";
-import { parseSearch } from "../../search-query.js";
-import { linksEnabled } from "../../shares.js";
-import { shellPath } from "../../viewer-paths.js";
-import { getChrome } from "../chrome.js";
-import { Chg, Globe, revisionHref, Time } from "../components.js";
-import { plural, projectAndTags } from "../format.js";
-import { HomeBar, Layout, type Chrome } from "../layout.js";
-import { noStore } from "../respond.js";
-import { dayLabel } from "../timefmt.js";
+import { STUCK_AFTER_MS, type Health } from "../../health.ts";
+import type { HttpServices } from "../../http.ts";
+import { parseSearch } from "../../search-query.ts";
+import { linksEnabled } from "../../shares.ts";
+import { shellPath } from "../../viewer-paths.ts";
+import { getChrome } from "../chrome.ts";
+import { Chg, Globe, revisionHref, Time } from "../components.tsx";
+import { plural, projectAndTags } from "../format.ts";
+import { HomeBar, Layout, type Chrome } from "../layout.tsx";
+import { noStore } from "../respond.ts";
+import { dayLabel } from "../timefmt.ts";
 
 /** Splits `text` around case-insensitive matches of `query` and wraps them in <mark>. */
 export function highlight(text: string, query: string): Child {

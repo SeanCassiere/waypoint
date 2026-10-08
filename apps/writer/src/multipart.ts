@@ -5,7 +5,7 @@ import { DEFAULT_LIMITS, validatePath, WaypointError, type RequestFile } from "@
 import busboy from "busboy";
 import { z } from "zod";
 
-import type { BlobStore } from "./blob-store.js";
+import type { BlobStore } from "./blob-store.ts";
 
 type Limits = { maxFiles: number; maxRevisionBytes: number };
 type ActiveFile = { stream: Readable; meter: Transform };

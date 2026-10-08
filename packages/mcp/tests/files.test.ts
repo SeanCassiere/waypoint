@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { DEFAULT_LIMITS, hashBytes } from "@waypoint/core";
 import { expect, it } from "vitest";
 
-import { prepareFiles, walkSourceDir } from "../src/files.js";
-import { limitsFromEnv } from "../src/index.js";
+import { prepareFiles, walkSourceDir } from "../src/files.ts";
+import { limitsFromEnv } from "../src/index.ts";
 
 it("walks real and symlinked roots with basename and nested excludes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "waypoint-walk-"));

@@ -1,28 +1,24 @@
 {
   "extends": "./tsconfig.base.json",
+  // Root scripts and every package's build and test configs (*.config.ts, viewer.build.ts, the
+  // MCP package scripts). Each package's own tsconfig.json files cover its source and tests.
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "composite": false,
-    "noEmit": true,
     "allowJs": true,
     "checkJs": true,
     "types": ["node"],
-    "lib": ["ES2024"],
-    "rootDir": "."
+    "lib": ["ES2024"]
   },
   "include": [
-    "tests/**/*.ts",
-    "packages/*/tests/**/*.ts",
-    "apps/*/tests/**/*.ts",
     "scripts/**/*.mjs",
     "scripts/**/*.ts",
-    "oxlint.config.ts",
-    "oxfmt.config.ts",
-    "vitest.config.ts",
-    "packages/mcp/scripts/**/*.ts",
-    "packages/mcp/esbuild.config.ts",
-    "apps/writer/viewer.build.ts"
-  ],
-  "exclude": ["tests/fixtures/core-denied-import/**"]
+    "*.config.ts",
+    "vitest.shared.ts",
+    "packages/*/*.config.ts",
+    "apps/*/*.config.ts",
+    "tests/*.config.ts",
+    "apps/writer/viewer.build.ts",
+    "packages/mcp/scripts/**/*.ts"
+  ]
 }

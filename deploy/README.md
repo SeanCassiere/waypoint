@@ -232,7 +232,7 @@ Manual deploy from the checked out repository on agent-1:
 
 ```bash
 pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
-pnpm --filter @waypoint/reader build
+pnpm --filter "@waypoint/reader..." build
 bash deploy/deploy-reader.sh dev
 bash deploy/deploy-reader.sh prod
 ```
@@ -291,7 +291,7 @@ It **fails closed**. From the moment `wrangler preview` starts until step 4 pass
 
 `DRY_RUN=1 bash deploy/preview-reader.sh 1 up` (and `down`) runs the script against a fake Wrangler and fake responses, without reading secrets or using the network. [preview-reader-check.sh](preview-reader-check.sh) runs `up` and `down`, then makes each stage fail in turn (`DRY_RUN_FAIL=wrangler|json|urls|served|redirect|error|unreachable`, plus a SIGTERM mid-smoke). Each one must exit nonzero after deleting the preview. CI's `build-reader` job runs it, and so does the Preview workflow before every upload.
 
-**Manual use** from the checked-out branch on agent-1, after `pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint` and `pnpm --filter @waypoint/reader build`:
+**Manual use** from the checked-out branch on agent-1, after `pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint` and `pnpm --filter "@waypoint/reader..." build`:
 
 ```bash
 bash deploy/preview-reader.sh 123 up

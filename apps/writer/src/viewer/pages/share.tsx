@@ -2,7 +2,7 @@
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
-import type { HttpServices } from "../../http.js";
+import type { HttpServices } from "../../http.ts";
 import {
   linkPage,
   LINKS_PAGE,
@@ -10,14 +10,14 @@ import {
   URL_UNAVAILABLE,
   type LinkFilter,
   type ShareView,
-} from "../../shares.js";
-import { shellPath } from "../../viewer-paths.js";
-import { getChrome } from "../chrome.js";
-import { Globe, Spinner, Time } from "../components.js";
-import { plural } from "../format.js";
-import { HomeBar, Layout } from "../layout.js";
-import { noStore } from "../respond.js";
-import type { CollectionContext } from "./collection.js";
+} from "../../shares.ts";
+import { shellPath } from "../../viewer-paths.ts";
+import { getChrome } from "../chrome.ts";
+import { Globe, Spinner, Time } from "../components.tsx";
+import { plural } from "../format.ts";
+import { HomeBar, Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
+import type { CollectionContext } from "./collection.tsx";
 
 const DAY = 86_400_000;
 export const isLive = (link: ShareView) => link.state === "active" || link.state === "activating";

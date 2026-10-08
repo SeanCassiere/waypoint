@@ -3,12 +3,14 @@
 //
 // Diffing is superlinear, and the Changes page is a plain GET, so every jsdiff call has an edit
 // length cap and a time budget, word diffs and similarity pairing are bounded, and large inputs
-// are diffed in a worker thread (this module, started with `workerData.waypointDiff`) that is
-// terminated if it overruns. A diff that hits a limit is `truncated` with a reason.
-import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
+// are diffed in a worker thread (compare-worker.ts) that is terminated if it overruns. A diff
+// that hits a limit is `truncated` with a reason.
+import { Worker } from "node:worker_threads";
 
 import { isMarkdown, isTextMime, type Manifest } from "@waypoint/core";
 import { diffArrays, diffLines, diffWordsWithSpace } from "diff";
+
+import { workerEntry } from "./layout.ts";
 
 export type FileStatus = "added" | "removed" | "modified" | "unchanged";
 export interface CompareFile {
@@ -585,9 +587,17 @@ type DiffJob = {
   head: string | null | undefined;
   mode: "blocks" | "lines";
 };
-type WorkerJob = ({ kind: "diff" } & DiffJob) | { kind: "fragments"; sources: string[] };
+export type WorkerJob = ({ kind: "diff" } & DiffJob) | { kind: "fragments"; sources: string[] };
 /** Inputs up to this size (both sides, UTF-16 units) are diffed inline; larger go to a worker. */
 export const INLINE_DIFF_MAX = 32 * 1024;
+
+function startDiffWorker(): Worker {
+  const entry = workerEntry("compare-worker");
+  return new Worker(entry.url, {
+    execArgv: entry.execArgv,
+    resourceLimits: { maxOldGenerationSizeMb: 256, stackSizeMb: 4 },
+  });
+}
 
 /**
  * Runs diffs and Changes-page Markdown fragments off the event loop: a few long-lived workers,
@@ -656,13 +666,7 @@ export class DiffWorkers {
     const label = job.kind === "diff" ? `diff of ${job.file.path}` : "fragment rendering";
     let worker: Worker;
     try {
-      worker =
-        this.idle.pop() ??
-        new Worker(new URL(import.meta.url), {
-          execArgv: [],
-          workerData: { waypointDiff: true },
-          resourceLimits: { maxOldGenerationSizeMb: 256, stackSizeMb: 4 },
-        });
+      worker = this.idle.pop() ?? startDiffWorker();
     } catch (error) {
       console.error(`Diff worker failed to start: ${String(error)}`);
       return Promise.resolve(undefined);
@@ -700,21 +704,3 @@ export class DiffWorkers {
 
 const isFileDiff = (value: unknown): value is FileDiff =>
   typeof value === "object" && value !== null && "truncated" in value && "ops" in value;
-
-const isDiffWorker =
-  !isMainThread &&
-  typeof workerData === "object" &&
-  workerData !== null &&
-  "waypointDiff" in workerData;
-if (isDiffWorker && parentPort) {
-  const port = parentPort;
-  // Loaded only here: the fragment renderer is heavy, and only workers render fragments.
-  const { renderFragments } = await import("@waypoint/render");
-  port.on("message", (job: WorkerJob) => {
-    const result =
-      job.kind === "diff"
-        ? diffFile(job.file, job.base, job.head, job.mode)
-        : renderFragments(job.sources, DIFF_TIME_BUDGET_MS);
-    port.postMessage(result, []);
-  });
-}

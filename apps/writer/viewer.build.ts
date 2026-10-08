@@ -1,30 +1,37 @@
-// Bundles the viewer's browser script and stylesheet. The writer hashes both at startup and
-// serves them from /assets/viewer/<hash>.{js,css} with an immutable cache.
+// Bundles the viewer's browser scripts and stylesheet into dist/viewer/. The writer hashes them at
+// startup and serves them from /assets/viewer/<hash>.{js,css} with an immutable cache.
+//
+// A turbo task of its own (`build:viewer`): the writer's tests serve these files too, so it reads
+// workspace packages from source (`@waypoint/source`, also for this script's own import of
+// @waypoint/ui) and needs no library build. Run it with `node --conditions=@waypoint/source`.
 import { readFile } from "node:fs/promises";
 
 import { tokensCss } from "@waypoint/ui";
 import { build } from "esbuild";
 
 const at = (path: string): string => new URL(path, import.meta.url).pathname;
+const conditions = ["@waypoint/source"];
 
 await build({
-  entryPoints: [at("src/viewer-client.browser.ts")],
-  outfile: at("dist/viewer-client.browser.js"),
+  entryPoints: [at("src/client/viewer-client.browser.ts")],
+  outfile: at("dist/viewer/viewer-client.browser.js"),
   bundle: true,
   platform: "browser",
   format: "iife",
   target: "es2022",
+  conditions,
   minify: true,
   logLevel: "info",
 });
 
 await build({
-  entryPoints: [at("src/viewer-pages.browser.ts")],
-  outfile: at("dist/viewer-pages.browser.js"),
+  entryPoints: [at("src/client/viewer-pages.browser.ts")],
+  outfile: at("dist/viewer/viewer-pages.browser.js"),
   bundle: true,
   platform: "browser",
   format: "iife",
   target: "es2022",
+  conditions,
   minify: true,
   logLevel: "info",
 });
@@ -37,7 +44,7 @@ await build({
     resolveDir: at("src/viewer"),
     sourcefile: "viewer.css",
   },
-  outfile: at("dist/viewer.css"),
+  outfile: at("dist/viewer/viewer.css"),
   bundle: true,
   minify: true,
   logLevel: "info",

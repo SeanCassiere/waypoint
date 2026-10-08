@@ -4,11 +4,11 @@ import { Readable } from "node:stream";
 import { isContentHash } from "@waypoint/core";
 import { z } from "zod";
 
-import type { BlobStore } from "./blob-store.js";
-import type { Bucket } from "./bucket.js";
-import { blobKey } from "./committer.js";
-import { inSeries, type Db } from "./db.js";
-import type { Renderer } from "./ingest.js";
+import type { BlobStore } from "./blob-store.ts";
+import type { Bucket } from "./bucket.ts";
+import { blobKey } from "./committer.ts";
+import { inSeries, type Db } from "./db.ts";
+import type { Renderer } from "./ingest.ts";
 
 /**
  * `waypoint-writer rerender`: give existing markdown blobs a rendition at the current renderer

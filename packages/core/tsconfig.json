@@ -1,8 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  // The library source. isolatedDeclarations lets tsdown generate the .d.ts with oxc.
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
+    "declaration": true,
+    "isolatedDeclarations": true,
     "lib": ["ES2024", "WebWorker"],
     "types": []
   },
