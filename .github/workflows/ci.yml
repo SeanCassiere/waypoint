@@ -37,7 +37,8 @@ jobs:
       - run: pnpm lint
       # Every shell script (deploy tooling, CI helpers). shellcheck comes with the runner image.
       - run: shellcheck -x deploy/*.sh deploy/lib/*.sh scripts/*.sh
-      # Deploy tooling must take the owner's instance values from instance.env, not the repo.
+      # No tracked file may name a particular instance (hosts, domains, machines, accounts): deploy
+      # tooling takes them from instance.env, docs use example values (scripts/check-owner-strings.sh).
       - run: bash scripts/check-owner-strings.sh
   typecheck:
     runs-on: ubuntu-latest

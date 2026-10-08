@@ -1,33 +1,97 @@
 #!/usr/bin/env bash
-# Fails if deploy tooling names the owner's own instance. Everything an adopter runs (deploy/,
-# the reader's Wrangler template, a release bundle) must work from instance.env alone.
+# Fails if a file names the owner's own instance: its hosts, machine names, accounts or IDs.
+# Waypoint is a generic, self-hostable project; the owner's instance values live only in its
+# instance.env on the host and in a private ops repository.
 #
-#   scripts/check-owner-strings.sh [path...]   (default: deploy/ and apps/reader/wrangler.jsonc)
+#   scripts/check-owner-strings.sh            every file tracked by git (CI's lint job)
+#   scripts/check-owner-strings.sh PATH...    every file under these paths (the release bundle)
 #
-# Matching is case-insensitive. Two forms name the published project, not an instance, and are
-# allowed: its image, ghcr.io/seancassiere/... (the default IMAGE), and its repository,
-# seancassiere/waypoint (releases, attestations), but not another repository of the owner's, such
-# as seancassiere/waypoint-ops.
+# Matching is case-insensitive. Caught: the owner's handle in any form (so its Cloudflare
+# workers.dev subdomain and its Turso organization too), its public domain, its tailnet name, its
+# host's name, Cloudflare Access team domains, and a few opaque IDs (Cloudflare account, Access
+# app, GitHub App), which are matched by hash so this script doesn't publish them.
+#
+# Allowed everywhere, because they name the published project rather than an instance:
+#   - its image, ghcr.io/seancassiere/... (the default IMAGE);
+#   - its repository, seancassiere/waypoint (GitHub URLs, releases, attestations), but not another
+#     repository of the owner's, such as its private ops repository.
+# Allowed in one file each: the owner's GitHub handle in .github/CODEOWNERS (@handle),
+# .github/FUNDING.yml (github: [handle]) and CODE_OF_CONDUCT.md (@handle and its profile URL, the
+# contact). CHANGELOG.md, written by release-please, isn't scanned.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if (($# == 0)); then set -- "$repo/deploy" "$repo/apps/reader/wrangler.jsonc"; fi
-# Spelled in pieces so this script doesn't match itself when it's scanned.
+# Spelled in pieces so this script doesn't match itself.
 owner='sean''cassiere'
-pattern="agent-1|tail7aca06|$owner|ping""stash"
-allowed_image="ghcr\\.io/$owner/"
-# The repository slug when it isn't followed by more of a repository name.
-allowed_repo="$owner/waypoint([^-[:alnum:]_.]|\\.([^[:alnum:]]|$)|$)"
+pattern="$owner|ping""stash|tail7a""ca06|agent""-1|cloudflare""access"
+# A form that isn't followed by more of a repository name ends the match.
+end='([^-[:alnum:]_.]|\.([^[:alnum:]]|$)|$)'
+strip_global="s#ghcr\\.io/$owner/##Ig; s#$owner/waypoint$end#\\1#Ig"
+# Per-file allowances: sed expressions applied to that file's lines only.
+strip_for() {
+  case "$1" in
+    .github/CODEOWNERS) printf '%s' "s#@$owner([^[:alnum:]-]|$)#\\1#Ig" ;;
+    .github/FUNDING.yml) printf '%s' "s#^github: \\[$owner\\]##I" ;;
+    CODE_OF_CONDUCT.md) printf '%s' "s#@$owner([^[:alnum:]-]|$)#\\1#Ig; s#github\\.com/$owner([^/[:alnum:]-]|$)#\\1#Ig" ;;
+    *) printf '%s' '' ;;
+  esac
+}
+# sha256 of the owner's Cloudflare account ID, Cloudflare Access app ID, GitHub App ID and the
+# App's client ID. Candidates are tokens of those shapes (32 hex digits, a UUID, a 7-digit number,
+# a GitHub App client ID), so hashing them stays cheap.
+id_shapes='[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{7}|Iv[0-9A-Za-z]{16,20}'
+id_hashes=(
+  781bdfb8dc578c6ac2c0567e2efb3f3151eb073f94a32aaa446f0c53f31da6f6
+  cf5412cc60ce75d147fddbfecb919b9ea4234feacd77184c0290eae72acf0cc5
+  1650e726e5b47b32409b4912b05ca92d58fcac4ec9e5846eba23896d848caf70
+  28143c7f0470337001027267fe391888342e66d134a1dc5b1485e7e6ecd52b57
+)
 
 found=0
-while IFS= read -r -d '' file; do
-  while IFS= read -r hit; do
-    printf '%s:%s\n' "${file#"$repo"/}" "$hit" >&2
-    found=1
-  done < <(sed -E "s#$allowed_image##Ig; s#$allowed_repo#\\1#Ig" "$file" | grep -inE "$pattern" || true)
-done < <(find "$@" -type f -print0)
-if (( found )); then
-  echo "Owner-specific values above; deploy tooling must take them from instance.env" >&2
+report() { printf '%s\n' "$1" >&2; found=1; }
+
+# Hits as `file:line:text`, from `git grep` (repository mode) or `grep -r` (paths).
+if (($# == 0)); then
+  cd "$repo"
+  label="the tracked files"
+  hits() { git grep -I -n -i -E "$pattern" -- . ':(exclude)CHANGELOG.md' || true; }
+  tokens() { git grep -I -h -o -w -E "$id_shapes" -- . ':(exclude)CHANGELOG.md' || true; }
+  names() { git ls-files | grep -i -E "$pattern" || true; }
+else
+  label="${*#"$repo"/}"
+  hits() { grep -r -I -n -i -E "$pattern" "$@" || true; }
+  tokens() { grep -r -I -h -o -w -E "$id_shapes" "$@" || true; }
+  # Names below each path, so a path's own location (a home directory, say) doesn't count.
+  names() { find "$@" -mindepth 1 -printf '%P\n' | grep -i -E "$pattern" || true; }
+fi
+
+while IFS= read -r name; do
+  [[ -n "$name" ]] && report "${name#"$repo"/}: the file name names the owner's instance"
+done < <(names "$@")
+
+while IFS= read -r hit; do
+  file="${hit%%:*}"
+  rest="${hit#*:}"
+  text="${rest#*:}"
+  rel="${file#"$repo"/}"
+  [[ -n "$text" ]] || continue
+  if sed -E "$strip_global; $(strip_for "$rel")" <<<"$text" | grep -qiE "$pattern"; then
+    report "$rel:$rest"
+  fi
+done < <(hits "$@")
+
+while IFS= read -r token; do
+  [[ -n "$token" ]] || continue
+  sum="$(printf '%s' "$token" | sha256sum)"
+  for h in "${id_hashes[@]}"; do
+    if [[ "${sum%% *}" == "$h" ]]; then
+      report "an identifier of the owner's accounts: $token (find it with: grep -rn '$token')"
+    fi
+  done
+done < <(tokens "$@" | sort -u)
+
+if ((found)); then
+  echo "Owner-specific values above. Use generic wording or example values; an instance's own values belong in its instance.env (deploy tooling) or its operator's notes" >&2
   exit 1
 fi
-echo "No owner-specific values in: ${*#"$repo"/}"
+echo "No owner-specific values in $label"

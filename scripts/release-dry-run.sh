@@ -8,7 +8,9 @@
 #   3. the release workflow's dispatch target check (scripts/release-dispatch-target.sh), which
 #      accepts owner/repo and a workflow file name only;
 #   4. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
-#      tarball, and the refusals (another version, a file naming the owner's instance);
+#      tarball, and the refusals (another version, a file naming the owner's instance), and the
+#      owner-string check itself: each form of the owner's instance refused, the published image
+#      and repository allowed;
 #   5. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
 #      release list from a local directory, and a stand-in gh answers `gh attestation
 #      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
@@ -167,6 +169,21 @@ if bash "$repo/scripts/build-release-bundle.sh" --out "$work/x" --reader "$work/
   fail "built a bundle that names the owner"
 fi
 grep -q "names the owner's instance" "$work/err.log" || { cat "$work/err.log" >&2; fail "the owner-string refusal isn't explained"; }
+
+step "the owner-string check (scripts/check-owner-strings.sh)"
+# Every form of the owner's instance is refused, wherever it is; the published image and the
+# upstream repository pass. (The account IDs it matches by hash aren't planted: that would name them.)
+probe="$work/owner-probe"
+for planted in "https://$owner.workers.dev" "$owner/waypoint-ops" "Turso org $owner" "share.ping""stash.com" \
+  "waypoint.tail7a""ca06.ts.net" "the agent""-1 host" "team.cloudflare""access.com"; do
+  rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "$planted" > "$probe/doc.md"
+  if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed: $planted"; fi
+done
+rm -rf "$probe" && mkdir -p "$probe"
+printf '%s\n' "ghcr.io/$owner/waypoint-writer:1.0.0" "https://github.com/$owner/waypoint/releases" "$owner/waypoint." > "$probe/ok.md"
+bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1 || fail "the owner-string check refused the published image or repository"
+mkdir -p "$probe/agent""-1"
+if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed a directory named for the owner's host"; fi
 
 step "upgrade.sh release mode against a fake release"
 bin="$work/bin"
