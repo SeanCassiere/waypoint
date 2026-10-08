@@ -116,4 +116,4 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 
 ## Related decisions
 
-D1–D6, D20, D21, D23, D24, D26, D36, D37, D38, D40, D41, D49 (reversed), D50, D55, D56. See [decisions.md](decisions.md).
+D1–D6, D20, D21, D23, D24, D26, D36, D37, D38, D40, D41, D49 (reversed), D50, D55, D56, D57. See [decisions.md](decisions.md).
