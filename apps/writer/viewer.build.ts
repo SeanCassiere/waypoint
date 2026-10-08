@@ -4,10 +4,10 @@
 // A turbo task of its own (`build:viewer`): the writer's tests serve these files too, so it reads
 // workspace packages from source (`@waypoint/source`, also for this script's own import of
 // @waypoint/ui) and needs no library build. Run it with `node --conditions=@waypoint/source`.
-import { readFile } from "node:fs/promises";
-
 import { tokensCss } from "@waypoint/ui";
 import { build } from "esbuild";
+
+import { viewerCssSource } from "./src/viewer/css.ts";
 
 const at = (path: string): string => new URL(path, import.meta.url).pathname;
 const conditions = ["@waypoint/source"];
@@ -39,7 +39,7 @@ await build({
 // The shared Folio tokens come first so the shell and the public reader can't drift apart.
 await build({
   stdin: {
-    contents: tokensCss + (await readFile(at("src/viewer/viewer.css"), "utf8")),
+    contents: tokensCss + viewerCssSource(),
     loader: "css",
     resolveDir: at("src/viewer"),
     sourcefile: "viewer.css",

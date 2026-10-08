@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { publicShellCss } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
+import { VIEWER_CSS_PARTIALS, viewerCssSource } from "../apps/writer/src/viewer/css.ts";
+
 const root = new URL("..", import.meta.url).pathname;
 // The writer viewer, its browser client, the shared UI package and the public reader.
 const SOURCES = [
@@ -47,7 +49,7 @@ describe("motion (owner feedback)", () => {
     expect(publicShellCss).not.toMatch(PATTERN);
   });
   it("keeps popover and dialog motion under 150 ms and off under reduced motion", async () => {
-    const css = await readFile(join(root, "apps/writer/src/viewer/viewer.css"), "utf8");
+    const css = viewerCssSource();
     const durations = [...css.matchAll(/(\d+)ms/g)].map((match) => Number(match[1]));
     // The spinner's 1 s rotation is a progress indicator, not a transition.
     expect(durations.filter((ms) => ms > 150)).toEqual([]);
@@ -56,5 +58,19 @@ describe("motion (owner feedback)", () => {
     // Every transition lives inside the no-preference block.
     const before = css.slice(0, motion);
     expect(before).not.toMatch(/\btransition:/);
+    // Each partial obeys the same rule: transitions only in 95-motion, inside its no-preference block.
+    const partials = await Promise.all(
+      VIEWER_CSS_PARTIALS.map(async (name) => ({
+        name,
+        text: await readFile(join(root, "apps/writer/src/viewer/css", name), "utf8"),
+      })),
+    );
+    const transitions = partials
+      .filter(({ name, text }) => name !== "95-motion.css" && /\btransition\s*:/.test(text))
+      .map(({ name }) => name);
+    expect(transitions).toEqual([]);
+    expect(partials.find(({ name }) => name === "95-motion.css")?.text).toContain(
+      "@media (prefers-reduced-motion: no-preference)",
+    );
   });
 });

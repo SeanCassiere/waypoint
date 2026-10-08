@@ -1,0 +1,95 @@
+/* chips & states */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 550;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  background: var(--surface);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.chip.xs {
+  height: 18px;
+  font-size: 11px;
+  padding: 0 7px;
+}
+.chip.pending {
+  border-style: dashed;
+  border-color: var(--pending-line);
+  color: var(--pending);
+  background: var(--pending-bg);
+}
+.chip.failed {
+  border-color: var(--failed-line);
+  color: var(--failed);
+  background: var(--failed-bg);
+}
+.chip.public {
+  border-color: var(--public-line);
+  color: var(--public);
+  background: var(--public-bg);
+}
+a.chip.public:hover {
+  border-color: var(--public);
+}
+.chip.ink {
+  background: var(--sel);
+  color: var(--on-sel);
+  border-color: var(--sel);
+}
+.globe {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.tag {
+  font-size: 12px;
+  color: var(--muted);
+}
+.chg {
+  font: 12px var(--mono);
+  white-space: nowrap;
+}
+.chg .a {
+  color: var(--add);
+}
+.chg .m {
+  color: var(--pending);
+}
+.chg .rm {
+  color: var(--del);
+}
+.spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--pending-line);
+  border-top-color: var(--pending);
+  animation: sp 1s linear infinite;
+  flex: none;
+  display: inline-block;
+}
+@keyframes sp {
+  to {
+    transform: rotate(1turn);
+  }
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.state.pending {
+  color: var(--pending);
+}
+.state.ok {
+  color: var(--ok);
+}

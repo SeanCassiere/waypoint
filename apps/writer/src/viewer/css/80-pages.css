@@ -1,0 +1,326 @@
+/* status, trash, links, mcp */
+.wrap {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+}
+.wrap.narrow {
+  max-width: 760px;
+}
+.ph {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.ph h1 {
+  font: 700 26px/1.15 var(--sans);
+  letter-spacing: -0.02em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ph p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.hero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+  margin-bottom: 22px;
+}
+.hero .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ok);
+}
+.hero.warn .dot {
+  background: var(--pending);
+}
+.hero.bad .dot {
+  background: var(--failed);
+}
+.hero.off .dot {
+  background: var(--faint);
+}
+.hero b {
+  font-size: 16px;
+  display: block;
+}
+.hero span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.hero.warn {
+  border-color: var(--pending-line);
+  background: var(--pending-bg);
+}
+.hero.bad {
+  border-color: var(--failed-line);
+  background: var(--failed-bg);
+}
+.hero.warn span,
+.hero.bad span {
+  color: var(--ink-2);
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.stat {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.stat .n {
+  font: 700 22px/1.1 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.stat .l {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.stat.zero .n {
+  color: var(--faint);
+}
+.stat.bad .n {
+  color: var(--failed);
+}
+h2.sec {
+  font: 650 13px/1 var(--sans);
+  margin: 28px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h2.sec .n {
+  color: var(--faint);
+  font-weight: 500;
+}
+.rows {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.r {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--rule);
+  align-items: center;
+}
+.r:first-child {
+  border-top: 0;
+}
+.r .t {
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.r .s {
+  font-size: 12.5px;
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  grid-column: 1;
+  align-items: center;
+  min-width: 0;
+}
+.r .s > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.r .acts {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  grid-row: 1/span 3;
+  grid-column: 2;
+}
+.r .acts .note {
+  margin: 0;
+  max-width: 260px;
+}
+.r .aside {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.r .e {
+  grid-column: 1;
+  font: 12px/1.45 var(--mono);
+  color: var(--failed);
+  background: var(--failed-bg);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.r.dead {
+  opacity: 0.75;
+}
+.empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty b {
+  display: block;
+  color: var(--ink);
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.blank {
+  text-align: center;
+  padding-top: 12vh;
+}
+.blank b {
+  display: block;
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+.blank p {
+  max-width: 440px;
+  margin: 0 auto 18px;
+  color: var(--muted);
+}
+.notfound {
+  padding-top: 12vh;
+}
+.notfound h1 {
+  font: 700 22px/1.2 var(--sans);
+  margin: 0;
+}
+.btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btns.center {
+  justify-content: center;
+}
+.codeblock {
+  position: relative;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--sunken);
+  margin: 8px 0 18px;
+}
+.codeblock pre {
+  margin: 0;
+  padding: 12px 14px;
+  font: 12.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cbh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--muted);
+}
+.tabs2 {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 10px;
+}
+.tabs2 a,
+.tabs2 button {
+  padding: 8px 12px;
+  text-decoration: none;
+  color: var(--muted);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-weight: 550;
+  background: none;
+  cursor: pointer;
+}
+.tabs2 [aria-current="page"] {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.small {
+  font-size: 13px;
+}
+[data-token-hint] {
+  margin: -8px 0 14px;
+}
+.dl {
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  background: var(--surface);
+  max-width: 520px;
+  margin: 12vh auto 0;
+  padding: 28px;
+  text-align: center;
+  box-shadow: var(--sh-1);
+}
+.dl .ic {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--sunken);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  font: 700 13px var(--mono);
+  color: var(--muted);
+  overflow: hidden;
+}
+/* Long extensions (.parquet, .sqlite) fit the 56px tile. */
+.dl .ic.long {
+  font-size: 10.5px;
+}
+.dl h2 {
+  margin: 0 0 4px;
+  font: 650 18px var(--mono);
+  overflow-wrap: anywhere;
+}
+.scroll {
+  overflow: auto;
+  flex: 1;
+  padding: 0 16px;
+}
+.watch {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  flex: none;
+}
+.pin {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+}

@@ -1,0 +1,318 @@
+/* responsive */
+.tabbar {
+  display: none;
+}
+.back {
+  display: none;
+}
+.show-sm {
+  display: none !important;
+}
+.panel-scrim {
+  display: none;
+}
+@media (max-width: 1099.98px) {
+  .shell,
+  .shell.closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell.closed .panel {
+    visibility: visible;
+  }
+  .panel {
+    position: fixed;
+    top: var(--bar-h);
+    bottom: 0;
+    left: 0;
+    width: min(360px, 92vw);
+    z-index: 30;
+    box-shadow: var(--sh-2);
+    transform: translateX(-102%);
+    visibility: hidden;
+  }
+  .shell.open .panel {
+    transform: none;
+    visibility: visible;
+  }
+  .ptabs .x {
+    display: grid;
+  }
+  /* The scrim covers the bar and tab bar too (both are inert while the sheet is open). */
+  .shell.open ~ .panel-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 29;
+  }
+  .search {
+    min-width: 0;
+  }
+}
+@media (max-width: 760px) {
+  .home {
+    grid-template-columns: 1fr;
+    padding: 20px 16px 80px;
+    gap: 24px;
+  }
+  .side {
+    order: -1;
+  }
+  .side .card {
+    margin-bottom: 0;
+  }
+  .search {
+    display: none;
+  }
+  .hide-sm {
+    display: none !important;
+  }
+  .show-sm {
+    display: grid !important;
+  }
+  .cbar .logo {
+    display: none;
+  }
+  .back {
+    display: grid;
+  }
+  .crumbs h1 {
+    font-size: 15px;
+  }
+  .revbtn .l {
+    display: none;
+  }
+  .health:has(.short) .lbl {
+    display: none;
+  }
+  .health .short {
+    display: inline;
+  }
+  .opts,
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  .tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(58px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--rule);
+    background: var(--paper);
+    z-index: 25;
+    justify-content: space-around;
+    align-items: flex-start;
+    padding: 6px 0 env(safe-area-inset-bottom);
+  }
+  .tabbar a,
+  .tabbar button {
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: none;
+    min-width: 64px;
+    min-height: 44px;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .tabbar .i {
+    font-size: 18px;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .shell {
+    height: calc(100dvh - var(--bar-h) - 58px - env(safe-area-inset-bottom));
+  }
+  dialog.dlg {
+    width: 100%;
+    max-width: 100%;
+    margin: auto 0 0;
+    border-radius: 16px 16px 0 0;
+    max-height: 92dvh;
+  }
+  .item .msg {
+    white-space: normal;
+  }
+  .cmp {
+    padding: 14px 10px 80px;
+  }
+  .status1 {
+    flex-wrap: nowrap;
+    padding: 0 10px 0 0;
+    min-height: 44px;
+  }
+  .status1 > .seg1,
+  .status1 > .sepdot,
+  .status1 > .grow {
+    display: none;
+  }
+  .status1 .stap {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    padding: 0 16px;
+    line-height: 44px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-decoration: none;
+    color: var(--ink-2);
+  }
+  .status1.failed .stap {
+    color: var(--failed);
+  }
+  .status1.pending .stap {
+    color: var(--pending);
+  }
+  .status1.public .stap {
+    color: var(--public);
+  }
+  details.sees .sum-sm {
+    display: inline;
+  }
+  details.sees > summary {
+    cursor: pointer;
+    padding-right: 12px;
+  }
+  details.sees > summary::after {
+    content: "Details ▾";
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .dlg .ft .exist {
+    display: none;
+  }
+  .lbx .pair {
+    grid-template-columns: 1fr;
+  }
+  .grid3 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .wrap {
+    padding: 20px 16px 80px;
+  }
+  .r {
+    grid-template-columns: 1fr;
+  }
+  .r .acts,
+  .r .aside {
+    grid-row: auto;
+    grid-column: 1;
+  }
+  /* Actions follow the details they act on (Revoke… below the link's facts). */
+  .r .acts {
+    order: 99;
+    justify-content: flex-start;
+  }
+  .r .acts .note {
+    max-width: none;
+  }
+  .txtbtn {
+    min-height: 40px;
+  }
+  .imgpair {
+    grid-template-columns: 1fr;
+  }
+  .bar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+  /* Touch targets ≥ 44px (spec §7): icon buttons grow; pills keep their look and get an
+     invisible hit area. */
+  .bar .iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+  .bar .revbtn,
+  .bar .health {
+    position: relative;
+  }
+  .bar .revbtn::after,
+  .bar .health::after {
+    content: "";
+    position: absolute;
+    inset: -8px -3px;
+  }
+  .pfoot {
+    display: none;
+  }
+}
+/* Phones (below 600 px): the panel, menus and popovers are bottom sheets over a scrim.
+   From 600 px (the iPad mini's 744 included) menus stay anchored to their trigger and the
+   panel is a side sheet, as on tablets. */
+@media (max-width: 599.98px) {
+  .shell.open .panel {
+    width: 100%;
+    top: auto;
+    bottom: 0;
+    height: 78dvh;
+    border-radius: 16px 16px 0 0;
+  }
+  .pop2,
+  .menu,
+  .rmenu {
+    position-area: none;
+    position-try-fallbacks: none;
+    inset: auto 0 0 0;
+    width: min(100%, 560px);
+    max-width: none;
+    margin: 0 auto;
+  }
+  [popover] > .mbox {
+    border-radius: 16px 16px 0 0;
+    border-bottom-width: 0;
+    max-height: 82dvh;
+    padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 32px rgba(27, 26, 23, 0.16);
+    transform-origin: bottom center;
+  }
+  .pop2 > .mbox {
+    padding: 8px 18px calc(16px + env(safe-area-inset-bottom));
+  }
+  /* A grabber says "sheet"; it's decorative (Esc, the scrim and the trigger close it). */
+  [popover] > .mbox::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--rule-2);
+    margin: 2px auto 8px;
+  }
+  .menu .mi {
+    min-height: 44px;
+  }
+  body .pop-scrim {
+    background: var(--scrim);
+  }
+}
+/* A tap that closes a menu must not also act on what's beneath it (a link in the document,
+   the status line). A popover's ::backdrop never takes pointer events, so on touch screens
+   (and under phone sheets) a real scrim takes that tap: it lands outside the popover, so it
+   still light-dismisses. It's tinted under phone sheets and transparent elsewhere. Mouse
+   pointers keep click-through, so one click can move from one menu to another (D51). */
+@media (pointer: coarse), (max-width: 599.98px) {
+  body:has(:is(.menu, .pop2):popover-open) .pop-scrim {
+    display: block;
+    opacity: 1;
+  }
+  /* The closing tap light-dismisses on pointerup, before its click: script keeps the
+     (fading) scrim a moment longer so that click lands here too. */
+  .pop-scrim.linger {
+    display: block;
+  }
+}
+.pop-scrim {
+  display: none;
+  opacity: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: transparent;
+}
