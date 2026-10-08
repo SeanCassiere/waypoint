@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isBuiltin } from "node:module";
 
 import { defineConfig } from "tsdown";
 
@@ -11,9 +12,11 @@ const notices = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
   .replaceAll("*/", "*\\/");
 
 // The MCP server bundle (dist/waypoint-mcp-server.mjs): one self-contained, minified ESM file
-// that the writer serves at /mcp/server.mjs and the launcher imports. Every dependency is bundled,
-// so they're all devDependencies. The launcher (dist/launcher.mjs) stays on esbuild
-// (esbuild.config.ts): npx caches it indefinitely, so its build must not change.
+// that the writer serves at /mcp/server.mjs and the launcher imports. Every package it inlines is
+// a `dependency` (so Dependabot titles their updates `fix(deps)` and they make a release) and is
+// bundled anyway: tsdown would otherwise leave dependencies as imports, and the bundle may import
+// only Node's built-ins. The launcher (dist/launcher.mjs) stays on esbuild (esbuild.config.ts):
+// npx caches it indefinitely, so its build must not change.
 export default defineConfig({
   entry: { "waypoint-mcp-server": "src/cli.ts" },
   platform: "node",
@@ -21,6 +24,6 @@ export default defineConfig({
   minify: true,
   dts: false,
   banner: `/*!\n${notices}\n*/`,
-  deps: { onlyBundle: false },
+  deps: { alwaysBundle: (id) => !isBuiltin(id), onlyBundle: false, onlyImport: [] },
   outputOptions: { codeSplitting: false },
 });

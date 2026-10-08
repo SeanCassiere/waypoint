@@ -19,8 +19,10 @@ updates:
     cooldown:
       default-days: 3
     commit-message:
-      # Runtime dependencies ship in the writer image or the reader Worker: a `fix` makes a
-      # release. Tooling updates don't.
+      # Whatever ships is a `dependency`: what the writer image and the reader Worker run, and
+      # what the MCP server bundle inlines (packages/mcp/tsdown.config.ts bundles its
+      # dependencies). Its updates are a `fix`, which makes a release. Tooling updates are
+      # devDependencies and don't.
       prefix: "fix(deps)"
       prefix-development: "chore(deps)"
     # A dependency goes to the first group it matches.
@@ -37,8 +39,7 @@ updates:
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
-      # What the writer image and the reader Worker run. (The MCP bundles inline their packages'
-      # devDependencies, so updates to those land in the group above.)
+      # What ships: the writer image, the reader Worker and the MCP server bundle.
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]

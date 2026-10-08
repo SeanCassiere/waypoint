@@ -72,6 +72,11 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
     by `pnpm notices` from the installed packages and ships with every artifact. If the reader or
     the MCP bundles start inlining another npm package, add it to the list in
     `scripts/third-party-notices.ts`; CI's `pnpm notices:check` fails when it's out of date.
+  - **What ships is a `dependency`, tooling a `devDependency`.** A package the writer or the
+    reader runs, or the MCP server bundle inlines, goes in `dependencies` (the MCP bundle's
+    `tsdown.config.ts` bundles them all, and its build fails if one is left as an import).
+    Dependabot titles updates to dependencies `fix(deps)`, which makes a release, and updates to
+    devDependencies `chore(deps)`, which doesn't.
   - **No blanket lint disables.** Fix the finding, or disable one rule on one line with a reason.
   - **No instance-specific values** (your hostnames, domains, account IDs) anywhere in the
     repository: use `example.com`-style placeholders. CI's `scripts/check-owner-strings.sh` scans
