@@ -2,7 +2,8 @@
 # Checks deploy/upgrade.sh without deploying anything: a scratch instance with two reader targets
 # and fake credentials, then `upgrade.sh --dry-run current-checkout` (the generated Wrangler
 # configs go through `wrangler deploy --dry-run`; the reader steps run against a stand-in
-# Wrangler), a smoke failure that must roll back, two concurrent dry runs of another release
+# Wrangler), a smoke failure that must roll back (to a killed run's recorded target, unless it
+# was saved for another Worker), two concurrent dry runs of another release
 # (its bundle must be installed once, under the instance lock), and instance files that must be
 # refused.
 #
@@ -94,6 +95,25 @@ DRY_RUN_LOG="$work/wrangler.log" DRY_RUN_DEPLOYMENTS=missing:prod upgrade --dry-
   || { cat err.log >&2; fail "a first deployment failed"; }
 grep -q "doesn't exist yet" err.log || fail "the first deployment isn't reported"
 grep -q '^wrangler deploy --config .*reader-prod.json' wrangler.log || fail "the new Worker wasn't deployed"
+
+echo "--- a killed run's reader rollback target is kept, unless it's for another Worker" >&2
+state="$work/state/deploy-dry-run"
+mkdir -p "$state"
+printf 'version=killed-run-previous\nworker=example-reader\n' > "$state/rollback-reader-prod"
+: > wrangler.log
+if DRY_RUN_LOG="$work/wrangler.log" DRY_RUN_FAIL_SMOKE=prod upgrade --dry-run --allow-dirty current-checkout 2> err.log; then
+  fail "a failed smoke test passed"
+fi
+grep -q '^wrangler rollback killed-run-previous --config .*reader-prod.json' wrangler.log || { cat err.log >&2; fail "the rollback didn't use the killed run's target"; }
+! grep -q '^wrangler deployments list .*reader-prod.json' wrangler.log || fail "a new rollback target was looked up despite the record"
+printf 'version=killed-run-previous\nworker=renamed-reader\n' > "$state/rollback-reader-prod"
+: > wrangler.log
+if DRY_RUN_LOG="$work/wrangler.log" DRY_RUN_FAIL_SMOKE=prod upgrade --dry-run --allow-dirty current-checkout 2> err.log; then
+  fail "a failed smoke test passed"
+fi
+grep -q 'on the Worker renamed-reader, not example-reader' err.log || { cat err.log >&2; fail "the other Worker's record isn't reported"; }
+grep -q '^wrangler rollback dry-run-previous --config .*reader-prod.json' wrangler.log || { cat wrangler.log >&2; fail "the rollback used another Worker's version"; }
+rm -f "$state/rollback-reader-prod"
 
 echo "--- make-instance-env.sh writes a valid instance" >&2
 printf 'TS_AUTHKEY=dry-run\n' > ts.env

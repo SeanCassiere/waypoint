@@ -80,9 +80,13 @@ What a deploy does, in order:
    rolls back to. If that lookup fails for any reason other than the Worker not existing yet,
    the run stops here: deploying without a rollback target isn't safe.
 2. **The writer.** Record the running image as the rollback target (`rollback-writer`, see
-   below) and tag it `waypoint-writer:<project>-previous`, point
-   `waypoint-writer:<project>-current` at the new one, start the Tailscale sidecar if the
-   overlay is on (a no-op when it's already running unchanged), and recreate only the writer.
+   below), start the Tailscale sidecar if the overlay is on (a no-op when it's already running
+   unchanged), tag the rollback target `waypoint-writer:<project>-previous`, point
+   `waypoint-writer:<project>-current` at the new one, and recreate only the writer. The
+   rollback target is recorded before the sidecar step because a recreated or restarted sidecar
+   leaves the running writer in the old sidecar's network namespace, unreachable: interrupted
+   from there on, the writer is recreated from its rollback target, in the new sidecar's
+   namespace, and a sidecar change always recreates the writer.
    Wait for the container's health check, for up to 120 s (`WRITER_HEALTH_TIMEOUT`; raise it
    for a writer that starts slowly, such as a first start that restores from the cloud); a
    restart of the new container fails it at once. Then check that `/healthz` (from inside the
@@ -101,7 +105,9 @@ What a deploy does, in order:
    it pins, through `npx`; `WRANGLER=<path>` overrides both.
 
 Old local builds and pulled releases are pruned to the newest three; the current and previous
-images keep their tags.
+images keep their tags. A pulled release is also tagged `waypoint-writer:<project>-X.Y.Z`, and
+only those tags are counted, so instances that share a host and an `IMAGE` don't prune each
+other's releases.
 
 ### Re-entrance and idempotence
 
@@ -133,7 +139,9 @@ then fails without changing anything), and a `deploying` marker while a deploy i
   image it rolls back to in `rollback-writer`, and removes the file once the new writer passes
   every health gate (including `WRITER_HEALTH_URL`) or the previous one is back. A rerun after a
   killed run keeps that image as `<project>-previous`, even if the writer the killed run started
-  is Docker-healthy by then. After a failed first install (no image to go back to) the file stays
+  is Docker-healthy by then. A reader's file also names its Worker: if `READER_<target>_WORKER`
+  changed since, the next run looks up the new Worker's version instead, and reports that the
+  old Worker may still serve what the killed run uploaded. After a failed first install (no image to go back to) the file stays
   until a deploy succeeds. `status` reports leftover files. If you fix a component by hand
   meanwhile, delete its file.
 
@@ -169,7 +177,10 @@ deploy/upgrade.sh compose stop                    # keeps the data and the Tails
 ```
 
 `compose` runs `docker compose` with this instance's project, files and values (with
-`--dry-run`, it only prints the command). Never use
+`--dry-run`, it only prints the command). Commands that can change containers (`up`, `restart`,
+`start`, `stop`, `down`, `run` and the rest, but not `ps`, `logs`, `config`, `exec` and other
+read-only ones) wait for the instance lock first, so they can't start the writer under a
+`rerender` or recreate it in the middle of a deploy. Never use
 `down --volumes` with the Tailscale overlay: the `<project>_tailscale-state` volume holds the
 node's identity, and losing it means a new auth key. Nothing here touches other Compose projects,
 the Docker daemon, the host's Tailscale daemon or its Serve config.

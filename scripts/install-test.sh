@@ -4,7 +4,8 @@
 # rollback, interruption, convergence after a killed run (including one killed in the external
 # health gate), rerender and its lock, a reader deploy killed midway (against a stand-in
 # Wrangler), and idempotence with the writer in a sidecar's network namespace (the Tailscale
-# overlay's layout), with the same data directory throughout.
+# overlay's layout) and an interruption right after the sidecar is recreated, with the same data
+# directory throughout.
 #
 # Needs Docker, and pnpm with the workspace installed (upgrade.sh builds the reader).
 #
@@ -356,6 +357,47 @@ expect_data
 before="$(container)"
 up current-checkout
 [[ "$(container)" == "$before" ]] || fail "a rerun recreated the writer behind the sidecar"
+
+step "a deploy interrupted right after it recreated the sidecar moves the writer into the new one"
+# A changed sidecar config makes the deploy recreate the sidecar. A docker stand-in holds the run
+# right after that (until $work/docker-hold goes), before the writer is recreated; SIGTERM there
+# must still leave the writer in the new sidecar's namespace, not stranded in the old one.
+mkdir -p "$work/bin"
+cat > "$work/bin/docker" <<EOF
+#!/usr/bin/env bash
+"$(command -v docker)" "\$@" || exit
+if [[ " \$* " == *" up -d ts-waypoint "* && -f "$work/docker-hold" ]]; then
+  : > "$work/docker-held"
+  while [[ -f "$work/docker-hold" ]]; do sleep 1; done
+fi
+EOF
+chmod 700 "$work/bin/docker"
+printf '    environment:\n      INSTALL_TEST_SIDECAR: "2"\n' >> "$work/config/sidecar.yaml"
+sidecar_before="$(up compose ps -q ts-waypoint)"
+touch "$work/docker-hold"
+TMPDIR="$work" PATH="$work/bin:$PATH" "${upgrade[@]}" --instance "$work/config/instance.env" current-checkout &
+pid=$!
+for _ in $(seq 120); do [[ -f "$work/docker-held" ]] && break; sleep 1; done
+[[ -f "$work/docker-held" ]] || fail "the deploy never recreated the sidecar"
+sidecar_after="$(up compose ps -q ts-waypoint)"
+[[ -n "$sidecar_after" && "$sidecar_after" != "$sidecar_before" ]] || fail "the sidecar wasn't recreated"
+[[ -f "$state/rollback-writer" && -f "$state/deploying" ]] || fail "the writer's rollback wasn't armed before the sidecar changed"
+[[ "$(docker_ inspect --format '{{.HostConfig.NetworkMode}}' "$(container)")" == "container:$sidecar_before" ]] || fail "the writer already left the old sidecar's namespace, so this step tests nothing"
+kill -TERM "$pid"
+rm -f "$work/docker-hold"
+status=0; wait "$pid" || status=$?
+pid=""
+[[ "$status" == 143 ]] || fail "the interrupted deploy exited $status, expected 143"
+[[ "$(docker_ inspect --format '{{.HostConfig.NetworkMode}}' "$(container)")" == "container:$sidecar_after" ]] || fail "the writer was left in the old sidecar's namespace"
+[[ ! -f "$state/rollback-writer" && ! -f "$state/deploying" ]] || fail "a successful rollback left its records"
+expect_build "$new_sha" "$new_version"
+expect_data
+# The rollback's container isn't the one the state records; one deploy brings them together.
+up current-checkout
+expect_build "$new_sha" "$new_version"
+before="$(container)"
+up current-checkout
+[[ "$(container)" == "$before" ]] || fail "a rerun after the sidecar change recreated the writer"
 
 step "status"
 up status

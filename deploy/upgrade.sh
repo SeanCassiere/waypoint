@@ -458,8 +458,8 @@ lock_state() {
 # ---------------------------------------------------------------------------------------------
 # Rollback on failure or interruption
 
-in_progress=""        # writer | reader:<target>
-writer_previous=0     # 1 when $local_repo:$project-previous is the image to go back to
+in_progress=""        # writer | reader:<target> | rerender
+writer_previous_id="" # the writer image ID to go back to (empty for a first deployment)
 reader_previous=""    # the Worker version to roll back to
 # In the runner's per-job temporary directory under GitHub Actions, which the runner empties after
 # every job, so a reader secrets file left by a killed run doesn't outlive it.
@@ -472,9 +472,9 @@ rollback_writer() {
     log "failed writer logs:"
     docker_run logs --tail 100 "$container" >&2 || true
   fi
-  if (( writer_previous )); then
+  if [[ -n "$writer_previous_id" ]]; then
     log "rolling the writer back to the previous image"
-    docker_run tag "$local_repo:$project-previous" "$local_repo:$project-current"
+    docker_run tag "$writer_previous_id" "$local_repo:$project-current"
     compose up -d --no-deps --force-recreate --pull never writer || { log "rollback: recreate failed"; return 1; }
     if ! verify_writer "" "" 0; then log "rollback: the previous writer isn't healthy either"; return 1; fi
     writer_record_clear
@@ -680,6 +680,8 @@ fetch_writer() {
       local built
       built="$(docker_run image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$writer_ref" | sed -n 's/^WAYPOINT_BUILD_SHA=//p')"
       [[ "$built" == "$target_sha" ]] || die "the image was built from ${built:-an unknown commit}, not $target_sha"
+      # This instance's own reference to the release, which prune_writer_images counts.
+      docker_run tag "$writer_ref" "$local_repo:$project-$target_version"
       ;;
     image)
       if ! image_id "$writer_ref" >/dev/null; then
@@ -726,19 +728,76 @@ writer_is_current() {
   fi
 }
 
+# Arms the writer's rollback: picks the image to go back to (the one an earlier, unfinished run
+# recorded, or else the running image, unless it's a broken one left by an earlier failed run and
+# a previous image is already tagged), saves it in the rollback record and sets the deploying
+# marker. From here on, a failure or an interruption recreates the writer from that image.
+# Usage: writer_arm <container or ""> <its image ID> <1 if it's healthy>
+writer_arm() {
+  local container="$1" current_id="$2" healthy="$3"
+  writer_previous_id=""
+  if [[ -f "$(writer_record)" ]]; then
+    writer_previous_id="$(state_get rollback-writer image)"
+    if [[ -n "$writer_previous_id" ]] && ! image_id "$writer_previous_id" >/dev/null; then
+      die "the writer's rollback target from an earlier run ($writer_previous_id) is gone; delete $(writer_record) to keep the running image as the rollback target instead"
+    fi
+    log "an earlier writer deploy didn't finish; rolling back, if needed, to the image from before it (${writer_previous_id:-none, a first deployment})"
+  elif [[ -n "$container" ]]; then
+    if (( healthy )); then
+      writer_previous_id="$current_id"
+    else
+      writer_previous_id="$(image_id "$local_repo:$project-previous" || printf '%s' "$current_id")"
+    fi
+  fi
+  writer_record_save "$writer_previous_id"
+  in_progress=writer
+  marker_set "$target_id"
+}
+
+# The sidecar's container and when it started: a change means the writer is left in the old
+# sidecar's network namespace, unreachable, until it's recreated.
+sidecar_instance() {
+  local sidecar
+  sidecar="$(compose ps -a -q ts-waypoint 2>/dev/null || true)"
+  [[ -n "$sidecar" ]] || return 0
+  printf '%s %s' "$sidecar" "$(container_field "$sidecar" '{{.State.StartedAt}}')"
+}
+
 deploy_writer() {
-  local container current_id="" healthy=0 expected_hash
+  local container current_id="" healthy=0 expected_hash armed=0 had_record=0 had_marker=0 sidecar_moved=0 sidecar_before
   expected_hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
   [[ -n "$expected_hash" ]] || die "couldn't compute the writer's Compose config hash"
-  # The sidecar first (a no-op when it already runs unchanged), so the check below sees the
-  # network namespace the writer will join.
-  if [[ "$tailscale" == on ]] && (( ! dry_run )); then install_serve_config; compose up -d ts-waypoint; fi
   container="$(writer_container)"
   if [[ -n "$container" ]]; then
     current_id="$(container_field "$container" '{{.Image}}')"
     [[ "$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" == healthy ]] && healthy=1
   fi
-  if (( ! force )) && writer_is_current "$container" "$current_id" "$expected_hash"; then
+  # The sidecar first (a no-op when it already runs unchanged), so the check below sees the
+  # network namespace the writer will join. Recreating or restarting it strands the running
+  # writer in the old namespace, so the writer's rollback is armed before it: interrupted from
+  # here on, the writer is recreated, from its rollback target, in the new sidecar's namespace.
+  if [[ "$tailscale" == on ]] && (( ! dry_run )); then
+    install_serve_config
+    if [[ -n "$container" ]]; then
+      [[ -f "$(writer_record)" ]] && had_record=1
+      [[ -f "$state_dir/deploying" ]] && had_marker=1
+      sidecar_before="$(sidecar_instance)"
+      writer_arm "$container" "$current_id" "$healthy"
+      armed=1
+    fi
+    compose up -d ts-waypoint
+    if (( armed )) && [[ "$(sidecar_instance)" != "$sidecar_before" ]]; then
+      log "the Tailscale sidecar was recreated or restarted; the writer must be recreated to join it"
+      sidecar_moved=1
+    fi
+  fi
+  if (( ! force && ! sidecar_moved )) && writer_is_current "$container" "$current_id" "$expected_hash"; then
+    if (( armed )); then
+      # Nothing changed after all: disarm, leaving the record and the marker as they were.
+      in_progress=""
+      (( had_record )) || writer_record_clear
+      (( had_marker )) || rm -f "$state_dir/deploying"
+    fi
     log "writer already runs $target_id; checking its health"
     verify_writer "$target_version" "$target_sha" || die "the writer runs the target but isn't healthy (rerun with --force to recreate it)"
     # Recorded as deployed, so a leftover record is from a run killed just after that.
@@ -750,31 +809,10 @@ deploy_writer() {
     return 0
   fi
 
-  # The rollback target: the one an earlier, unfinished run recorded, or else the running image,
-  # unless it's a broken one left by an earlier failed run and a previous image is already tagged.
-  local previous_id=""
-  if [[ -f "$(writer_record)" ]]; then
-    previous_id="$(state_get rollback-writer image)"
-    if [[ -n "$previous_id" ]] && ! image_id "$previous_id" >/dev/null; then
-      die "the writer's rollback target from an earlier run ($previous_id) is gone; delete $(writer_record) to keep the running image as the rollback target instead"
-    fi
-    log "an earlier writer deploy didn't finish; rolling back, if needed, to the image from before it (${previous_id:-none, a first deployment})"
-  elif [[ -n "$container" ]]; then
-    if (( healthy )); then
-      previous_id="$current_id"
-    else
-      previous_id="$(image_id "$local_repo:$project-previous" || printf '%s' "$current_id")"
-    fi
+  (( armed )) || writer_arm "$container" "$current_id" "$healthy"
+  if [[ -n "$writer_previous_id" ]]; then
+    docker_run tag "$writer_previous_id" "$local_repo:$project-previous"
   fi
-  writer_record_save "$previous_id"
-  writer_previous=0
-  if [[ -n "$previous_id" ]]; then
-    docker_run tag "$previous_id" "$local_repo:$project-previous"
-    writer_previous=1
-  fi
-
-  in_progress=writer
-  marker_set "$target_id"
   docker_run tag "$target_image_id" "$local_repo:$project-current"
   log "recreating the writer"
   compose up -d --no-deps --force-recreate --pull never writer
@@ -794,20 +832,25 @@ deploy_writer() {
 }
 
 # Drops old local builds and pulled releases of this instance, keeping the newest three of each.
-# The current and previous images keep their own tags, so they're never removed.
+# A pulled release is tagged <project>-X.Y.Z too (fetch_writer), so only this instance's tags are
+# counted: another instance on the host that uses the same IMAGE keeps its own. The registry tag
+# of a release goes with this instance's tag; an image another instance still tags stays. The
+# current and previous images keep their own tags, so they're never removed.
 prune_writer_images() {
-  local kept=0 tag
+  local builds=0 releases=0 tag version
   while IFS= read -r tag; do
-    [[ "$tag" =~ ^$project-[0-9a-f]{40}(-dirty)?$ ]] || continue
-    kept=$((kept + 1))
-    if (( kept > 3 )); then docker_run image rm "$local_repo:$tag" >/dev/null || true; fi
+    if [[ "$tag" =~ ^$project-[0-9a-f]{40}(-dirty)?$ ]]; then
+      builds=$((builds + 1))
+      if (( builds > 3 )); then docker_run image rm "$local_repo:$tag" >/dev/null || true; fi
+    elif [[ "$tag" =~ ^$project-([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+      version="${BASH_REMATCH[1]}"
+      releases=$((releases + 1))
+      if (( releases > 3 )); then
+        docker_run image rm "$local_repo:$tag" >/dev/null || true
+        docker_run image rm "$image_repo:$version" >/dev/null 2>&1 || true
+      fi
+    fi
   done < <(docker_run image ls "$local_repo" --format '{{.Tag}}')
-  kept=0
-  while IFS= read -r tag; do
-    [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || continue
-    kept=$((kept + 1))
-    if (( kept > 3 )); then docker_run image rm "$image_repo:$tag" >/dev/null || true; fi
-  done < <(docker_run image ls "$image_repo" --format '{{.Tag}}')
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -1042,7 +1085,12 @@ cmd_deploy() {
       log "reader configs validate with wrangler deploy --dry-run"
     fi
     for t in "${readers[@]}"; do
-      if [[ -f "$(rollback_record "$t")" ]]; then
+      # A record saved for another Worker (READER_<t>_WORKER changed since) names a version of
+      # that Worker, which this one can't roll back to.
+      if [[ -f "$(rollback_record "$t")" && "$(state_get "rollback-reader-$t" worker)" != "${r_worker[$t]}" ]]; then
+        log "reader $t: an earlier deploy of it didn't finish, on the Worker $(state_get "rollback-reader-$t" worker), not ${r_worker[$t]}; check that Worker by hand"
+        previous_version[$t]="$(reader_deployed_version "$t")"
+      elif [[ -f "$(rollback_record "$t")" ]]; then
         previous_version[$t]="$(state_get "rollback-reader-$t" version)"
         [[ -z "${previous_version[$t]}" || "${previous_version[$t]}" =~ ^[A-Za-z0-9-]{1,64}$ ]] || die "reader $t: invalid version in $(rollback_record "$t")"
         log "reader $t: an earlier deploy of it didn't finish; rolling back, if needed, to the version from before it (${previous_version[$t]:-none, a first deployment})"
@@ -1202,6 +1250,14 @@ case "$command" in
       log "would run: docker compose -p $project ${compose_files[*]} ${command_args[*]}"
       exit 0
     fi
+    # Anything that can change containers waits for the instance lock, so it can't start the
+    # writer under a rerender or recreate it in the middle of a deploy's health gate.
+    sub=""
+    for arg in "${command_args[@]}"; do [[ "$arg" == -* ]] || { sub="$arg"; break; }; done
+    case "$sub" in
+      ps|config|logs|images|ls|top|port|version|events|stats|exec) ;;
+      *) lock_state ;;
+    esac
     install_serve_config
     compose "${command_args[@]}"
     ;;
