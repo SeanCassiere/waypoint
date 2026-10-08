@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS renditions (source_hash TEXT NOT NULL REFERENCES blob
 CREATE INDEX IF NOT EXISTS share_links_by_collection ON share_links (collection_id);
 CREATE INDEX IF NOT EXISTS share_links_by_token_hash ON share_links (token_hash);`,
   },
+  {
+    // RX-11: while a collection's newest revision is still syncing, the writer keeps one row here
+    // so the public reader can say "a newer version is being synced" on Latest links. The reader
+    // shows the note only while now < until, and treats a missing table as "no note".
+    id: "0004_collection_syncing",
+    sql: "CREATE TABLE IF NOT EXISTS collection_syncing (collection_id TEXT PRIMARY KEY REFERENCES collections(id), since INTEGER NOT NULL, until INTEGER NOT NULL);",
+  },
 ];
 export const queueMigrations = [
   {
@@ -74,6 +81,15 @@ END;
     id: "0004_last_push",
     sql: `
 CREATE TABLE last_push (id INTEGER PRIMARY KEY CHECK (id = 1), started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL);
+`,
+  },
+  {
+    // OW-14: a queued purge keeps the collection's title and public ID, so the viewer can name it
+    // after step 1 has deleted the collections row. Older rows have NULLs and fall back to the ID.
+    id: "0005_pending_purges_title",
+    sql: `
+ALTER TABLE pending_purges ADD COLUMN title TEXT;
+ALTER TABLE pending_purges ADD COLUMN public_id TEXT;
 `,
   },
 ];

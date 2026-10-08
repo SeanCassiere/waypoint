@@ -129,11 +129,19 @@ CREATE TABLE share_links (                 -- added in migration 0003
 CREATE INDEX share_links_by_collection ON share_links (collection_id);
 CREATE INDEX share_links_by_token_hash ON share_links (token_hash);
 
+CREATE TABLE collection_syncing (          -- added in migration 0004; a transient signal, not in snapshots
+  collection_id TEXT PRIMARY KEY REFERENCES collections(id),
+  since         INTEGER NOT NULL,          -- created_at of the oldest queued revision newer than the newest committed one
+  until         INTEGER NOT NULL           -- since + WAYPOINT_QUEUE_GIVE_UP_HOURS; the reader ignores the row after this
+);
+
 CREATE TABLE schema_migrations (
   id         TEXT PRIMARY KEY,             -- e.g. '0001_init'
   applied_at INTEGER NOT NULL
 );
 ```
+
+**`collection_syncing`:** The writer keeps a row while a collection's newest revision is still uploading, so the public reader can tell Latest-link recipients that a newer version is on its way; a reader that finds no table, no row, or `until` in the past shows nothing.
 
 ### Derived values (never stored)
 
@@ -147,7 +155,7 @@ CREATE TABLE schema_migrations (
 ## Invariants
 
 1. **Blob before row.** A `blobs` row exists only once the object is in the bucket. A `revision_files` or `renditions` row is inserted only together with, or after, the `blobs` rows it references. As a result, the cloud DB never references a missing object.
-2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
+2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion). `collection_syncing` is a transient signal, not history: its single row per collection is rewritten and deleted freely (RX-11).
 3. **Every revision's head path is in its manifest.**
 4. **Paths** in a revision must be:
    - relative, using `/` separators, with no leading `/` and no empty, `.`, or `..` segments
