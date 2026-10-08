@@ -86,7 +86,7 @@ Set in the agent's MCP config, not on the writer.
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `WAYPOINT_URL` | yes | none | The writer's base URL. |
-| `WAYPOINT_MCP_ALLOW_HTTP` | no | unset | `1` silences the launcher's warning that `WAYPOINT_URL` uses plain HTTP, for any host. Loopback, `*.localhost` and `*.ts.net` hosts never warn. |
+| `WAYPOINT_MCP_ALLOW_HTTP` | no | unset | `1` silences the launcher's warning that `WAYPOINT_URL` uses plain HTTP, for any host. Loopback, `*.localhost` and `*.ts.net` hosts never warn. A launcher cached before this setting existed ignores it and keeps warning until the npx cache is cleared. |
 | `WAYPOINT_MCP_PIN` | no | unset | `embedded` runs the server copy embedded in the launcher and skips fetching, for debugging. |
 | `WAYPOINT_MCP_CACHE_DIR` | no | `$XDG_CACHE_HOME`, else `~/.cache` | Where the launcher caches server bundles (under `waypoint-mcp/`). |
 | `WAYPOINT_SOURCE_HOST` | no | the machine's hostname | The host name recorded in revision metadata (`source_host`) and the `X-Waypoint-Client` header. |
