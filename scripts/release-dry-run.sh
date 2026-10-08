@@ -7,11 +7,16 @@
 #      leaving the CHANGELOG.md it writes alone (else the release PR's format check fails);
 #   3. the release workflow's dispatch target check (scripts/release-dispatch-target.sh), which
 #      accepts owner/repo and a workflow file name only;
-#   4. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
+#   4. the release PR's check approval (scripts/release-pr-approve.sh) against a stand-in gh: the
+#      release PR's runs approved as they appear (and a fork's or another commit's left alone); a
+#      refused approval, no run within the wait and an unreadable PR each a warning with the fix by
+#      hand, never a failure; a closed PR skipped; and a malformed release-please output or a PR
+#      whose head isn't this repository's release branch refused before anything is approved;
+#   5. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
 #      tarball, and the refusals (another version, a file naming the owner's instance), and the
 #      owner-string check itself: each form of the owner's instance refused, the published image
 #      and repository allowed;
-#   5. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
+#   6. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
 #      release list from a local directory, and a stand-in gh answers `gh attestation
 #      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
 #      `latest` must read every page of the release list (following the Link headers), pick the
@@ -142,6 +147,122 @@ for bad in "example|deploy.yml" "example/ops/x|deploy.yml" "example/..|deploy.ym
   if dispatch_target "${bad%%|*}" "${bad#*|}"; then fail "accepted the dispatch target $bad"; fi
   [[ ! -s "$work/dispatch.out" ]] || fail "the refused dispatch target $bad wrote outputs"
 done
+
+step "approving the release PR's checks (scripts/release-pr-approve.sh)"
+# A stand-in gh answers from the directory $FAKE_APPROVE: the PR (pull.json, or an error with
+# pull.fail), the runs awaiting approval (runs-<n>.json on the n-th listing, else none), and the
+# approvals (logged; refused with a 403 when `refuse` exists).
+ap="$work/approve"
+mkdir -p "$ap/bin"
+cat > "$ap/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+dir="$FAKE_APPROVE"
+[[ "$1" == api ]] || { echo "fake gh: unexpected $*" >&2; exit 2; }
+case "$*" in
+  "api repos/example/waypoint/pulls/7")
+    [[ ! -e "$dir/pull.fail" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    cat "$dir/pull.json" ;;
+  "api repos/example/waypoint/actions/runs?event=pull_request&status=action_required&head_sha="*"&per_page=100")
+    echo x >> "$dir/listings"
+    n="$(wc -l < "$dir/listings")"
+    if [[ -f "$dir/runs-$n.json" ]]; then cat "$dir/runs-$n.json"; else echo '{"total_count":0,"workflow_runs":[]}'; fi ;;
+  "api --method POST repos/example/waypoint/actions/runs/"*"/approve")
+    id="${4#repos/example/waypoint/actions/runs/}"
+    echo "${id%/approve}" >> "$dir/approved"
+    [[ ! -e "$dir/refuse" ]] || { echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1; } ;;
+  *) echo "fake gh: unexpected $*" >&2; exit 2 ;;
+esac
+EOF
+chmod +x "$ap/bin/gh"
+head_sha="$(printf 'release PR head' | sha1sum | cut -d' ' -f1)"
+other_sha="$(printf 'another commit' | sha1sum | cut -d' ' -f1)"
+branch="release-please--branches--main--components--waypoint"
+pr_output="$(jq -nc --arg b "$branch" '{headBranchName: $b, baseBranchName: "main", number: 7, title: "chore(main): release 0.2.0"}')"
+# A run awaiting approval, as GET /actions/runs lists it (completed, with the conclusion
+# action_required): $1 id, $2 workflow, $3 head repository, $4 head commit (default the PR's).
+run_json() {
+  jq -nc --argjson id "$1" --arg name "$2" --arg repo "$3" --arg sha "${4:-$head_sha}" --arg b "$branch" \
+    '{id: $id, name: $name, event: "pull_request", status: "completed", conclusion: "action_required", head_sha: $sha,
+      head_branch: $b, head_repository: {full_name: $repo}}'
+}
+runs_json() { jq -sc '{total_count: length, workflow_runs: .}'; }
+approve_case() { # a fresh fake: $1 the PR's state, $2 its head repository
+  rm -rf "$ap/case"
+  mkdir "$ap/case"
+  jq -n --arg sha "$head_sha" --arg b "$branch" --arg state "${1:-open}" --arg repo "${2:-example/waypoint}" \
+    '{number: 7, state: $state, html_url: "https://github.com/example/waypoint/pull/7",
+      head: {sha: $sha, ref: $b, repo: {full_name: $repo}}}' > "$ap/case/pull.json"
+}
+approve_run() { # the job's script, with short waits; output in $ap/out, summary in $ap/summary
+  : > "$ap/summary"
+  FAKE_APPROVE="$ap/case" PATH="$ap/bin:$PATH" GITHUB_REPOSITORY=example/waypoint GH_TOKEN=fake \
+    GITHUB_STEP_SUMMARY="$ap/summary" APPROVE_INTERVAL=1 "$@" \
+    bash "$repo/scripts/release-pr-approve.sh" > "$ap/out" 2>&1
+}
+approve_show() { cat "$ap/out" "$ap/summary" >&2; }
+
+# Found and approved: CI's run appears on the second listing and PR title's a listing later (each
+# workflow's run turns up on its own); a fork's run on the same commit, a run on another commit and
+# one already running are left alone.
+approve_case
+echo '{"total_count":0,"workflow_runs":[]}' > "$ap/case/runs-1.json"
+{ run_json 101 CI example/waypoint; run_json 900 CI someone/waypoint; run_json 901 CI example/waypoint "$other_sha"
+  run_json 902 CI example/waypoint | jq -c '.status = "in_progress" | .conclusion = null'; } | runs_json > "$ap/case/runs-2.json"
+run_json 102 "PR title" example/waypoint | runs_json > "$ap/case/runs-3.json"
+approve_run env PR="$pr_output" APPROVE_WAIT=10 APPROVE_SETTLE=2 || { approve_show; fail "approving the release PR's runs failed"; }
+[[ "$(cat "$ap/case/approved")" == $'101\n102' ]] || { approve_show; fail "approved $(paste -sd' ' "$ap/case/approved"), not the release PR's runs 101 and 102"; }
+grep -q '^::notice title=Release PR checks::Approved 2 workflow run(s) of the release PR #7: CI (run 101); PR title (run 102)$' "$ap/out" \
+  || { approve_show; fail "the approvals aren't reported"; }
+! grep -q '^::\(warning\|error\)' "$ap/out" || { approve_show; fail "a warning or error after approving every run"; }
+grep -q "^- PR title (run 102)$" "$ap/summary" || { approve_show; fail "the job summary doesn't list the approved runs"; }
+
+# Refused: a warning with the PR and the command that approves the runs by hand, and success.
+approve_case
+touch "$ap/case/refuse"
+{ run_json 101 CI example/waypoint; run_json 102 "PR title" example/waypoint; } | runs_json > "$ap/case/runs-1.json"
+approve_run env PR="$pr_output" APPROVE_WAIT=10 APPROVE_SETTLE=0 || { approve_show; fail "a refused approval failed the job"; }
+[[ "$(cat "$ap/case/approved")" == $'101\n102' ]] || { approve_show; fail "didn't try to approve both runs"; }
+# shellcheck disable=SC2016 # the command in the warning, not an expansion
+grep -q '^::warning title=Release PR checks need approval::GitHub refused to approve 2 workflow run(s) of the release PR #7 with this token: CI (run 101): gh: Resource not accessible by integration (HTTP 403); PR title (run 102): .*https://github.com/example/waypoint/pull/7.*Approve workflows to run.*for id in 101 102; do gh api -X POST repos/example/waypoint/actions/runs/\$id/approve; done$' "$ap/out" \
+  || { approve_show; fail "the refusal's warning doesn't name the runs, the PR and the fix"; }
+! grep -q '^::\(notice\|error\)' "$ap/out" || { approve_show; fail "a refusal reported as an approval or an error"; }
+grep -q 'Approve workflows to run' "$ap/summary" || { approve_show; fail "the job summary doesn't explain the fix"; }
+
+# None within the wait: a warning with the PR and a command that finds and approves them, and success.
+approve_case
+approve_run env PR="$pr_output" APPROVE_WAIT=2 APPROVE_SETTLE=0 || { approve_show; fail "finding no runs failed the job"; }
+[[ ! -e "$ap/case/approved" ]] || { approve_show; fail "approved a run that wasn't listed"; }
+(( $(wc -l < "$ap/case/listings") >= 2 )) || { approve_show; fail "didn't keep looking for the runs"; }
+grep -q "^::warning title=Release PR checks not found::No workflow run awaiting approval appeared on the release PR #7 (head ${head_sha::7}) within 2s\..*https://github.com/example/waypoint/pull/7.*gh run list --repo example/waypoint --commit $head_sha --status action_required" "$ap/out" \
+  || { approve_show; fail "no runs found isn't explained"; }
+! grep -q '^::error' "$ap/out" || { approve_show; fail "finding no runs reported an error"; }
+
+# The PR can't be read: a warning, and success.
+approve_case
+touch "$ap/case/pull.fail"
+approve_run env PR="$pr_output" APPROVE_WAIT=2 || { approve_show; fail "an unreadable PR failed the job"; }
+grep -q "^::warning title=Release PR checks need approval::Couldn't read the release PR #7 (gh: Not Found (HTTP 404))" "$ap/out" \
+  || { approve_show; fail "an unreadable PR isn't explained"; }
+[[ ! -e "$ap/case/listings" ]] || { approve_show; fail "listed runs without the PR's head commit"; }
+
+# A closed PR: nothing to approve.
+approve_case closed
+approve_run env PR="$pr_output" || { approve_show; fail "a closed release PR failed the job"; }
+grep -q '^::notice title=Release PR checks::The release PR #7 is closed' "$ap/out" && [[ ! -e "$ap/case/listings" ]] \
+  || { approve_show; fail "a closed release PR wasn't skipped"; }
+
+# Refused before anything is approved: release-please's output naming another branch or no PR,
+# and a PR whose head isn't this repository's release branch.
+approve_case
+for bad in "$(jq -c '.headBranchName = "main"' <<< "$pr_output")" "$(jq -c '.number = "7 x"' <<< "$pr_output")" "not json"; do
+  if approve_run env PR="$bad"; then approve_show; fail "accepted the release PR output $bad"; fi
+  grep -q '^::error::unexpected release' "$ap/out" || { approve_show; fail "the bad release PR output $bad isn't named"; }
+done
+approve_case open someone/waypoint
+if approve_run env PR="$pr_output"; then approve_show; fail "accepted a release PR whose head is a fork's"; fi
+grep -q "^::error::#7 isn't example/waypoint's $branch" "$ap/out" || { approve_show; fail "the fork's head isn't named"; }
+[[ ! -e "$ap/case/listings" && ! -e "$ap/case/approved" ]] || fail "listed or approved runs of a refused PR"
 
 step "build-release-bundle.sh"
 version="$(node -p 'require(process.argv[1]).version' "$repo/package.json")"
