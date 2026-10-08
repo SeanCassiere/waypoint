@@ -239,7 +239,8 @@ describe("tree limits", () => {
     expect(visible).toContain('data-p="invoice\u202efdp.exe">invoice\ufffdfdp.exe</a>');
     expect(visible).toContain('<h1 dir="auto">Report \ufffdexe.pdf</h1>');
     expect(visible.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
-    expect(publicShellCss).toContain(".ptabs2 a,.tree a{unicode-bidi:plaintext}");
+    expect(publicShellCss).toContain(".ptabs2 a{unicode-bidi:plaintext}");
+    expect(publicShellCss).toContain(".tree a{unicode-bidi:plaintext}");
   });
   it("shows bidi controls in the download card and the frame title", () => {
     const spoof = "docs/invoice‮fdp.exe";

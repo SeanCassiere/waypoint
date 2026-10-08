@@ -366,8 +366,8 @@ describe("public reader", () => {
     expect(shell.headers.get("referrer-policy")).toBe("no-referrer");
     expect(shell.headers.get("x-content-type-options")).toBe("nosniff");
     // The listener trusts only the frame's own window and re-checks the payload.
-    expect(publicShellScript).toContain("e.source!==f.contentWindow");
-    expect(publicShellScript).toContain('m.type!=="waypoint:location"');
+    expect(publicShellScript).toContain("e.source !== frame.contentWindow");
+    expect(publicShellScript).toContain('m.type !== "waypoint:location"');
   });
   it("has no revision picker and keeps every link on the served revision", async () => {
     revisions.push({
