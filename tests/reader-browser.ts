@@ -1,17 +1,17 @@
 // Real-Chromium checks for the public reader shell: CSP, the frame-location listener, token
 // exposure, sandbox escapes and COOP. Ported from the feat/ui-folio-reader security review.
-// Run after `pnpm build`: node --experimental-strip-types tests/reader-browser.ts
+// Runs from source (no build needed): pnpm test:browser:reader
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 
 import { serve } from "@hono/node-server";
+import { hashShareToken, newShareToken } from "@waypoint/core";
 import { chromium, type Frame, type Page } from "playwright";
 
-import { createReaderApp, type ReaderEnv } from "../apps/reader/dist/app.js";
-import { waypointMigrations } from "../apps/writer/dist/migrations.js";
-import { hashShareToken, newShareToken } from "../packages/core/dist/index.js";
+import { createReaderApp, type ReaderEnv } from "../apps/reader/src/app.ts";
+import { waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",

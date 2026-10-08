@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { chromium, type Browser } from "playwright";
 import { z } from "zod";
@@ -37,19 +38,23 @@ if (!address || typeof address === "string") throw new Error("No port");
 const port = address.port;
 await new Promise<void>((resolve) => server.close(() => resolve()));
 const base = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, ["apps/writer/dist/main.js"], {
-  env: {
-    ...process.env,
-    WAYPOINT_ENV: "dev",
-    WAYPOINT_SYNC: "off",
-    WAYPOINT_DATA_DIR: dir,
-    WAYPOINT_PORT: String(port),
-    WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
-    // A fixed test key (never a real one): 32 bytes of 42.
-    WAYPOINT_SHARE_TOKEN_KEY: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio",
+const child = spawn(
+  process.execPath,
+  [fileURLToPath(new URL("../apps/writer/dist/main.js", import.meta.url))],
+  {
+    env: {
+      ...process.env,
+      WAYPOINT_ENV: "dev",
+      WAYPOINT_SYNC: "off",
+      WAYPOINT_DATA_DIR: dir,
+      WAYPOINT_PORT: String(port),
+      WAYPOINT_PUBLIC_BASE_URL: "https://waypoint-dev.pingstash.com",
+      // A fixed test key (never a real one): 32 bytes of 42.
+      WAYPOINT_SHARE_TOKEN_KEY: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
   },
-  stdio: ["ignore", "pipe", "pipe"],
-});
+);
 let logs = "";
 child.stderr.on("data", (chunk: unknown) => {
   logs += typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : "";

@@ -2,6 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  deriveShareToken,
+  hashShareToken,
+  mintRevisionId,
+  newId,
+  newShareToken,
+  publicIdFor,
+} from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -18,14 +26,6 @@ import { ReadModel } from "../apps/writer/src/read-model.ts";
 import { restore } from "../apps/writer/src/restore.ts";
 import { URL_UNAVAILABLE } from "../apps/writer/src/shares.ts";
 import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
-import {
-  deriveShareToken,
-  hashShareToken,
-  mintRevisionId,
-  newId,
-  newShareToken,
-  publicIdFor,
-} from "../packages/core/src/index.ts";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
   method: "POST",

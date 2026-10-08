@@ -1,0 +1,19 @@
+{
+  "$schema": "../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Cross-package tests from source, plus checks of built artifacts: the MCP bundles and
+    // tarball (real-writer), the writer process (writer-process) and the bundled renderer.
+    "test": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@waypoint/writer#build", "@waypoint/mcp#build"]
+    },
+    // Real Chromium against the built writer.
+    "test:browser": {
+      "dependsOn": ["transit", "@waypoint/writer#build", "@waypoint/mcp#build"]
+    },
+    // Real Chromium against the reader app, run from source.
+    "test:browser:reader": {
+      "dependsOn": ["transit"]
+    }
+  }
+}

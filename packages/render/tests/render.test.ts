@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { markdownRenderer, renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "../src/index.ts";
 import { FRAME_REPORTER, processor, TOC_MIN_H2 } from "../src/render.ts";
+import { GOLDEN_HASH, goldenInputs } from "./golden.ts";
 
 function h2s(count: number): string {
   return Array.from({ length: count }, (_, index) => `## Part *${index + 1}*\n\ntext`).join("\n\n");
@@ -19,43 +20,6 @@ function body(html: string): string {
   return html.slice(html.indexOf("<body>"), html.indexOf("<script>"));
 }
 
-function goldenInputs(): Array<[string, string | null]> {
-  const languages = [
-    "typescript",
-    "javascript",
-    "tsx",
-    "jsx",
-    "json",
-    "bash",
-    "python",
-    "go",
-    "rust",
-    "sql",
-    "yaml",
-    "toml",
-    "html",
-    "css",
-    "diff",
-    "markdown",
-    "dockerfile",
-  ];
-  const fences = languages
-    .map((language) => `\`\`\`${language}\nconst value = 1\n\`\`\``)
-    .join("\n\n");
-  const alerts = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]
-    .map((kind) => `> [!${kind}]\n> ${kind} body.`)
-    .join("\n\n");
-  const sections = ["One", "Two", "Three", "Four"]
-    .map((name) => `## ${name}\n\nText with \`code\`.`)
-    .join("\n\n");
-  const fixture = `---\ntitle: Test\n---\n# Golden &amp; title\n# Golden &amp; title\n\n${sections}\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n- [x] done\n\n~~old~~ https://example.com\n\nNote[^1].\n\n[^1]: Footnote.\n\n<aside>Raw</aside>\n\n${alerts}\n\n> Quote\n\n![Figure](./figure.png)\n\n${fences}\n\n\`\`\`oddlang\nx\n\`\`\`\n\n\`\`\`mermaid\ngraph TD; A-->B\n\`\`\``;
-  return [
-    [fixture, null],
-    [fixture, " Golden override "],
-    ["x".repeat(1_000_001), null],
-    [">".repeat(101), null],
-  ];
-}
 async function goldenHash(): Promise<string> {
   const hash = createHash("sha256");
   const outputs = await Promise.all(
@@ -465,12 +429,13 @@ describe("markdown rendition", () => {
     expect(
       await goldenHash(),
       "renderer output changed: bump RENDERER_VERSION and update the golden hash",
-    ).toBe("7277152229f0f7c7aa8a1d1f4df263d2fd963ebab5b0dd014e22cbcc64a0d055");
+    ).toBe(GOLDEN_HASH);
   });
 
   it("produces byte-identical golden output in a fresh process", async () => {
-    // Uses the built package, like the worker pool does; run `pnpm build` after editing src.
-    const module = new URL("../dist/render.js", import.meta.url).href;
+    // The source run by Node itself, like the worker pool does in tests; the built package and
+    // the writer's bundle get the same check in tests/built-renderer.test.ts (repository root).
+    const module = new URL("../src/render.ts", import.meta.url).href;
     const script = `import { createHash } from "node:crypto";
 import { text } from "node:stream/consumers";
 const { renderMarkdown } = await import(${JSON.stringify(module)});
@@ -478,7 +443,8 @@ const hash = createHash("sha256");
 for (const [source, title] of JSON.parse(await text(process.stdin)))
   hash.update(await renderMarkdown(source, title === null ? undefined : { title }));
 process.stdout.write(hash.digest("hex"));`;
-    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    const args = ["--conditions=@waypoint/source", "--input-type=module", "-e", script];
+    const child = spawn(process.execPath, args, {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: { PATH: process.env.PATH ?? "" },
       stdio: ["pipe", "pipe", "inherit"],

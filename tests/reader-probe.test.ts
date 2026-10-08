@@ -2,6 +2,8 @@ import { createHmac } from "node:crypto";
 // Adversarial review probes against the writer schema and reader app.
 import { DatabaseSync } from "node:sqlite";
 
+import { hashShareToken, newShareToken } from "@waypoint/core";
+import { encodePathSegments, renderPublicShell } from "@waypoint/ui";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -12,8 +14,6 @@ import {
 } from "../apps/reader/src/app.ts";
 import { deniedPage } from "../apps/reader/src/pages.ts";
 import { waypointMigrations } from "../apps/writer/src/migrations.ts";
-import { hashShareToken, newShareToken } from "../packages/core/src/index.ts";
-import { encodePathSegments, renderPublicShell } from "../packages/ui/src/index.ts";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",
