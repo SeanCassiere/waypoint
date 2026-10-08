@@ -15,7 +15,7 @@ You need Node 24 and pnpm 11 (the exact versions: `.node-version` and `packageMa
 
 ```bash
 pnpm install
-pnpm check      # format check, type-aware lint, typecheck, every test
+pnpm check      # format check, type-aware lint, typecheck, third-party notices, every test
 pnpm build      # every package (tsdown, esbuild, Wrangler's dry run for the reader)
 ```
 
@@ -68,6 +68,10 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
     anything but protocol messages to stdout.
   - **`core` and `ui` stay runtime-agnostic:** Web APIs only, no `node:*` or native modules
     (`pnpm lint` checks).
+  - **Inlined third-party code keeps its license text.** `THIRD_PARTY_NOTICES.md` is generated
+    by `pnpm notices` from the installed packages and ships with every artifact. If the reader or
+    the MCP bundles start inlining another npm package, add it to the list in
+    `scripts/third-party-notices.ts`; CI's `pnpm notices:check` fails when it's out of date.
   - **No blanket lint disables.** Fix the finding, or disable one rule on one line with a reason.
   - **No instance-specific values** (your hostnames, domains, account IDs) anywhere in the
     repository: use `example.com`-style placeholders. CI's `scripts/check-owner-strings.sh` scans

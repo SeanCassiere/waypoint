@@ -40,6 +40,9 @@ jobs:
       # No tracked file may name a particular instance (hosts, domains, machines, accounts): deploy
       # tooling takes them from instance.env, docs use example values (scripts/check-owner-strings.sh).
       - run: bash scripts/check-owner-strings.sh
+      # THIRD_PARTY_NOTICES.md holds the license texts of the installed packages the bundles
+      # inline (scripts/third-party-notices.ts); a dependency that changes its text fails here.
+      - run: pnpm notices:check
   typecheck:
     runs-on: ubuntu-latest
     steps:
