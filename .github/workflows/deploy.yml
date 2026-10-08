@@ -25,20 +25,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - run: bash deploy/deploy.sh
-  reader:
-    needs: deploy
-    runs-on: [self-hosted, waypoint-deploy]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
+      # The reader and the workspace packages it bundles; upgrade.sh builds them with plain
+      # `pnpm --filter`, without turbo or its cache.
       - run: pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
-      # The reader and the workspace packages it bundles (`...`): Wrangler reads their dist.
-      - run: pnpm --filter "@waypoint/reader..." build
-      - run: bash deploy/deploy-reader.sh dev
-      - run: bash deploy/deploy-reader.sh prod
+      # The same path any instance uses (deploy/README.md): build the writer image and the reader
+      # from this commit, then the writer and each reader target of the instance file, each one
+      # health-gated and rolled back on failure.
+      - run: bash deploy/upgrade.sh --instance ~/.config/waypoint/instance.env current-checkout
