@@ -29,10 +29,9 @@ commits on `main` ([release-please-config.json](../release-please-config.json),
    `type(scope): subject`, with `!` after the type or scope for a breaking change. Types: `feat`,
    `fix`, `perf`, `refactor`, `revert`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `spike`.
    Scopes are free-form (`writer`, `reader`, `viewer`, `mcp`, `render`, `deploy`, `deps`, ...).
-   **Don't make its check, `conventional-title`, a required status check.** It runs on
-   `pull_request` events only, and the release PR, which GITHUB_TOKEN opens, never gets one, so a
-   required `conventional-title` would block every release PR forever. `ci-ok` is the only
-   required check.
+   Its check, `conventional-title`, isn't a required status check: `ci-ok` is the only one. It
+   runs on `pull_request` events only, so on the release PR only once its runs are approved
+   (step 3), and the release PR's title is release-please's own.
 2. Every push to `main` runs [.github/workflows/release.yml](../.github/workflows/release.yml).
    Its first job, `release-please`, only creates releases (below). The second, `release-pr`, runs
    release-please again to keep one open **release PR**, `chore(main): release X.Y.Z`, up to date: the
@@ -45,12 +44,24 @@ commits on `main` ([release-please-config.json](../release-please-config.json),
    PR (for instance with the Actions PR setting below off) fails the run without skipping the
    publishing jobs of a release the first job created: nothing that publishes depends on
    `release-pr`.
-3. A PR that GITHUB_TOKEN opens or updates triggers no `pull_request` workflows, so the next job,
-   `release-pr-ci`, starts CI on the release branch with `gh workflow run ci.yml --ref <branch>`
-   (workflow_dispatch is exempt from that rule). Its `ci-ok` check lands on the branch's head
-   commit, which is what branch protection requires.
+3. release-please opens and updates the release PR with GITHUB_TOKEN, so GitHub creates the PR's
+   `pull_request` runs (CI and PR title) **awaiting approval** instead of starting them: the PR's
+   merge box shows "Approve workflows to run", and until someone with write access approves, the
+   PR has no `ci-ok` and branch protection blocks it. The next job, `release-pr-checks`
+   ([scripts/release-pr-approve.sh](../scripts/release-pr-approve.sh)), approves them through the
+   API with the job's token (`actions: write`): it polls for up to two minutes for the runs
+   awaiting approval on the PR's head commit, and approves only runs of the release branch in this
+   repository, never a fork's. GitHub doesn't document whether GITHUB_TOKEN may approve runs of a
+   PR it opened itself. If it refuses, or no run turns up, the job still succeeds but leaves a
+   warning on the run (and in its summary) with the PR's URL and the command that approves the
+   runs by hand ([below](#cutting-a-release)). Once approved, they're ordinary `pull_request`
+   runs, and their `ci-ok` is the check branch protection counts (D59).
 4. **Merging the release PR is the release.** The next `release.yml` run tags `vX.Y.Z`, creates the
    GitHub release with the changelog, and publishes it (below).
+
+CI started by hand (`gh workflow run ci.yml --ref <branch>`, which CI keeps for that) doesn't help
+a PR: GitHub doesn't associate workflow_dispatch runs with a PR, so their `ci-ok` never satisfies
+its branch protection, even on the PR's head commit.
 
 Versioning before 1.0: a `feat` bumps the minor version, a `fix` the patch version, and a breaking
 change the minor version (`bump-minor-pre-major`). The first release is **0.1.0**: the manifest
@@ -58,6 +69,25 @@ starts at 0.0.0, no `v0.0.0` tag exists, so release-please treats it as a first 
 `initial-version`, which it ignores once a release exists, so nothing needs removing afterwards. To
 force a version, add a `Release-As: X.Y.Z` footer to the commit message in the squash-merge
 dialog of the PR you merge.
+
+## Cutting a release
+
+1. Open the release PR, `chore(main): release X.Y.Z`, and read its `CHANGELOG.md` entry and
+   version bump: that's what will be published.
+2. Check its checks. Normally the latest `release.yml` run approved its runs, and CI is running or
+   done. If the merge box still says **Approve workflows to run** (the run's `release-pr-checks`
+   job then has a warning, "Release PR checks need approval" or "Release PR checks not found"),
+   select it, or approve them from a terminal with the command the warning gives, which is:
+
+   ```bash
+   gh run list --repo <repo> --commit <head commit> --status action_required \
+     --json databaseId --jq '.[].databaseId' | xargs -I{} gh api -X POST repos/<repo>/actions/runs/{}/approve
+   ```
+
+   Each update of the release PR (every merge to `main`) is a new head commit, whose runs need
+   approving again; the release workflow does it on each update.
+3. When `ci-ok` passes, squash-merge it. The release run that follows publishes the release
+   ([below](#what-a-release-publishes)) and, if configured, dispatches the deploy.
 
 ## What a release publishes
 
@@ -103,7 +133,7 @@ bundle has both.
 |---|---|---|
 | "Allow GitHub Actions to create and approve pull requests" | Settings → Actions → General → Workflow permissions | release-please opens the release PR with GITHUB_TOKEN. Without it the `release-pr` job fails (releases still publish). |
 | A public repository (or GitHub Enterprise Cloud) | | Artifact attestations, environments with branch rules, and the free arm64 runners. |
-| Branch protection on `main` requiring `ci-ok` | Settings → Branches | The release PR merges only after CI passed on its branch. Require `ci-ok` only: **not** `conventional-title`, which never runs on the release PR (above). |
+| Branch protection on `main` requiring `ci-ok` | Settings → Branches | The release PR merges only after CI passed on it, in its approved `pull_request` run (above). Require `ci-ok` only. |
 | The `waypoint-writer` package public | the package's settings, during the first release ([below](#the-first-release)) | GHCR creates a package as private on its first push; instances pull without credentials. |
 | `DEPLOY_DISPATCH_REPO` (variable) | repository variables | `owner/repo` of the ops repository. Unset: no dispatch. |
 | `DEPLOY_DISPATCH_WORKFLOW` (variable, optional) | repository variables | The ops workflow file, default `deploy.yml`. |
@@ -199,8 +229,9 @@ CI's `release-dry-run` job ([scripts/release-dry-run.sh](../scripts/release-dry-
 actionlint on every workflow and the ops template, validates the release-please config against
 its schema, builds and checks a bundle, and runs `upgrade.sh`'s release mode against a fake
 release with stand-in attestations, and tests the `dispatch` job's target check
-([scripts/release-dispatch-target.sh](../scripts/release-dispatch-target.sh)) and oxfmt's
-handling of `CHANGELOG.md`. Locally, after `pnpm --filter "@waypoint/reader..." build`:
+([scripts/release-dispatch-target.sh](../scripts/release-dispatch-target.sh)), the
+`release-pr-checks` job's approvals against a stand-in gh (approved, refused, none found), and
+oxfmt's handling of `CHANGELOG.md`. Locally, after `pnpm --filter "@waypoint/reader..." build`:
 
 ```bash
 bash scripts/build-release-bundle.sh --out /tmp/release   # the bundle for this commit
