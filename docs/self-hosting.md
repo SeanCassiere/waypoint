@@ -2,7 +2,9 @@
 
 Waypoint runs as one **writer** (a Docker container you reach from your own machines) plus,
 optionally, cloud durability and a public **reader** for share links. Start small and add tiers
-later; each one keeps the data you already have.
+later: Tailscale and the public reader keep the data you already have, but cloud sync starts from a
+new data directory, because a local-only one can't be synced. If you'll want cloud sync, start at
+Tier 2.
 
 | Tier | What you get | What you need |
 |---|---|---|
@@ -16,7 +18,8 @@ Every tier deploys with the same script, [deploy/upgrade.sh](../deploy/upgrade.s
 [deploy/README.md](../deploy/README.md); every setting is in [configuration.md](configuration.md);
 who can reach what is in the [trust model](trust-model.md).
 
-You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 20+.
+You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 22+
+(24+ to deploy from a git checkout with the public reader, which builds it).
 
 ## Getting the deploy files
 
@@ -91,11 +94,12 @@ publishes no port on the host. Every device on your tailnet can reach it; nothin
    ```
    TAILSCALE=on
    TAILSCALE_HOSTNAME=waypoint
-   TAILSCALE_TAGS=tag:waypoint
    WRITER_HEALTH_URL=https://waypoint.<tailnet>.ts.net/healthz
    ```
 
-   and to `writer.env`: `WAYPOINT_BASE_URL=https://waypoint.<tailnet>.ts.net`.
+   If you defined a tag in step 1, also add `TAILSCALE_TAGS=tag:waypoint`. Leave it out otherwise:
+   a node that advertises a tag nobody defined can't log in. Add to `writer.env`:
+   `WAYPOINT_BASE_URL=https://waypoint.<tailnet>.ts.net`.
 
 4. Deploy again. The key is used only for the node's first login; afterwards the node's identity
    lives in the `waypoint_tailscale-state` Docker volume. Keep that volume (never
@@ -104,16 +108,25 @@ publishes no port on the host. Every device on your tailnet can reach it; nothin
 ## Tier 2: cloud sync
 
 With sync on, the writer pushes metadata to a Turso database and file contents to a bucket, and
-can rebuild its data directory from them. Provision them as in
-[provisioning.md](provisioning.md#part-1-local-writer): a Turso database with a full-access token,
-and a bucket with a read-write key. R2 is the default; any S3-compatible store works with
-`WAYPOINT_S3_ENDPOINT` and `WAYPOINT_S3_REGION` ([configuration](configuration.md#cloud-sync-on)).
-Then, in `writer.env`, remove `WAYPOINT_SYNC=off`, set `WAYPOINT_BASE_URL`, the `TURSO_*` and
-`R2_*` values, and deploy again.
+can rebuild its data directory from them.
 
-A data directory can't switch sync modes: a local-only directory would fork from the cloud DB.
-To move a local-only instance to the cloud, start a synced writer on a fresh `DATA_DIR`
-([configuration](configuration.md#local-only-mode)).
+A data directory can't switch sync modes, and there is no migration from local-only to synced
+yet ([configuration](configuration.md#local-only-mode)): the writer refuses to start with sync on
+over a directory created with `WAYPOINT_SYNC=off`. A synced writer therefore needs a new data
+directory, which it fills from the cloud DB. Coming from Tier 0, your local-only data stays in the
+old directory and doesn't carry over. Starting fresh, follow Tier 0 (and Tier 1 if you want it)
+with the changes below.
+
+1. Provision as in [provisioning.md](provisioning.md#part-1-local-writer): a Turso database with
+   a full-access token, and a bucket with a read-write key. R2 is the default; any S3-compatible
+   store works with `WAYPOINT_S3_ENDPOINT` and `WAYPOINT_S3_REGION`
+   ([configuration](configuration.md#cloud-sync-on)).
+2. In `writer.env`, leave out (or remove) `WAYPOINT_SYNC=off`, and set `WAYPOINT_BASE_URL` and the
+   `TURSO_*` and `R2_*` values.
+3. If `instance.env` already has a `DATA_DIR` that a local-only writer used, point it at a new
+   directory, for example `DATA_DIR=/home/<you>/.local/share/waypoint/prod-synced` (an absolute
+   path, owned by the writer's uid and gid as in Tier 0).
+4. Deploy again.
 
 ## Tier 3: the public reader
 

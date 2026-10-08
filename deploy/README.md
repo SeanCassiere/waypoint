@@ -20,9 +20,10 @@ Waypoint? Start with [docs/self-hosting.md](../docs/self-hosting.md). What each 
 ## Requirements
 
 A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.4+ (`upgrade.sh` checks), `flock`, `curl`,
-`sha256sum` and Node.js 20 or later (`upgrade.sh` uses it for JSON, and Wrangler needs it).
-Deploying a git checkout (`current-checkout`) also needs `git`, and with reader targets, pnpm
-and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
+`sha256sum` and Node.js 22 or later (`upgrade.sh` uses it for JSON, and Wrangler 4 refuses
+anything older; `upgrade.sh` checks before deploying a reader). Deploying a git checkout
+(`current-checkout`) also needs `git`, and with reader targets, Node.js 24 (the workspace's
+minimum), pnpm and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
 
 If your login session predates your `docker` group membership, `upgrade.sh` runs Docker through
 `sg docker`; no logout or daemon restart is needed.

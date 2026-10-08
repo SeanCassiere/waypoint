@@ -155,7 +155,9 @@ load_instance() {
   writer_env_file="$(instance_path "${i_WRITER_ENV_FILE:-}")"
   [[ -n "$writer_env_file" ]] || die "WRITER_ENV_FILE must be set"
   image_repo="${i_IMAGE:-$default_image}"
-  [[ "$image_repo" =~ ^[a-z0-9][a-z0-9._/:-]*[a-z0-9]$ && "$image_repo" != *@* ]] || die "IMAGE must be an image name without a tag or digest"
+  # A ':' is allowed only for a registry port, so never after the last '/'.
+  [[ "$image_repo" =~ ^[a-z0-9][a-z0-9._/:-]*[a-z0-9]$ && "$image_repo" != *@* && "${image_repo##*/}" != *:* ]] \
+    || die "IMAGE must be an image name without a tag or digest"
   release_repo="${i_RELEASE_REPO:-}"
   if [[ -z "$release_repo" && "$image_repo" =~ ^ghcr\.io/([a-z0-9-]+)/waypoint-writer$ ]]; then
     release_repo="${BASH_REMATCH[1]}/waypoint"
@@ -866,6 +868,11 @@ resolve_wrangler() {
     wrangler_bin=(npx --yes "wrangler@$(tr -d '[:space:]' < "$script_dir/reader/WRANGLER_VERSION")")
   else
     die "no Wrangler found (set WRANGLER, or run pnpm install in the checkout)"
+  fi
+  if [[ -z "${WRANGLER:-}" ]]; then
+    local node_major
+    node_major="$(node -p 'process.versions.node.split(".")[0]')" || die "Wrangler needs Node.js"
+    (( node_major >= 22 )) || die "Wrangler needs Node.js 22 or later (this host has $(node --version))"
   fi
 }
 

@@ -206,6 +206,11 @@ sed -i 's|^DATA_DIR=.*|DATA_DIR="/tmp/quoted"|' instance.env; refuse "a quoted v
 # shellcheck disable=SC2016 # a literal $HOME
 sed -i 's|^DATA_DIR=.*|DATA_DIR=$HOME/data|' instance.env; refuse "a variable"
 sed -i 's|^READER_dev_DOMAIN=.*|READER_dev_DOMAIN=Share.Example.com/x|' instance.env; refuse "a bad domain"
+echo 'IMAGE=registry.example:5000/x/waypoint-writer:latest' >> instance.env; refuse "an IMAGE with a tag"
+grep -q 'IMAGE must be' err.log || fail "the tagged IMAGE isn't named"
+echo 'IMAGE=registry.example:5000/x/waypoint-writer' >> instance.env
+upgrade validate 2> err.log || { cat err.log >&2; fail "refused an IMAGE with a registry port"; }
+write_instance off
 chmod 664 instance.env; refuse "a group-writable instance file"
 chmod 644 reader-dev.env; refuse "a readable secrets file"; chmod 600 reader-dev.env
 cp reader-dev.env saved.env
