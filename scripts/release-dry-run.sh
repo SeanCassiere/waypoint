@@ -63,7 +63,7 @@ else
   echo "WARNING: shellcheck isn't installed (or set SHELLCHECK=<path>), so actionlint doesn't check the workflows' run: scripts; CI does" >&2
 fi
 # This repository's workflows with actionlint's defaults, which know no custom runner label (none
-# may run on a self-hosted runner: scripts/check-hosted-runners.sh, D58). The ops template runs on
+# may run on a self-hosted runner: scripts/check-hosted-runners.ts, D58). The ops template runs on
 # the deploy runner of an instance's private ops repository, labelled waypoint-deploy.
 (cd "$repo" && "$actionlint" -shellcheck="$shellcheck" .github/workflows/*.yml) || fail "actionlint"
 cp "$repo/deploy/ops/deploy.yml.example" "$work/ops-deploy.yml"

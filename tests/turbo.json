@@ -17,7 +17,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/inlined-packages.json",
-        "$TURBO_ROOT$/scripts/check-hosted-runners.sh",
+        "$TURBO_ROOT$/scripts/check-hosted-runners.ts",
         "$TURBO_ROOT$/.github/workflows/**",
         "$TURBO_ROOT$/apps/*/package.json",
         "$TURBO_ROOT$/packages/*/package.json",

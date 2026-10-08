@@ -40,9 +40,10 @@ jobs:
       # No tracked file may name a particular instance (hosts, domains, machines, accounts): deploy
       # tooling takes them from instance.env, docs use example values (scripts/check-owner-strings.sh).
       - run: bash scripts/check-owner-strings.sh
-      # Every job of every workflow here runs on a GitHub-hosted runner: no `self-hosted` label,
-      # custom label, runner group or unverifiable expression in `runs-on` (D58).
-      - run: bash scripts/check-hosted-runners.sh
+      # Every job of every workflow here runs on a GitHub-hosted runner: the workflows are parsed as
+      # YAML, and a `self-hosted` label, custom label, runner group, dynamic matrix or other
+      # unverifiable expression in `runs-on` fails (D58).
+      - run: node scripts/check-hosted-runners.ts
       # THIRD_PARTY_NOTICES.md holds the license texts of the installed packages the bundles
       # inline (scripts/third-party-notices.ts, from the list in scripts/inlined-packages.json); a
       # dependency that changes its text fails here. A package a bundle inlines that the list

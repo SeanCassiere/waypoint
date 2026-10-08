@@ -89,7 +89,7 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
     repository: use `example.com`-style placeholders. CI's `scripts/check-owner-strings.sh` scans
     every tracked file.
   - Shell scripts pass `shellcheck`; workflows pin every action by commit SHA, with the version
-    in a comment, and run on GitHub-hosted runners only (`scripts/check-hosted-runners.sh`).
+    in a comment, and run on GitHub-hosted runners only (`scripts/check-hosted-runners.ts`).
 - Formatting is oxfmt (`pnpm format`), lint is oxlint (`oxlint.config.ts`).
 
 ## Pull requests
@@ -113,4 +113,5 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
 
 Maintainers cut releases by merging release-please's release PR; it publishes the writer image,
 the deploy bundle and their build provenance attestations. Merging any other PR deploys nothing:
-instances deploy releases. Contributors don't need to do anything beyond a conventional PR title. Details: [docs/releasing.md](docs/releasing.md).
+instances deploy releases. Contributors don't need to do anything beyond a conventional PR title.
+Details: [docs/releasing.md](docs/releasing.md).
