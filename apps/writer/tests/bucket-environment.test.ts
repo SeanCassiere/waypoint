@@ -6,6 +6,7 @@ import {
   BucketError,
   ENVIRONMENT_MARKER_KEY,
   EnvironmentCheckedBucket,
+  MISSING_MARKER_CODE,
   MemoryBucket,
   R2Bucket,
   openBucket,
@@ -146,6 +147,48 @@ describe("bucket environment marker", () => {
       process.off("unhandledRejection", onUnhandled);
     }
   });
+  it("checkMarker refuses a missing marker without ever writing one", async () => {
+    const inner = new MemoryBucket();
+    const writes: string[] = [];
+    const put = inner.put.bind(inner);
+    const putIfAbsent = inner.putIfAbsent.bind(inner);
+    inner.put = (key, ...rest) => {
+      writes.push(key);
+      return put(key, ...rest);
+    };
+    inner.putIfAbsent = (key, ...rest) => {
+      writes.push(key);
+      return putIfAbsent(key, ...rest);
+    };
+    const bucket = new EnvironmentCheckedBucket(inner, "dev");
+    await expect(bucket.checkMarker()).rejects.toMatchObject({
+      kind: "account",
+      code: MISSING_MARKER_CODE,
+      message: `Bucket environment marker ${ENVIRONMENT_MARKER_KEY} is missing`,
+    });
+    expect(writes).toEqual([]);
+    expect(inner.objects.has(ENVIRONMENT_MARKER_KEY)).toBe(false);
+  });
+  it("checkMarker refuses a mismatched or unreadable marker and accepts a match", async () => {
+    const inner = new MemoryBucket();
+    inner.objects.set(ENVIRONMENT_MARKER_KEY, marker("prod"));
+    await expect(new EnvironmentCheckedBucket(inner, "dev").checkMarker()).rejects.toMatchObject({
+      kind: "account",
+      message: "Environment mismatch: bucket is marked prod, config is dev",
+    });
+    inner.objects.set(ENVIRONMENT_MARKER_KEY, new TextEncoder().encode("not json"));
+    await expect(new EnvironmentCheckedBucket(inner, "dev").checkMarker()).rejects.toMatchObject({
+      kind: "account",
+      message: `Bucket environment marker ${ENVIRONMENT_MARKER_KEY} is unreadable`,
+    });
+    inner.objects.set(ENVIRONMENT_MARKER_KEY, marker("dev"));
+    const bucket = new EnvironmentCheckedBucket(inner, "dev");
+    await bucket.checkMarker();
+    // The match is remembered: a marker deleted afterwards isn't re-created by later requests.
+    inner.objects.delete(ENVIRONMENT_MARKER_KEY);
+    expect(await bucket.head("x")).toBe(false);
+    expect(inner.objects.has(ENVIRONMENT_MARKER_KEY)).toBe(false);
+  });
   it("lets the first of two racing environments win", async () => {
     const inner = new MemoryBucket();
     const results = await Promise.allSettled([
@@ -242,6 +285,25 @@ describe("S3-compatible endpoint", () => {
     s3.requests.length = 0;
     await expect(dev.get("manifests/rev_x.json")).rejects.toMatchObject({ kind: "account" });
     expect(s3.requests.some((r) => r.url.includes("manifests/"))).toBe(false);
+  });
+  it("checkMarker sends no PUT to an unmarked bucket", async () => {
+    const s3 = await fakeS3();
+    const config = loadConfig({
+      WAYPOINT_ENV: "dev",
+      WAYPOINT_BASE_URL: "https://writer.example.test",
+      TURSO_DATABASE_URL: "libsql://db.example.test",
+      TURSO_AUTH_TOKEN: "token",
+      R2_ACCESS_KEY_ID: "AKIDEXAMPLE",
+      R2_SECRET_ACCESS_KEY: "SECRETSECRET",
+      R2_BUCKET: "notes",
+      WAYPOINT_S3_ENDPOINT: s3.endpoint,
+      WAYPOINT_S3_REGION: "us-east-1",
+    });
+    await expect(openBucket(config).checkMarker()).rejects.toMatchObject({
+      code: MISSING_MARKER_CODE,
+    });
+    expect(s3.requests.map((r) => r.method)).toEqual(["HEAD"]);
+    expect(s3.objects.size).toBe(0);
   });
   it("defaults to the R2 account endpoint", () => {
     const config = loadConfig({

@@ -270,6 +270,8 @@ const abortedRequest = () =>
 
 /** The bucket object recording which environment (dev or prod) owns the bucket (D54). */
 export const ENVIRONMENT_MARKER_KEY = "meta/environment.json";
+/** The BucketError code `checkMarker` refuses with when the bucket has no marker. */
+export const MISSING_MARKER_CODE = "MissingEnvironmentMarker";
 
 /**
  * A bucket that checks its environment marker before the first request, so a dev writer never
@@ -345,9 +347,9 @@ export class EnvironmentCheckedBucket implements Bucket {
    * HEAD and GET) would fail the revision being uploaded and its children. Anything that isn't
    * already transient is a bucket problem, reported like one ("account": retried, on /status).
    */
-  private async check(): Promise<void> {
+  private async check(create = true): Promise<void> {
     try {
-      await this.checkMarker();
+      await this.compareMarker(create);
     } catch (error) {
       if (error instanceof BucketError && (error.kind === "account" || error.kind === "transient"))
         throw error;
@@ -359,9 +361,19 @@ export class EnvironmentCheckedBucket implements Bucket {
       );
     }
   }
-  private async checkMarker(): Promise<void> {
+  /**
+   * Checks the marker without ever writing it: refuses (an "account" error) when it's missing,
+   * unreadable or names another environment. For tools that must not stamp an unmarked bucket,
+   * such as live-smoke. A match counts as this bucket's check, so later requests don't run the
+   * creating one.
+   */
+  async checkMarker(): Promise<void> {
+    await this.check(false);
+    this.checked ??= Promise.resolve();
+  }
+  private async compareMarker(create: boolean): Promise<void> {
     let marker = await this.readMarker();
-    if (marker === undefined) {
+    if (marker === undefined && create) {
       const body = new TextEncoder().encode(
         `${JSON.stringify({
           format_version: 1,
@@ -376,6 +388,13 @@ export class EnvironmentCheckedBucket implements Bucket {
       });
       marker = await this.readMarker();
     }
+    if (marker === undefined && !create)
+      throw new BucketError(
+        `Bucket environment marker ${ENVIRONMENT_MARKER_KEY} is missing`,
+        "account",
+        undefined,
+        MISSING_MARKER_CODE,
+      );
     if (marker !== this.environment)
       throw new BucketError(
         `Environment mismatch: bucket is marked ${marker ?? "missing"}, config is ${this.environment}`,
