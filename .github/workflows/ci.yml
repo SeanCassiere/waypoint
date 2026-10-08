@@ -91,12 +91,15 @@ jobs:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # With the build argument the release images get (release.yml), checked in the image.
+      # With the build argument the release images get (release.yml), checked in the image, as are
+      # the license and third-party notices the image ships (docs/decisions.md D57).
       - name: Build writer image
         run: |
           docker build -f apps/writer/Dockerfile --build-arg "WAYPOINT_BUILD_SHA=$GITHUB_SHA" -t waypoint-writer:ci .
           docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' waypoint-writer:ci \
             | grep -qx "WAYPOINT_BUILD_SHA=$GITHUB_SHA"
+          docker run --rm -i --entrypoint sh waypoint-writer:ci -c \
+            'cmp /app/LICENSE - && test -s /app/THIRD_PARTY_NOTICES.md' < LICENSE
   # The adopter install path, for real: deploy/upgrade.sh installs the writer from the merge base's
   # image, upgrades to this commit (current-checkout), rolls back and forward again against the
   # same data directory, rolls back a broken image and an interrupted deploy, keeps the last

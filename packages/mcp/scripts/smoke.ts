@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -10,6 +10,24 @@ import { z } from "zod";
 
 const tarball = fileURLToPath(new URL("../dist/waypoint-mcp.tgz", import.meta.url));
 const bundle = await readFile(new URL("../dist/waypoint-mcp-server.mjs", import.meta.url));
+// The license and third-party notices travel with both artifacts (docs/decisions.md D57): at the
+// head of the server bundle, which the writer serves on its own, and in the launcher package.
+const notices = await Promise.all(
+  ["LICENSE", "THIRD_PARTY_NOTICES.md"].map(async (file) =>
+    (await readFile(new URL(`../../../${file}`, import.meta.url), "utf8")).trim(),
+  ),
+);
+const banner = `/*!\n${notices.join("\n\n").replaceAll("*/", "*\\/")}\n*/`;
+if (
+  !bundle
+    .toString("utf8")
+    .replace(/^#!.*\n/, "")
+    .startsWith(banner)
+)
+  throw new Error("The server bundle doesn't start with LICENSE and THIRD_PARTY_NOTICES.md");
+const packed = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n");
+for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
+  if (!packed.includes(`package/${file}`)) throw new Error(`The launcher package lacks ${file}`);
 const marked = Buffer.concat([bundle, Buffer.from("\n// fake writer smoke marker\n")]);
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const runDir = await mkdtemp(join(tmpdir(), "waypoint-mcp-smoke-"));
