@@ -19,6 +19,10 @@ name: Release
 on:
   push:
     branches: [main]
+  # By hand, from main only: GitHub occasionally drops a push event, so merging the release PR
+  # can leave a release un-published. Re-running is safe: release-please releases whatever merged
+  # release PR is still pending, and every publishing job checks out the release commit by SHA.
+  workflow_dispatch:
 permissions: {}
 # One release run at a time, never cancelled midway: a release half-published by a cancelled run
 # would need its failed jobs re-run by hand.
@@ -32,6 +36,7 @@ jobs:
   # the publishing jobs, which would leave a release without its image or bundle (a re-run of
   # release-please doesn't report an existing release again).
   release-please:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write # the release and its tag
