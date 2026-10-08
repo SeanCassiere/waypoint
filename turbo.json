@@ -1,0 +1,157 @@
+{
+  "$schema": "./node_modules/turbo/schema.json",
+  "ui": "stream",
+  "agentGuidance": false,
+  "noUpdateNotifier": true,
+  "remoteCache": {
+    "signature": true
+  },
+  "globalDependencies": [".node-version", "tsconfig.base.json"],
+  "globalPassThroughEnv": ["TMPDIR", "TERM", "COLORTERM", "FORCE_COLOR", "NO_COLOR"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tsconfig*.json", "package.json"],
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo"]
+    },
+    "smoke": {
+      "dependsOn": ["build"],
+      "inputs": ["scripts/smoke.ts", "package.json"],
+      "outputs": []
+    },
+    "format:check": {
+      "dependsOn": ["//#format:check:root"]
+    },
+    "lint": {
+      "dependsOn": ["//#lint:root"]
+    },
+    "typecheck": {
+      "dependsOn": ["//#typecheck:root"]
+    },
+    "test": {
+      "dependsOn": ["//#test:root"]
+    },
+    "test:browser": {
+      "dependsOn": ["//#test:browser:root"]
+    },
+    "test:browser:reader": {
+      "dependsOn": ["//#test:browser:reader:root"]
+    },
+    "//#format:check:root": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "//#lint:root": {
+      "dependsOn": [
+        "@waypoint/core#build",
+        "@waypoint/render#build",
+        "@waypoint/ui#build",
+        "@waypoint/mcp#build",
+        "@waypoint/writer#build",
+        "@waypoint/reader#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/**",
+        "!.github/**",
+        "!skills/**",
+        "!**/Dockerfile",
+        "!.dockerignore"
+      ],
+      "outputs": []
+    },
+    "//#typecheck:root": {
+      "dependsOn": [
+        "@waypoint/core#build",
+        "@waypoint/render#build",
+        "@waypoint/ui#build",
+        "@waypoint/mcp#build",
+        "@waypoint/writer#build",
+        "@waypoint/reader#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/**",
+        "!.github/**",
+        "!skills/**",
+        "!**/Dockerfile",
+        "!.dockerignore"
+      ],
+      "outputs": []
+    },
+    "//#test:root": {
+      "dependsOn": [
+        "@waypoint/core#build",
+        "@waypoint/render#build",
+        "@waypoint/ui#build",
+        "@waypoint/mcp#build",
+        "@waypoint/writer#build",
+        "@waypoint/reader#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/**",
+        "!.github/**",
+        "!oxfmt.config.ts",
+        "!oxlint.config.ts"
+      ],
+      "env": ["CI", "TURSODB_BIN", "UPDATE_CSP_HASHES"],
+      "passThroughEnv": ["GITHUB_ACTIONS"],
+      "outputs": []
+    },
+    "//#test:browser:root": {
+      "dependsOn": [
+        "@waypoint/core#build",
+        "@waypoint/render#build",
+        "@waypoint/ui#build",
+        "@waypoint/mcp#build",
+        "@waypoint/writer#build",
+        "@waypoint/reader#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/**",
+        "!.github/**",
+        "!**/tests/**/*.test.ts",
+        "!vitest.config.ts",
+        "!oxfmt.config.ts",
+        "!oxlint.config.ts"
+      ],
+      "env": ["CHROME_PATH"],
+      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"],
+      "outputs": []
+    },
+    "//#test:browser:reader:root": {
+      "dependsOn": [
+        "@waypoint/core#build",
+        "@waypoint/render#build",
+        "@waypoint/ui#build",
+        "@waypoint/mcp#build",
+        "@waypoint/writer#build",
+        "@waypoint/reader#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/**",
+        "!.github/**",
+        "!**/tests/**/*.test.ts",
+        "!vitest.config.ts",
+        "!oxfmt.config.ts",
+        "!oxlint.config.ts"
+      ],
+      "env": ["CHROME_PATH"],
+      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"],
+      "outputs": []
+    }
+  }
+}

@@ -11,8 +11,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc -b",
-    "build": "tsc"
+    "build": "tsc -b"
   },
   "dependencies": {
     "typeid-js": "^1.2.0"

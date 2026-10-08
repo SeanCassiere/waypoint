@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -b",
-    "build": "tsc",
+    "build": "tsc -b && tsc -p tsconfig.browser.json && node viewer.build.ts",
     "start": "node dist/main.js"
   },
   "dependencies": {
@@ -24,6 +23,7 @@
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2"
   }
 }
