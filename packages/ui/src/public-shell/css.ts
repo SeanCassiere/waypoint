@@ -1,8 +1,7 @@
-import { tokensCss } from "../tokens.ts";
+import { sharedTokensCss } from "../tokens.ts";
 
-/** Skip link (FB2 moves the base rule into sharedTokensCss; the print rule stays here). */
-export const skipCss: string = `.skip{position:absolute;left:12px;top:-60px;z-index:60;padding:8px 12px;border-radius:8px;background:var(--ink);color:var(--paper);text-decoration:none;font-weight:600}.skip:focus{top:8px}
-@media print{.skip{display:none}}
+/** The skip link's print rule; the base rule is in sharedTokensCss. */
+export const skipCss: string = `@media print{.skip{display:none}}
 `;
 /** Page frame and letterhead (R2). */
 export const letterheadCss: string = `html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
@@ -72,5 +71,5 @@ export const buttonCss: string = "";
 export const shellCss: string =
   skipCss + letterheadCss + filesCss + menuCss + documentCss + stageCss + buttonCss;
 
-/** The public shell's complete stylesheet: Folio tokens plus the shell rules. */
-export const publicShellCss: string = tokensCss + shellCss;
+/** The public shell's complete stylesheet: the shared Folio tokens plus the shell rules. */
+export const publicShellCss: string = sharedTokensCss + shellCss;

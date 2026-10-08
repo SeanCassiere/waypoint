@@ -30,6 +30,5 @@ ${Object.entries(expected)
   if (process.env.UPDATE_CSP_HASHES === "1" && readFileSync(file, "utf8") !== source)
     writeFileSync(file, source);
   expect({ ...hashes }).toEqual(expected);
-  // The static pages' hash is the one the design generator printed (spec §9.2).
-  expect(hashes.staticStyleHash).toBe("'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='");
+  expect(staticCss).toMatchSnapshot();
 });

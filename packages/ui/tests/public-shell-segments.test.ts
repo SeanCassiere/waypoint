@@ -20,7 +20,7 @@ import {
   publicShellScript,
   timeScript,
 } from "../src/public-shell/script.ts";
-import { tokensCss } from "../src/tokens.ts";
+import { sharedTokensCss } from "../src/tokens.ts";
 
 const cssSegments = { skipCss, letterheadCss, filesCss, menuCss, documentCss, stageCss, buttonCss };
 const scriptSegments = [
@@ -37,7 +37,7 @@ const parse = (source: string): unknown => new Function(source);
 
 describe("public shell segments", () => {
   it("composes the stylesheet from its segments in the fixed order", () => {
-    expect(publicShellCss).toBe(tokensCss + shellCss);
+    expect(publicShellCss).toBe(sharedTokensCss + shellCss);
     expect(shellCss).toBe(
       skipCss + letterheadCss + filesCss + menuCss + documentCss + stageCss + buttonCss,
     );
