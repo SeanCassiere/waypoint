@@ -16,6 +16,7 @@
     "test:browser": "turbo run test:browser",
     "test:browser:reader": "turbo run test:browser:reader",
     "demo": "tsx --tsconfig apps/writer/tsconfig.json --conditions=@waypoint/source scripts/demo-writer.ts",
+    "demo:reader": "tsx --tsconfig apps/reader/tsconfig.json --conditions=@waypoint/source scripts/demo-reader.ts",
     "snapshot:pages": "tsx --tsconfig apps/writer/tsconfig.json --conditions=@waypoint/source scripts/snapshot-pages.ts",
     "live-smoke": "tsx --tsconfig apps/writer/tsconfig.json --conditions=@waypoint/source scripts/live-smoke.ts",
     "core:guard": "node scripts/check-core-imports.mjs",
