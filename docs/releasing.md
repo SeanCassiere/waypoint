@@ -128,7 +128,7 @@ this: the push of the release PR's merge starts the run while that merge is the 
       sha="$(gh pr view <pr> --repo <repo> --json mergeCommit --jq .mergeCommit.oid)"
       git fetch origin main
       git show "$sha:CHANGELOG.md" \
-        | awk -v h="## [$version]" 'index($0, h) == 1 { p = 1; print; next } p && /^## / { exit } p' > notes.md
+        | awk -v h="## [$version]" 'index($0, h) == 1 { p = 1; next } p && /^## / { exit } p' > notes.md
       cat notes.md                                    # the section for X.Y.Z, nothing else
       git tag "v$version" "$sha" && git push origin "v$version"
       gh release create "v$version" --repo <repo> --verify-tag --title "v$version" --notes-file notes.md
