@@ -17,8 +17,10 @@ WORKDIR /src
 COPY --from=prune /pruned/json/ ./
 RUN pnpm install --frozen-lockfile
 COPY --from=prune /pruned/full/ ./
-# The MCP build puts LICENSE and THIRD_PARTY_NOTICES.md in the server bundle and launcher package.
+# The MCP build puts LICENSE and THIRD_PARTY_NOTICES.md in the server bundle and launcher package,
+# and fails if the server bundle inlines a package scripts/inlined-packages.json doesn't list.
 COPY tsconfig.base.json .node-version LICENSE THIRD_PARTY_NOTICES.md ./
+COPY scripts/inlined-packages.json ./scripts/
 # Turborepo builds the writer, the MCP bundles and their workspace dependencies. The image is
 # always built from source: `--cache=local:,remote:` turns off both the local and the remote
 # cache, whatever TURBO_* variables or config the build environment has. `pnpm deploy` then

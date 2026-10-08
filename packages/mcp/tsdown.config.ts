@@ -11,11 +11,35 @@ const notices = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
   .join("\n\n")
   .replaceAll("*/", "*\\/");
 
+// The npm packages the bundle may inline: the MCP list in scripts/inlined-packages.json, the one
+// THIRD_PARTY_NOTICES.md is generated from. The build fails if it would inline any other package
+// (`deps.onlyBundle`), so a dependency update that pulls a new package into the bundle can't ship
+// without that package's license text.
+const inlined: unknown = JSON.parse(
+  readFileSync(new URL("../../scripts/inlined-packages.json", import.meta.url), "utf8"),
+);
+const listed: unknown =
+  typeof inlined === "object" && inlined !== null
+    ? Object.entries(inlined).find(([key]) => key === "packages/mcp")?.[1]
+    : undefined;
+const onlyBundle = Array.isArray(listed)
+  ? listed.map((entry: unknown) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      "name" in entry &&
+      typeof entry.name === "string"
+        ? entry.name
+        : "",
+    )
+  : [];
+if (onlyBundle.length === 0 || onlyBundle.includes(""))
+  throw new Error("scripts/inlined-packages.json: no valid list for packages/mcp");
+
 // The MCP server bundle (dist/waypoint-mcp-server.mjs): one self-contained, minified ESM file
 // that the writer serves at /mcp/server.mjs and the launcher imports. Every package it inlines is
 // a `dependency` (so Dependabot titles their updates `fix(deps)` and they make a release) and is
 // bundled anyway: tsdown would otherwise leave dependencies as imports, and the bundle may import
-// only Node's built-ins. The launcher (dist/launcher.mjs) stays on esbuild (esbuild.config.ts):
+// only Node's built-ins (`onlyImport: []`). The launcher (dist/launcher.mjs) stays on esbuild (esbuild.config.ts):
 // npx caches it indefinitely, so its build must not change.
 export default defineConfig({
   entry: { "waypoint-mcp-server": "src/cli.ts" },
@@ -24,6 +48,6 @@ export default defineConfig({
   minify: true,
   dts: false,
   banner: `/*!\n${notices}\n*/`,
-  deps: { alwaysBundle: (id) => !isBuiltin(id), onlyBundle: false, onlyImport: [] },
+  deps: { alwaysBundle: (id) => !isBuiltin(id), onlyBundle, onlyImport: [] },
   outputOptions: { codeSplitting: false },
 });

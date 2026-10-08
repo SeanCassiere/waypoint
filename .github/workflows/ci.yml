@@ -41,7 +41,9 @@ jobs:
       # tooling takes them from instance.env, docs use example values (scripts/check-owner-strings.sh).
       - run: bash scripts/check-owner-strings.sh
       # THIRD_PARTY_NOTICES.md holds the license texts of the installed packages the bundles
-      # inline (scripts/third-party-notices.ts); a dependency that changes its text fails here.
+      # inline (scripts/third-party-notices.ts, from the list in scripts/inlined-packages.json); a
+      # dependency that changes its text fails here. A package a bundle inlines that the list
+      # misses fails the MCP build (tsdown's deps.onlyBundle) or tests/inlined-packages.test.ts.
       - run: pnpm notices:check
   typecheck:
     runs-on: ubuntu-latest
@@ -57,8 +59,8 @@ jobs:
       - uses: ./.github/actions/setup
       - run: scripts/fetch-tursodb.sh
       # Each package's tests run from source. The integration tests (tests/) also check built
-      # artifacts, so turbo builds the writer and the MCP bundles first. Then the CPU-budget and
-      # timing tests, one package at a time (`pnpm test:timing`).
+      # artifacts, so turbo builds the writer, the MCP bundles and the reader first. Then the
+      # CPU-budget and timing tests, one package at a time (`pnpm test:timing`).
       - run: pnpm test
         env:
           TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb

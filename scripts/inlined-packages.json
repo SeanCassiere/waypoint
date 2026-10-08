@@ -1,0 +1,19 @@
+{
+  "apps/reader": [
+    { "name": "hono" },
+    { "name": "@tursodatabase/serverless" },
+    { "name": "aws4fetch" }
+  ],
+  "packages/mcp": [
+    { "name": "@modelcontextprotocol/sdk" },
+    { "name": "zod" },
+    { "name": "zod-to-json-schema", "via": "@modelcontextprotocol/sdk" },
+    { "name": "ajv", "via": "@modelcontextprotocol/sdk" },
+    { "name": "ajv-formats", "via": "@modelcontextprotocol/sdk" },
+    { "name": "fast-deep-equal", "via": "ajv" },
+    { "name": "json-schema-traverse", "via": "ajv" },
+    { "name": "fast-uri", "via": "ajv" },
+    { "name": "typeid-js", "via": "@waypoint/core" },
+    { "name": "uuid", "via": "typeid-js" }
+  ]
+}

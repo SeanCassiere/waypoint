@@ -69,9 +69,12 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
   - **`core` and `ui` stay runtime-agnostic:** Web APIs only, no `node:*` or native modules
     (`pnpm lint` checks).
   - **Inlined third-party code keeps its license text.** `THIRD_PARTY_NOTICES.md` is generated
-    by `pnpm notices` from the installed packages and ships with every artifact. If the reader or
-    the MCP bundles start inlining another npm package, add it to the list in
-    `scripts/third-party-notices.ts`; CI's `pnpm notices:check` fails when it's out of date.
+    by `pnpm notices` from the installed packages and ships with every artifact. The packages each
+    bundle inlines are listed in `scripts/inlined-packages.json`. If the reader or the MCP bundles
+    start inlining another npm package, add it there and run `pnpm notices`: the MCP build fails
+    on a package that isn't listed, a test (`tests/inlined-packages.test.ts`) fails when the
+    reader's list doesn't match its bundle, and CI's `pnpm notices:check` fails when the notices
+    are out of date.
   - **What ships is a `dependency`, tooling a `devDependency`.** A package the writer or the
     reader runs, or the MCP server bundle inlines, goes in `dependencies` (the MCP bundle's
     `tsdown.config.ts` bundles them all, and its build fails if one is left as an import).

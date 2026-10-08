@@ -40,7 +40,7 @@ After a dependency change, list the licenses of what can ship:
 pnpm -r licenses list --prod    # the dependencies of the writer, the reader and the MCP bundles
 ```
 
-To see exactly which packages a bundle inlines, read the `sources` of its source map: `apps/reader/dist/index.js.map` for the reader, and for the MCP server `pnpm --filter @waypoint/mcp exec tsdown --sourcemap -d /tmp/mcp-map`. If a bundle inlines a new package, or anything isn't permissive, update the list in `scripts/third-party-notices.ts` and run `pnpm notices`.
+The packages each bundle inlines are listed in `scripts/inlined-packages.json`, and nothing ships that the list misses: the MCP server build fails when it would inline a package that isn't listed, and a test (`tests/inlined-packages.test.ts`) fails when the reader bundle's source map names packages other than the reader's list. When a bundle starts inlining another package, add it to the list (with `via`, the package it's a dependency of, if it isn't the bundle's own dependency) and run `pnpm notices`. A license that isn't permissive fails `pnpm notices` and needs a decision first.
 
 ## Licenses
 

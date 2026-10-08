@@ -4,10 +4,12 @@
 //   pnpm notices          rewrite THIRD_PARTY_NOTICES.md
 //   pnpm notices:check    fail if it's out of date (CI's lint job)
 //
-// The list below is maintained by hand. When a bundle starts inlining another package, add it
-// (THIRD_PARTY_NOTICES.md, "Checking it again", says how to list what a bundle inlines). The file
-// ships beside LICENSE in the writer image, each release bundle and the MCP launcher package, and
-// heads the MCP server bundle (packages/mcp/tsdown.config.ts).
+// The packages each bundle inlines are listed in scripts/inlined-packages.json, by the workspace
+// package that builds the bundle. The builds hold the list to what they inline: the MCP server
+// build fails on a package that isn't listed (tsdown's `deps.onlyBundle`, packages/mcp/
+// tsdown.config.ts), and a test compares the reader bundle's source map with its list
+// (tests/inlined-packages.test.ts). The file ships beside LICENSE in the writer image, each
+// release bundle and the MCP launcher package, and heads the MCP server bundle.
 import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,29 +32,41 @@ interface Bundle {
   packages: Inlined[];
 }
 
+function isInlined(value: unknown): value is Inlined {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    (!("via" in value) || typeof value.via === "string")
+  );
+}
+
+const inlined: unknown = JSON.parse(
+  await readFile(join(root, "scripts", "inlined-packages.json"), "utf8"),
+);
+function listed(from: string): Inlined[] {
+  const list: unknown =
+    typeof inlined === "object" && inlined !== null
+      ? Object.entries(inlined).find(([key]) => key === from)?.[1]
+      : undefined;
+  if (!Array.isArray(list) || !list.every(isInlined))
+    throw new Error(`scripts/inlined-packages.json: no valid list for ${from}`);
+  return list;
+}
+
 const bundles: Bundle[] = [
   {
     title:
       "**The public reader Worker** (`apps/reader/dist/index.js`, and `reader/index.js` in each release bundle) inlines:",
     from: "apps/reader",
-    packages: [{ name: "hono" }, { name: "@tursodatabase/serverless" }, { name: "aws4fetch" }],
+    packages: listed("apps/reader"),
   },
   {
     title:
       "**The MCP server bundle** (`/mcp/server.mjs` on a writer) and **the MCP launcher package** (`/mcp/waypoint-mcp.tgz`, which embeds a copy of the server bundle) inline:",
     from: "packages/mcp",
-    packages: [
-      { name: "@modelcontextprotocol/sdk" },
-      { name: "zod" },
-      { name: "zod-to-json-schema", via: "@modelcontextprotocol/sdk" },
-      { name: "ajv", via: "@modelcontextprotocol/sdk" },
-      { name: "ajv-formats", via: "@modelcontextprotocol/sdk" },
-      { name: "fast-deep-equal", via: "ajv" },
-      { name: "json-schema-traverse", via: "ajv" },
-      { name: "fast-uri", via: "ajv" },
-      { name: "typeid-js", via: "@waypoint/core" },
-      { name: "uuid", via: "typeid-js" },
-    ],
+    packages: listed("packages/mcp"),
   },
 ];
 
@@ -207,7 +221,7 @@ async function render(): Promise<string> {
     "pnpm -r licenses list --prod    # the dependencies of the writer, the reader and the MCP bundles",
     "```",
     "",
-    "To see exactly which packages a bundle inlines, read the `sources` of its source map: `apps/reader/dist/index.js.map` for the reader, and for the MCP server `pnpm --filter @waypoint/mcp exec tsdown --sourcemap -d /tmp/mcp-map`. If a bundle inlines a new package, or anything isn't permissive, update the list in `scripts/third-party-notices.ts` and run `pnpm notices`.",
+    "The packages each bundle inlines are listed in `scripts/inlined-packages.json`, and nothing ships that the list misses: the MCP server build fails when it would inline a package that isn't listed, and a test (`tests/inlined-packages.test.ts`) fails when the reader bundle's source map names packages other than the reader's list. When a bundle starts inlining another package, add it to the list (with `via`, the package it's a dependency of, if it isn't the bundle's own dependency) and run `pnpm notices`. A license that isn't permissive fails `pnpm notices` and needs a decision first.",
     "",
     "## Licenses",
   );
@@ -224,7 +238,7 @@ if (check) {
   const current = await readFile(output, "utf8").catch(() => "");
   if (current !== next) {
     console.error(
-      "THIRD_PARTY_NOTICES.md is out of date (an inlined package changed its license text, or the list in scripts/third-party-notices.ts changed): run `pnpm notices` and commit it.",
+      "THIRD_PARTY_NOTICES.md is out of date (an inlined package changed its license text, or scripts/inlined-packages.json changed): run `pnpm notices` and commit it.",
     );
     process.exit(1);
   }
