@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 
 import { BlobStore } from "./blob-store.ts";
-import { R2Bucket } from "./bucket.ts";
+import { openBucket } from "./bucket.ts";
 import { WriterCommitter } from "./committer.ts";
 import { loadConfig } from "./config.ts";
 import { ownDataDirectory } from "./data-dir.ts";
@@ -51,14 +51,18 @@ if (command === "rerender") {
 let releaseDirectory: (() => Promise<void>) | undefined;
 try {
   const config = loadConfig();
+  // Refused before the data directory is touched.
+  if (command === "restore" && !config.sync)
+    throw new Error(
+      "restore needs cloud sync: with WAYPOINT_SYNC=off there is no cloud DB or bucket to restore from or into",
+    );
   releaseDirectory = await ownDataDirectory(config.dataDir);
   const { waypoint, queue, syncClient } = await openDatabases(config);
   await guardEnvironment(waypoint, syncClient, config.environment, config.sync);
   await migrate(waypoint, waypointMigrations);
   await migrate(queue, queueMigrations);
   if (command === "restore") {
-    if (!config.sync) throw new Error("Restore requires cloud sync");
-    const bucket = new R2Bucket(config);
+    const bucket = openBucket(config);
     const summary = await restore(
       waypoint,
       bucket,
@@ -74,7 +78,7 @@ try {
   const blobs = new BlobStore(config.dataDir, config.maxBlobBytes);
   await blobs.sweepTemps();
   if (rerenderOptions) {
-    const bucket = config.sync ? new R2Bucket(config) : undefined;
+    const bucket = config.sync ? openBucket(config) : undefined;
     console.log(
       formatRerenderSummary(
         await rerender(waypoint, queue, blobs, writerRenderer, rerenderOptions, bucket),
@@ -97,7 +101,7 @@ try {
     config.maxFiles,
     config.maxRevisionBytes,
   );
-  const bucket = config.sync ? new R2Bucket(config) : undefined;
+  const bucket = config.sync ? openBucket(config) : undefined;
   const syncLoop = new SyncLoop(queue, syncClient, Date.now, waypoint);
   await syncLoop.load();
   const committer = bucket
@@ -120,6 +124,10 @@ try {
     syncLoop.start();
     committer.wake();
   }
+  if (!config.sync)
+    console.error(
+      "Local-only mode (WAYPOINT_SYNC=off): no cloud DB and no bucket backup. Everything lives only in WAYPOINT_DATA_DIR, and public share links can't be served.",
+    );
   if (Boolean(config.publicBaseUrl) !== Boolean(config.shareTokenKey))
     console.error(
       config.publicBaseUrl
@@ -142,6 +150,7 @@ try {
       // "revoking" (not yet pushed) instead of pretending the local no-op push published them.
       ...(config.sync ? { syncLoop } : {}),
       environment: config.environment,
+      ...(config.build ? { build: config.build } : {}),
       port: config.port,
       shutdownSignal: shutdownController.signal,
       ...(config.mcpTarballPath ? { mcpTarballPath: config.mcpTarballPath } : {}),

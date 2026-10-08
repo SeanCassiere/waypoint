@@ -97,9 +97,16 @@ export class R2Bucket implements Bucket {
     } = {},
   ) {
     this.name = config.r2Bucket!;
+    const endpoint =
+      options.endpoint ??
+      config.s3Endpoint ??
+      (config.r2AccountId ? `https://${config.r2AccountId}.r2.cloudflarestorage.com` : undefined);
+    if (!endpoint) throw new Error("WAYPOINT_S3_ENDPOINT or R2_ACCOUNT_ID is required");
     this.client = new S3Client({
-      endpoint: options.endpoint ?? `https://${config.r2AccountId}.r2.cloudflarestorage.com`,
-      region: "auto",
+      endpoint,
+      region: config.s3Region ?? "auto",
+      // Path-style (`<endpoint>/<bucket>/<key>`) works with R2, MinIO and most S3-compatible
+      // stores, and needs no per-bucket DNS name.
       forcePathStyle: true,
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
@@ -256,6 +263,123 @@ export class R2Bucket implements Bucket {
     for await (const page of this.listPages(prefix)) keys.push(...page);
     return keys;
   }
+}
+
+/** The bucket object recording which environment (dev or prod) owns the bucket (D54). */
+export const ENVIRONMENT_MARKER_KEY = "meta/environment.json";
+
+/**
+ * A bucket that checks its environment marker before the first request, so a dev writer never
+ * reads from or uploads into a prod bucket (or the reverse), whatever the bucket is called.
+ *
+ * A bucket without a marker (one that predates it, or a new one) gets one written, never a
+ * failure. A marker naming another environment is an "account" error: the committer pauses and
+ * retries it like a revoked token, `restore` refuses, and /status shows the reason. Only a
+ * successful check is remembered; a failed or unreachable one runs again on the next request.
+ */
+export class EnvironmentCheckedBucket implements Bucket {
+  readonly inner: Bucket;
+  readonly environment: "dev" | "prod";
+  private checked: Promise<void> | undefined;
+  private now: () => number;
+  constructor(inner: Bucket, environment: "dev" | "prod", now: () => number = Date.now) {
+    this.inner = inner;
+    this.environment = environment;
+    this.now = now;
+  }
+  /** Resolves once the marker matches this writer's environment. */
+  verify(): Promise<void> {
+    // No caller's abort signal: one caller giving up must not fail the check for the others.
+    this.checked ??= this.check().catch((error: unknown) => {
+      this.checked = undefined;
+      throw error;
+    });
+    return this.checked;
+  }
+  private async readMarker(): Promise<string | undefined> {
+    if (!(await this.inner.head(ENVIRONMENT_MARKER_KEY))) return undefined;
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of await this.inner.get(ENVIRONMENT_MARKER_KEY)) {
+      const value: unknown = chunk;
+      if (typeof value === "string") chunks.push(Buffer.from(value));
+      else if (value instanceof Uint8Array) chunks.push(value);
+      // A marker is a few dozen bytes; anything large isn't one.
+      if (chunks.reduce((total, part) => total + part.byteLength, 0) > 4096) break;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      parsed = undefined;
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("environment" in parsed) ||
+      typeof parsed.environment !== "string"
+    )
+      throw new BucketError(
+        `Bucket environment marker ${ENVIRONMENT_MARKER_KEY} is unreadable`,
+        "account",
+      );
+    return parsed.environment;
+  }
+  private async check(): Promise<void> {
+    let marker = await this.readMarker();
+    if (marker === undefined) {
+      const body = new TextEncoder().encode(
+        `${JSON.stringify({
+          format_version: 1,
+          environment: this.environment,
+          created_at: this.now(),
+        })}\n`,
+      );
+      // If-None-Match: when two writers race, one marker wins and both read it back.
+      await this.inner.putIfAbsent(ENVIRONMENT_MARKER_KEY, body, {
+        contentType: "application/json",
+        contentLength: body.byteLength,
+      });
+      marker = await this.readMarker();
+    }
+    if (marker !== this.environment)
+      throw new BucketError(
+        `Environment mismatch: bucket is marked ${marker ?? "missing"}, config is ${this.environment}`,
+        "account",
+      );
+  }
+  async putIfAbsent(...args: Parameters<Bucket["putIfAbsent"]>): Promise<void> {
+    await this.verify();
+    return this.inner.putIfAbsent(...args);
+  }
+  async put(key: string, body: Uint8Array, signal?: AbortSignal): Promise<void> {
+    await this.verify();
+    return this.inner.put(key, body, signal);
+  }
+  async get(key: string, signal?: AbortSignal): Promise<Readable> {
+    await this.verify();
+    return this.inner.get(key, signal);
+  }
+  async head(key: string, signal?: AbortSignal): Promise<boolean> {
+    await this.verify();
+    return this.inner.head(key, signal);
+  }
+  async delete(key: string, signal?: AbortSignal): Promise<void> {
+    await this.verify();
+    return this.inner.delete(key, signal);
+  }
+  async list(prefix: string): Promise<string[]> {
+    await this.verify();
+    return this.inner.list(prefix);
+  }
+  async *listPages(prefix: string): AsyncIterable<string[]> {
+    await this.verify();
+    yield* this.inner.listPages(prefix);
+  }
+}
+
+/** The writer's bucket: S3-compatible storage behind the environment marker check. */
+export function openBucket(config: Config): EnvironmentCheckedBucket {
+  return new EnvironmentCheckedBucket(new R2Bucket(config), config.environment);
 }
 
 export class MemoryBucket implements Bucket {

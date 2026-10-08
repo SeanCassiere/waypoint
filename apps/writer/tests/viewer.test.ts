@@ -2,8 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { newId, mintRevisionId, publicIdFor } from "@waypoint/core";
+import { newId, mintRevisionId, publicIdFor, WAYPOINT_VERSION } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { BlobStore } from "../src/blob-store.ts";
 import { MemoryBucket } from "../src/bucket.ts";
@@ -244,6 +245,44 @@ describe("viewer routes", () => {
     await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" });
     expect(await (await app.request("/trash")).text()).toContain("Purge");
     expect(await (await app.request("/")).text()).toContain("Nothing here yet");
+  });
+  it("warns about local-only mode on /status and /api/status, and reports the build", async () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const prod = createApp({
+      ...services,
+      environment: "prod",
+      build: { version: WAYPOINT_VERSION, sha },
+    });
+    expect(await (await prod.request("/healthz")).json()).toEqual({
+      ok: true,
+      version: WAYPOINT_VERSION,
+      sha,
+    });
+    expect(await (await app.request("/healthz")).json()).toEqual({
+      ok: true,
+      version: WAYPOINT_VERSION,
+      sha: null,
+    });
+    const html = await (await prod.request("/status")).text();
+    expect(html).toContain('class="hero warn"');
+    expect(html).toContain("Local only: no cloud durability.");
+    expect(html).toContain("Public share links can&#39;t be served");
+    expect(html).toContain(`${WAYPOINT_VERSION} (${sha.slice(0, 12)})`);
+    const status = z
+      .object({
+        version: z.string(),
+        sha: z.string().nullable(),
+        sync_enabled: z.boolean(),
+        warnings: z.array(z.object({ code: z.string(), message: z.string() })),
+      })
+      .parse(await (await prod.request("/api/status")).json());
+    expect(status).toMatchObject({ version: WAYPOINT_VERSION, sha, sync_enabled: false });
+    expect(status.warnings.map((warning) => warning.code)).toEqual(["local_only"]);
+    expect(status.warnings[0]?.message).toContain("no cloud durability");
+    // Dev keeps the quieter tone; the warning text is the same.
+    expect(await (await app.request("/status")).text()).toContain(
+      '<div class="hero off"><span class="dot" aria-hidden="true"></span><div><b>Local only',
+    );
   });
   it("shares live committer and sync status between the API and status page", async () => {
     await queue.run(

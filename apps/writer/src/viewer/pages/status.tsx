@@ -94,6 +94,21 @@ export async function statusPage(
   const failedList = listWindow(c, "failed", health.failed);
   const pendingList = listWindow(c, "pending", health.pending);
   const heroes: Child[] = [];
+  // Persistent, whatever else is wrong: local-only mode keeps nothing anywhere but here.
+  if (!health.syncEnabled)
+    heroes.push(
+      <Hero
+        tone={status.environment === "prod" ? "warn" : "off"}
+        title="Local only: no cloud durability."
+        body={
+          <>
+            This writer runs with <span class="mono">WAYPOINT_SYNC=off</span>. There is no Turso
+            cloud DB and no bucket backup: everything lives only in this writer's data directory, so
+            back it up yourself. Public share links can't be served until cloud sync is configured.
+          </>
+        }
+      />,
+    );
   if (health.blockedReason)
     heroes.push(
       <Hero
@@ -162,15 +177,7 @@ export async function statusPage(
       />,
     );
   if (!heroes.length) {
-    if (!health.syncEnabled)
-      heroes.push(
-        <Hero
-          tone="off"
-          title="Sync off."
-          body="This writer runs with WAYPOINT_SYNC=off: revisions stay here and nothing reaches the cloud."
-        />,
-      );
-    else if (health.pending.length)
+    if (health.pending.length)
       heroes.push(
         <Hero
           tone="warn"
@@ -221,7 +228,11 @@ export async function statusPage(
               <h1>Status</h1>
               <p>
                 Writer <span class="mono">{chrome.host}</span> · environment{" "}
-                <span class="mono">{status.environment}</span>
+                <span class="mono">{status.environment}</span> · version{" "}
+                <span class="mono" data-version>
+                  {status.version}
+                  {status.sha ? ` (${status.sha.slice(0, 12)})` : ""}
+                </span>
                 {bundle ? (
                   <>
                     {" "}

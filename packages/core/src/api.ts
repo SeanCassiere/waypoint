@@ -207,6 +207,17 @@ export interface StatusResponse {
   cloud_last_ok_at?: number | null | undefined;
   /** Last sync-loop error while the most recent attempt is failing. */
   cloud_error?: string | null | undefined;
+  /** The writer's release version (older writers omit it). */
+  version?: string | undefined;
+  /** The git commit the writer was built from, when the build recorded it. */
+  sha?: string | null | undefined;
+  /** Persistent conditions an operator should know about, such as local-only mode. */
+  warnings?: StatusWarning[] | undefined;
+}
+export interface StatusWarning {
+  /** `local_only`: WAYPOINT_SYNC=off, so nothing is durable beyond the writer's data directory. */
+  code: string;
+  message: string;
 }
 export const MCP_LAUNCHER_API = 1;
 export interface McpVersionResponse {
@@ -216,6 +227,8 @@ export interface McpVersionResponse {
   launcher_api: number;
 }
 export interface McpRuntimeStatus {
+  /** The running MCP server bundle's release version (older bundles omit it). */
+  version?: string | undefined;
   running_sha256: string | null;
   source: "fresh" | "cache" | "embedded";
   latest_sha256: string | null;

@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -232,10 +232,36 @@ export class LocalSyncClient implements SyncClient {
     return Promise.resolve();
   }
 }
+const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+/**
+ * A data directory stays in the sync mode it started in. Turso Sync keeps its replication state
+ * next to waypoint.db (`waypoint.db-info`); writing that file without sync forks it from the
+ * cloud DB, and a local-only waypoint.db has no sync state to push. So either switch is refused
+ * before anything opens the database (docs/configuration.md).
+ */
+export async function checkSyncMode(config: Pick<Config, "dataDir" | "sync">): Promise<void> {
+  const [database, syncState] = await Promise.all([
+    exists(join(config.dataDir, "waypoint.db")),
+    exists(join(config.dataDir, "waypoint.db-info")),
+  ]);
+  if (!config.sync && syncState)
+    throw new Error(
+      `WAYPOINT_SYNC=off can't use ${config.dataDir}: its waypoint.db is a cloud-synced replica. Turn sync back on, or give local-only mode its own WAYPOINT_DATA_DIR`,
+    );
+  if (config.sync && database && !syncState)
+    throw new Error(
+      `Cloud sync can't use ${config.dataDir}: its waypoint.db was created with WAYPOINT_SYNC=off and has no sync state. Use a new WAYPOINT_DATA_DIR (it bootstraps from the cloud DB), or move waypoint.db* aside if a first sync failed`,
+    );
+}
 export async function openDatabases(
   config: Config,
 ): Promise<{ waypoint: Db; queue: Db; syncClient: SyncClient }> {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  await checkSyncMode(config);
   const queue = new Db(await connectLocal(join(config.dataDir, "queue.db")));
   if (!config.sync) {
     const waypoint = new Db(await connectLocal(join(config.dataDir, "waypoint.db")));
