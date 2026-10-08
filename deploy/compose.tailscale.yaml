@@ -10,6 +10,8 @@
 #   WAYPOINT_TS_ENV_FILE    env file holding TS_AUTHKEY, mode 600 (required)
 #   WAYPOINT_TS_HOSTNAME    the node's name (default waypoint)
 #   WAYPOINT_TS_EXTRA_ARGS  extra `tailscale up` flags, e.g. --advertise-tags=tag:waypoint
+#   WAYPOINT_TS_SERVE_CONFIG  the Serve config to mount (default ./serve.json; upgrade.sh keeps a
+#                           copy in its state directory, so the path stays put across releases)
 #
 # Needs Docker Compose 2.24 or later (`!reset`).
 services:
@@ -26,7 +28,7 @@ services:
       TS_EXTRA_ARGS: ${WAYPOINT_TS_EXTRA_ARGS:-}
     volumes:
       - tailscale-state:/var/lib/tailscale
-      - ./serve.json:/config/serve.json:ro
+      - ${WAYPOINT_TS_SERVE_CONFIG:-./serve.json}:/config/serve.json:ro
     mem_limit: 256m
     cpus: 0.5
     restart: unless-stopped

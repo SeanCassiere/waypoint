@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # The adopter install test: drives the real deploy/upgrade.sh against a throwaway instance (local
 # writer, sync off, no readers) and checks install, upgrade, rollback, idempotence, failure
-# rollback, interruption, convergence after a killed run, rerender and its lock, and idempotence
-# with the writer in a sidecar's network namespace (the Tailscale overlay's layout), with the
-# same data directory throughout.
+# rollback, interruption, convergence after a killed run, rerender and its lock, a reader deploy
+# killed midway (against a stand-in Wrangler), and idempotence with the writer in a sidecar's
+# network namespace (the Tailscale overlay's layout), with the same data directory throughout.
+#
+# Needs Docker, and pnpm with the workspace installed (upgrade.sh builds the reader).
 #
 #   scripts/install-test.sh [old-ref]
 #
@@ -47,6 +49,7 @@ cleanup() {
   step "cleanup"
   if [[ -n "${pid:-}" ]]; then kill -KILL "$pid" 2>/dev/null || true; fi
   if [[ -n "${holder:-}" ]]; then kill -KILL "$holder" 2>/dev/null || true; fi
+  if [[ -f "$work/wrangler/hung.pid" ]]; then kill -KILL "$(cat "$work/wrangler/hung.pid")" 2>/dev/null || true; fi
   # A throwaway project, so its volumes go too.
   "${upgrade[@]}" --instance "$work/config/instance.env" compose down --remove-orphans --volumes >/dev/null 2>&1 || true
   local tag
@@ -221,6 +224,67 @@ up rerender > "$work/rerender.log" 2>&1 || { cat "$work/rerender.log" >&2; fail 
 grep -q '"sources":1' "$work/rerender.log" || { cat "$work/rerender.log" >&2; fail "rerender didn't see the markdown"; }
 expect_build "$new_sha" "$new_version"
 expect_data
+
+step "a reader deploy killed midway rolls back to the version from before it"
+# A stand-in Wrangler for one Worker: `deploy` makes a new version the deployed one, `rollback`
+# deploys the one named, `deployments list` reports the deployed one. With $fake/hang, `deploy`
+# hangs after deploying, like a run killed before its smoke test.
+fake="$work/wrangler"
+mkdir -p "$fake"
+echo v0 > "$fake/current"
+echo 0 > "$fake/count"
+cat > "$fake/wrangler" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+d="$(dirname "$0")"
+printf '%s\n' "$*" >> "$d/calls"
+case "$1 ${2:-}" in
+  "deployments list") printf '[{"versions":[{"version_id":"%s"}]}]\n' "$(cat "$d/current")" ;;
+  "secret bulk") ;;
+  deploy*)
+    n=$(( $(cat "$d/count") + 1 )); echo "$n" > "$d/count"; echo "v$n" > "$d/current"
+    if [[ -f "$d/hang" ]]; then echo "$$" > "$d/hung.pid"; exec sleep 600; fi
+    ;;
+  "rollback "*) echo "$2" > "$d/current" ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod 700 "$fake/wrangler"
+printf 'CLOUDFLARE_ACCOUNT_ID=install-test\nCLOUDFLARE_API_TOKEN=install-test\n' > "$work/config/cloudflare.env"
+printf '%s\n' TURSO_DATABASE_URL=libsql://db.example.test TURSO_READONLY_TOKEN=x R2_ACCOUNT_ID=x \
+  R2_READER_ACCESS_KEY_ID=x R2_READER_SECRET_ACCESS_KEY=x R2_BUCKET=x RAW_CAP_KEY=x > "$work/config/reader.env"
+chmod 600 "$work/config/cloudflare.env" "$work/config/reader.env"
+# In the same directory, so it shares the state directory of the instance without readers. A
+# .test domain never resolves, so every smoke test fails.
+{
+  cat "$work/config/instance.env"
+  printf '%s\n' READER_TARGETS=one READER_one_WORKER=install-test-reader READER_one_DOMAIN=reader.example.test \
+    READER_one_SECRETS_FILE=reader.env READER_one_ANALYTICS_DATASET=install_test READER_one_RATELIMIT_NAMESPACE=1
+} > "$work/config/reader-instance.env"
+chmod 600 "$work/config/reader-instance.env"
+before="$(container)"
+touch "$fake/hang"
+TMPDIR="$work" WRANGLER="$fake/wrangler" "${upgrade[@]}" --instance "$work/config/reader-instance.env" current-checkout &
+pid=$!
+for _ in $(seq 600); do [[ -f "$fake/hung.pid" ]] && break; sleep 1; done
+[[ -f "$fake/hung.pid" ]] || fail "the reader deploy never started"
+kill -KILL "$pid"
+wait "$pid" || true
+pid=""
+# Wrangler outlives a killed upgrade.sh and holds the instance lock it inherited; stop it too.
+kill -KILL "$(cat "$fake/hung.pid")"
+rm -f "$fake/hang" "$fake/hung.pid"
+[[ "$(cat "$fake/current")" == v1 ]] || fail "the killed run didn't deploy"
+[[ -f "$state/rollback-reader-one" && -f "$state/deploying" ]] || fail "the killed reader deploy left no rollback record"
+: > "$fake/calls"
+if SMOKE_TIMEOUT_SECONDS=1 WRANGLER="$fake/wrangler" "${upgrade[@]}" --instance "$work/config/reader-instance.env" current-checkout 2> "$work/reader.log"; then
+  fail "a reader that fails its smoke test deployed"
+fi
+grep -q '^rollback v0 ' "$fake/calls" || { cat "$fake/calls" "$work/reader.log" >&2; fail "the rerun didn't roll back to the version from before the killed run"; }
+! grep -q '^deployments list' "$fake/calls" || fail "the rerun looked up a new rollback target"
+[[ "$(cat "$fake/current")" == v0 ]] || fail "the Worker doesn't serve the version from before the killed run"
+[[ ! -f "$state/rollback-reader-one" && ! -f "$state/deploying" ]] || fail "a successful rollback left its records"
+[[ "$(container)" == "$before" ]] || fail "the reader runs recreated the writer"
 
 step "with the writer in a sidecar's network namespace, a rerun is still a no-op"
 # The Tailscale overlay's layout (network_mode: service:ts-waypoint), with a stand-in sidecar

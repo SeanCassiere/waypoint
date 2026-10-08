@@ -16,7 +16,7 @@ Every tier deploys with the same script, [deploy/upgrade.sh](../deploy/upgrade.s
 [deploy/README.md](../deploy/README.md); every setting is in [configuration.md](configuration.md);
 who can reach what is in the [trust model](trust-model.md).
 
-You need a Linux host with Docker Engine and Docker Compose 2.24+, bash, `curl` and Node.js 20+.
+You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 20+.
 
 ## Getting the deploy files
 

@@ -22,6 +22,18 @@
 #   --limit N         rerender: renditions per batch (default 500)
 #   --collection ID   rerender: one collection only
 #
+# Environment (all optional):
+#   WAYPOINT_INSTANCE         the instance file, like --instance (which wins)
+#   WRITER_HEALTH_TIMEOUT     seconds the writer container gets to pass its Docker health check
+#                             (default 120); raise it for a slow first start, such as one that
+#                             restores from the cloud
+#   WRITER_URL_TIMEOUT        seconds WRITER_HEALTH_URL gets to answer with the new build (90)
+#   SMOKE_TIMEOUT_SECONDS     seconds each reader's smoke test retries for (default 120)
+#   LOCK_WAIT_SECONDS         seconds to wait for another run on this instance (default 1800)
+#   RERENDER_UPLOAD_TIMEOUT   rerender: seconds the writer gets to upload a batch (default 3600)
+#   WRANGLER                  the Wrangler executable (default: the checkout's, or the version
+#                             the release bundle pins, through npx)
+#
 # Rolling back is deploying the older version. Each component (the writer, each reader) records
 # what it runs in the state directory, so a rerun after a partial upgrade finishes the rest, and a
 # rerun at the same version only repeats the health checks. A component that fails its checks is
@@ -32,6 +44,11 @@
 # config template), reader/WRANGLER_VERSION and SHA256SUMS. Asked for another version, the script
 # fetches that version's bundle and runs its own copy of upgrade.sh.
 set -euo pipefail
+# inherit_errexit needs bash 4.4 (associative arrays, used throughout, need 4.2).
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+  echo "upgrade: needs bash 4.4 or later (this is $BASH_VERSION)" >&2
+  exit 1
+fi
 # A failure inside $(...) fails the command substitution too, not just its last command.
 shopt -s inherit_errexit
 umask 077
@@ -95,6 +112,9 @@ esac
 if [[ "$command" != image && "$command" != compose && ${#command_args[@]} -gt 0 ]]; then
   die "unexpected argument: ${command_args[0]}"
 fi
+for var in WRITER_HEALTH_TIMEOUT WRITER_URL_TIMEOUT SMOKE_TIMEOUT_SECONDS LOCK_WAIT_SECONDS RERENDER_UPLOAD_TIMEOUT; do
+  [[ -z "${!var:-}" || "${!var}" =~ ^[0-9]{1,7}$ ]] || die "$var must be a number of seconds"
+done
 
 # ---------------------------------------------------------------------------------------------
 # Instance file
@@ -265,12 +285,26 @@ compose_env() {
   export WAYPOINT_BIND_ADDRESS="$bind_address" WAYPOINT_HOST_PORT="$host_port"
   export WAYPOINT_TS_ENV_FILE="$ts_env_file" WAYPOINT_TS_HOSTNAME="$ts_hostname"
   if [[ -n "$ts_tags" ]]; then export WAYPOINT_TS_EXTRA_ARGS="--advertise-tags=$ts_tags"; else export WAYPOINT_TS_EXTRA_ARGS=""; fi
+  export WAYPOINT_TS_SERVE_CONFIG="$state_dir/serve.json"
   compose_files=(-f "$script_dir/compose.yaml")
   if [[ "$tailscale" == on ]]; then compose_files+=(-f "$script_dir/compose.tailscale.yaml"); fi
   if [[ -n "$compose_override" ]]; then compose_files+=(-f "$compose_override"); fi
 }
 
 compose() { docker_run compose -p "$project" "${compose_files[@]}" "$@"; }
+
+# The sidecar mounts serve.json from the state directory, not from beside this script, so the
+# mount (and with it the sidecar's config) doesn't change with every release directory, and an
+# old release directory can be removed. Rewritten in place only when it differs, so a running
+# sidecar's mount sees the change.
+install_serve_config() {
+  if [[ "$tailscale" != on ]] || (( dry_run )); then return 0; fi
+  cmp -s "$script_dir/serve.json" "$WAYPOINT_TS_SERVE_CONFIG" && return 0
+  mkdir -p "$state_dir"
+  chmod 700 "$state_dir"
+  cat "$script_dir/serve.json" > "$WAYPOINT_TS_SERVE_CONFIG"
+  chmod 644 "$WAYPOINT_TS_SERVE_CONFIG"
+}
 
 writer_container() { compose ps -a -q writer 2>/dev/null || true; }
 
@@ -379,6 +413,20 @@ marker_set() {
   printf 'target=%s\nstarted_at=%s\npid=%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" > "$state_dir/deploying"
 }
 
+# A reader's rollback target, saved before anything is uploaded to it and kept until that deploy
+# succeeds or is rolled back. A run killed in between (SIGKILL, a lost runner) leaves it, so the
+# next run rolls back to the version that served before the killed run, not to whatever the killed
+# run left deployed. An empty version means the Worker had nothing deployed before.
+rollback_record() { printf '%s/rollback-reader-%s' "$state_dir" "$1"; }
+rollback_record_save() {
+  (( dry_run )) && return 0
+  printf 'version=%s\nworker=%s\nsaved_at=%s\n' "$2" "${r_worker[$1]}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(rollback_record "$1").tmp"
+  mv "$(rollback_record "$1").tmp" "$(rollback_record "$1")"
+}
+rollback_record_clear() {
+  (( dry_run )) || rm -f "$(rollback_record "$1")"
+}
+
 lock_state() {
   mkdir -p "$state_dir"
   chmod 700 "$state_dir"
@@ -432,7 +480,7 @@ rollback_in_progress() {
   in_progress=""
   case "$component" in
     writer) rollback_writer && ok=1 ;;
-    reader:*) rollback_reader "${component#reader:}" && ok=1 ;;
+    reader:*) rollback_reader "${component#reader:}" && ok=1 && rollback_record_clear "${component#reader:}" ;;
     rerender) rollback_rerender; return ;;
     *) return 0 ;;
   esac
@@ -518,7 +566,9 @@ latest_version() {
 
 # Release integrity. SHA256SUMS inside the bundle guards against a truncated or corrupted
 # download; provenance is the attestation check, which plugs in here (gh attestation verify on
-# the bundle and the image digest) once releases are attested.
+# the bundle and the image digest) once releases are attested. Until then the image is pulled by
+# tag and pinned to the digest that arrived, so verify_release_image only checks that it is one;
+# with attestations, it checks that digest against the attested one before anything runs it.
 verify_release_bundle() {
   local tgz="$1"
   [[ -s "$tgz" ]] || die "empty release bundle"
@@ -557,6 +607,18 @@ exec_release_bundle() {
   rm -rf "$scratch"
   trap - EXIT
   WAYPOINT_UPGRADE_REEXEC=1 exec bash "$dir/upgrade.sh" "${args[@]}" "$version"
+}
+
+# Removes downloaded release bundles but the one running and the newest three others.
+prune_release_bundles() {
+  local dir="$state_dir/releases" v kept=0
+  [[ -d "$dir" ]] || return 0
+  while IFS= read -r v; do
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ && "$v" != *.tmp ]] || continue
+    [[ "$dir/$v" -ef "$script_dir" ]] && continue
+    kept=$((kept + 1))
+    if (( kept > 3 )); then rm -rf "${dir:?}/$v"; fi
+  done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -rV)
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -636,7 +698,7 @@ deploy_writer() {
   [[ -n "$expected_hash" ]] || die "couldn't compute the writer's Compose config hash"
   # The sidecar first (a no-op when it already runs unchanged), so the check below sees the
   # network namespace the writer will join.
-  if [[ "$tailscale" == on ]] && (( ! dry_run )); then compose up -d ts-waypoint; fi
+  if [[ "$tailscale" == on ]] && (( ! dry_run )); then install_serve_config; compose up -d ts-waypoint; fi
   container="$(writer_container)"
   if [[ -n "$container" ]]; then
     current_id="$(container_field "$container" '{{.Image}}')"
@@ -838,13 +900,14 @@ smoke_once() {
 deploy_reader() {
   local t="$1" fingerprint="$2"
   local config="$scratch/reader-$t.json" deploy_args
-  if (( ! force )) && [[ "$(state_get "reader-$t" fingerprint)" == "$fingerprint" ]]; then
+  if (( ! force )) && [[ ! -f "$(rollback_record "$t")" && "$(state_get "reader-$t" fingerprint)" == "$fingerprint" ]]; then
     log "reader $t already runs $target_id; smoke testing"
     smoke_reader "$t" || die "reader $t runs the target but fails its smoke test (rerun with --force to redeploy it)"
     return 0
   fi
   log "reader $t: deploying ${r_worker[$t]} to ${r_domain[$t]}"
   reader_previous="$3"
+  rollback_record_save "$t" "$reader_previous"
   in_progress="reader:$t"
   marker_set "$target_id"
   wrangler_cmd secret bulk "$scratch/secrets-$t.json" --config "$config" > "$scratch/secret-bulk.log"
@@ -858,12 +921,14 @@ deploy_reader() {
     if [[ -z "$reader_previous" ]]; then
       log "reader $t: first deployment, nothing to roll back to (DNS or certificates may still be provisioning; rerun to retry)"
     elif rollback_reader "$t"; then
-      rm -f "$state_dir/deploying"
+      rollback_record_clear "$t"
+      (( dry_run )) || rm -f "$state_dir/deploying"
     fi
     die "reader $t deploy failed"
   fi
   in_progress=""
   state_put "reader-$t" "id=$target_id" "version=$target_version" "sha=$target_sha" "fingerprint=$fingerprint"
+  rollback_record_clear "$t"
   if (( dry_run )); then log "reader $t: dry run passed"; else log "reader $t deployed and smoke tested"; fi
 }
 
@@ -895,7 +960,8 @@ cmd_deploy() {
     resolve_wrangler
     for t in "${reader_targets[@]}"; do
       fingerprint[$t]="$(prepare_reader "$t")"
-      if (( force )) || [[ "$(state_get "reader-$t" fingerprint)" != "${fingerprint[$t]}" ]]; then
+      # A reader with a leftover rollback record runs whatever a killed run left: deploy it again.
+      if (( force )) || [[ -f "$(rollback_record "$t")" || "$(state_get "reader-$t" fingerprint)" != "${fingerprint[$t]}" ]]; then
         readers+=("$t")
       else
         rm -f "$scratch/secrets-$t.json"   # not uploaded this run
@@ -921,7 +987,15 @@ cmd_deploy() {
       done
       log "reader configs validate with wrangler deploy --dry-run"
     fi
-    for t in "${readers[@]}"; do previous_version[$t]="$(reader_deployed_version "$t")"; done
+    for t in "${readers[@]}"; do
+      if [[ -f "$(rollback_record "$t")" ]]; then
+        previous_version[$t]="$(state_get "rollback-reader-$t" version)"
+        [[ -z "${previous_version[$t]}" || "${previous_version[$t]}" =~ ^[A-Za-z0-9-]{1,64}$ ]] || die "reader $t: invalid version in $(rollback_record "$t")"
+        log "reader $t: an earlier deploy of it didn't finish; rolling back, if needed, to the version from before it (${previous_version[$t]:-none, a first deployment})"
+      else
+        previous_version[$t]="$(reader_deployed_version "$t")"
+      fi
+    done
   fi
   docker_available || die "Docker is unavailable"
   compose config -q || die "the compose files don't validate"
@@ -941,6 +1015,7 @@ cmd_deploy() {
   else
     printf 'id=%s\nversion=%s\nsha=%s\ncompleted_at=%s\n' "$target_id" "$target_version" "$target_sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$state_dir/release"
     rm -f "$state_dir/deploying"
+    prune_release_bundles
     log "deployed $target_id"
   fi
 }
@@ -971,6 +1046,9 @@ cmd_status() {
     curl -sS -m 8 -D "$h" -o /dev/null "https://${r_domain[$t]}/healthz" 2>/dev/null || true
     printf 'reader %-4s %s: recorded %s, serving %s %s\n' "$t" "${r_domain[$t]}" "$(state_get "reader-$t" id)" \
       "$(header_value "$h" x-waypoint-version 2>/dev/null)" "$(header_value "$h" x-waypoint-sha 2>/dev/null)"
+    if [[ -f "$(rollback_record "$t")" ]]; then
+      printf "WARNING    reader %s: a deploy didn't finish; the next run redeploys it (rollback target %s)\n" "$t" "$(v="$(state_get "rollback-reader-$t" version)"; printf '%s' "${v:-none}")"
+    fi
   done
 }
 
@@ -1045,8 +1123,10 @@ rerender_stop() {
   compose stop -t 60 writer >&2
 }
 
+# `start`, not `up`: the same container comes back, even if the env file or instance.env changed
+# since the last deploy (a recreate belongs to a deploy, with its health gate and rollback).
 rerender_start() {
-  compose up -d --no-deps --pull never writer >&2
+  compose start writer >&2
   in_progress=""
   wait_writer_healthy || die "the writer didn't come back healthy"
 }
@@ -1054,13 +1134,14 @@ rerender_start() {
 # Interrupted or failed mid-batch: start the writer again.
 rollback_rerender() {
   log "starting the writer again"
-  compose up -d --no-deps --pull never writer >&2 && wait_writer_healthy
+  compose start writer >&2 && wait_writer_healthy
 }
 
 case "$command" in
   compose)
     load_instance
     compose_env
+    install_serve_config
     compose "${command_args[@]}"
     ;;
   status) load_instance; cmd_status ;;

@@ -87,7 +87,9 @@ jobs:
         run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
   # The adopter install path, for real: deploy/upgrade.sh installs the writer from the merge base's
   # image, upgrades to this commit (current-checkout), rolls back and forward again against the
-  # same data directory, rolls back a broken image and an interrupted deploy, and re-renders.
+  # same data directory, rolls back a broken image and an interrupted deploy, re-renders, and
+  # rolls back a reader deploy killed midway (against a stand-in Wrangler; upgrade.sh builds the
+  # reader, so the workspace is installed).
   install-test:
     runs-on: ubuntu-latest
     env:
@@ -98,9 +100,7 @@ jobs:
         with:
           # The merge base with main (the "old" writer) must be in the clone.
           fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
+      - uses: ./.github/actions/setup
       - run: bash scripts/install-test.sh
   mcp-smoke:
     runs-on: ubuntu-latest

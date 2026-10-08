@@ -115,6 +115,8 @@ refuse() {
   write_instance off
 }
 write_instance off
+if WRITER_HEALTH_TIMEOUT=2m upgrade validate 2> err.log; then fail "accepted a timeout that isn't a number"; fi
+grep -q 'WRITER_HEALTH_TIMEOUT must be a number' err.log || fail "the bad timeout isn't named"
 echo 'SURPRISE=1' >> instance.env; refuse "an unknown key"
 echo 'READER_staging_WORKER=x' >> instance.env; refuse "a target that isn't listed"
 echo 'COMPOSE_PROJECT=other' >> instance.env; refuse "a repeated key"

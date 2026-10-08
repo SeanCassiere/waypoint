@@ -19,7 +19,7 @@ Waypoint? Start with [docs/self-hosting.md](../docs/self-hosting.md). What each 
 
 ## Requirements
 
-A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.2+, `flock`, `curl`,
+A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.4+ (`upgrade.sh` checks), `flock`, `curl`,
 `sha256sum` and Node.js 20 or later (`upgrade.sh` uses it for JSON, and Wrangler needs it).
 Deploying a git checkout (`current-checkout`) also needs `git`, and with reader targets, pnpm
 and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
@@ -30,7 +30,7 @@ If your login session predates your `docker` group membership, `upgrade.sh` runs
 ## The instance file
 
 `upgrade.sh` reads `~/.config/waypoint/instance.env` (or `$XDG_CONFIG_HOME/waypoint/instance.env`,
-or `--instance FILE`). Copy [instance.env.example](instance.env.example) and fill it in, or have
+`$WAYPOINT_INSTANCE`, or `--instance FILE`, in increasing precedence). Copy [instance.env.example](instance.env.example) and fill it in, or have
 [make-instance-env.sh](make-instance-env.sh) write it:
 
 ```bash
@@ -53,7 +53,7 @@ deploy/upgrade.sh validate
 ## Deploying
 
 ```bash
-deploy/upgrade.sh 1.4.0            # a release: its image (pulled by digest) and its bundle
+deploy/upgrade.sh 1.4.0            # a release: its image (pinned by digest) and its bundle
 deploy/upgrade.sh latest           # the newest release
 deploy/upgrade.sh current-checkout # this git checkout: builds the writer image and the reader
 deploy/upgrade.sh image my/waypoint-writer:test   # the writer from an image you built
@@ -63,8 +63,11 @@ deploy/upgrade.sh --dry-run current-checkout      # everything except changing a
 A release is deployed by **its own** `upgrade.sh`: run from a release bundle
 (`waypoint-deploy-X.Y.Z.tgz`) at the same version, it uses the files beside it; asked for any
 other version, it downloads that release's bundle into the state directory, checks its
-`SHA256SUMS` and runs that bundle's `upgrade.sh`. Release images are pinned by digest, and the
-image must report the bundle's commit.
+`SHA256SUMS` and runs that bundle's `upgrade.sh`. A release image is pulled by its tag, then
+pinned to the digest that arrived (the writer runs that digest, never the moving tag), and it must
+report the bundle's commit. Checking that digest against the release's attestation, before the
+pull, comes with the release pipeline. Downloaded bundles live in `<STATE_DIR>/releases/`; the
+running one and the newest three others are kept.
 
 What a deploy does, in order:
 
@@ -77,9 +80,11 @@ What a deploy does, in order:
 2. **The writer.** Tag the running image `waypoint-writer:<project>-previous`, point
    `waypoint-writer:<project>-current` at the new one, start the Tailscale sidecar if the
    overlay is on (a no-op when it's already running unchanged), and recreate only the writer.
-   Wait for the container's health check (a restart of the new container fails it at once),
-   then check that `/healthz` (from inside the container) reports the expected version and
-   commit, then that `WRITER_HEALTH_URL`, if set, answers the same. On any failure, print the failed writer's logs, recreate it from the previous image, and
+   Wait for the container's health check, for up to 120 s (`WRITER_HEALTH_TIMEOUT`; raise it
+   for a writer that starts slowly, such as a first start that restores from the cloud); a
+   restart of the new container fails it at once. Then check that `/healthz` (from inside the
+   container) reports the expected version and commit, then that `WRITER_HEALTH_URL`, if set,
+   answers the same within 90 s (`WRITER_URL_TIMEOUT`). On any failure, print the failed writer's logs, recreate it from the previous image, and
    exit nonzero. A first install with no previous image stops the failed writer instead.
 3. **Each reader target, in `READER_TARGETS` order.** Upload the secrets (`wrangler secret
    bulk`), deploy the prebuilt Worker with the commit as the `WAYPOINT_BUILD_SHA` variable, then
@@ -88,7 +93,9 @@ What a deploy does, in order:
    `X-Waypoint-Sha`, `/healthz/deep` answers `ok`, an unknown share link answers 404 with
    `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer`, `/` answers 200, and
    `/robots.txt` disallows everything. On failure, `wrangler rollback` to the recorded version.
-   A reader failure stops the run; the readers after it aren't touched.
+   A reader failure stops the run; the readers after it aren't touched. Wrangler is the
+   checkout's (`apps/reader/node_modules/.bin/wrangler`) or, from a release bundle, the version
+   it pins, through `npx`; `WRANGLER=<path>` overrides both.
 
 Old local builds and pulled releases are pruned to the newest three; the current and previous
 images keep their tags.
@@ -113,6 +120,14 @@ then fails without changing anything), and a `deploying` marker while a deploy i
   (130 or 143 for a signal). The `deploying` marker is removed once the rollback succeeds. If the
   process is killed outright (SIGKILL), the marker stays and the next run reports it and
   converges.
+- **A killed run keeps its rollback targets.** Before uploading anything to a reader,
+  `upgrade.sh` saves the Worker version it serves in `rollback-reader-<target>`, and removes the
+  file only once that deploy passes its smoke test or is rolled back. A run killed in between
+  leaves it, so the next run deploys that reader again (even at the same version) and, if the
+  smoke test fails, rolls back to the version from before the killed run, not to whatever the
+  killed run left. The writer works the same way: the `<project>-previous` image is only replaced
+  by a writer that was healthy. `status` reports a leftover file. If you fix a reader by hand
+  meanwhile, delete the file.
 
 ### Rolling back
 
@@ -184,10 +199,13 @@ agents' writes fail meanwhile. The subcommand:
    pins with `--version`;
 3. renders a batch of at most `--limit` (default 500) renditions, starts the writer, waits until
    it's healthy, then waits until it has uploaded the queued renditions (`rerender_pending` on
-   `/api/status` reaches 0);
+   `/api/status` reaches 0, for up to an hour per batch: `RERENDER_UPLOAD_TIMEOUT` seconds);
 4. repeats from the stop while the batch reported `remaining` above 0.
 
-If anything fails, or the run is interrupted, it starts the writer again before exiting. A deploy
+If anything fails, or the run is interrupted, it starts the writer again before exiting. It
+starts the same container it stopped (`compose start`), never a new one, even if the writer env
+file or `instance.env` changed since the last deploy: applying a changed config is a deploy's job,
+with its health gate and rollback. A deploy
 that starts meanwhile waits for the lock for at most 30 minutes (`LOCK_WAIT_SECONDS`) and then
 fails without changing anything; a long rerender can outlast that, so deploy again afterwards. Each
 batch's JSON summary lists `missing` sources (in neither the local blob cache nor the bucket) and
@@ -212,7 +230,10 @@ With `TAILSCALE=on`, the `ts-waypoint` sidecar joins the tailnet as its own node
 writer listens on `127.0.0.1` only and publishes no host port. The auth key in
 `TAILSCALE_ENV_FILE` (`TS_AUTHKEY=...`) is used only for the node's first login
 (`TS_AUTH_ONCE=true`); afterwards the identity lives in the `<project>_tailscale-state` volume.
-Enable HTTPS certificates for the tailnet so Serve can use the node's certificate. Set
+The sidecar mounts a copy of [serve.json](serve.json) that `upgrade.sh` keeps in `STATE_DIR`, so
+its path doesn't change from one release directory to the next (a changed mount would recreate
+the sidecar on every upgrade). Enable HTTPS certificates for the tailnet so Serve can use the
+node's certificate. Set
 `WAYPOINT_BASE_URL` in the writer env file to the `https://…ts.net` URL, and
 `WRITER_HEALTH_URL` to its `/healthz`.
 
@@ -250,3 +271,18 @@ because DNS or the certificate is still provisioning, raise `SMOKE_TIMEOUT_SECON
 the deploy steps against a stand-in Wrangler, and skips the smoke test. `DRY_RUN_LOG=<file>`
 records the stand-in's calls; `DRY_RUN_FAIL_SMOKE=<target>` makes that target's smoke test fail,
 to exercise the rollback ([scripts/deploy-dry-run.sh](../scripts/deploy-dry-run.sh) does both).
+
+## Tuning
+
+All optional, set in the environment of the `upgrade.sh` run (`upgrade.sh --help` lists them
+too):
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `WAYPOINT_INSTANCE` | `~/.config/waypoint/instance.env` | the instance file, when `--instance` isn't given |
+| `WRITER_HEALTH_TIMEOUT` | 120 | seconds the new writer gets to pass its container health check |
+| `WRITER_URL_TIMEOUT` | 90 | seconds `WRITER_HEALTH_URL` gets to answer with the new build |
+| `SMOKE_TIMEOUT_SECONDS` | 120 | seconds each reader's smoke test retries for |
+| `LOCK_WAIT_SECONDS` | 1800 | seconds a run waits for another run on the same instance |
+| `RERENDER_UPLOAD_TIMEOUT` | 3600 | seconds the writer gets to upload one rerender batch |
+| `WRANGLER` | the checkout's, or the bundle's pinned version through `npx` | the Wrangler executable |
