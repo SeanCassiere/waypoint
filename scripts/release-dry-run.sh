@@ -9,8 +9,9 @@
 #   4. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
 #      tarball, and the refusals (another version, a file naming the owner's instance);
 #   5. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
-#      "latest release" answer from a local directory, and a stand-in gh answers `gh attestation
-#      verify` (recording the policy it was asked for) and refuses the subjects it's told to. A
+#      release list from a local directory, and a stand-in gh answers `gh attestation
+#      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
+#      `latest` must skip newer releases that are drafts, prereleases or have no bundle yet. A
 #      dry run of `latest` must verify the bundle before unpacking it and the image digest before
 #      the (would-be) pull, and validate each reader target's generated config against the
 #      bundled Worker with the checkout's Wrangler; a refused attestation, a corrupted bundle or a
@@ -156,6 +157,20 @@ step "upgrade.sh release mode against a fake release"
 bin="$work/bin"
 mkdir -p "$bin"
 real_curl="$(command -v curl)"
+# The release list, newest first by date as GitHub sends it, but not by version: only $version has
+# its bundle. The newer ones are a release still publishing (no asset yet), one whose bundle upload
+# never finished, a prerelease and a draft; `latest` must skip them all, and say why.
+asset() { printf '{"name":"waypoint-deploy-%s.tgz","state":"%s"}' "$1" "${2:-uploaded}"; }
+cat > "$work/releases.json" <<EOF
+[
+  {"tag_name":"v$version","draft":false,"prerelease":false,"assets":[$(asset "$version")]},
+  {"tag_name":"v99.0.0","draft":false,"prerelease":false,"assets":[]},
+  {"tag_name":"v98.0.0","draft":false,"prerelease":false,"assets":[$(asset 98.0.0 open)]},
+  {"tag_name":"v97.0.0","draft":false,"prerelease":true,"assets":[$(asset 97.0.0)]},
+  {"tag_name":"v96.0.0","draft":true,"prerelease":false,"assets":[$(asset 96.0.0)]},
+  {"tag_name":"v95.0.0-rc.1","draft":false,"prerelease":false,"assets":[$(asset 95.0.0-rc.1)]}
+]
+EOF
 cat > "$bin/curl" <<EOF
 #!/usr/bin/env bash
 out="" url=""
@@ -169,8 +184,8 @@ case "\$url" in
   https://github.com/example/waypoint/releases/download/v$version/$name.tgz)
     echo download >> "$work/downloads"
     exec cp "\${FAKE_BUNDLE:-$tgz}" "\$out" ;;
-  https://api.github.com/repos/example/waypoint/releases/latest)
-    printf '{"tag_name":"v%s"}\n' "$version"; exit 0 ;;
+  https://api.github.com/repos/example/waypoint/releases\?per_page=100)
+    exec cat "\${FAKE_RELEASES:-$work/releases.json}" ;;
   https://github.com/*|https://api.github.com/*)
     echo "fake curl: unexpected \$url" >&2; exit 22 ;;
 esac
@@ -250,11 +265,23 @@ grep -q "would pull ghcr.io/example/waypoint-writer@$digest" err.log || { show; 
 grep -q "running upgrade.sh from the $version bundle" err.log || { show; fail "the bundle's own upgrade.sh didn't run"; }
 grep -q "reader configs validate with wrangler deploy --dry-run" err.log || { show; fail "the generated configs weren't validated"; }
 grep -q "dry run passed: release-$version" err.log || { show; fail "the dry run didn't pass"; }
+grep -q "latest release with a deploy bundle: $version$" err.log || { show; fail "latest didn't resolve to $version"; }
+for skipped in "99.0.0: no waypoint-deploy-99.0.0.tgz yet" "98.0.0: no waypoint-deploy-98.0.0.tgz yet" \
+  "97.0.0: a prerelease" "96.0.0: a draft"; do
+  grep -q "skipping example/waypoint $skipped" err.log || { show; fail "latest didn't report skipping $skipped"; }
+done
+! grep -q "95.0.0" err.log || { show; fail "latest considered a tag that isn't X.Y.Z"; }
 for t in dev prod; do
   grep -q "^wrangler deploy --config .*/reader-$t.json --var WAYPOINT_BUILD_SHA:$sha$" wrangler.log || { cat wrangler.log >&2; fail "reader $t doesn't deploy with the release commit"; }
 done
 cmp -s "$u/upgrade.sh" "$state/releases/$version/upgrade.sh" || fail "the bundle wasn't installed in the state directory"
 [[ "$(cat "$state/releases/$version/.provenance")" == "attested example/waypoint" ]] || fail "the cached bundle doesn't record its attestation"
+
+step "latest with no release that has its bundle"
+printf '[{"tag_name":"v%s","draft":false,"prerelease":false,"assets":[]}]' "$version" > "$work/no-bundle.json"
+if FAKE_RELEASES="$work/no-bundle.json" release_run latest; then fail "latest deployed a release without its bundle"; fi
+grep -q "no release of example/waypoint has its deploy bundle" err.log || { show; fail "the missing bundle isn't explained"; }
+! grep -q "running upgrade.sh from" err.log || { show; fail "a bundle ran"; }
 
 step "a verified cached bundle is reused"
 : > gh.log; : > downloads

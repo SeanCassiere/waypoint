@@ -5,8 +5,10 @@
 # Setup and the trust model: docs/self-hosting.md ("Optional: automatic deploys on release").
 #
 # What it does, on the runner host:
-#   1. picks the release: the latest one, or the `version` input when WAYPOINT_DEPLOY_ADMIN (by
-#      default the repository owner) started the run;
+#   1. picks the release: the `version` input when WAYPOINT_DEPLOY_ADMIN started the run, else the
+#      latest one, which is the newest release (not a draft or prerelease) whose
+#      waypoint-deploy-X.Y.Z.tgz is attached: GitHub marks a release latest as soon as it's
+#      created, before the release workflow has published its bundle;
 #   2. downloads waypoint-deploy-X.Y.Z.tgz and verifies its build provenance (gh attestation
 #      verify: the release workflow, on GitHub-hosted runners, from main) and SHA256SUMS, before
 #      running anything from it;
@@ -23,7 +25,11 @@
 #
 # Repository variables (all optional):
 #   WAYPOINT_RELEASE_REPO   owner/repo whose releases are deployed (default SeanCassiere/waypoint)
-#   WAYPOINT_DEPLOY_ADMIN   the only login whose `version` input is honoured (default: the owner)
+#   WAYPOINT_DEPLOY_ADMIN   the only user login whose `version` input is honoured. The default is
+#                           the repository owner, which is right only for a repository a user
+#                           owns: an organization's login is never a run's actor, so for an
+#                           organization-owned ops repository SET IT EXPLICITLY, or `version` is
+#                           refused (the run fails, rather than deploy the latest release instead).
 #   WAYPOINT_INSTANCE       the instance file (default ~/.config/waypoint/instance.env)
 #   WAYPOINT_DEPLOY_WORK    bundles, logs and the GitHub CLI (default ~/.local/state/waypoint-deploy)
 name: Deploy
@@ -111,6 +117,12 @@ jobs:
           [[ "$RELEASE_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::WAYPOINT_RELEASE_REPO must be owner/repo"; exit 1; }
           version=""
           if [[ -n "$REQUESTED" ]]; then
+            # The default admin of an organization-owned repository is the organization, which is
+            # never a run's actor: fail instead of quietly deploying the latest release.
+            if [[ "$("$GH" api "users/$DEPLOY_ADMIN" --jq .type)" != User ]]; then
+              echo "::error::WAYPOINT_DEPLOY_ADMIN ($DEPLOY_ADMIN) isn't a user, so no one can choose a version; set the variable to your login"
+              exit 1
+            fi
             # Both the run's actor and whoever started this attempt (a re-run keeps the actor).
             if [[ "${ACTOR,,}" == "${DEPLOY_ADMIN,,}" && "${TRIGGERING_ACTOR,,}" == "${DEPLOY_ADMIN,,}" ]]; then
               [[ "$REQUESTED" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version must be X.Y.Z"; exit 1; }
@@ -120,9 +132,24 @@ jobs:
             fi
           fi
           if [[ -z "$version" ]]; then
-            tag="$("$GH" release view --repo "$RELEASE_REPO" --json tagName --jq .tagName)"
-            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::unexpected latest release tag: $tag"; exit 1; }
-            version="${tag#v}"
+            # The highest X.Y.Z that isn't a draft or prerelease and has its bundle; newer releases
+            # still publishing (or whose publishing failed) are skipped, and named in the log.
+            releases="$("$GH" api "repos/$RELEASE_REPO/releases?per_page=100" --jq '
+              .[] | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+              | (.tag_name | ltrimstr("v")) as $v
+              | [.tag_name,
+                 if .draft then "a draft"
+                 elif .prerelease then "a prerelease"
+                 elif any(.assets[]; .name == "waypoint-deploy-\($v).tgz" and .state == "uploaded") then "ok"
+                 else "no waypoint-deploy-\($v).tgz yet (still publishing, or a publishing job failed)" end]
+              | @tsv')"
+            while IFS=$'\t' read -r tag state; do
+              [[ -n "$tag" ]] || continue
+              if [[ "$state" == ok ]]; then version="${tag#v}"; break; fi
+              echo "::notice::skipping $tag: $state"
+            done < <(sort -t $'\t' -k1,1rV <<< "$releases")
+            [[ -n "$version" ]] || { echo "::error::no release of $RELEASE_REPO has its deploy bundle"; exit 1; }
+            echo "Latest release with a deploy bundle: $version"
           fi
           # As GitHub spells it: the attestation's signer workflow is compared case-sensitively.
           repo="$("$GH" api "repos/$RELEASE_REPO" --jq .full_name)"

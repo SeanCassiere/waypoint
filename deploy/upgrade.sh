@@ -611,11 +611,42 @@ resolve_release() {
   readers_deployable=1
 }
 
+# The newest release that can be deployed: the highest X.Y.Z among the releases that aren't drafts
+# or prereleases and already have their waypoint-deploy-X.Y.Z.tgz. GitHub marks a release "latest"
+# as soon as it's created, before the release workflow has attached the bundle (or for good, if a
+# publishing job failed), so newer releases without one are skipped, and logged.
 latest_version() {
   [[ -n "$release_repo" ]] || die "set RELEASE_REPO to resolve 'latest'"
-  curl -fsSL --max-time 20 "https://api.github.com/repos/$release_repo/releases/latest" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).tag_name??"";if(!/^v\d+\.\d+\.\d+$/.test(t))process.exit(1);console.log(t.slice(1))})' \
-    || die "couldn't resolve the latest release of $release_repo"
+  local releases
+  releases="$(curl -fsSL --max-time 20 -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$release_repo/releases?per_page=100")" \
+    || die "couldn't list the releases of $release_repo"
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const [prefix, repo, body] = process.argv.slice(1);
+    const releases = JSON.parse(body);
+    if (!Array.isArray(releases)) throw new Error("not a list of releases");
+    const parts = (v) => v.split(".").map(Number);
+    const newer = (a, b) => { const [x, y] = [parts(a.version), parts(b.version)]; return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; };
+    const candidates = releases
+      .filter((r) => /^v\d+\.\d+\.\d+$/.test(r?.tag_name ?? ""))
+      .map((r) => ({ release: r, version: r.tag_name.slice(1) }))
+      .sort(newer);
+    for (const { release, version } of candidates) {
+      const asset = `waypoint-deploy-${version}.tgz`;
+      const skip = release.draft ? "a draft"
+        : release.prerelease ? "a prerelease"
+        : !(release.assets ?? []).some((a) => a?.name === asset && (a.state ?? "uploaded") === "uploaded")
+          ? `no ${asset} yet (the release workflow is still publishing it, or a publishing job failed)`
+          : "";
+      if (skip) { console.error(`${prefix}: skipping ${repo} ${version}: ${skip}`); continue; }
+      console.log(version);
+      process.exit(0);
+    }
+    console.error(`${prefix}: no release of ${repo} has its deploy bundle`);
+    process.exit(1);
+  ' "$log_prefix" "$release_repo" "$releases" \
+    || die "couldn't resolve the latest deployable release of $release_repo"
 }
 
 # Release integrity. SHA256SUMS inside the bundle guards against a truncated or corrupted download.
@@ -1151,7 +1182,7 @@ cmd_deploy() {
     current-checkout) resolve_checkout ;;
     image) resolve_image ;;
     latest)
-      local v; v="$(latest_version)"; log "latest release: $v"
+      local v; v="$(latest_version)"; log "latest release with a deploy bundle: $v"
       resolve_release "$v" || exec_release_bundle "$v"
       ;;
     *) resolve_release "$command" || exec_release_bundle "$command" ;;

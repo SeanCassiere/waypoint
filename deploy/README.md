@@ -70,7 +70,7 @@ deploy/upgrade.sh validate
 
 ```bash
 deploy/upgrade.sh 1.4.0            # a release: its image (pinned by digest) and its bundle
-deploy/upgrade.sh latest           # the newest release
+deploy/upgrade.sh latest           # the newest release that has its deploy bundle
 deploy/upgrade.sh current-checkout # this git checkout: builds the writer image and the reader
 deploy/upgrade.sh image my/waypoint-writer:test   # the writer from an image you built
 deploy/upgrade.sh --dry-run current-checkout      # everything except changing anything
@@ -225,8 +225,13 @@ the instance's host. The release workflow of the repository you deploy from disp
 run:
 
 1. picks the release: the latest one, or its `version` input, which only `WAYPOINT_DEPLOY_ADMIN`
-   (by default the ops repository's owner) can choose; for anyone else, and for the dispatch, it's
-   ignored;
+   (by default the ops repository's owner; set it to your login when an organization owns the ops
+   repository, else a `version` input fails the run) can choose; for anyone else, and for the
+   dispatch, it's ignored. "Latest" is the highest `X.Y.Z` that isn't a draft or prerelease and
+   already has its `waypoint-deploy-X.Y.Z.tgz`: GitHub marks a release latest the moment it's
+   created, before the release workflow has published its image and bundle (or for good, if a
+   publishing job failed), so newer releases without a bundle are skipped and named in the log
+   (`upgrade.sh latest` resolves it the same way);
 2. installs a pinned GitHub CLI (checked against its checksum) in its work directory, downloads
    `waypoint-deploy-X.Y.Z.tgz`, and verifies its attestation and `SHA256SUMS` before running
    anything in it;

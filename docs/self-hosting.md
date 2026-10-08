@@ -194,7 +194,9 @@ deploy/upgrade.sh status
 ```
 
 `upgrade.sh` fetches and checks everything first, then replaces the writer, then each reader,
-health-checking each one and rolling it back on failure. Rerunning it is safe: it finishes a
+health-checking each one and rolling it back on failure. `latest` is the newest release that
+already has its deploy bundle: a release the release workflow is still publishing (or failed to
+publish) is skipped, and the log says so. Rerunning it is safe: it finishes a
 partial upgrade and only re-checks what's already current. Older releases run on data a newer one
 migrated, because schema changes are additive only; see
 [the rollback window](../deploy/README.md#rolling-back). After a release that bumps the markdown
@@ -215,8 +217,11 @@ safe: [deploy/README.md](../deploy/README.md#automatic-deploys-on-release).
    `waypoint-deploy`. Runners of a private repository never run anything from forks.
 3. Optionally set repository variables there: `WAYPOINT_RELEASE_REPO` (the repository you deploy
    from, default `SeanCassiere/waypoint`; it must be the one `instance.env`'s `RELEASE_REPO` or
-   `IMAGE` names), `WAYPOINT_DEPLOY_ADMIN` (who may choose a version; default the owner),
-   `WAYPOINT_INSTANCE` and `WAYPOINT_DEPLOY_WORK`.
+   `IMAGE` names), `WAYPOINT_DEPLOY_ADMIN` (the user login that may choose a version; default
+   the repository's owner), `WAYPOINT_INSTANCE` and `WAYPOINT_DEPLOY_WORK`. **Set
+   `WAYPOINT_DEPLOY_ADMIN` explicitly for an organization-owned ops repository:** the default is
+   then the organization's login, which is never a run's actor, so no one could choose a version
+   (the workflow fails a run that asks for one, rather than deploy the latest release instead).
 4. Run it by hand (Actions → Deploy → Run workflow) to deploy the latest release.
 
 That's enough to deploy on demand. To deploy on every release, the repository that publishes the
