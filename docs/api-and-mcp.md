@@ -9,7 +9,7 @@ Conventions:
 
 ## Viewer routes
 
-`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell: the newest synced revision for a latest URL, or the pinned one; when that hasn't synced, the owner gets a "not public yet" explanation instead), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]` (each file card shows up to 300 blocks or 1,500 lines, and the page up to 600 blocks or 3,000 lines; `?file=<path>&from=<n>` pages through one file, and `&folds=open` inlines short unchanged runs for browsers without script), `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links` (50 per page, newest first; `?state=active|expired|revoked|inactive&after=<cursor>`), `/trash`, `/status` (each list shows 50; `?failed=<n>` and `?pending=<n>` page through them, and `/api/status` has them all), and `/mcp` (HTML for browsers; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
+`/` (Recent; `?q=` searches, and an exact collection or revision ID, public ID, or Waypoint URL redirects to it; tokens `project:` `tag:` `host:` `is:shared` `is:unsynced` `is:pending` `in:trash`), `/c/<pub>/[r/<rpub>/][path]` (`?panel=history|links`, `?as=public` previews the public shell: the newest synced revision for a latest URL, or the pinned one; when that hasn't synced, the owner gets a "not public yet" explanation instead), `/c/<pub>/r/<rpub>/changes[?base=][&file=][&view=source]` (each file card shows up to 300 blocks or 1,500 lines, and the page up to 600 blocks or 3,000 lines; `?file=<path>&from=<n>` pages through one file, and `&folds=open` inlines short unchanged runs for browsers without script), `/c/<pub>/r/<rpub>/gallery/<dir>/`, `/links` (50 per page, newest first; `?state=active|expired|revoked|inactive&after=<cursor>`), `/trash`, `/status` (each list shows 50; `?failed=<n>` and `?pending=<n>` page through them, and `/api/status` has them all), and `/mcp` (HTML for browsers, `?client=claude|codex|other`; the markdown setup notes stay at `/mcp` for other clients and at `/mcp.md`).
 
 ## Request safety
 
@@ -83,7 +83,7 @@ The MCP server is a local stdio process on each agent machine:
     "env": { "WAYPOINT_URL": "https://waypoint.example-tailnet.ts.net" } } } }
 ```
 
-The writer's `/mcp` page has ready-made snippets for Claude Code and Codex.
+The writer's `/mcp` page walks through three steps: the server for Claude Code, Codex or another MCP client, the skill for that client, and a check that it works.
 
 ### Updates without config changes
 
