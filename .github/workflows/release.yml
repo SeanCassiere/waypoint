@@ -1,8 +1,8 @@
 name: Release
 # Releases are cut by release-please (docs/releasing.md). Every push to main updates its release
-# PR (version bump and CHANGELOG from the conventional commits since the last release) and runs CI
-# on it (release-pr, release-pr-ci). Merging that PR creates the GitHub release and tag vX.Y.Z
-# (release-please), and the same run publishes it:
+# PR (version bump and CHANGELOG from the conventional commits since the last release) and
+# approves the PR's CI runs (release-pr, release-pr-checks). Merging that PR creates the GitHub
+# release and tag vX.Y.Z (release-please), and the same run publishes it:
 #
 #   image-build  the writer image, natively on amd64 and arm64, pushed by digest, then started once
 #                on its own architecture (/healthz must report the release's version and commit)
@@ -70,27 +70,34 @@ jobs:
           manifest-file: .release-please-manifest.json
           skip-github-release: true
 
-  # A PR opened or pushed with GITHUB_TOKEN triggers no `pull_request` workflows, so CI is started
-  # on the release branch by hand: workflow_dispatch is exempt from that rule. Its checks, `ci-ok`
-  # included, land on the branch's head commit, the one branch protection checks. Only when
+  # A PR that GITHUB_TOKEN opens or updates gets its `pull_request` runs (CI, PR title) in an
+  # approval-required state: GitHub waits for someone with write access to approve them, and until
+  # then the PR has no `ci-ok` and branch protection blocks it. This job approves them with the
+  # job's token (scripts/release-pr-approve.sh): only runs of the release branch on the PR's head
+  # commit in this repository, never a fork's. If GitHub refuses, or no run turns up, it warns with
+  # the fix by hand (the PR's "Approve workflows to run" button) and still succeeds (D59). Only when
   # release-please created or changed the PR.
-  release-pr-ci:
+  release-pr-checks:
     needs: release-pr
     if: needs.release-pr.outputs.pr != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: read # gh workflow run reads the workflow
-      actions: write # dispatching CI on the release branch
+      contents: read # the script
+      pull-requests: read # the release PR's head commit
+      actions: write # approving its workflow runs
     steps:
-      - name: Run CI on the release PR
+      # Only the script the next step runs (scripts/release-dry-run.sh tests it).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/release-pr-approve.sh
+          sparse-checkout-cone-mode: false
+      - name: Approve the release PR's checks
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ needs.release-pr.outputs.pr }}
-        run: |
-          set -euo pipefail
-          branch="$(jq -r .headBranchName <<< "$PR")"
-          [[ "$branch" =~ ^release-please--[A-Za-z0-9._/-]+$ ]] || { echo "::error::unexpected release branch: $branch"; exit 1; }
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+        run: bash scripts/release-pr-approve.sh
 
   image-build:
     needs: release-please
