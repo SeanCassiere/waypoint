@@ -1,0 +1,85 @@
+import { escapeHtml } from "../html.ts";
+import { publicShellCss } from "./css.ts";
+import { letterhead } from "./letterhead.ts";
+import { publicShellScript } from "./script.ts";
+import { bytes, encodePathSegments, extension, showBidi } from "./text.ts";
+import { files } from "./tree.ts";
+
+export { publicShellCss } from "./css.ts";
+export { formatShellTime } from "./letterhead.ts";
+export { publicShellScript } from "./script.ts";
+export { encodeLinkPath, encodePathSegments } from "./text.ts";
+export {
+  PUBLIC_SHELL_LIST_BUDGET,
+  PUBLIC_SHELL_TAB_LIMIT,
+  PUBLIC_SHELL_TREE_DEPTH,
+} from "./tree.ts";
+
+/**
+ * The Folio public shell (spec §9): a quiet letterhead, the file tabs or a "Files (N)" tree,
+ * and the document in a sandboxed iframe. Shared by the public reader (Workers) and the
+ * writer's `?as=public` preview so both render the same page.
+ *
+ * Callers own every URL. The shell never builds share or capability URLs itself.
+ *
+ * CSP contract: the markup has no `style` attributes, no inline event handlers and no
+ * external assets. All CSS is `publicShellCss` and all script is `publicShellScript`, emitted
+ * as exactly one `<style>` and one `<script>` element (or as external files via `assets`), so
+ * one hash each covers them.
+ */
+export interface PublicShellFile {
+  path: string;
+}
+export interface PublicShellOptions {
+  /** Collection title; also the document `<title>`. */
+  title: string;
+  /** Every file in the served revision. Order does not matter; the shell sorts by path. */
+  files: readonly PublicShellFile[];
+  /** The revision's head path; listed first. */
+  head: string;
+  /** The file being shown. */
+  current: string;
+  /** URL of the shell page for a file (the tab and tree links). */
+  fileHref: (path: string) => string;
+  /**
+   * URL prefix of the raw content for this revision, ending in `/`. The iframe loads
+   * `frameBase + encoded path`, and the location listener only accepts frame locations
+   * under this prefix.
+   */
+  frameBase: string;
+  /** Latest links: when the served revision was created ("Updated …"). */
+  updatedAt: number | null;
+  /** Single-revision links: when the snapshot was created ("Snapshot from …"). Wins over updatedAt. */
+  snapshotAt: number | null;
+  /** Show a download card instead of the iframe (content that can't be previewed). */
+  download?: { mime: string; size: number | null } | null;
+  /** Serve CSS and script as external files instead of inline elements. */
+  assets?: { cssHref: string; scriptHref: string } | null;
+}
+
+function documentArea(options: PublicShellOptions): string {
+  const src = options.frameBase + encodePathSegments(options.current);
+  if (options.download) {
+    const { mime, size } = options.download;
+    // Bidi controls in a file name could spoof its extension ("invoice\u202Efdp.exe").
+    const shown = showBidi(options.current);
+    const name = shown.slice(shown.lastIndexOf("/") + 1);
+    const meta = `${size === null ? "" : `${bytes(size)} · `}${showBidi(mime)} · can't be previewed in the browser`;
+    return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
+  }
+  return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
+}
+
+/** Renders the complete public shell document. Cost is linear in the number of files. */
+export function renderPublicShell(options: PublicShellOptions): string {
+  // The location listener's prefix check relies on a whole-segment prefix.
+  if (!options.frameBase.endsWith("/")) throw new Error("frameBase must end with /");
+  const title = escapeHtml(showBidi(options.title));
+  const style = options.assets
+    ? `<link rel="stylesheet" href="${escapeHtml(options.assets.cssHref)}">`
+    : `<style>${publicShellCss}</style>`;
+  const script = options.assets
+    ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
+    : `<script>${publicShellScript}</script>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options)}${files(options)}</div>${documentArea(options)}${script}</body></html>`;
+}
