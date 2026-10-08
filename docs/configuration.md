@@ -35,7 +35,7 @@ All of these are read only when `WAYPOINT_SYNC` is `on`. The names keep their `R
 | `R2_SECRET_ACCESS_KEY` | yes (secret) | none | Its secret. |
 | `R2_BUCKET` | yes | none | Bucket name. Any name works; the bucket's [environment marker](#bucket-environment-marker) keeps dev and prod apart. |
 | `R2_ACCOUNT_ID` | unless `WAYPOINT_S3_ENDPOINT` is set | none | Cloudflare account ID; the endpoint becomes `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`. Must be a hostname label (letters, digits, `-`). |
-| `WAYPOINT_S3_ENDPOINT` | no | R2's endpoint | Any S3-compatible endpoint, for example `http://minio:9000` or `https://s3.us-east-1.amazonaws.com`. An HTTP(S) URL without credentials, query or fragment; a trailing `/` is ignored. Requests are always path-style (`<endpoint>/<bucket>/<key>`), which R2, MinIO and most S3-compatible stores accept. The store must support `If-None-Match: *` on `PutObject`. |
+| `WAYPOINT_S3_ENDPOINT` | no | R2's endpoint | Any S3-compatible endpoint, for example `http://minio:9000` or `https://s3.us-east-1.amazonaws.com`. An HTTP(S) URL without credentials, query or fragment; a trailing `/` is ignored. Requests are always path-style (`<endpoint>/<bucket>/<key>`), which R2, MinIO and most S3-compatible stores accept. The store must support `If-None-Match: *` on `PutObject`. On AWS S3 the key also needs `s3:ListBucket` on the bucket: without it a `HEAD` for a missing key answers 403, not 404, so a fresh bucket's missing [marker](#bucket-environment-marker) reads as an account error and the committer pauses instead of writing it. |
 | `WAYPOINT_S3_REGION` | no | `auto` | SigV4 signing region. `auto` is right for R2; AWS S3 needs the bucket's region; MinIO usually accepts `us-east-1`. |
 
 ### MCP artifacts served by the writer
@@ -70,7 +70,7 @@ The bucket holds `meta/environment.json`, `{ "format_version": 1, "environment":
 
 - **Missing** (a new bucket, or one from before the marker existed): the writer writes its own environment with `If-None-Match: *` and reads it back, so when two writers race, one marker wins. A missing marker is never a failure.
 - **Matching:** remembered for the life of the process.
-- **Another environment, or unreadable:** an account error. The committer pauses and retries every 5 minutes, `/status` shows "Sync blocked" with the reason, and `restore` stops. Nothing else in the bucket is read or written.
+- **Another environment, or unreadable:** an account error. The committer pauses and retries every 5 minutes, `/status` shows "Bucket account paused:" followed by the reason (the health pill reads "Sync blocked"), and `restore` stops. Nothing else in the bucket is read or written.
 
 Together with the cloud DB's `meta.environment` ([write-path-and-sync.md](write-path-and-sync.md#environment-guard)), this replaces the old rule that the bucket be named `waypoint-<env>`.
 

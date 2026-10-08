@@ -296,12 +296,14 @@ export class EnvironmentCheckedBucket implements Bucket {
    * caller's signal only stops that caller waiting for it (a stopping committer isn't held up).
    */
   verify(signal?: AbortSignal): Promise<void> {
+    // Before starting a check: one started for a caller that has already given up would have
+    // nobody to handle its failure (an unhandled rejection ends the process mid-shutdown).
+    if (signal?.aborted) return Promise.reject(abortedRequest());
     this.checked ??= this.check().catch((error: unknown) => {
       this.checked = undefined;
       throw error;
     });
     if (!signal) return this.checked;
-    if (signal.aborted) return Promise.reject(abortedRequest());
     const checked = this.checked;
     return new Promise<void>((resolve, reject) => {
       const onAbort = () => reject(abortedRequest());

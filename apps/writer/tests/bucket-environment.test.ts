@@ -109,6 +109,26 @@ describe("bucket environment marker", () => {
       code: "AbortError",
     });
   });
+  it("doesn't start a check for an already-aborted caller", async () => {
+    const inner = new MemoryBucket();
+    inner.fail = new BucketError("offline", "transient");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const bucket = new EnvironmentCheckedBucket(inner, "prod");
+      await expect(bucket.delete("x", AbortSignal.abort())).rejects.toMatchObject({
+        code: "AbortError",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+      // The next caller still runs (and sees) the check.
+      await expect(bucket.delete("x")).rejects.toMatchObject({ message: "offline" });
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
   it("lets the first of two racing environments win", async () => {
     const inner = new MemoryBucket();
     const results = await Promise.allSettled([
