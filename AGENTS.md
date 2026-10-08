@@ -39,7 +39,7 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))
    - `build-writer-image`
-   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, rerender: [scripts/install-test.sh](scripts/install-test.sh))
+   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender and its lock, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
    - `mcp-smoke`
    - `browser`
 
@@ -62,7 +62,7 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md). The owner's runner and instance values: [docs/infrastructure.md](docs/infrastructure.md#deployment-p1).
 
-**After a deploy that bumps `RENDERER_VERSION`**, re-render existing markdown on agent-1 with `bash deploy/upgrade.sh rerender` ([deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)). It holds the instance lock, so a deploy that starts meanwhile waits for it, and it restarts the writer if anything fails.
+**After a deploy that bumps `RENDERER_VERSION`**, re-render existing markdown on agent-1 with `bash deploy/upgrade.sh rerender` ([deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)). It holds the instance lock, so a deploy that starts meanwhile waits for it, for at most 30 minutes; a Deploy run that times out changes nothing, so re-run it (`gh run rerun <id>`) after the rerender. It restarts the writer if anything fails.
 
 Things that need care when changing code:
 

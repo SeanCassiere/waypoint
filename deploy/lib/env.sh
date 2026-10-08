@@ -34,11 +34,13 @@ envfile_check_config_mode() {
 
 # Reads <file> into shell variables named <prefix><KEY>. <accept> is the name of a function that
 # returns 0 for a key the caller knows. Repeated keys are an error, so a later line can't silently
-# override an earlier one. Values are taken literally; quotes, `$` and backticks are rejected
-# because they'd suggest shell semantics that don't exist here.
-# Usage: envfile_read <file> <prefix> <accept function>
+# override an earlier one. Values are always taken literally. By default quotes, `$` and backticks
+# are rejected, because they'd suggest shell semantics that don't exist here. With `secret`,
+# they're allowed (a token or password may contain any of them); only a value wrapped in a pair
+# of quotes is rejected, since the quotes would become part of it.
+# Usage: envfile_read <file> <prefix> <accept function> [secret]
 envfile_read() {
-  local file="$1" prefix="$2" accept="$3" line key value lineno=0 seen=" "
+  local file="$1" prefix="$2" accept="$3" mode="${4:-}" line key value lineno=0 seen=" "
   while IFS= read -r line || [[ -n "$line" ]]; do
     lineno=$((lineno + 1))
     line="${line%$'\r'}"
@@ -58,7 +60,12 @@ envfile_read() {
       return 1
     fi
     seen+="$key "
-    if [[ "$value" == *[\"\'\`\$]* ]]; then
+    if [[ "$mode" == secret ]]; then
+      if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^\'.*\'$ ]]; then
+        envfile_fail "$file:$lineno: $key: values are literal; remove the surrounding quotes"
+        return 1
+      fi
+    elif [[ "$value" == *[\"\'\`\$]* ]]; then
       envfile_fail "$file:$lineno: $key: values are literal; remove quotes, \$ and backticks"
       return 1
     fi
@@ -90,7 +97,7 @@ reader_secrets_json() {
   local file="$1" out="$2" key
   envfile_check_secret_mode "$file" || return 1
   for key in "${reader_secret_keys[@]}"; do unset "rs_$key"; done
-  envfile_read "$file" rs_ envfile_reader_key || return 1
+  envfile_read "$file" rs_ envfile_reader_key secret || return 1
   for key in TURSO_DATABASE_URL TURSO_READONLY_TOKEN R2_READER_ACCESS_KEY_ID R2_READER_SECRET_ACCESS_KEY R2_BUCKET RAW_CAP_KEY; do
     local name="rs_$key"
     [[ -n "${!name:-}" ]] || { envfile_fail "$file: missing $key"; return 1; }

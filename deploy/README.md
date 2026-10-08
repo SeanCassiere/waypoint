@@ -41,7 +41,10 @@ deploy/make-instance-env.sh --output ~/.config/waypoint/instance.env \
 The instance file holds no secrets. It names the files that do (the writer env file, the
 Tailscale auth key, the Cloudflare deploy token, each reader's secrets), which must be mode 600.
 It's parsed strictly: literal `KEY=value` lines with known keys only, never executed, and values
-are never printed. Check it, and every file it names, with:
+are never printed. `cloudflare.env` and the reader secrets files are parsed the same way, except
+that their values may contain quotes, `$` and backticks, taken literally (a value wrapped in a
+pair of quotes is refused, since the quotes would become part of it). Check the instance, and
+every file it names, with:
 
 ```bash
 deploy/upgrade.sh validate
@@ -67,17 +70,20 @@ What a deploy does, in order:
 
 1. **Fetch and check, before anything running changes.** Validate the instance and every file it
    names. Build or pull the writer image. With reader targets, render each target's Wrangler
-   config, build the reader (`current-checkout`) and prepare the secrets.
+   config, build the reader (`current-checkout`), prepare the secrets, and record the Worker
+   version each target to deploy serves now (`wrangler deployments list`), the one a failure
+   rolls back to. If that lookup fails for any reason other than the Worker not existing yet,
+   the run stops here: deploying without a rollback target isn't safe.
 2. **The writer.** Tag the running image `waypoint-writer:<project>-previous`, point
    `waypoint-writer:<project>-current` at the new one, start the Tailscale sidecar if the
    overlay is on (a no-op when it's already running unchanged), and recreate only the writer.
-   Wait for the container's health check, then check that `/healthz` (from inside the container)
-   reports the expected version and commit, then that `WRITER_HEALTH_URL`, if set, answers the
-   same. On any failure, print the failed writer's logs, recreate it from the previous image, and
+   Wait for the container's health check (a restart of the new container fails it at once),
+   then check that `/healthz` (from inside the container) reports the expected version and
+   commit, then that `WRITER_HEALTH_URL`, if set, answers the same. On any failure, print the failed writer's logs, recreate it from the previous image, and
    exit nonzero. A first install with no previous image stops the failed writer instead.
-3. **Each reader target, in `READER_TARGETS` order.** Record the Worker's current version, upload
-   the secrets (`wrangler secret bulk`), deploy the prebuilt Worker with the commit as the
-   `WAYPOINT_BUILD_SHA` variable, then smoke test the custom domain for up to 120 s
+3. **Each reader target, in `READER_TARGETS` order.** Upload the secrets (`wrangler secret
+   bulk`), deploy the prebuilt Worker with the commit as the `WAYPOINT_BUILD_SHA` variable, then
+   smoke test the custom domain for up to 120 s
    (`SMOKE_TIMEOUT_SECONDS`): `/healthz` answers `ok` with the expected `X-Waypoint-Version` and
    `X-Waypoint-Sha`, `/healthz/deep` answers `ok`, an unknown share link answers 404 with
    `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer`, `/` answers 200, and
@@ -91,13 +97,14 @@ images keep their tags.
 
 `upgrade.sh` keeps its state in `STATE_DIR` (default `<CONFIG_DIR>/state/<project>`): what each
 component runs (`writer`, `reader-<target>`), the last completed deploy (`release`), a `lock`
-that serializes runs on one instance (a second run waits up to 30 minutes, `LOCK_WAIT_SECONDS`),
-and a `deploying` marker while a deploy is in progress.
+that serializes runs on one instance (a second run waits up to 30 minutes, `LOCK_WAIT_SECONDS`,
+then fails without changing anything), and a `deploying` marker while a deploy is in progress.
 
 - **The same version twice** only repeats the health checks and smoke tests. The writer counts as
-  deployed when its container runs the target image with the current Compose config (an edited
-  env file or instance setting redeploys it); a reader, when the build, its generated config and
-  its secrets are unchanged. `--force` redeploys anyway. A component that runs the target but
+  deployed when it's the container the last successful run created, on the target image, with
+  the Compose config that run recorded (`compose config --hash`; an edited env file or instance
+  setting redeploys it) and, with the overlay, in the running sidecar's network namespace; a
+  reader, when the build, its generated config and its secrets are unchanged. `--force` redeploys anyway. A component that runs the target but
   fails its checks is reported, not redeployed: rerun with `--force`.
 - **A partial deploy converges on a rerun.** If the writer was upgraded and a reader rolled back,
   the next run leaves the writer alone and deploys the reader again.
@@ -163,14 +170,15 @@ re-rendered. After such a deploy, run once:
 
 ```bash
 deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
-deploy/upgrade.sh --dry-run rerender     # count only
+deploy/upgrade.sh --dry-run rerender     # count only (the writer still stops for the count)
 ```
 
 `rerender` takes the data directory's lock, so the writer must be stopped while a batch runs, and
 agents' writes fail meanwhile. The subcommand:
 
-1. takes the instance lock (so no deploy recreates the writer meanwhile) and refuses to start if
-   a deploy didn't finish or the writer isn't healthy;
+1. takes the instance lock, dry runs included (so no deploy recreates the writer meanwhile), and
+   refuses to start if a deploy didn't finish or the writer isn't healthy (a restart while it
+   waits counts as unhealthy; one from before doesn't);
 2. stops the writer (60 s to finish in-flight uploads) and runs the rerender dry run in a one-off
    container of the same image, to learn the image's renderer version, which every batch then
    pins with `--version`;
@@ -179,7 +187,9 @@ agents' writes fail meanwhile. The subcommand:
    `/api/status` reaches 0);
 4. repeats from the stop while the batch reported `remaining` above 0.
 
-If anything fails, or the run is interrupted, it starts the writer again before exiting. Each
+If anything fails, or the run is interrupted, it starts the writer again before exiting. A deploy
+that starts meanwhile waits for the lock for at most 30 minutes (`LOCK_WAIT_SECONDS`) and then
+fails without changing anything; a long rerender can outlast that, so deploy again afterwards. Each
 batch's JSON summary lists `missing` sources (in neither the local blob cache nor the bucket) and
 `failed` ones (the renderer returned nothing or timed out, as at ingest); those keep their
 previous rendition, and a later run retries them. Every step is safe to repeat: sources with a

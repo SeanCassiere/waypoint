@@ -24,8 +24,16 @@ R2_READER_SECRET_ACCESS_KEY=dry-run
 R2_BUCKET=dry-run
 RAW_CAP_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 printf '%s\nR2_ACCOUNT_ID=dry-run\n' "$reader_secrets" > reader-dev.env
-# The other target uses another S3-compatible store instead of R2.
-printf '%s\nWAYPOINT_S3_ENDPOINT=https://s3.example.test\nWAYPOINT_S3_REGION=us-east-1\n' "$reader_secrets" > reader-prod.env
+# The other target uses another S3-compatible store instead of R2, with a secret key holding
+# characters a shell would interpret; secrets files take them literally.
+{
+  printf '%s\n' "$reader_secrets" | grep -v '^R2_READER_SECRET_ACCESS_KEY='
+  cat <<'EOF'
+R2_READER_SECRET_ACCESS_KEY=dry-run$x`y"z'
+WAYPOINT_S3_ENDPOINT=https://s3.example.test
+WAYPOINT_S3_REGION=us-east-1
+EOF
+} > reader-prod.env
 chmod 600 ./*.env
 write_instance() {
   cat > instance.env <<EOF
@@ -69,6 +77,22 @@ fi
 grep -q '^wrangler rollback dry-run-previous --config .*reader-prod.json' wrangler.log || fail "no rollback after the failed smoke test"
 grep -q 'reader-dev.json' wrangler.log || fail "dev didn't deploy before prod"
 
+echo "--- a failed deployments lookup stops the run before anything changes" >&2
+: > wrangler.log
+if DRY_RUN_LOG="$work/wrangler.log" DRY_RUN_DEPLOYMENTS=fail:prod upgrade --dry-run --allow-dirty current-checkout 2> err.log; then
+  fail "a failed deployments lookup passed"
+fi
+grep -q "no version to roll back to" err.log || { cat err.log >&2; fail "the lookup failure isn't reported"; }
+! grep -q 'would deploy the writer' err.log || fail "the writer step ran before the reader lookups"
+! grep -Eq '^wrangler (secret|deploy|rollback) ' wrangler.log || fail "a reader changed after a failed lookup"
+
+echo "--- a Worker that doesn't exist yet is a first deployment" >&2
+: > wrangler.log
+DRY_RUN_LOG="$work/wrangler.log" DRY_RUN_DEPLOYMENTS=missing:prod upgrade --dry-run --allow-dirty current-checkout 2> err.log \
+  || { cat err.log >&2; fail "a first deployment failed"; }
+grep -q "doesn't exist yet" err.log || fail "the first deployment isn't reported"
+grep -q '^wrangler deploy --config .*reader-prod.json' wrangler.log || fail "the new Worker wasn't deployed"
+
 echo "--- make-instance-env.sh writes a valid instance" >&2
 printf 'TS_AUTHKEY=dry-run\n' > ts.env
 chmod 600 ts.env
@@ -103,6 +127,7 @@ chmod 644 reader-dev.env; refuse "a readable secrets file"; chmod 600 reader-dev
 cp reader-dev.env saved.env
 grep -v RAW_CAP_KEY saved.env > reader-dev.env; refuse "a missing reader secret"
 grep -v R2_ACCOUNT_ID saved.env > reader-dev.env; refuse "neither R2_ACCOUNT_ID nor WAYPOINT_S3_ENDPOINT"
+sed 's|^R2_BUCKET=.*|R2_BUCKET="dry-run"|' saved.env > reader-dev.env; refuse "a quoted secret"
 { cat saved.env; echo 'EXTRA_SECRET=x'; } > reader-dev.env; refuse "an unknown reader secret"
 cp saved.env reader-dev.env
 grep -v WAYPOINT_ENV writer.env > w && mv w writer.env && chmod 600 writer.env; refuse "a writer env without WAYPOINT_ENV"

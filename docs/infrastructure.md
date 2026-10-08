@@ -60,7 +60,7 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
   ```
 
   `upgrade.sh` keeps its state in `~/.config/waypoint/state/waypoint/`. Local images are `waypoint-writer:waypoint-<sha>`, `waypoint-writer:waypoint-current` and `waypoint-writer:waypoint-previous`; the older `waypoint-writer:<sha>`, `current` and `previous` tags from `deploy.sh` can be removed once a deploy through `upgrade.sh` has succeeded.
-- **Re-rendering** after a `RENDERER_VERSION` bump: `bash deploy/upgrade.sh rerender` from a checkout on agent-1. A deploy that starts meanwhile waits for its lock, so the runner doesn't need stopping.
+- **Re-rendering** after a `RENDERER_VERSION` bump: `bash deploy/upgrade.sh rerender` from a checkout on agent-1. A deploy that starts meanwhile waits for its lock (at most 30 minutes, then it fails without changing anything; re-run it afterwards), so the runner doesn't need stopping.
 - **Resource limits:** writer 1 GB / 1.5 CPU / 512 pids; sidecar 256 MB / 0.5 CPU; Docker logs rotate at 10 MB × 3.
 
 ### Reinstalling the deploy runner

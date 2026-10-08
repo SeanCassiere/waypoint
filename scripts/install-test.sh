@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The adopter install test: drives the real deploy/upgrade.sh against a throwaway instance (local
 # writer, sync off, no readers) and checks install, upgrade, rollback, idempotence, failure
-# rollback, interruption and rerender, with the same data directory throughout.
+# rollback, interruption, convergence after a killed run, rerender and its lock, and idempotence
+# with the writer in a sidecar's network namespace (the Tailscale overlay's layout), with the
+# same data directory throughout.
 #
 #   scripts/install-test.sh [old-ref]
 #
@@ -33,6 +35,7 @@ old_sha="$(git -C "$repo" rev-parse --verify "$old_ref^{commit}")"
 new_sha="$(git -C "$repo" rev-parse HEAD)"
 new_version="$(node -p 'require(process.argv[1]).version' "$repo/package.json")"
 old_image="waypoint-writer:$name-old"
+new_image="waypoint-writer:$name-$new_sha"
 broken_image="waypoint-writer:$name-broken"
 hung_image="waypoint-writer:$name-hung"
 
@@ -43,10 +46,12 @@ cleanup() {
   local status=$?
   step "cleanup"
   if [[ -n "${pid:-}" ]]; then kill -KILL "$pid" 2>/dev/null || true; fi
-  "${upgrade[@]}" --instance "$work/config/instance.env" compose down --remove-orphans >/dev/null 2>&1 || true
+  if [[ -n "${holder:-}" ]]; then kill -KILL "$holder" 2>/dev/null || true; fi
+  # A throwaway project, so its volumes go too.
+  "${upgrade[@]}" --instance "$work/config/instance.env" compose down --remove-orphans --volumes >/dev/null 2>&1 || true
   local tag
   while IFS= read -r tag; do
-    [[ "$tag" == "$name-"* ]] && docker_ image rm "waypoint-writer:$tag" >/dev/null 2>&1 || true
+    if [[ "$tag" == "$name-"* ]]; then docker_ image rm "waypoint-writer:$tag" >/dev/null 2>&1 || true; fi
   done < <(docker_ image ls waypoint-writer --format '{{.Tag}}')
   git -C "$repo" worktree remove --force "$work/old" >/dev/null 2>&1 || true
   if [[ -d "$work/data" && "$(stat -c %u "$work/data")" != "$(id -u)" ]]; then sudo -n rm -rf "$work/data" || true; fi
@@ -137,6 +142,23 @@ up current-checkout
 expect_build "$new_sha" "$new_version"
 expect_data
 
+step "a writer that crashed and restarted once still counts as healthy"
+before="$(container)"
+# Kill the server process (tini is PID 1), as an OOM kill would; Docker restarts the container.
+# shellcheck disable=SC2016 # JavaScript, not shell
+docker_ exec "$before" node -e '
+  const fs = require("node:fs");
+  for (const p of fs.readdirSync("/proc").filter((d) => /^[0-9]+$/.test(d) && d !== String(process.pid)))
+    try { if (fs.readFileSync(`/proc/${p}/cmdline`, "utf8").startsWith("node\0dist/main.js\0")) process.kill(Number(p), "SIGKILL"); } catch {}
+'
+for _ in $(seq 90); do
+  [[ "$(docker_ inspect --format '{{.RestartCount}} {{.State.Health.Status}}' "$before")" == "1 healthy" ]] && break
+  sleep 1
+done
+[[ "$(docker_ inspect --format '{{.RestartCount}} {{.State.Health.Status}}' "$before")" == "1 healthy" ]] || fail "the writer didn't restart and recover"
+up current-checkout
+[[ "$(container)" == "$before" ]] || fail "a rerun recreated a writer that had restarted once"
+
 step "a broken image is rolled back"
 printf 'FROM %s\nCMD ["node", "-e", "process.exit(3)"]\n' "waypoint-writer:$name-current" | docker_ build -q -t "$broken_image" - >/dev/null
 if up image "$broken_image"; then fail "deploying a broken image succeeded"; fi
@@ -159,15 +181,71 @@ status=0; wait "$pid" || status=$?
 expect_build "$new_sha" "$new_version"
 expect_data
 
-step "a rerun converges"
+step "a killed deploy leaves its marker, and a rerun converges"
+hung_id="$(docker_ image inspect --format '{{.Id}}' "$hung_image")"
+new_id="$(docker_ image inspect --format '{{.Id}}' "$new_image")"
+# Its scratch directory goes with $work.
+TMPDIR="$work" "${upgrade[@]}" --instance "$work/config/instance.env" image "$hung_image" &
+pid=$!
+for _ in $(seq 60); do
+  [[ "$(docker_ inspect --format '{{.Image}} {{.State.Status}}' "$(container)" 2>/dev/null)" == "$hung_id running" ]] && break
+  sleep 1
+done
+[[ "$(docker_ inspect --format '{{.Image}}' "$(container)")" == "$hung_id" ]] || fail "the hung writer never started"
+kill -KILL "$pid"
+wait "$pid" || true
+pid=""
+[[ -f "$state/deploying" ]] || fail "the deploying marker didn't survive SIGKILL"
 up current-checkout
 expect_build "$new_sha" "$new_version"
+expect_data
+[[ "$(docker_ inspect --format '{{.Image}}' "$(container)")" == "$new_id" ]] || fail "the rerun didn't go back to this commit's image"
+[[ ! -f "$state/deploying" ]] || fail "the rerun left the deploying marker"
+# The killed run's writer was never healthy, so the last healthy image stays the rollback target.
+[[ "$(docker_ image inspect --format '{{.Id}}' "waypoint-writer:$name-previous")" == "$new_id" ]] || fail "the previous image isn't the last healthy one"
+
+step "rerender waits for the instance lock, dry runs too"
+( exec 8> "$state/lock"; flock 8; exec sleep 300 ) &
+holder=$!
+for _ in $(seq 20); do flock -n "$state/lock" true || break; sleep 0.5; done
+started="$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")"
+if LOCK_WAIT_SECONDS=2 up --dry-run rerender 2> "$work/locked.log"; then fail "a rerender ran while another run held the lock"; fi
+grep -q 'timed out waiting for the instance lock' "$work/locked.log" || { cat "$work/locked.log" >&2; fail "rerender didn't wait for the lock"; }
+[[ "$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")" == "$started" ]] || fail "a locked-out rerender restarted the writer"
+kill -KILL "$holder"
+wait "$holder" 2>/dev/null || true
+holder=""
 
 step "rerender"
 up rerender > "$work/rerender.log" 2>&1 || { cat "$work/rerender.log" >&2; fail "rerender failed"; }
 grep -q '"sources":1' "$work/rerender.log" || { cat "$work/rerender.log" >&2; fail "rerender didn't see the markdown"; }
 expect_build "$new_sha" "$new_version"
 expect_data
+
+step "with the writer in a sidecar's network namespace, a rerun is still a no-op"
+# The Tailscale overlay's layout (network_mode: service:ts-waypoint), with a stand-in sidecar
+# that only holds the namespace. Compose labels such a writer with a config hash that never
+# equals `compose config --hash`, so upgrade.sh mustn't rely on the label.
+printf 'TS_AUTHKEY=unused\n' > "$work/config/ts.env"
+chmod 600 "$work/config/ts.env"
+cat > "$work/config/sidecar.yaml" <<EOF
+services:
+  ts-waypoint:
+    image: $old_image
+    entrypoint: ["node", "-e", "setInterval(() => {}, 1 << 30)"]
+    volumes: !reset []
+    healthcheck:
+      disable: true
+EOF
+chmod 644 "$work/config/sidecar.yaml"
+printf 'TAILSCALE=on\nTAILSCALE_ENV_FILE=ts.env\nCOMPOSE_OVERRIDE=sidecar.yaml\n' >> "$work/config/instance.env"
+up current-checkout
+expect_build "$new_sha" "$new_version"
+expect_data
+[[ "$(docker_ inspect --format '{{.HostConfig.NetworkMode}}' "$(container)")" == container:* ]] || fail "the writer isn't in the sidecar's namespace"
+before="$(container)"
+up current-checkout
+[[ "$(container)" == "$before" ]] || fail "a rerun recreated the writer behind the sidecar"
 
 step "status"
 up status

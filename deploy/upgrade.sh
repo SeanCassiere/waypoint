@@ -15,8 +15,8 @@
 # Options:
 #   --instance FILE   instance file (default: $XDG_CONFIG_HOME/waypoint/instance.env)
 #   --dry-run         change nothing: check everything, show what would be deployed, and run
-#                     the reader steps against a stand-in Wrangler (rerender: count only,
-#                     though the writer still stops briefly)
+#                     the reader steps against a stand-in Wrangler (rerender: count only; the
+#                     count needs the data directory's lock, so the writer still stops briefly)
 #   --force           redeploy components that are already at the target
 #   --allow-dirty     current-checkout: deploy uncommitted changes (never idempotent)
 #   --limit N         rerender: renditions per batch (default 500)
@@ -32,6 +32,8 @@
 # config template), reader/WRANGLER_VERSION and SHA256SUMS. Asked for another version, the script
 # fetches that version's bundle and runs its own copy of upgrade.sh.
 set -euo pipefail
+# A failure inside $(...) fails the command substitution too, not just its last command.
+shopt -s inherit_errexit
 umask 077
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -217,7 +219,7 @@ check_instance_files() {
 load_cloudflare() {
   envfile_check_secret_mode "$cloudflare_env_file" || exit 1
   unset c_CLOUDFLARE_ACCOUNT_ID c_CLOUDFLARE_API_TOKEN
-  envfile_read "$cloudflare_env_file" c_ envfile_cloudflare_key || exit 1
+  envfile_read "$cloudflare_env_file" c_ envfile_cloudflare_key secret || exit 1
   [[ -n "${c_CLOUDFLARE_ACCOUNT_ID:-}" && -n "${c_CLOUDFLARE_API_TOKEN:-}" ]] || die "$cloudflare_env_file needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN"
   cf_account="$c_CLOUDFLARE_ACCOUNT_ID"
   cf_token="$c_CLOUDFLARE_API_TOKEN"
@@ -301,18 +303,23 @@ healthz_matches() {
   ' "$1" "$2" "$3"
 }
 
-# Waits for the writer container's Docker health check. Fails fast on a crash loop.
+# Waits for the writer container's Docker health check. Fails fast if the container exits, or
+# restarts while we wait (a crash loop). The baseline is the restart count to compare with: 0 for
+# a container this run just created; by default, the count when the wait starts, so a restart
+# days ago doesn't count against a writer that's healthy now.
+# Usage: wait_writer_healthy [baseline]
 wait_writer_healthy() {
-  local container status state restarts deadline
+  local container status state restarts baseline="${1:-}" deadline
   container="$(writer_container)"
   [[ -n "$container" ]] || { log "no writer container"; return 1; }
+  [[ -n "$baseline" ]] || baseline="$(container_field "$container" '{{.RestartCount}}')"
   deadline=$((SECONDS + ${WRITER_HEALTH_TIMEOUT:-120}))
   while (( SECONDS < deadline )); do
     state="$(container_field "$container" '{{.State.Status}}')"
     restarts="$(container_field "$container" '{{.RestartCount}}')"
     status="$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')"
-    if [[ "$state" == exited || "$state" == dead || "${restarts:-0}" != 0 ]]; then
-      log "writer container stopped ($state, $restarts restarts)"
+    if [[ "$state" == exited || "$state" == dead || "${restarts:-0}" != "${baseline:-0}" ]]; then
+      log "writer container stopped ($state, restarted $(( ${restarts:-0} - ${baseline:-0} )) times)"
       return 1
     fi
     [[ "$status" == healthy ]] && return 0
@@ -339,9 +346,10 @@ check_writer_url() {
 }
 
 # Container health, then the build it reports, then the external URL.
+# Usage: verify_writer <version or ""> <sha or ""> [restart baseline, see wait_writer_healthy]
 verify_writer() {
   local version="$1" sha="$2" container body
-  wait_writer_healthy || return 1
+  wait_writer_healthy "${3:-}" || return 1
   container="$(writer_container)"
   body="$(writer_healthz "$container")" || { log "writer /healthz failed"; return 1; }
   healthz_matches "$body" "$version" "$sha" || { log "writer reports a different build"; return 1; }
@@ -400,7 +408,7 @@ rollback_writer() {
     log "rolling the writer back to the previous image"
     docker_run tag "$local_repo:$project-previous" "$local_repo:$project-current"
     compose up -d --no-deps --force-recreate --pull never writer || { log "rollback: recreate failed"; return 1; }
-    if ! verify_writer "" ""; then log "rollback: the previous writer isn't healthy either"; return 1; fi
+    if ! verify_writer "" "" 0; then log "rollback: the previous writer isn't healthy either"; return 1; fi
     log "writer rolled back"
   else
     log "no previous writer image; stopping the failed first deployment"
@@ -602,18 +610,40 @@ check_data_dir() {
   [[ "$owner" == "$writer_uid:$writer_gid" ]] || die "$data_dir must be owned by $writer_uid:$writer_gid (it's $owner): sudo chown $writer_uid:$writer_gid $data_dir"
 }
 
+# Whether the running writer is the one a previous run deployed for this target, with the current
+# Compose config. The config hash is compared with what that run recorded, not with the
+# container's com.docker.compose.config-hash label: Compose computes the label after resolving
+# `network_mode: service:...` to the sidecar's container ID, so with the Tailscale overlay the
+# label never equals `compose config --hash`.
+# Usage: writer_is_current <container> <its image ID> <expected config hash>
+writer_is_current() {
+  local container="$1" current_id="$2" expected_hash="$3" sidecar
+  [[ -n "$container" && -n "$expected_hash" ]] || return 1
+  [[ "$current_id" == "$target_image_id" ]] || return 1
+  [[ "$(state_get writer id)" == "$target_id" ]] || return 1
+  [[ "$(state_get writer hash)" == "$expected_hash" ]] || return 1
+  [[ "$(state_get writer container)" == "$container" ]] || return 1
+  if [[ "$tailscale" == on ]]; then
+    # A recreated sidecar leaves the writer in the old one's network namespace.
+    sidecar="$(compose ps -a -q ts-waypoint 2>/dev/null || true)"
+    [[ -n "$sidecar" && "$(container_field "$container" '{{.HostConfig.NetworkMode}}')" == "container:$sidecar" ]] || return 1
+  fi
+}
+
 deploy_writer() {
-  local container current_id healthy=0 expected_hash
+  local container current_id="" healthy=0 expected_hash
+  expected_hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
+  [[ -n "$expected_hash" ]] || die "couldn't compute the writer's Compose config hash"
+  # The sidecar first (a no-op when it already runs unchanged), so the check below sees the
+  # network namespace the writer will join.
+  if [[ "$tailscale" == on ]] && (( ! dry_run )); then compose up -d ts-waypoint; fi
   container="$(writer_container)"
   if [[ -n "$container" ]]; then
     current_id="$(container_field "$container" '{{.Image}}')"
     [[ "$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" == healthy ]] && healthy=1
   fi
-  expected_hash="$(compose config --hash writer 2>/dev/null | awk '{print $2}')"
-  if (( ! force )) && [[ -n "$container" && "$current_id" == "$target_image_id" && "$(state_get writer id)" == "$target_id" ]] \
-    && [[ "$(container_field "$container" '{{index .Config.Labels "com.docker.compose.config-hash"}}')" == "$expected_hash" ]]; then
+  if (( ! force )) && writer_is_current "$container" "$current_id" "$expected_hash"; then
     log "writer already runs $target_id; checking its health"
-    if [[ "$tailscale" == on ]] && (( ! dry_run )); then compose up -d ts-waypoint; fi
     verify_writer "$target_version" "$target_sha" || die "the writer runs the target but isn't healthy (rerun with --force to recreate it)"
     return 0
   fi
@@ -633,16 +663,17 @@ deploy_writer() {
   in_progress=writer
   marker_set "$target_id"
   docker_run tag "$target_image_id" "$local_repo:$project-current"
-  if [[ "$tailscale" == on ]]; then compose up -d ts-waypoint; fi
   log "recreating the writer"
   compose up -d --no-deps --force-recreate --pull never writer
-  if ! verify_writer "$target_version" "$target_sha"; then
+  if ! verify_writer "$target_version" "$target_sha" 0; then
     in_progress=""
     if rollback_writer; then rm -f "$state_dir/deploying"; fi
     die "writer deploy failed"
   fi
   in_progress=""
-  state_put writer "id=$target_id" "version=$target_version" "sha=$target_sha" "image=$target_image_id"
+  container="$(writer_container)"
+  state_put writer "id=$target_id" "version=$target_version" "sha=$target_sha" "image=$target_image_id" \
+    "hash=$expected_hash" "container=$container"
   log "writer is healthy on $target_id"
   prune_writer_images
 }
@@ -691,10 +722,22 @@ wrangler_cmd() {
     "${wrangler_bin[@]}" "$@"
 }
 
+# DRY_RUN_DEPLOYMENTS=fail:<target> makes the deployments lookup fail for that target, and
+# missing:<target> answers like Wrangler does for a Worker that doesn't exist yet.
 dry_wrangler() {
   if [[ -n "${DRY_RUN_LOG:-}" ]]; then printf 'wrangler %s\n' "$*" >> "$DRY_RUN_LOG"; fi
   case "$1 ${2:-}" in
-    'deployments list') printf '[{"versions":[{"version_id":"dry-run-previous"}]}]\n' ;;
+    'deployments list')
+      case "${DRY_RUN_DEPLOYMENTS:-}" in
+        fail:*) if [[ "$*" == *"/reader-${DRY_RUN_DEPLOYMENTS#fail:}.json"* ]]; then
+            echo 'X [ERROR] A request to the Cloudflare API failed. Authentication error [code: 10000]' >&2; return 1
+          fi ;;
+        missing:*) if [[ "$*" == *"/reader-${DRY_RUN_DEPLOYMENTS#missing:}.json"* ]]; then
+            echo 'X [ERROR] A request to the Cloudflare API failed. This Worker does not exist on your account. [code: 10007]' >&2; return 1
+          fi ;;
+      esac
+      printf '[{"versions":[{"version_id":"dry-run-previous"}]}]\n'
+      ;;
     'secret bulk')
       node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));if(fs.statSync(p).mode&0o077||!d.TURSO_DATABASE_URL||!d.RAW_CAP_KEY)process.exit(1)' "$3"
       ;;
@@ -711,10 +754,40 @@ prepare_reader() {
   local config="$scratch/reader-$t.json"
   node "$script_dir/lib/reader-config.mjs" --template "$reader_template" --main "$reader_main" \
     --name "${r_worker[$t]}" --domain "${r_domain[$t]}" --dataset "${r_dataset[$t]}" \
-    --ratelimit-namespace "${r_namespace[$t]}" --workers-dev "${r_workers_dev[$t]}" > "$config"
+    --ratelimit-namespace "${r_namespace[$t]}" --workers-dev "${r_workers_dev[$t]}" > "$config" \
+    || die "reader $t: couldn't generate the Wrangler config"
+  [[ -s "$config" ]] || die "reader $t: the generated Wrangler config is empty"
   reader_secrets_json "${r_secrets[$t]}" "$scratch/secrets-$t.json" || exit 1
   { printf '%s\n%s\n%s\n' "$target_id" "$target_version" "$target_sha"; cat "$config" "$scratch/secrets-$t.json"; } \
     | sha256sum | cut -d' ' -f1
+}
+
+# Prints the Worker version the target serves now: the one to roll back to. Prints nothing when
+# Wrangler reports that the Worker doesn't exist yet (a first deployment). Any other failure, or
+# an answer that names no version, stops the run before anything is uploaded: deploying without
+# a rollback target isn't safe.
+reader_deployed_version() {
+  local t="$1"
+  local out="$scratch/deployments-$t.json" err="$scratch/deployments-$t.err" text
+  if ! wrangler_cmd deployments list --json --config "$scratch/reader-$t.json" > "$out" 2> "$err"; then
+    if grep -Eq '\[code: (10007|10090)\]' "$err"; then
+      log "reader $t: the Worker ${r_worker[$t]} doesn't exist yet; this is its first deployment"
+      return 0
+    fi
+    text="$(cat "$err")"
+    [[ -z "${cf_account:-}" ]] || text="${text//"$cf_account"/<account>}"
+    printf '%s\n' "$text" >&2
+    die "reader $t: couldn't list the Worker's deployments, so there'd be no version to roll back to"
+  fi
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const d = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+    if (!Array.isArray(d)) process.exit(1);
+    if (d.length === 0) process.exit(0); // the Worker exists, but nothing is deployed
+    const id = d.at(-1)?.versions?.[0]?.version_id;
+    if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(id)) process.exit(1);
+    console.log(id);
+  ' "$out" || die "reader $t: unexpected answer from wrangler deployments list"
 }
 
 # Smoke test against the live custom domain, retried while DNS and certificates settle.
@@ -761,6 +834,7 @@ smoke_once() {
   if [[ "$code" != 200 ]] || ! grep -q 'Disallow: /' "$d/b"; then smoke_error="/robots.txt $code"; return 1; fi
 }
 
+# Usage: deploy_reader <target> <fingerprint> <Worker version to roll back to, or "">
 deploy_reader() {
   local t="$1" fingerprint="$2"
   local config="$scratch/reader-$t.json" deploy_args
@@ -770,10 +844,7 @@ deploy_reader() {
     return 0
   fi
   log "reader $t: deploying ${r_worker[$t]} to ${r_domain[$t]}"
-  reader_previous=""
-  if wrangler_cmd deployments list --json --config "$config" > "$scratch/deployments.json" 2>/dev/null; then
-    reader_previous="$(node -e 'const d=require(process.argv[1]);const items=Array.isArray(d)?d:d.deployments??[];const x=items.at(-1);console.log(x?.versions?.[0]?.version_id??x?.version_id??"")' "$scratch/deployments.json" 2>/dev/null || true)"
-  fi
+  reader_previous="$3"
   in_progress="reader:$t"
   marker_set "$target_id"
   wrangler_cmd secret bulk "$scratch/secrets-$t.json" --config "$config" > "$scratch/secret-bulk.log"
@@ -818,7 +889,7 @@ cmd_deploy() {
 
   # 1. Fetch and check everything before touching anything running.
   local t readers=()
-  declare -A fingerprint=()
+  declare -A fingerprint=() previous_version=()
   if (( readers_deployable )) && ((${#reader_targets[@]})); then
     load_cloudflare
     resolve_wrangler
@@ -838,7 +909,10 @@ cmd_deploy() {
         (cd "$repo_root" && pnpm --filter "@waypoint/reader..." build) >&2
       fi
     fi
-    [[ -f "$reader_main" ]] || die "no built reader at $reader_main"
+    # Nothing to upload when every target is current; the dry run still validates every config.
+    if ((${#readers[@]})) || (( dry_run )); then
+      [[ -f "$reader_main" ]] || die "no built reader at $reader_main"
+    fi
     if (( dry_run )) && [[ "${wrangler_bin[0]}" != npx ]]; then
       for t in "${reader_targets[@]}"; do
         WRANGLER_SEND_METRICS=false "${wrangler_bin[@]}" deploy --dry-run --config "$scratch/reader-$t.json" \
@@ -847,6 +921,7 @@ cmd_deploy() {
       done
       log "reader configs validate with wrangler deploy --dry-run"
     fi
+    for t in "${readers[@]}"; do previous_version[$t]="$(reader_deployed_version "$t")"; done
   fi
   docker_available || die "Docker is unavailable"
   compose config -q || die "the compose files don't validate"
@@ -856,7 +931,7 @@ cmd_deploy() {
   # 2. The writer, then each reader in order.
   deploy_writer
   if (( readers_deployable )); then
-    for t in "${reader_targets[@]}"; do deploy_reader "$t" "${fingerprint[$t]}"; done
+    for t in "${reader_targets[@]}"; do deploy_reader "$t" "${fingerprint[$t]}" "${previous_version[$t]:-}"; done
   elif ((${#reader_targets[@]})); then
     log "readers aren't deployed from a bare image; deploy a release or the checkout to update them"
   fi
@@ -923,7 +998,9 @@ cmd_validate() {
 cmd_rerender() {
   compose_env
   docker_available || die "Docker is unavailable"
-  if (( ! dry_run )); then lock_state; fi
+  # Even a dry run stops the writer (the count needs the data directory's lock), so it must not
+  # overlap a deploy or another rerender.
+  lock_state
   [[ ! -f "$state_dir/deploying" ]] || die "an upgrade didn't finish; rerun it before re-rendering"
   local args summary remaining version pending deadline
   [[ -n "$(writer_container)" ]] || die "no writer container"
