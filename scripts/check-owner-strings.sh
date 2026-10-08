@@ -8,8 +8,8 @@
 #
 # Matching is case-insensitive. Caught: the owner's handle in any form (so its Cloudflare
 # workers.dev subdomain and its Turso organization too), its public domain, its tailnet name, its
-# host's name, Cloudflare Access team domains, and a few opaque IDs (Cloudflare account, Access
-# app, GitHub App), which are matched by hash so this script doesn't publish them.
+# host's name (as a whole name), Cloudflare Access team domains, and a few opaque IDs (Cloudflare
+# account, Access app, GitHub App), which are matched by hash so this script doesn't publish them.
 #
 # Allowed everywhere, because they name the published project rather than an instance:
 #   - its image, ghcr.io/seancassiere/... (the default IMAGE);
@@ -23,7 +23,8 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Spelled in pieces so this script doesn't match itself.
 owner='sean''cassiere'
-pattern="$owner|ping""stash|tail7a""ca06|agent""-1|cloudflare""access"
+# The host's name is matched as a whole name, so `agent-10` or `reagent-1` doesn't count.
+pattern="$owner|ping""stash|tail7a""ca06|(^|[^[:alnum:]])agent""-1([^[:alnum:]]|$)|cloudflare""access"
 # A form that isn't followed by more of a repository name ends the match.
 end='([^-[:alnum:]_.]|\.([^[:alnum:]]|$)|$)'
 strip_global="s#ghcr\\.io/$owner/##Ig; s#$owner/waypoint(\\.git)?$end#\\2#Ig"

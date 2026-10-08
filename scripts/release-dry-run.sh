@@ -172,18 +172,19 @@ fi
 grep -q "names the owner's instance" "$work/err.log" || { cat "$work/err.log" >&2; fail "the owner-string refusal isn't explained"; }
 
 step "the owner-string check (scripts/check-owner-strings.sh)"
-# Every form of the owner's instance is refused, wherever it is; the published image and the
-# upstream repository pass. (The account IDs it matches by hash aren't planted: that would name them.)
+# Every form of the owner's instance is refused, wherever it is; the published image, the
+# upstream repository and names that merely contain the host's (agent-10) pass. (The account IDs
+# it matches by hash aren't planted: that would name them.)
 probe="$work/owner-probe"
 for planted in "https://$owner.workers.dev" "$owner/waypoint-ops" "Turso org $owner" "share.ping""stash.com" \
-  "waypoint.tail7a""ca06.ts.net" "the agent""-1 host" "team.cloudflare""access.com" "$owner/waypoint.github.io"; do
+  "waypoint.tail7a""ca06.ts.net" "the agent""-1 host" "agent""-1.example.test" "(agent""-1)" "team.cloudflare""access.com" "$owner/waypoint.github.io"; do
   rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "$planted" > "$probe/doc.md"
   if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed: $planted"; fi
 done
 rm -rf "$probe" && mkdir -p "$probe"
 printf '%s\n' "ghcr.io/$owner/waypoint-writer:1.0.0" "https://github.com/$owner/waypoint/releases" "$owner/waypoint." \
-  "git clone https://github.com/$owner/waypoint.git" > "$probe/ok.md"
-bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1 || fail "the owner-string check refused the published image or repository"
+  "git clone https://github.com/$owner/waypoint.git" "agents agent""-10 and reagent""-1" > "$probe/ok.md"
+bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1 || fail "the owner-string check refused the published image, the repository or another agent name"
 mkdir -p "$probe/agent""-1"
 if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed a directory named for the owner's host"; fi
 
