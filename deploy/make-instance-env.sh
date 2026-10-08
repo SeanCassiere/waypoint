@@ -11,6 +11,8 @@
 #   --data-dir DIR           DATA_DIR
 #   --writer-env FILE        WRITER_ENV_FILE
 #   --image NAME             IMAGE
+#   --release-repo REPO      RELEASE_REPO (owner/repo)
+#   --verify-attestations N  VERIFY_ATTESTATIONS (1: required, 0: off; default: when gh is installed)
 #   --project NAME           COMPOSE_PROJECT
 #   --uid N --gid N          WRITER_UID, WRITER_GID
 #   --bind ADDRESS --port N  WRITER_BIND_ADDRESS, WRITER_HOST_PORT
@@ -39,7 +41,8 @@ source "$script_dir/lib/env.sh"
 
 die() { echo "$log_prefix: $*" >&2; exit 1; }
 
-output="" config_dir="" data_dir="" writer_env="" image="" project="" uid="" gid="" bind="" port=""
+output="" config_dir="" data_dir="" writer_env="" image="" release_repo="" verify_attestations="" project=""
+uid="" gid="" bind="" port=""
 health_url="" no_health_url=0 tailscale=0 ts_env="" ts_hostname="" ts_tags="" cloudflare_env="" force=0
 readers=()
 need() { [[ $# -ge 2 && -n "$2" ]] || die "$1 needs a value"; }
@@ -50,6 +53,8 @@ while (($#)); do
     --data-dir) need "$@"; data_dir="$2"; shift 2 ;;
     --writer-env) need "$@"; writer_env="$2"; shift 2 ;;
     --image) need "$@"; image="$2"; shift 2 ;;
+    --release-repo) need "$@"; release_repo="$2"; shift 2 ;;
+    --verify-attestations) need "$@"; verify_attestations="$2"; shift 2 ;;
     --project) need "$@"; project="$2"; shift 2 ;;
     --uid) need "$@"; uid="$2"; shift 2 ;;
     --gid) need "$@"; gid="$2"; shift 2 ;;
@@ -98,6 +103,8 @@ lines=(
 )
 add() { if [[ -n "$2" ]]; then lines+=("$1=$2"); fi; }
 add IMAGE "$image"
+add RELEASE_REPO "$release_repo"
+add VERIFY_ATTESTATIONS "$verify_attestations"
 add COMPOSE_PROJECT "$project"
 add WRITER_UID "$uid"
 add WRITER_GID "$gid"
