@@ -11,7 +11,7 @@ Read this before changing Waypoint's code or docs. It's written for coding agent
 | `packages/ui`              | UI shared by the writer viewer and the reader: tokens, escaping, the public shell. Web APIs only                                                       |
 | `packages/mcp`             | The stdio MCP server bundle and the launcher tarball (`src/launcher.ts`, which must stay backward-compatible)                                          |
 | `apps/writer`              | The writer (Node): API, viewer, queue, committer, sync, restore, rerender; `Dockerfile`; `src/config.ts` reads every setting                           |
-| `apps/reader`              | The public reader (Cloudflare Worker); `wrangler.jsonc` is a generic template that deploys render per instance                                         |
+| `apps/reader`              | The public reader (Cloudflare Worker); `wrangler.jsonc` is a generic template that each deploy renders per instance                                    |
 | `deploy/`                  | `upgrade.sh` and its library, `instance.env.example`, the Compose files, the ops workflow template, the runbook ([deploy/README.md](deploy/README.md)) |
 | `skills/waypoint/SKILL.md` | Agent-facing usage guidance, also served by every writer at `/mcp/skill/SKILL.md`                                                                      |
 | `scripts/`                 | Dev helpers, CI checks and release tooling                                                                                                             |
