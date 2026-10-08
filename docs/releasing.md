@@ -31,9 +31,12 @@ commits on `main` ([release-please-config.json](../release-please-config.json),
    version bump in `package.json`, the manifest and `version.ts` (through its
    `x-release-please-version` annotation), and `CHANGELOG.md` (features, fixes, performance,
    reverts, refactors, docs and build changes; CI, tests, chores, style and spikes are left out).
-3. A PR that GITHUB_TOKEN opens or updates triggers no `pull_request` workflows, so the same job
-   then starts CI on the release branch with `gh workflow run ci.yml --ref <branch>`
-   (workflow_dispatch is exempt from that rule). Its `ci-ok` check lands on the branch's head
+   release-please owns `CHANGELOG.md` and writes it in its own style, so oxfmt ignores it (else the
+   release PR's format check would fail on every update).
+3. A PR that GITHUB_TOKEN opens or updates triggers no `pull_request` workflows, so the next job,
+   `release-pr-ci`, starts CI on the release branch with `gh workflow run ci.yml --ref <branch>`
+   (workflow_dispatch is exempt from that rule). It's a job of its own so that its failure can't
+   skip publishing in a run that also created a release. Its `ci-ok` check lands on the branch's head
    commit, which is what branch protection requires.
 4. **Merging the release PR is the release.** The next `release.yml` run tags `vX.Y.Z`, creates the
    GitHub release with the changelog, and publishes it (below).
@@ -120,10 +123,14 @@ the latest release itself and verifies it before deploying, so the dispatch carr
 trust.
 
 The App has one permission, Actions: write, on the ops repository only. Its key can start that
-workflow (and re-run or cancel its runs), nothing else: it can't read code or secrets, push, or
-choose a version (the workflow honours a `version` input only from its admin login). The worst a
-leaked key does is start or cancel deploys of the latest attested release; a cancelled deploy
-still finishes on its own (it runs detached from its job).
+workflow, re-run or cancel its runs, disable or enable it, and delete its runs, logs and
+artifacts. It can't read code or secrets, push, or choose a version (the workflow honours a
+`version` input only from its admin login). So a leaked key can start or cancel deploys of the
+latest attested release, or stop automatic deploys (by disabling the workflow) and erase their
+history on GitHub, but it can't deploy anything else. A cancelled deploy still finishes on its own
+(it runs detached from its job), and each deploy's log also stays on the runner host, under
+`WAYPOINT_DEPLOY_WORK`. If the key leaks, rotate it (below) and check that the workflow is
+enabled.
 
 ### Rotating the App key
 
@@ -138,7 +145,9 @@ still finishes on its own (it runs detached from its job).
 CI's `release-dry-run` job ([scripts/release-dry-run.sh](../scripts/release-dry-run.sh)) runs
 actionlint on every workflow and the ops template, validates the release-please config against
 its schema, builds and checks a bundle, and runs `upgrade.sh`'s release mode against a fake
-release with stand-in attestations. Locally, after `pnpm --filter "@waypoint/reader..." build`:
+release with stand-in attestations, and tests the `dispatch` job's target check
+([scripts/release-dispatch-target.sh](../scripts/release-dispatch-target.sh)) and oxfmt's
+handling of `CHANGELOG.md`. Locally, after `pnpm --filter "@waypoint/reader..." build`:
 
 ```bash
 bash scripts/build-release-bundle.sh --out /tmp/release   # the bundle for this commit

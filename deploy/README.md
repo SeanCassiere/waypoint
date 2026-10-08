@@ -83,7 +83,10 @@ and runs that bundle's `upgrade.sh`. The release image is pulled by the digest t
 (`IMAGE_DIGEST`, the multi-arch index the release workflow attested), so the writer runs exactly
 that image, never a moving tag, and it must report the bundle's commit. (A bundle without
 `IMAGE_DIGEST` pulls by tag and pins the digest that arrives.) Downloaded bundles live in
-`<STATE_DIR>/releases/`; the running one and the newest three others are kept. A run that fetches
+`<STATE_DIR>/releases/`; the running one and the newest three others are kept. Each records
+whether its attestation was verified (`.provenance`): a bundle cached while verification was off
+or impossible (`VERIFY_ATTESTATIONS=0`, or no `gh`) is downloaded and verified again before it
+runs once verification is on. A run that fetches
 another version's bundle takes the instance lock first (a `--dry-run` too) and its bundle's
 `upgrade.sh` inherits it, so concurrent runs never unpack over, replace or prune a bundle another
 run is using.
@@ -234,9 +237,11 @@ run:
 processes and kill them seconds later, which could cut a rollback short. So step 3 runs detached
 from the job (`setsid`, without the runner's process-tracking variable), and the job only follows
 its log: a cancelled job leaves the deploy to finish, or roll back, on its own, still holding the
-instance lock, and the next run waits for it. Each run's bundle, temporary files and log stay in
+instance lock, and the next run waits for it. If the detached deploy itself is killed before it
+records its exit status, the job fails as soon as it notices rather than waiting out its timeout
+(`upgrade.sh` converges on the next run). Each run's bundle, temporary files and log stay in
 `<WAYPOINT_DEPLOY_WORK>/runs/<run>-<attempt>/` (default `~/.local/state/waypoint-deploy`), removed
-two weeks after they finish. Setup: [docs/self-hosting.md](../docs/self-hosting.md#optional-automatic-deploys-on-release).
+once nothing in them has changed for two weeks. Setup: [docs/self-hosting.md](../docs/self-hosting.md#optional-automatic-deploys-on-release).
 
 ## Status, logs and stopping
 

@@ -701,9 +701,19 @@ exec_release_bundle() {
   lock_state
   dir="$state_dir/releases/$version"
   tgz="$scratch/waypoint-deploy-$version.tgz"
-  if [[ ! -f "$dir/upgrade.sh" ]]; then
-    # Whether attestations are verified, and with which gh, is settled before the download.
-    attestations_enabled || true
+  # Whether attestations are verified, and with which gh, is settled before anything is reused or
+  # downloaded. A cached bundle records whether its attestation was verified (.provenance): one
+  # fetched while verification was off or impossible is fetched and verified again once it's on.
+  local provenance=unverified fetch=1
+  if attestations_enabled; then provenance="attested ${release_repo,,}"; fi
+  if [[ -f "$dir/upgrade.sh" ]]; then
+    if [[ "$provenance" == unverified || "$(cat "$dir/.provenance" 2>/dev/null || true)" == "$provenance" ]]; then
+      fetch=0
+    else
+      log "the cached $version release bundle wasn't verified against $release_repo's attestations; fetching it again"
+    fi
+  fi
+  if (( fetch )); then
     log "fetching the $version release bundle from $release_repo"
     curl -fsSL --max-time 300 -o "$tgz" \
       "https://github.com/$release_repo/releases/download/v$version/waypoint-deploy-$version.tgz" \
@@ -715,6 +725,7 @@ exec_release_bundle() {
     tar -xzf "$tgz" -C "$unpacked" --strip-components=1 --no-same-owner
     (cd "$unpacked" && sha256sum --quiet -c SHA256SUMS) || die "the $version release bundle fails its checksums"
     [[ "$(tr -d '[:space:]' < "$unpacked/VERSION")" == "$version" ]] || die "the bundle's VERSION isn't $version"
+    echo "$provenance" > "$unpacked/.provenance"
     chmod 700 "$unpacked"
     rm -rf "$dir"
     mv "$unpacked" "$dir"

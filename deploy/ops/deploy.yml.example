@@ -66,8 +66,10 @@ jobs:
           work="${WAYPOINT_DEPLOY_WORK:-$HOME/.local/state/waypoint-deploy}"
           mkdir -p "$work/runs" "$work/tools"
           chmod 700 "$work"
-          # Finished runs older than two weeks.
-          find "$work/runs" -mindepth 2 -maxdepth 2 -name exit -mtime +14 -printf '%h\0' | xargs -0r rm -rf
+          # Runs with nothing written for two weeks: finished, or stopped before they could finish.
+          for old in "$work"/runs/*/; do
+            if [[ -d "$old" && -z "$(find "$old" -mtime -14 -print -quit)" ]]; then rm -rf "$old"; fi
+          done
           run="$work/runs/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           rm -rf "$run"
           mkdir -p "$run/bundle" "$run/tmp"
@@ -162,12 +164,27 @@ jobs:
           # shellcheck disable=SC2016 # the inner script expands its own arguments
           env -u RUNNER_TRACKING_ID TMPDIR="$RUN_DIR/tmp" PATH="$GH_BIN_DIR:$PATH" \
             setsid -f bash -c '
+              echo "$$" > "$4/pid.tmp" && mv "$4/pid.tmp" "$4/pid"
               bash "$1/upgrade.sh" --instance "$2" "$3" >> "$4/log" 2>&1
               echo "$?" > "$4/exit.tmp" && mv "$4/exit.tmp" "$4/exit"
             ' upgrade "$RUN_DIR/bundle" "$instance" "$VERSION" "$RUN_DIR" < /dev/null > /dev/null 2>&1
           tail -n +1 -f "$RUN_DIR/log" &
           tail_pid=$!
-          until [[ -f "$RUN_DIR/exit" ]]; do sleep 2; done
+          # Until the exit status is recorded, or the detached shell is gone without recording one
+          # (killed: upgrade.sh converges on the next run).
+          waited=0
+          until [[ -f "$RUN_DIR/exit" ]]; do
+            sleep 2
+            pid="$(cat "$RUN_DIR/pid" 2> /dev/null || true)"
+            if [[ -z "$pid" ]]; then
+              waited=$((waited + 2))
+              if (( waited >= 60 )); then echo "::error::upgrade.sh $VERSION didn't start; log: $RUN_DIR/log"; exit 1; fi
+            elif ! kill -0 "$pid" 2> /dev/null && [[ ! -f "$RUN_DIR/exit" ]]; then
+              kill "$tail_pid" 2> /dev/null || true
+              echo "::error::upgrade.sh $VERSION stopped without recording its exit status (killed?); log: $RUN_DIR/log"
+              exit 1
+            fi
+          done
           sleep 1
           kill "$tail_pid" 2> /dev/null || true
           status="$(cat "$RUN_DIR/exit")"

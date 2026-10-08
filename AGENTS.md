@@ -44,7 +44,7 @@ The release pipeline ([docs/releasing.md](docs/releasing.md), D56) is already in
    - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender (its count, its lock, its refusal of changed settings), a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
    - `mcp-smoke`
    - `browser`
-   - `release-dry-run` (actionlint, the release-please config, the release bundle, and `upgrade.sh`'s release mode against a fake release with stand-in attestations: [scripts/release-dry-run.sh](scripts/release-dry-run.sh))
+   - `release-dry-run` (actionlint, the release-please config, oxfmt leaving release-please's `CHANGELOG.md` alone, the dispatch target check, the release bundle, and `upgrade.sh`'s release mode against a fake release with stand-in attestations: [scripts/release-dry-run.sh](scripts/release-dry-run.sh))
 
    `ci-ok` passes only if every one of them succeeds. There are no PR previews (D55). PR titles must be conventional commits (`type(scope): subject`), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged and release-please builds the version and changelog from them. CI also runs on release-please's branch, started by the release workflow (`workflow_dispatch`).
 

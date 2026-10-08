@@ -1,7 +1,7 @@
 name: Release
 # Releases are cut by release-please (docs/releasing.md). Every push to main updates its release
 # PR (version bump and CHANGELOG from the conventional commits since the last release) and runs CI
-# on it. Merging that PR creates the GitHub release and tag vX.Y.Z, and the same run publishes it:
+# on it (release-pr-ci). Merging that PR creates the GitHub release and tag vX.Y.Z, and the same run publishes it:
 #
 #   image-build  the writer image, natively on amd64 and arm64, pushed by digest
 #   image        the multi-arch index ghcr.io/<owner>/waypoint-writer:X.Y.Z (and X.Y, latest,
@@ -30,9 +30,9 @@ jobs:
       contents: write # the release, its tag, the release branch
       pull-requests: write # the release PR
       issues: write # the release PR's labels
-      actions: write # dispatching CI on the release branch
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      pr: ${{ steps.release.outputs.pr }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
@@ -42,15 +42,25 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      # A PR opened or pushed with GITHUB_TOKEN triggers no `pull_request` workflows, so CI is
-      # started on the release branch by hand: workflow_dispatch is exempt from that rule. Its
-      # checks, `ci-ok` included, land on the branch's head commit, the one branch protection
-      # checks. Only when release-please created or changed the PR.
+
+  # A PR opened or pushed with GITHUB_TOKEN triggers no `pull_request` workflows, so CI is started
+  # on the release branch by hand: workflow_dispatch is exempt from that rule. Its checks, `ci-ok`
+  # included, land on the branch's head commit, the one branch protection checks. Only when
+  # release-please created or changed the PR. A job of its own, so its failure can't skip the
+  # publishing jobs of a run that also created a release (a re-run of release-please wouldn't
+  # report the release again).
+  release-pr-ci:
+    needs: release-please
+    if: needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # gh workflow run reads the workflow
+      actions: write # dispatching CI on the release branch
+    steps:
       - name: Run CI on the release PR
-        if: steps.release.outputs.pr != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ steps.release.outputs.pr }}
+          PR: ${{ needs.release-please.outputs.pr }}
         run: |
           set -euo pipefail
           branch="$(jq -r .headBranchName <<< "$PR")"
@@ -241,18 +251,22 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true' && vars.DEPLOY_DISPATCH_REPO != ''
     runs-on: ubuntu-latest
     environment: release
-    permissions: {}
+    permissions:
+      contents: read # the target check's script
     steps:
+      # Only the script the next step runs (scripts/release-dry-run.sh tests it).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/release-dispatch-target.sh
+          sparse-checkout-cone-mode: false
       - id: target
         name: Check the target
         env:
           REPO: ${{ vars.DEPLOY_DISPATCH_REPO }}
           WORKFLOW: ${{ vars.DEPLOY_DISPATCH_WORKFLOW || 'deploy.yml' }}
-        run: |
-          set -euo pipefail
-          [[ "$REPO" =~ ^([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)$ ]] || { echo "::error::DEPLOY_DISPATCH_REPO must be owner/repo"; exit 1; }
-          [[ "$WORKFLOW" =~ ^[A-Za-z0-9._-]+\.ya?ml$ ]] || { echo "::error::DEPLOY_DISPATCH_WORKFLOW must be a workflow file name"; exit 1; }
-          { echo "owner=${BASH_REMATCH[1]}"; echo "name=${BASH_REMATCH[2]}"; echo "workflow=$WORKFLOW"; } >> "$GITHUB_OUTPUT"
+        run: bash scripts/release-dispatch-target.sh
       - id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
