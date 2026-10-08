@@ -61,7 +61,7 @@ manual_fix() {
   if [[ -n "${1:-}" ]]; then
     cmd="for id in $1; do gh api -X POST repos/$REPO/actions/runs/\$id/approve; done"
   else
-    cmd="gh run list --repo $REPO --commit ${sha:-\$(gh pr view $number --repo $REPO --json headRefOid --jq .headRefOid)} --status action_required --json databaseId --jq '.[].databaseId' | xargs -I{} gh api -X POST repos/$REPO/actions/runs/{}/approve"
+    cmd="gh run list --repo $REPO --commit ${sha:-\$(gh pr view $number --repo $REPO --json headRefOid --jq .headRefOid)} --branch ${branch:-\$(gh pr view $number --repo $REPO --json headRefName --jq .headRefName)} --status action_required --json databaseId --jq '.[].databaseId' | xargs -I{} gh api -X POST repos/$REPO/actions/runs/{}/approve"
   fi
   printf '%s\n' "$cmd"
 }

@@ -80,7 +80,7 @@ dialog of the PR you merge.
    select it, or approve them from a terminal with the command the warning gives, which is:
 
    ```bash
-   gh run list --repo <repo> --commit <head commit> --status action_required \
+   gh run list --repo <repo> --commit <head commit> --branch <release branch> --status action_required \
      --json databaseId --jq '.[].databaseId' | xargs -I{} gh api -X POST repos/<repo>/actions/runs/{}/approve
    ```
 
