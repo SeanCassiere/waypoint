@@ -31,7 +31,9 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 ## How updates reach production
 
-**Merging to `main` deploys.** Don't deploy by hand unless the pipeline is broken.
+**Merging to `main` deploys** until the cutover to release-driven deploys (when the repository goes public). Don't deploy by hand unless the pipeline is broken.
+
+The release pipeline ([docs/releasing.md](docs/releasing.md), D56) is already in place: every push to `main` updates release-please's release PR, and merging that PR publishes a release (the attested multi-arch image `ghcr.io/seancassiere/waypoint-writer:X.Y.Z` and the attested bundle `waypoint-deploy-X.Y.Z.tgz`) and dispatches the deploy in the private ops repository. **Don't merge a release PR before the cutover**: attestations and environments don't work while the repository is private. After the cutover, releases deploy and feature merges don't, and the Deploy workflow below goes away.
 
 1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
    - `lint` (format check, lint, core import guard, shellcheck of every script, and `scripts/check-owner-strings.sh`: nothing in `deploy/` may name an instance)
@@ -42,8 +44,9 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
    - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender (its count, its lock, its refusal of changed settings), a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
    - `mcp-smoke`
    - `browser`
+   - `release-dry-run` (actionlint, the release-please config, the release bundle, and `upgrade.sh`'s release mode against a fake release with stand-in attestations: [scripts/release-dry-run.sh](scripts/release-dry-run.sh))
 
-   `ci-ok` passes only if every one of them succeeds. There are no PR previews (D55).
+   `ci-ok` passes only if every one of them succeeds. There are no PR previews (D55). PR titles must be conventional commits (`type(scope): subject`), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged and release-please builds the version and changelog from them. CI also runs on release-please's branch, started by the release workflow (`workflow_dispatch`).
 
 2. Merge to `main`. CI runs again on `main`.
 3. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`), for that exact commit. It installs the reader's dependencies and runs the same path every instance uses:

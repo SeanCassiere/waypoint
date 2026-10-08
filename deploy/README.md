@@ -16,6 +16,11 @@ Waypoint? Start with [docs/self-hosting.md](../docs/self-hosting.md). What each 
 | `serve.json` | The Tailscale sidecar's Serve config: HTTPS on 443 to the writer |
 | `lib/env.sh` | The strict env-file parser |
 | `lib/reader-config.mjs` | Renders a reader target's Wrangler config from `apps/reader/wrangler.jsonc` |
+| `ops/deploy.yml.example` | The workflow of a private ops repository that deploys every release automatically |
+
+A release bundle (`waypoint-deploy-X.Y.Z.tgz`, built by
+[scripts/build-release-bundle.sh](../scripts/build-release-bundle.sh)) holds these files plus the
+release's prebuilt reader; how releases are made: [docs/releasing.md](../docs/releasing.md).
 
 ## Requirements
 
@@ -24,6 +29,8 @@ A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.4+ (`up
 anything older; `upgrade.sh` checks before deploying a reader). Deploying a git checkout
 (`current-checkout`) also needs `git`, and with reader targets, Node.js 24 (the workspace's
 minimum), pnpm and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
+Verifying releases needs the [GitHub CLI](https://cli.github.com) 2.102.0 or later, logged in
+(`gh auth login`) or with `GH_TOKEN` set (see [Release provenance](#release-provenance)).
 
 If your login session predates your `docker` group membership, `upgrade.sh` runs Docker through
 `sg docker`; no logout or daemon restart is needed.
@@ -71,14 +78,45 @@ deploy/upgrade.sh --dry-run current-checkout      # everything except changing a
 
 A release is deployed by **its own** `upgrade.sh`: run from a release bundle
 (`waypoint-deploy-X.Y.Z.tgz`) at the same version, it uses the files beside it; asked for any
-other version, it downloads that release's bundle into the state directory, checks its
-`SHA256SUMS` and runs that bundle's `upgrade.sh`. A release image is pulled by its tag, then
-pinned to the digest that arrived (the writer runs that digest, never the moving tag), and it must
-report the bundle's commit. Checking that digest against the release's attestation, before the
-pull, comes with the release pipeline. Downloaded bundles live in `<STATE_DIR>/releases/`; the
-running one and the newest three others are kept. A run that fetches another version's bundle
-takes the instance lock first (a `--dry-run` too) and its bundle's `upgrade.sh` inherits it, so
-concurrent runs never unpack over, replace or prune a bundle another run is using.
+other version, it downloads that release's bundle into the state directory, verifies it (below)
+and runs that bundle's `upgrade.sh`. The release image is pulled by the digest the bundle names
+(`IMAGE_DIGEST`, the multi-arch index the release workflow attested), so the writer runs exactly
+that image, never a moving tag, and it must report the bundle's commit. (A bundle without
+`IMAGE_DIGEST` pulls by tag and pins the digest that arrives.) Downloaded bundles live in
+`<STATE_DIR>/releases/`; the running one and the newest three others are kept. A run that fetches
+another version's bundle takes the instance lock first (a `--dry-run` too) and its bundle's
+`upgrade.sh` inherits it, so concurrent runs never unpack over, replace or prune a bundle another
+run is using.
+
+**The hand-off between releases is a fixed contract**, because an old release's `upgrade.sh`
+starts every newer one: the bundle is downloaded from
+`https://github.com/<RELEASE_REPO>/releases/download/vX.Y.Z/waypoint-deploy-X.Y.Z.tgz`, holds one
+top-level directory that's unpacked with `--strip-components=1` into
+`<STATE_DIR>/releases/X.Y.Z` once its attestation and `SHA256SUMS` pass, and its script runs as
+`WAYPOINT_UPGRADE_REEXEC=1 bash <dir>/upgrade.sh --instance <file> [--dry-run] [--force] X.Y.Z`,
+holding the instance lock on file descriptor 9. The bundle and the image are attested by
+`.github/workflows/release.yml` running on `main`, which is what older scripts verify. New releases
+may add options, never change these.
+
+### Release provenance
+
+Every release's bundle and writer image carry a build provenance attestation from the release
+workflow ([docs/releasing.md](../docs/releasing.md)). Before anything running changes,
+`upgrade.sh` checks both with `gh attestation verify`, requiring that the release workflow of
+`RELEASE_REPO` (`.github/workflows/release.yml`) built them, from `refs/heads/main`, on a
+GitHub-hosted runner: the bundle before it's unpacked, the image's digest before it's pulled. A
+dry run checks both too. `SHA256SUMS` inside the bundle then guards against a corrupted
+download.
+
+`VERIFY_ATTESTATIONS` in `instance.env` decides: `1` requires the checks (and fails without the
+GitHub CLI), `0` turns them off (`SHA256SUMS` and the digest pin only), and by default they run
+whenever `gh` is installed, with a warning when it isn't. A `gh` older than 2.102.0 is an error
+rather than a skipped check: older versions match the signer workflow by prefix and the source ref
+case-insensitively. `gh` needs a login or `GH_TOKEN` (any token can read a public repository's
+attestations). `GH_BIN=<path>` picks another `gh`.
+
+A bundle you download yourself (a first install) is verified by you, before you run anything in
+it; the command is in [docs/releasing.md](../docs/releasing.md#what-a-release-publishes).
 
 What a deploy does, in order:
 
@@ -174,6 +212,31 @@ cd apps/reader
 ./node_modules/.bin/wrangler deployments list --name <worker>
 ./node_modules/.bin/wrangler rollback <version-id> --name <worker> --yes
 ```
+
+## Automatic deploys on release
+
+An instance can deploy every release as it's published, through a private "ops" repository whose
+one workflow is [ops/deploy.yml.example](ops/deploy.yml.example), run by a self-hosted runner on
+the instance's host. The release workflow of the repository you deploy from dispatches it
+([docs/releasing.md](../docs/releasing.md#deploy-dispatch)); you can also start it by hand. Each
+run:
+
+1. picks the release: the latest one, or its `version` input, which only `WAYPOINT_DEPLOY_ADMIN`
+   (by default the ops repository's owner) can choose; for anyone else, and for the dispatch, it's
+   ignored;
+2. installs a pinned GitHub CLI (checked against its checksum) in its work directory, downloads
+   `waypoint-deploy-X.Y.Z.tgz`, and verifies its attestation and `SHA256SUMS` before running
+   anything in it;
+3. runs that release's `upgrade.sh --instance <instance.env> X.Y.Z`, which verifies and pulls the
+   image by digest and deploys as above.
+
+**Cancelling is safe.** Cancelling a run (or its timeout) makes the runner signal the job's
+processes and kill them seconds later, which could cut a rollback short. So step 3 runs detached
+from the job (`setsid`, without the runner's process-tracking variable), and the job only follows
+its log: a cancelled job leaves the deploy to finish, or roll back, on its own, still holding the
+instance lock, and the next run waits for it. Each run's bundle, temporary files and log stay in
+`<WAYPOINT_DEPLOY_WORK>/runs/<run>-<attempt>/` (default `~/.local/state/waypoint-deploy`), removed
+two weeks after they finish. Setup: [docs/self-hosting.md](../docs/self-hosting.md#optional-automatic-deploys-on-release).
 
 ## Status, logs and stopping
 
@@ -323,3 +386,4 @@ too):
 | `LOCK_WAIT_SECONDS` | 1800 | seconds a run waits for another run on the same instance |
 | `RERENDER_UPLOAD_TIMEOUT` | 3600 | seconds the writer gets to upload one rerender batch |
 | `WRANGLER` | the checkout's, or the bundle's pinned version through `npx` | the Wrangler executable |
+| `GH_BIN` | `gh` | the GitHub CLI that verifies release attestations |
