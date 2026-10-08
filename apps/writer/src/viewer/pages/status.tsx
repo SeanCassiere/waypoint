@@ -6,7 +6,7 @@ import type { Child } from "hono/jsx";
 import type { CompareFile, FileDiff } from "../../compare.ts";
 import type { HealthItem } from "../../health.ts";
 import type { HttpServices } from "../../http.ts";
-import { getStatus } from "../../status-data.ts";
+import { getStatus, LOCAL_ONLY_DETAIL, LOCAL_ONLY_TITLE } from "../../status-data.ts";
 import { getChrome } from "../chrome.ts";
 import { revisionHref, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
@@ -99,14 +99,8 @@ export async function statusPage(
     heroes.push(
       <Hero
         tone={status.environment === "prod" ? "warn" : "off"}
-        title="Local only: no cloud durability."
-        body={
-          <>
-            This writer runs with <span class="mono">WAYPOINT_SYNC=off</span>. There is no Turso
-            cloud DB and no bucket backup: everything lives only in this writer's data directory, so
-            back it up yourself. Public share links can't be served until cloud sync is configured.
-          </>
-        }
+        title={LOCAL_ONLY_TITLE}
+        body={LOCAL_ONLY_DETAIL}
       />,
     );
   if (health.blockedReason)

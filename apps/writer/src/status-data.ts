@@ -14,11 +14,14 @@ export interface ViewerStatus extends StatusResponse {
     collection_public_id: string | null;
   })[];
 }
+/** The local-only warning's headline and detail; /status shows them as its hero's title and body. */
+export const LOCAL_ONLY_TITLE = "Local-only mode (WAYPOINT_SYNC=off): no cloud durability.";
+export const LOCAL_ONLY_DETAIL =
+  "There is no Turso cloud DB and no bucket backup, so everything lives only in this writer's data directory; back it up yourself. Public share links can't be served until cloud sync is configured.";
 /** Shown on /status and returned by /api/status (and so `waypoint_status`) while sync is off. */
 export const LOCAL_ONLY_WARNING: StatusWarning = {
   code: "local_only",
-  message:
-    "Local-only mode (WAYPOINT_SYNC=off): no cloud durability. There is no Turso cloud DB and no bucket backup, so everything lives only in this writer's data directory; back it up yourself. Public share links can't be served until cloud sync is configured.",
+  message: `${LOCAL_ONLY_TITLE} ${LOCAL_ONLY_DETAIL}`,
 };
 /**
  * Standalone queued renditions: `pending_renditions` rows whose source no queued revision (pending
