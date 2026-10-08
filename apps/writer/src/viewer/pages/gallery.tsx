@@ -19,7 +19,7 @@ import {
   ShellRoot,
   TabBar,
   type CollectionContext,
-} from "./collection.tsx";
+} from "./collection/index.tsx";
 
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
 

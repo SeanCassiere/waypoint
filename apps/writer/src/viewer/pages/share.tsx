@@ -17,7 +17,7 @@ import { Globe, Spinner, Time } from "../components.tsx";
 import { plural } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
-import type { CollectionContext } from "./collection.tsx";
+import type { CollectionContext } from "./collection/index.tsx";
 
 const DAY = 86_400_000;
 export const isLive = (link: ShareView) => link.state === "active" || link.state === "activating";

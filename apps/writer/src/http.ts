@@ -62,7 +62,7 @@ import {
 import { getStatus } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
-import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.tsx";
+import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
 import { mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
