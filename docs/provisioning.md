@@ -175,6 +175,18 @@ CI's Turborepo tasks share a remote cache on Vercel, with signed artifacts (D52;
 - **Verify:** on a PR, a CI job's turbo summary prints `Remote caching enabled`, and a rerun of the job shows `cache hit` for its tasks. A fork PR (or `TURBO_TOKEN=` locally) prints `Remote caching disabled` and still passes.
 - **Rotate:** create the new token or key, `gh secret set` it, then delete the old token in Vercel. A new signing key makes every existing artifact fail verification, so the next CI run is a full cache miss that repopulates the cache.
 
+## Part 4: Release deploy dispatch
+
+Optional, for an instance that deploys every release automatically through a private ops repository (D56; [releasing.md](releasing.md#deploy-dispatch)). The release workflow starts the ops repository's deploy workflow with a GitHub App token.
+
+1. **GitHub App.** GitHub → Settings → Developer settings → GitHub Apps → New: no webhook, one repository permission, **Actions: Read and write**, installable only on your account. Install it on the ops repository only.
+2. **Private key.** Generate one in the App's settings and store it as the secret `DEPLOY_APP_PRIVATE_KEY` of a `release` **environment** whose deployment branches are limited to `main`: `gh secret set DEPLOY_APP_PRIVATE_KEY --env release < key.pem`, then delete `key.pem`.
+3. **Variables.** `gh variable set DEPLOY_APP_CLIENT_ID --body <client ID>` and `gh variable set DEPLOY_DISPATCH_REPO --body <owner>/<ops repo>` (and `DEPLOY_DISPATCH_WORKFLOW` if its file isn't `deploy.yml`).
+
+- **Record:** the App's name and client ID in your infrastructure notes; the key lives only in the environment.
+- **Verify:** the `dispatch` job of the next release run succeeds and the ops repository shows a Deploy run started by the App.
+- **Rotate:** [releasing.md](releasing.md#rotating-the-app-key).
+
 ---
 
 ## Rotating a credential

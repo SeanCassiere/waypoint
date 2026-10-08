@@ -5,11 +5,15 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The release workflow runs CI on release-please's branch this way (a PR that GITHUB_TOKEN opens
+  # or updates triggers no pull_request run), so the release PR gets its `ci-ok` check. The group
+  # below is then the branch's ref.
+  workflow_dispatch:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # Independent jobs run in parallel on GitHub-hosted runners. `ci-ok` needs every job and fails
-# on any failed, cancelled or skipped one. Any failed job already makes the workflow's
+# on any failed, cancelled or skipped one. Actions are pinned by commit. Any failed job already makes the workflow's
 # conclusion `failure`, so the Deploy workflow (which requires `success`) never runs. `main` has
 # no branch protection; if it gets some, require `ci-ok`.
 #
@@ -25,7 +29,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm format:check
       # Type-aware oxlint, then the core import guard (`pnpm core:guard`). Workspace packages'
@@ -38,14 +42,14 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       # Each package's source and tests, and the root scripts and configs, from source (no build).
       - run: pnpm typecheck
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: scripts/fetch-tursodb.sh
       # Each package's tests run from source. The integration tests (tests/) also check built
@@ -63,7 +67,7 @@ jobs:
       TURBO_TOKEN: ""
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       # The same build deploy/upgrade.sh runs before uploading the reader from a checkout.
       - run: pnpm --filter "@waypoint/reader..." build
@@ -82,9 +86,13 @@ jobs:
       TURBO_TOKEN: ""
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # With the build argument the release images get (release.yml), checked in the image.
       - name: Build writer image
-        run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
+        run: |
+          docker build -f apps/writer/Dockerfile --build-arg "WAYPOINT_BUILD_SHA=$GITHUB_SHA" -t waypoint-writer:ci .
+          docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' waypoint-writer:ci \
+            | grep -qx "WAYPOINT_BUILD_SHA=$GITHUB_SHA"
   # The adopter install path, for real: deploy/upgrade.sh installs the writer from the merge base's
   # image, upgrades to this commit (current-checkout), rolls back and forward again against the
   # same data directory, rolls back a broken image and an interrupted deploy, keeps the last
@@ -97,7 +105,7 @@ jobs:
       TURBO_TOKEN: ""
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The merge base with main (the "old" writer) must be in the clone.
           fetch-depth: 0
@@ -106,7 +114,7 @@ jobs:
   mcp-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       # Builds the MCP package and its dependencies, then runs the launcher smoke test.
       - run: pnpm turbo run smoke --filter=@waypoint/mcp
@@ -115,16 +123,40 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm test:browser
       - run: pnpm test:browser:reader
+  # The release pipeline, without publishing anything: actionlint on every workflow and the ops
+  # template, the release-please config, the release bundle (scripts/build-release-bundle.sh) and
+  # upgrade.sh's release mode against a fake release with stand-in attestations
+  # (scripts/release-dry-run.sh). The reader is built with plain pnpm, as the release does.
+  release-dry-run:
+    runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ""
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter "@waypoint/reader..." build
+      - run: bash scripts/release-dry-run.sh
   ci-ok:
     if: always()
     needs:
-      [lint, typecheck, test, build-reader, build-writer-image, install-test, mcp-smoke, browser]
+      [
+        lint,
+        typecheck,
+        test,
+        build-reader,
+        build-writer-image,
+        install-test,
+        mcp-smoke,
+        browser,
+        release-dry-run,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to succeed

@@ -10,5 +10,7 @@ export default defineConfig({
     "pnpm-lock.yaml",
     "docs/**",
     "README.md",
+    // Written by release-please, in its own style.
+    "CHANGELOG.md",
   ],
 });

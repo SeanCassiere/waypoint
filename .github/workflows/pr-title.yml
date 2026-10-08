@@ -1,0 +1,34 @@
+name: PR title
+# PRs are squash-merged, so the PR title becomes the commit on main that release-please reads:
+# it must be a conventional commit (`type(scope): subject`, `!` for a breaking change). Types are
+# the ones this repository uses; scopes are free-form (writer, reader, viewer, mcp, render, deploy,
+# deps, ...), so a new package needs no edit here. Not part of `ci-ok`: it lives in its own
+# workflow, which runs on pull_request events only, while `ci-ok` must also pass on main and on
+# the release PR (which GITHUB_TOKEN opens, so no pull_request workflow runs for it).
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+permissions:
+  pull-requests: read
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            revert
+            docs
+            test
+            build
+            ci
+            chore
+            style
+            spike
+          requireScope: false

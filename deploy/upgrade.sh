@@ -35,16 +35,19 @@
 #   RERENDER_UPLOAD_TIMEOUT   rerender: seconds the writer gets to upload a batch (default 3600)
 #   WRANGLER                  the Wrangler executable (default: the checkout's, or the version
 #                             the release bundle pins, through npx)
+#   GH_BIN                    the GitHub CLI that verifies release attestations (default: gh)
 #
 # Rolling back is deploying the older version. Each component (the writer, each reader) records
 # what it runs in the state directory, so a rerun after a partial upgrade finishes the rest, and a
 # rerun at the same version only repeats the health checks. A component that fails its checks is
 # rolled back on the spot, and so is the one in progress when the script is interrupted.
 #
-# A release bundle (waypoint-deploy-X.Y.Z.tgz) holds this script and lib/, the compose files,
-# serve.json, VERSION, BUILD_SHA, reader/index.js (the built Worker), reader/wrangler.jsonc (the
-# config template), reader/WRANGLER_VERSION and SHA256SUMS. Asked for another version, the script
-# fetches that version's bundle and runs its own copy of upgrade.sh.
+# A release bundle (waypoint-deploy-X.Y.Z.tgz, built by scripts/build-release-bundle.sh) holds this
+# script and lib/, the compose files, serve.json, VERSION, BUILD_SHA, IMAGE_DIGEST (the writer
+# image's attested digest), reader/index.js (the built Worker), reader/wrangler.jsonc (the config
+# template), reader/WRANGLER_VERSION and SHA256SUMS. Asked for another version, the script fetches
+# that version's bundle, verifies it (its attestation, with the GitHub CLI, then SHA256SUMS) and
+# runs that bundle's own upgrade.sh, which verifies the image's attestation before pulling it.
 set -euo pipefail
 # inherit_errexit needs bash 4.4 (associative arrays, used throughout, need 4.2).
 if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
@@ -126,7 +129,7 @@ instance_key() {
     CONFIG_DIR|DATA_DIR|STATE_DIR|WRITER_ENV_FILE|IMAGE|RELEASE_REPO|COMPOSE_PROJECT|COMPOSE_OVERRIDE) return 0 ;;
     WRITER_UID|WRITER_GID|WRITER_BIND_ADDRESS|WRITER_HOST_PORT|WRITER_HEALTH_URL) return 0 ;;
     TAILSCALE|TAILSCALE_ENV_FILE|TAILSCALE_HOSTNAME|TAILSCALE_TAGS) return 0 ;;
-    CLOUDFLARE_ENV_FILE|READER_TARGETS) return 0 ;;
+    CLOUDFLARE_ENV_FILE|READER_TARGETS|VERIFY_ATTESTATIONS) return 0 ;;
   esac
   [[ "$1" =~ ^READER_[a-z0-9]+_(WORKER|DOMAIN|SECRETS_FILE|ANALYTICS_DATASET|RATELIMIT_NAMESPACE|WORKERS_DEV)$ ]]
 }
@@ -163,6 +166,8 @@ load_instance() {
     release_repo="${BASH_REMATCH[1]}/waypoint"
   fi
   [[ -z "$release_repo" || "$release_repo" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || die "RELEASE_REPO must be owner/repo"
+  verify_attestations="${i_VERIFY_ATTESTATIONS:-}"
+  [[ -z "$verify_attestations" || "$verify_attestations" == 0 || "$verify_attestations" == 1 ]] || die "VERIFY_ATTESTATIONS must be 0 or 1"
   compose_override="$(instance_path "${i_COMPOSE_OVERRIDE:-}")"
 
   writer_uid="${i_WRITER_UID:-1000}"
@@ -548,12 +553,13 @@ trap 'exit 143' TERM
 # What to deploy
 
 # Sets: target_id, target_version, target_sha, writer_source (build|pull|image), writer_ref,
-# reader_main, reader_template, readers_deployable.
+# release_digest, reader_main, reader_template, readers_deployable.
 repo_root=""
 if [[ -f "$script_dir/../apps/writer/Dockerfile" ]] && git -C "$script_dir/.." rev-parse --git-dir >/dev/null 2>&1; then
   repo_root="$(cd "$script_dir/.." && pwd)"
 fi
 bundle_version=""
+release_digest=""
 if [[ -f "$script_dir/VERSION" ]]; then bundle_version="$(tr -d '[:space:]' < "$script_dir/VERSION")"; fi
 
 resolve_checkout() {
@@ -593,37 +599,149 @@ resolve_release() {
   target_id="release-$version"
   writer_source=pull
   writer_ref="$image_repo:$version"
+  # The digest of the image the release workflow attested, recorded in the bundle (which is attested
+  # too). Bundles without one pull by tag and pin the digest that arrives.
+  release_digest=""
+  if [[ -f "$script_dir/IMAGE_DIGEST" ]]; then
+    release_digest="$(tr -d '[:space:]' < "$script_dir/IMAGE_DIGEST")"
+    [[ "$release_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the bundle's IMAGE_DIGEST is invalid"
+  fi
   reader_main="$script_dir/reader/index.js"
   reader_template="$script_dir/reader/wrangler.jsonc"
   readers_deployable=1
 }
 
+# The newest release that can be deployed: the highest X.Y.Z among the releases that aren't drafts
+# or prereleases and already have their waypoint-deploy-X.Y.Z.tgz. GitHub marks a release "latest"
+# as soon as it's created, before the release workflow has attached the bundle (or for good, if a
+# publishing job failed), so newer releases without one are skipped, and logged.
 latest_version() {
   [[ -n "$release_repo" ]] || die "set RELEASE_REPO to resolve 'latest'"
-  curl -fsSL --max-time 20 "https://api.github.com/repos/$release_repo/releases/latest" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).tag_name??"";if(!/^v\d+\.\d+\.\d+$/.test(t))process.exit(1);console.log(t.slice(1))})' \
-    || die "couldn't resolve the latest release of $release_repo"
+  # Every page (GitHub lists releases newest first by date, not by version, 100 at most per page),
+  # following the Link headers. The pages go to node on stdin, NUL-separated (JSON text never
+  # contains a raw NUL): as one argument, a long release list would exceed the kernel's limit.
+  local i dir="$scratch/releases" url="https://api.github.com/repos/$release_repo/releases?per_page=100" n=0
+  rm -rf "$dir" && mkdir "$dir"
+  while [[ -n "$url" ]]; do
+    n=$((n + 1))
+    (( n <= 100 )) || die "the releases of $release_repo span more than 100 pages"
+    curl -fsSL --max-time 20 -H "Accept: application/vnd.github+json" \
+      -D "$dir/$n.headers" -o "$dir/$n.json" "$url" \
+      || die "couldn't list the releases of $release_repo"
+    # The final response's Link header (-D records each redirect's too), as
+    # Link: <url>; rel="prev", <url>; rel="next", <url>; rel="last"; no rel="next" on the last page.
+    url="$(tr -d '\r' < "$dir/$n.headers" \
+      | awk 'tolower($0) ~ /^http\// { link = "" } tolower($0) ~ /^link:/ { link = $0 } END { print link }' \
+      | sed -n 's/^[^:]*:.*<\([^>]*\)>; *rel="next".*/\1/p')"
+    [[ -z "$url" || "$url" == https://api.github.com/* ]] || die "unexpected next page of the releases of $release_repo: $url"
+  done
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  for ((i = 1; i <= n; i++)); do cat "$dir/$i.json"; printf '\0'; done | node -e '
+    const [prefix, repo] = process.argv.slice(1);
+    const releases = require("node:fs").readFileSync(0, "utf8").split("\0").slice(0, -1).flatMap((page) => {
+      const list = JSON.parse(page);
+      if (!Array.isArray(list)) throw new Error("not a list of releases");
+      return list;
+    });
+    const parts = (v) => v.split(".").map(Number);
+    const newer = (a, b) => { const [x, y] = [parts(a.version), parts(b.version)]; return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; };
+    const candidates = releases
+      .filter((r) => /^v\d+\.\d+\.\d+$/.test(r?.tag_name ?? ""))
+      .map((r) => ({ release: r, version: r.tag_name.slice(1) }))
+      .sort(newer);
+    for (const { release, version } of candidates) {
+      const asset = `waypoint-deploy-${version}.tgz`;
+      const skip = release.draft ? "a draft"
+        : release.prerelease ? "a prerelease"
+        : !(release.assets ?? []).some((a) => a?.name === asset && (a.state ?? "uploaded") === "uploaded")
+          ? `no ${asset} yet (the release workflow is still publishing it, or a publishing job failed)`
+          : "";
+      if (skip) { console.error(`${prefix}: skipping ${repo} ${version}: ${skip}`); continue; }
+      console.log(version);
+      process.exit(0);
+    }
+    console.error(`${prefix}: no release of ${repo} has its deploy bundle`);
+    process.exit(1);
+  ' "$log_prefix" "$release_repo" \
+    || die "couldn't resolve the latest deployable release of $release_repo"
 }
 
-# Release integrity. SHA256SUMS inside the bundle guards against a truncated or corrupted
-# download; provenance is the attestation check, which plugs in here (gh attestation verify on
-# the bundle and the image digest) once releases are attested. Until then the image is pulled by
-# tag and pinned to the digest that arrived, so verify_release_image only checks that it is one;
-# with attestations, it checks that digest against the attested one before anything runs it.
+# Release integrity. SHA256SUMS inside the bundle guards against a truncated or corrupted download.
+# Provenance is the attestation check: the bundle and the writer image must each carry a build
+# provenance attestation signed by RELEASE_REPO's release workflow (.github/workflows/release.yml)
+# running on GitHub-hosted runners from refs/heads/main (gh attestation verify). Both checks run
+# before anything running is touched: the bundle's before it's unpacked, the image's before it's
+# pulled (or, for a bundle without IMAGE_DIGEST, before the pulled digest is used).
+#
+# VERIFY_ATTESTATIONS=1 requires them, 0 turns them off, and unset verifies whenever the GitHub CLI
+# is installed. A CLI that's too old to enforce the policy is an error, not a reason to skip.
+readonly gh_min_version=2.102.0
+gh_bin="${GH_BIN:-gh}"
+attest_mode=""  # required | skipped, decided once per run
+attest_repo=""  # RELEASE_REPO as GitHub spells it: --signer-workflow is case-sensitive
+
+attestations_enabled() {
+  if [[ -z "$attest_mode" ]]; then
+    if [[ "$verify_attestations" == 0 ]]; then
+      attest_mode=skipped
+      log "VERIFY_ATTESTATIONS=0: release attestations aren't verified (only SHA256SUMS and the digest pin)"
+    elif ! command -v "$gh_bin" >/dev/null 2>&1; then
+      [[ "$verify_attestations" != 1 ]] || die "VERIFY_ATTESTATIONS=1 needs the GitHub CLI ($gh_bin, version $gh_min_version or later: https://cli.github.com), and it isn't installed"
+      attest_mode=skipped
+      log "WARNING: the GitHub CLI (gh) isn't installed, so release attestations aren't verified; install gh $gh_min_version or later and log in (or set GH_TOKEN), or set VERIFY_ATTESTATIONS=0 to accept SHA256SUMS and the digest pin alone"
+    else
+      local version
+      version="$("$gh_bin" --version 2>/dev/null | sed -n '1s/^gh version \([0-9][0-9.]*\).*/\1/p')"
+      if [[ -z "$version" || "$(printf '%s\n%s\n' "$gh_min_version" "$version" | sort -V | head -n1)" != "$gh_min_version" ]]; then
+        die "release attestations need gh $gh_min_version or later (this is ${version:-an unknown version}); upgrade it, or set VERIFY_ATTESTATIONS=0 in instance.env to skip the check"
+      fi
+      attest_mode=required
+    fi
+  fi
+  [[ "$attest_mode" == required ]]
+}
+
+# Verifies a release artifact's provenance: a file path, or oci://<image>@<digest>.
+# Usage: verify_attestation <subject> <what, for messages>
+verify_attestation() {
+  local subject="$1" what="$2"
+  [[ -n "$release_repo" ]] || die "set RELEASE_REPO to verify release attestations"
+  if [[ -z "$attest_repo" ]]; then
+    attest_repo="$("$gh_bin" api "repos/$release_repo" --jq .full_name 2> "$scratch/gh.err")" || {
+      cat "$scratch/gh.err" >&2
+      die "couldn't look up $release_repo on GitHub (gh needs a login: gh auth login, or GH_TOKEN)"
+    }
+    [[ "$attest_repo" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || die "unexpected answer looking up $release_repo"
+  fi
+  if ! "$gh_bin" attestation verify "$subject" --repo "$attest_repo" \
+    --signer-workflow "$attest_repo/.github/workflows/release.yml" --source-ref refs/heads/main \
+    --deny-self-hosted-runners > "$scratch/attestation.log" 2>&1; then
+    cat "$scratch/attestation.log" >&2
+    die "$what has no valid attestation from $attest_repo's release workflow on main"
+  fi
+  log "$what is attested by $attest_repo's release workflow on main"
+}
+
 verify_release_bundle() {
   local tgz="$1"
   [[ -s "$tgz" ]] || die "empty release bundle"
-  log "release attestation verification isn't enabled yet; relying on SHA256SUMS"
+  if attestations_enabled; then verify_attestation "$tgz" "the release bundle"; fi
 }
 verify_release_image() {
   local ref="$1"
-  [[ "$ref" == *@sha256:* ]] || die "the release image must be pinned by digest"
+  [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || die "the release image must be pinned by digest"
+  if attestations_enabled; then verify_attestation "oci://$ref" "the writer image ${ref##*@}"; fi
 }
 
 # Runs another release's own upgrade.sh: the one that matches the version being deployed.
 # The bundle is installed and run under the instance lock, dry runs included, and the lock is
 # kept across the exec (the bundle's upgrade.sh inherits it on fd 9), so a concurrent run can't
 # unpack over, replace or prune a bundle another run is using.
+#
+# The hand-off is a contract between releases, so it never changes (deploy/README.md): the bundle
+# is unpacked into <STATE_DIR>/releases/X.Y.Z only after its attestation and SHA256SUMS pass, and
+# its script runs as `WAYPOINT_UPGRADE_REEXEC=1 bash <dir>/upgrade.sh --instance <file>
+# [--dry-run] [--force] X.Y.Z`, holding the instance lock on fd 9.
 exec_release_bundle() {
   local version="$1" dir tgz unpacked
   [[ -z "${WAYPOINT_UPGRADE_REEXEC:-}" ]] || die "bundle $version doesn't contain version $version"
@@ -631,7 +749,19 @@ exec_release_bundle() {
   lock_state
   dir="$state_dir/releases/$version"
   tgz="$scratch/waypoint-deploy-$version.tgz"
-  if [[ ! -f "$dir/upgrade.sh" ]]; then
+  # Whether attestations are verified, and with which gh, is settled before anything is reused or
+  # downloaded. A cached bundle records whether its attestation was verified (.provenance): one
+  # fetched while verification was off or impossible is fetched and verified again once it's on.
+  local provenance=unverified fetch=1
+  if attestations_enabled; then provenance="attested ${release_repo,,}"; fi
+  if [[ -f "$dir/upgrade.sh" ]]; then
+    if [[ "$provenance" == unverified || "$(cat "$dir/.provenance" 2>/dev/null || true)" == "$provenance" ]]; then
+      fetch=0
+    else
+      log "the cached $version release bundle wasn't verified against $release_repo's attestations; fetching it again"
+    fi
+  fi
+  if (( fetch )); then
     log "fetching the $version release bundle from $release_repo"
     curl -fsSL --max-time 300 -o "$tgz" \
       "https://github.com/$release_repo/releases/download/v$version/waypoint-deploy-$version.tgz" \
@@ -643,6 +773,7 @@ exec_release_bundle() {
     tar -xzf "$tgz" -C "$unpacked" --strip-components=1 --no-same-owner
     (cd "$unpacked" && sha256sum --quiet -c SHA256SUMS) || die "the $version release bundle fails its checksums"
     [[ "$(tr -d '[:space:]' < "$unpacked/VERSION")" == "$version" ]] || die "the bundle's VERSION isn't $version"
+    echo "$provenance" > "$unpacked/.provenance"
     chmod 700 "$unpacked"
     rm -rf "$dir"
     mv "$unpacked" "$dir"
@@ -684,14 +815,23 @@ fetch_writer() {
       fi
       ;;
     pull)
-      if (( dry_run )); then log "would pull $writer_ref"; target_image_id="(not pulled)"; return 0; fi
-      log "pulling $writer_ref"
-      docker_run pull "$writer_ref" >/dev/null
-      local digest
-      digest="$(docker_run image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$writer_ref" | grep -m1 "^$image_repo@sha256:" || true)"
-      [[ -n "$digest" ]] || die "no registry digest for $writer_ref"
-      verify_release_image "$digest"
-      writer_ref="$digest"
+      if [[ -n "$release_digest" ]]; then
+        # The attested digest, verified before the pull (a dry run verifies it too).
+        writer_ref="$image_repo@$release_digest"
+        verify_release_image "$writer_ref"
+        if (( dry_run )); then log "would pull $writer_ref"; target_image_id="(not pulled)"; return 0; fi
+        log "pulling $writer_ref"
+        docker_run pull "$writer_ref" >/dev/null
+      else
+        if (( dry_run )); then log "would pull $writer_ref, then verify the digest that arrives"; target_image_id="(not pulled)"; return 0; fi
+        log "pulling $writer_ref (the bundle names no digest; pinning the one that arrives)"
+        docker_run pull "$writer_ref" >/dev/null
+        local digest
+        digest="$(docker_run image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$writer_ref" | grep -m1 "^$image_repo@sha256:" || true)"
+        [[ -n "$digest" ]] || die "no registry digest for $writer_ref"
+        verify_release_image "$digest"
+        writer_ref="$digest"
+      fi
       local built
       built="$(docker_run image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$writer_ref" | sed -n 's/^WAYPOINT_BUILD_SHA=//p')"
       [[ "$built" == "$target_sha" ]] || die "the image was built from ${built:-an unknown commit}, not $target_sha"
@@ -1059,7 +1199,7 @@ cmd_deploy() {
     current-checkout) resolve_checkout ;;
     image) resolve_image ;;
     latest)
-      local v; v="$(latest_version)"; log "latest release: $v"
+      local v; v="$(latest_version)"; log "latest release with a deploy bundle: $v"
       resolve_release "$v" || exec_release_bundle "$v"
       ;;
     *) resolve_release "$command" || exec_release_bundle "$command" ;;

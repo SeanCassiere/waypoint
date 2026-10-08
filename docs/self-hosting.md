@@ -19,14 +19,30 @@ Every tier deploys with the same script, [deploy/upgrade.sh](../deploy/upgrade.s
 who can reach what is in the [trust model](trust-model.md).
 
 You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 22+
-(24+ to deploy from a git checkout with the public reader, which builds it).
+(24+ to deploy from a git checkout with the public reader, which builds it). To verify releases,
+install the [GitHub CLI](https://cli.github.com) 2.102.0 or later and log in (`gh auth login`).
 
 ## Getting the deploy files
 
-Releases publish the writer image as `ghcr.io/seancassiere/waypoint-writer:<version>` and a deploy
-bundle, `waypoint-deploy-<version>.tgz`, holding `upgrade.sh`, the Compose files and the prebuilt
-reader. Download a bundle from the repository's Releases page and extract it, then run its
-`upgrade.sh <version>`.
+Releases publish the writer image as `ghcr.io/seancassiere/waypoint-writer:<version>` (amd64 and
+arm64) and a deploy bundle, `waypoint-deploy-<version>.tgz`, holding `upgrade.sh`, the Compose
+files and the prebuilt reader, on the
+[Releases page](https://github.com/SeanCassiere/waypoint/releases). Both carry a build provenance
+attestation from the repository's release workflow ([releasing](releasing.md)). For a first
+install, download a bundle, check it, and extract it:
+
+```bash
+v=0.1.0   # the version you want
+gh release download "v$v" --repo SeanCassiere/waypoint --pattern "waypoint-deploy-$v.tgz"
+gh attestation verify "waypoint-deploy-$v.tgz" --repo SeanCassiere/waypoint \
+  --signer-workflow SeanCassiere/waypoint/.github/workflows/release.yml \
+  --source-ref refs/heads/main --deny-self-hosted-runners
+tar -xzf "waypoint-deploy-$v.tgz" && cd "waypoint-deploy-$v"
+```
+
+then run its `./upgrade.sh <version>`. From then on, `upgrade.sh` fetches and verifies every
+release itself, the image included (`VERIFY_ATTESTATIONS` in `instance.env`;
+[deploy/README.md](../deploy/README.md#release-provenance)).
 
 Until the first release is published, deploy from a git checkout instead: clone the repository and
 run `deploy/upgrade.sh current-checkout`, which builds the writer image locally (and, with reader
@@ -178,11 +194,42 @@ deploy/upgrade.sh status
 ```
 
 `upgrade.sh` fetches and checks everything first, then replaces the writer, then each reader,
-health-checking each one and rolling it back on failure. Rerunning it is safe: it finishes a
+health-checking each one and rolling it back on failure. `latest` is the newest release that
+already has its deploy bundle: a release the release workflow is still publishing (or failed to
+publish) is skipped, and the log says so. Rerunning it is safe: it finishes a
 partial upgrade and only re-checks what's already current. Older releases run on data a newer one
 migrated, because schema changes are additive only; see
 [the rollback window](../deploy/README.md#rolling-back). After a release that bumps the markdown
 renderer, run `deploy/upgrade.sh rerender` once.
+
+## Optional: automatic deploys on release
+
+To deploy every release as soon as it's published, without logging in to the host, use a private
+GitHub repository for operations whose one workflow is
+[deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example) (also in each bundle, under
+`ops/`), with a self-hosted runner on the instance's host. What it does and why cancelling it is
+safe: [deploy/README.md](../deploy/README.md#automatic-deploys-on-release).
+
+1. Create the private repository (say `<you>/waypoint-ops`) and copy the template to
+   `.github/workflows/deploy.yml` there.
+2. Register a self-hosted runner for that repository only, on the instance's host, as the user
+   that runs `upgrade.sh` (it reads `instance.env` and the env files it names), with the label
+   `waypoint-deploy`. Runners of a private repository never run anything from forks.
+3. Optionally set repository variables there: `WAYPOINT_RELEASE_REPO` (the repository you deploy
+   from, default `SeanCassiere/waypoint`; it must be the one `instance.env`'s `RELEASE_REPO` or
+   `IMAGE` names), `WAYPOINT_DEPLOY_ADMIN` (the user login that may choose a version; default
+   the repository's owner), `WAYPOINT_INSTANCE` and `WAYPOINT_DEPLOY_WORK`. **Set
+   `WAYPOINT_DEPLOY_ADMIN` explicitly for an organization-owned ops repository:** the default is
+   then the organization's login, which is never a run's actor, so no one could choose a version
+   (the workflow fails a run that asks for one, rather than deploy the latest release instead).
+4. Run it by hand (Actions → Deploy → Run workflow) to deploy the latest release.
+
+That's enough to deploy on demand. To deploy on every release, the repository that publishes the
+releases has to dispatch it: on your own fork, set up the dispatch as in
+[releasing.md](releasing.md#deploy-dispatch) (a GitHub App with Actions: write on the ops
+repository only). Following upstream releases instead, start the workflow on a schedule: add
+`schedule: [{cron: "17 4 * * *"}]` to its `on:`, and it deploys whatever is latest each day
+(a rerun at the deployed version only repeats the health checks).
 
 ## Connecting agents
 

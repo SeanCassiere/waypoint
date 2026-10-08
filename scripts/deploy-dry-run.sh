@@ -121,10 +121,13 @@ chmod 600 ts.env
 bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" \
   --writer-env writer.env --project deploy-dry-run --tailscale --ts-env ts.env --ts-tags tag:example \
   --health-url https://writer.example.test/healthz --cloudflare-env cloudflare.env \
+  --release-repo example/waypoint --verify-attestations 1 \
   --reader dev,example-reader-dev,dev.share.example.com,reader-dev.env,example_access_dev,1001 \
   --reader prod,example-reader,share.example.com,reader-prod.env,example_access,1002,true
 grep -qx 'READER_TARGETS=dev prod' made.env || fail "make-instance-env.sh lost the target order"
 grep -qx 'READER_prod_WORKERS_DEV=true' made.env || fail "make-instance-env.sh dropped WORKERS_DEV"
+grep -qx 'VERIFY_ATTESTATIONS=1' made.env || fail "make-instance-env.sh dropped VERIFY_ATTESTATIONS"
+grep -qx 'RELEASE_REPO=example/waypoint' made.env || fail "make-instance-env.sh dropped RELEASE_REPO"
 if bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" --writer-env writer.env 2> /dev/null; then
   fail "make-instance-env.sh overwrote an instance file"
 fi
@@ -146,7 +149,8 @@ grep -q 'would run: docker compose -p deploy-dry-run .* down --volumes$' err.log
 
 echo "--- concurrent runs of another release install its bundle once, under the instance lock" >&2
 # A minimal bundle for version 9.9.9 (no readers), served by a stand-in curl that's slow and
-# counts downloads; anything else goes to the real curl.
+# counts downloads; anything else goes to the real curl. Attestations are off here; the release
+# path with them is scripts/release-dry-run.sh.
 rel="$work/release"
 bundle="$rel/waypoint-deploy-9.9.9"
 mkdir -p "$bundle/lib" "$rel/bin"
@@ -179,6 +183,7 @@ DATA_DIR=$work/data
 WRITER_ENV_FILE=writer.env
 COMPOSE_PROJECT=deploy-dry-run
 RELEASE_REPO=example/waypoint
+VERIFY_ATTESTATIONS=0
 EOF
 chmod 644 release.env
 release_run() { PATH="$rel/bin:$PATH" bash "$repo/deploy/upgrade.sh" --instance "$work/release.env" --dry-run 9.9.9 2> "$rel/$1.log"; }

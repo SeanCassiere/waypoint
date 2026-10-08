@@ -18,8 +18,8 @@ Waypoint stores and serves the artifacts that AI-agent-driven development produc
 | `packages/mcp` | Stdio MCP server for agents, bundled into a tarball the writer serves |
 | `apps/writer` | The tailnet writer: API, viewer, queue, committer, sync, restore |
 | `apps/reader` | The public read-only reader (Cloudflare Worker) and its Wrangler config |
-| `deploy/` | `upgrade.sh` (install, upgrade, rollback), `instance.env.example`, the Compose files (writer, Tailscale overlay), operator runbook. Adopters start at [docs/self-hosting.md](docs/self-hosting.md) |
-| `scripts/` | Dev helpers: `fetch-tursodb.sh`, `demo-writer.ts` (seeded local writer for UI work), `live-smoke.ts` (dev-cloud smoke test), `check-core-imports.mjs`; CI's deploy checks: `install-test.sh`, `deploy-dry-run.sh`, `check-owner-strings.sh` |
+| `deploy/` | `upgrade.sh` (install, upgrade, rollback), `instance.env.example`, the Compose files (writer, Tailscale overlay), the ops deploy workflow template, operator runbook. Adopters start at [docs/self-hosting.md](docs/self-hosting.md) |
+| `scripts/` | Dev helpers: `fetch-tursodb.sh`, `demo-writer.ts` (seeded local writer for UI work), `live-smoke.ts` (dev-cloud smoke test), `check-core-imports.mjs`; CI's deploy checks: `install-test.sh`, `deploy-dry-run.sh`, `check-owner-strings.sh`; releases: `build-release-bundle.sh`, `release-dispatch-target.sh` (the release workflow's dispatch target check), `release-dry-run.sh` |
 | `tests/` | `@waypoint/integration-tests`: cross-package tests, checks of built artifacts, and the real-Chromium browser checks. Each package's own tests are in its `tests/` |
 
 Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and `pnpm build`. [Turborepo](https://turborepo.dev) runs these tasks (`turbo.json`): it builds what a task needs first and skips anything whose inputs haven't changed, so a second run is a cache hit. tsdown builds the packages; typecheck, lint and tests read workspace packages from source, so they don't wait for a build. CI also shares a signed remote cache; without its credentials (fork PRs, local machines) turbo just uses the local cache. Sync tests also need a local `tursodb`: run `scripts/fetch-tursodb.sh` (Linux x64), then `export TURSODB_BIN=$PWD/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb`. `pnpm test:browser` and `pnpm test:browser:reader` run the writer viewer and the public reader shell in Chromium. To run a writer locally, see [AGENTS.md](AGENTS.md#developing).
@@ -38,6 +38,7 @@ Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm che
 | [Public reader](docs/public-reader.md) | The Workers reader, share links, safeguards |
 | [Configuration](docs/configuration.md) | Every writer, MCP and reader setting, with defaults; local-only mode; version reporting |
 | [Self-hosting](docs/self-hosting.md) | Run your own instance: local-only, Tailscale, cloud sync, public reader; upgrading and rolling back |
+| [Releasing](docs/releasing.md) | How releases are cut and published (image, bundle, attestations), settings and secrets, forks, the deploy dispatch |
 | [Infrastructure](docs/infrastructure.md) | Turso, R2, Cloudflare, and Tailscale setup checklist |
 | [Provisioning](docs/provisioning.md) | Step-by-step: obtaining and verifying every account, token, bucket, and DNS item for the writer and the reader |
 | [Roadmap](docs/roadmap.md) | Phases, what's next, deferred work |

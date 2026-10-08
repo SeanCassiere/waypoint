@@ -1,0 +1,4 @@
+# actionlint (scripts/release-dry-run.sh runs it in CI). The self-hosted runner's custom label.
+self-hosted-runner:
+  labels:
+    - waypoint-deploy
