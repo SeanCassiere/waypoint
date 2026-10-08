@@ -4,7 +4,7 @@
 // Usage: pnpm build && pnpm demo [port] [data-dir] (tsx runs the writer from source; the build
 // provides the viewer assets).
 // It never touches Turso, R2, or ~/.config/waypoint.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,6 +68,10 @@ const committer = new WriterCommitter(
   (id) => reads.notifyRevision(id),
 );
 ingest.committer = committer;
+// An ephemeral share token key (what WAYPOINT_SHARE_TOKEN_KEY holds as 43 base64url characters),
+// so the seeded share links have URLs. A rerun on the same data dir has a new key, and shows
+// those links as "URL unavailable".
+const shareTokenKey = new Uint8Array(randomBytes(32));
 syncLoop.start();
 committer.wake();
 const app = createApp({
@@ -81,6 +85,7 @@ const app = createApp({
   environment: "dev",
   port,
   publicBaseUrl: "https://waypoint-dev.pingstash.com",
+  shareTokenKey,
 });
 
 const json = (method: string, body: unknown) => ({
