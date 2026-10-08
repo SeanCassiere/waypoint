@@ -31,13 +31,14 @@ import { z } from "zod";
 import { prepareFiles, type FileInput, type PreparedFile, type SourceDir } from "./files.ts";
 
 export class ApiError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly details: Record<string, unknown> = {},
-    readonly status = 400,
-  ) {
+  readonly code: string;
+  readonly details: Record<string, unknown>;
+  readonly status: number;
+  constructor(code: string, message: string, details: Record<string, unknown> = {}, status = 400) {
     super(message);
+    this.code = code;
+    this.details = details;
+    this.status = status;
   }
 }
 export interface WriteInput {
@@ -277,14 +278,24 @@ export class WaypointClient {
   >();
   /** The MCP client's name (for example "claude-code"), learned at initialization (B5). */
   clientName: string | null = null;
+  readonly sourceHost: string;
+  readonly limits: Limits;
+  readonly fetcher: typeof fetch;
+  readonly retryBudgetMs: number;
+  readonly requestTimeoutMs: number;
   constructor(
     base: string,
-    readonly sourceHost: string,
-    readonly limits: Limits = DEFAULT_LIMITS,
-    readonly fetcher: typeof fetch = fetch,
-    readonly retryBudgetMs = 25_000,
-    readonly requestTimeoutMs = 30_000,
+    sourceHost: string,
+    limits: Limits = DEFAULT_LIMITS,
+    fetcher: typeof fetch = fetch,
+    retryBudgetMs = 25_000,
+    requestTimeoutMs = 30_000,
   ) {
+    this.sourceHost = sourceHost;
+    this.limits = limits;
+    this.fetcher = fetcher;
+    this.retryBudgetMs = retryBudgetMs;
+    this.requestTimeoutMs = requestTimeoutMs;
     withBase(base, "/api/status");
     this.base = base;
   }

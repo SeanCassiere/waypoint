@@ -439,7 +439,10 @@ export function unitCount(ops: readonly DiffBlock[]): number {
 class HtmlCache {
   private readonly entries = new Map<string, string>();
   private bytes = 0;
-  constructor(private readonly maxBytes: number) {}
+  private readonly maxBytes: number;
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
   get(key: string): string | undefined {
     const value = this.entries.get(key);
     if (value === undefined) return undefined;

@@ -57,17 +57,36 @@ export class IngestService {
   private locks = new Map<string, Promise<unknown>>();
   private ingesting = new Map<string, number>();
   private inUseHashes = new Map<string, number>();
+  readonly waypoint: Db;
+  readonly queue: Db;
+  readonly blobs: BlobStore;
+  readonly reads: ReadModel;
+  readonly sync: SyncClient;
+  committer: Committer;
+  readonly renderer: Renderer;
+  readonly maxFiles: number;
+  readonly maxRevisionBytes: number;
   constructor(
-    readonly waypoint: Db,
-    readonly queue: Db,
-    readonly blobs: BlobStore,
-    readonly reads: ReadModel,
-    readonly sync: SyncClient,
-    public committer: Committer = new NoopCommitter(),
-    readonly renderer: Renderer = new NullRenderer(),
-    readonly maxFiles: number = DEFAULT_LIMITS.maxFiles,
-    readonly maxRevisionBytes: number = DEFAULT_LIMITS.maxRevisionBytes,
-  ) {}
+    waypoint: Db,
+    queue: Db,
+    blobs: BlobStore,
+    reads: ReadModel,
+    sync: SyncClient,
+    committer: Committer = new NoopCommitter(),
+    renderer: Renderer = new NullRenderer(),
+    maxFiles: number = DEFAULT_LIMITS.maxFiles,
+    maxRevisionBytes: number = DEFAULT_LIMITS.maxRevisionBytes,
+  ) {
+    this.waypoint = waypoint;
+    this.queue = queue;
+    this.blobs = blobs;
+    this.reads = reads;
+    this.sync = sync;
+    this.committer = committer;
+    this.renderer = renderer;
+    this.maxFiles = maxFiles;
+    this.maxRevisionBytes = maxRevisionBytes;
+  }
   private locked<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const prior = this.locks.get(id) ?? Promise.resolve();
     const task = prior.catch(() => undefined).then(fn);

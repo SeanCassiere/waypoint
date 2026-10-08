@@ -21,7 +21,10 @@ import { SyncLoop } from "../src/sync-loop.ts";
 class FakeRenderer implements Renderer {
   readonly rendererName = "markdown";
   calls = 0;
-  constructor(readonly rendererVersion: number) {}
+  readonly rendererVersion: number;
+  constructor(rendererVersion: number) {
+    this.rendererVersion = rendererVersion;
+  }
   render(source: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
     if (mime !== "text/markdown") return Promise.resolve(null);
     this.calls++;

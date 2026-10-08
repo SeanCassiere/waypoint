@@ -30,7 +30,10 @@ function encodingFor(accept: string | undefined): "br" | "gzip" | null {
 class CompressedCache {
   private readonly entries = new Map<string, Uint8Array>();
   private bytes = 0;
-  constructor(private readonly maxBytes: number) {}
+  private readonly maxBytes: number;
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
   get(key: string): Uint8Array | undefined {
     const value = this.entries.get(key);
     if (value) {

@@ -1,11 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
-  // The library source. isolatedDeclarations lets tsdown generate the .d.ts with oxc, and
-  // erasableSyntaxOnly keeps the source runnable by Node (worker threads started from source).
+  // The library source. isolatedDeclarations lets tsdown generate the .d.ts with oxc.
   "compilerOptions": {
     "declaration": true,
     "isolatedDeclarations": true,
-    "erasableSyntaxOnly": true,
     "lib": ["ES2024", "WebWorker"],
     "types": []
   },

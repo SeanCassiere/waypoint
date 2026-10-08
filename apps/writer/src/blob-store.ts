@@ -24,10 +24,12 @@ async function createChild(parentPath: string, segment: string): Promise<string>
 export class BlobStore {
   private activeWrites = 0;
   private idleWaiters = new Set<() => void>();
-  constructor(
-    readonly dataDir: string,
-    readonly maxBlobBytes: number,
-  ) {}
+  readonly dataDir: string;
+  readonly maxBlobBytes: number;
+  constructor(dataDir: string, maxBlobBytes: number) {
+    this.dataDir = dataDir;
+    this.maxBlobBytes = maxBlobBytes;
+  }
   path(hash: string): string {
     if (!isContentHash(hash)) throw new WaypointError("validation_failed", "Invalid content hash");
     const hex = hash.slice(7);

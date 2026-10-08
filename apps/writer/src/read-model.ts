@@ -229,11 +229,14 @@ export class ReadModel {
   }
   /** Change counts of committed revisions, least recently used first (see changesFor). */
   private readonly changeCache = new Map<string, RevisionChanges>();
-  constructor(
-    readonly waypoint: Db,
-    readonly queue: Db,
-    readonly baseUrl: string,
-  ) {}
+  readonly waypoint: Db;
+  readonly queue: Db;
+  readonly baseUrl: string;
+  constructor(waypoint: Db, queue: Db, baseUrl: string) {
+    this.waypoint = waypoint;
+    this.queue = queue;
+    this.baseUrl = baseUrl;
+  }
   private cacheChanges(id: string, changes: RevisionChanges): void {
     this.changeCache.delete(id);
     this.changeCache.set(id, { ...changes });
