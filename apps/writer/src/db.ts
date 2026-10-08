@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -237,24 +237,35 @@ const exists = (path: string) =>
     () => true,
     () => false,
   );
+const nonEmpty = (path: string) =>
+  stat(path).then(
+    (info) => info.size > 0,
+    () => false,
+  );
 /**
  * A data directory stays in the sync mode it started in. Turso Sync keeps its replication state
  * next to waypoint.db (`waypoint.db-info`); writing that file without sync forks it from the
  * cloud DB, and a local-only waypoint.db has no sync state to push. So either switch is refused
  * before anything opens the database (docs/configuration.md).
+ *
+ * Turso Sync creates an empty waypoint.db before it contacts the server and writes
+ * waypoint.db-info only once the bootstrap succeeds. An empty waypoint.db with no WAL content
+ * holds no data in either mode, so it counts as absent: a first sync that failed (cloud
+ * unreachable, wrong credentials) is simply retried on the next start.
  */
 export async function checkSyncMode(config: Pick<Config, "dataDir" | "sync">): Promise<void> {
-  const [database, syncState] = await Promise.all([
-    exists(join(config.dataDir, "waypoint.db")),
+  const [database, wal, syncState] = await Promise.all([
+    nonEmpty(join(config.dataDir, "waypoint.db")),
+    nonEmpty(join(config.dataDir, "waypoint.db-wal")),
     exists(join(config.dataDir, "waypoint.db-info")),
   ]);
   if (!config.sync && syncState)
     throw new Error(
       `WAYPOINT_SYNC=off can't use ${config.dataDir}: its waypoint.db is a cloud-synced replica. Turn sync back on, or give local-only mode its own WAYPOINT_DATA_DIR`,
     );
-  if (config.sync && database && !syncState)
+  if (config.sync && (database || wal) && !syncState)
     throw new Error(
-      `Cloud sync can't use ${config.dataDir}: its waypoint.db was created with WAYPOINT_SYNC=off and has no sync state. Use a new WAYPOINT_DATA_DIR (it bootstraps from the cloud DB), or move waypoint.db* aside if a first sync failed`,
+      `Cloud sync can't use ${config.dataDir}: its waypoint.db was created with WAYPOINT_SYNC=off and has no sync state. Use a new WAYPOINT_DATA_DIR (it bootstraps from the cloud DB)`,
     );
 }
 export async function openDatabases(
