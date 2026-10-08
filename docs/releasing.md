@@ -93,16 +93,101 @@ dialog of the PR you merge.
 
 GitHub occasionally drops a push event, so merging the release PR can start no `Release` run
 (`gh run list --repo <repo> --workflow release.yml --limit 1` shows nothing for the merge commit).
-Nothing is lost: the merged release PR stays labelled `autorelease: pending`. Run the workflow by
-hand from `main`:
+The merged release PR stays labelled `autorelease: pending`, and nothing is published. How to
+recover depends on whether `main` has moved on since the merge.
 
-```bash
-gh workflow run release.yml --repo <repo> --ref main
-```
+**Why it matters.** GitHub refuses GITHUB_TOKEN a release, or its tag, at a commit that **isn't the
+head of `main`** when workflow files changed between that commit and the head: creating the ref
+there would need the `workflows` permission, which GITHUB_TOKEN can't have. release-please creates
+the release (and with it the tag) at the release commit, always passing `target_commitish`, so a
+run started after any later merge that touched `.github/workflows/` fails with "Resource not
+accessible by integration", and creating the tag first doesn't help. Normal releases never hit
+this: the push of the release PR's merge starts the run while that merge is the head of `main`.
 
-release-please then tags and publishes the pending release exactly as the push would have, and
-every publishing job builds the release commit itself, not the head of `main`. Runs from any
-other branch skip everything.
+1. **The release commit is still the head of `main`** (`gh api repos/<repo>/commits/main --jq .sha`
+   is the release PR's merge commit). Run the workflow by hand from `main`:
+
+   ```bash
+   gh workflow run release.yml --repo <repo> --ref main
+   ```
+
+   release-please then tags and publishes the pending release exactly as the push would have, and
+   every publishing job builds the release commit, not whatever is the head of `main` by then
+   (D60). Runs from any other branch skip everything.
+
+2. **`main` has moved on.** Create the release by hand, then let the workflow publish it. With
+   `<pr>` for the merged release PR and `X.Y.Z` for its version, from an up-to-date clone:
+
+   1. Create the tag on the release commit and the GitHub release, with that version's
+      `CHANGELOG.md` section as its notes (release-please's own format), with a maintainer's login.
+      If GitHub refuses the tag push for the same reason as above, the login lacks the `workflow`
+      scope: `gh auth refresh -s workflow`, and push again.
+
+      ```bash
+      version=X.Y.Z
+      sha="$(gh pr view <pr> --repo <repo> --json mergeCommit --jq .mergeCommit.oid)"
+      git fetch origin main
+      git show "$sha:CHANGELOG.md" \
+        | awk -v h="## [$version]" 'index($0, h) == 1 { p = 1; print; next } p && /^## / { exit } p' > notes.md
+      cat notes.md                                    # the section for X.Y.Z, nothing else
+      git tag "v$version" "$sha" && git push origin "v$version"
+      gh release create "v$version" --repo <repo> --verify-tag --title "v$version" --notes-file notes.md
+      ```
+
+   2. Relabel the release PR from `autorelease: pending` to `autorelease: tagged`, as release-please
+      would have. This matters: while a merged release PR is labelled pending, every later release
+      run tries to release it again, fails, and opens no new release PR.
+
+      ```bash
+      gh pr edit <pr> --repo <repo> --remove-label 'autorelease: pending' --add-label 'autorelease: tagged'
+      ```
+
+   3. Publish it:
+
+      ```bash
+      gh workflow run release.yml --repo <repo> --ref main -f publish_tag="v$version"
+      ```
+
+      In this **publish mode** the `release-please` job runs no release-please. It runs
+      [scripts/release-publish-check.sh](../scripts/release-publish-check.sh), from the run's own
+      commit, which refuses, with an error naming the problem:
+
+      - a run from any ref but `main`;
+      - a tag that isn't `vX.Y.Z`;
+      - no published release for the tag, or one that's a draft, a prerelease or immutable (an
+        immutable release can't take the bundle);
+      - a release that isn't the newest published one (the image's `latest` tag would move back);
+      - a tag (annotated tags peeled) whose commit isn't on `main`'s first-parent line, as of the
+        run: a commit merged to `main`, never a branch's (the release PR's head, or a commit of a
+        branch merged with a merge commit);
+      - a commit whose `package.json` `version`, `.release-please-manifest.json` and
+        `packages/core/src/version.ts` don't all say `X.Y.Z`, or whose parent already did (so the
+        tag must name the commit that released `X.Y.Z`, not a later one);
+      - a release that already has its `waypoint-deploy-X.Y.Z.tgz` (below).
+
+      It warns if a merged release PR is still labelled `autorelease: pending`. Then it sets the
+      outputs release-please would have set (the tag, the version and the release commit), and the
+      publishing jobs run unchanged: the image and the bundle are built from the release commit
+      (`WAYPOINT_BUILD_SHA` is that commit), attested, the bundle is uploaded to the existing
+      release, and the deploy is dispatched. `release-pr` and `release-pr-checks` are skipped. The
+      attestations name `release.yml` and `refs/heads/main`, as for any release, so instances verify
+      them as usual; their source commit is the head of `main` when the run started (whose
+      workflow did the building), while the bundle's `BUILD_SHA` and the image name the release
+      commit.
+
+   **Republishing** a release that already has its bundle is refused unless the run also sets
+   `-f republish=true`, and even then only for the newest release. It rebuilds the image, which
+   gets a new index digest under the same tags, and replaces the bundle: everything still comes
+   from the release commit and is attested the same way, but instances that already fetched the
+   first bundle keep its image digest while new ones get the second. It's only for a release whose
+   published artifacts are unusable (its image deleted from the registry, say). A release whose
+   publishing failed partway has no bundle yet (the bundle is attached last), so it needs no
+   `republish`: re-run the failed jobs of its run, or start publish mode again.
+
+A dedicated release GitHub App with `workflows: write`, used by release-please instead of
+GITHUB_TOKEN, would let a manual re-run create the release at any commit and remove the steps by
+hand. It's not used (D61): it would be another long-lived credential that can push to this
+repository, workflows included, for a recovery that has been needed once.
 
 ## What a release publishes
 
@@ -134,7 +219,9 @@ gh attestation verify oci://ghcr.io/seancassiere/waypoint-writer@$(cat waypoint-
 ```
 
 If a publishing job fails, **re-run the failed jobs** of that run: the release and tag already
-exist, so a later push won't publish it again, and a re-run keeps the first job's outputs. Every
+exist, so a later push won't publish it again, and a re-run keeps the first job's outputs. If the
+run can no longer be re-run, publish mode (above, `-f publish_tag=vX.Y.Z`) publishes the release
+again from scratch, as long as it has no bundle yet. Every
 publishing step can be repeated (tags are moved to the same index, the asset is replaced, and an
 extra attestation is harmless). Meanwhile instances don't deploy it: GitHub marks the release
 "latest" as soon as it's created, but `upgrade.sh latest` and the ops workflow take the newest
@@ -245,8 +332,10 @@ actionlint on every workflow and the ops template, validates the release-please 
 its schema, builds and checks a bundle, and runs `upgrade.sh`'s release mode against a fake
 release with stand-in attestations, and tests the `dispatch` job's target check
 ([scripts/release-dispatch-target.sh](../scripts/release-dispatch-target.sh)), the
-`release-pr-checks` job's approvals against a stand-in gh (approved, refused, none found), and
-oxfmt's handling of `CHANGELOG.md`. Locally, after `pnpm --filter "@waypoint/reader..." build`:
+`release-pr-checks` job's approvals against a stand-in gh (approved, refused, none found),
+publish mode's checks ([scripts/release-publish-check.sh](../scripts/release-publish-check.sh))
+against a stand-in gh and a scratch repository (every refusal above), and oxfmt's handling of
+`CHANGELOG.md`. Locally, after `pnpm --filter "@waypoint/reader..." build`:
 
 ```bash
 bash scripts/build-release-bundle.sh --out /tmp/release   # the bundle for this commit

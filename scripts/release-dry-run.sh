@@ -12,11 +12,19 @@
 #      refused approval, no run within the wait and an unreadable PR each a warning with the fix by
 #      hand, never a failure; a closed PR skipped; and a malformed release-please output or a PR
 #      whose head isn't this repository's release branch refused before anything is approved;
-#   5. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
+#   5. publish mode's checks (scripts/release-publish-check.sh) against a stand-in gh and a scratch
+#      repository: a valid release (lightweight or annotated tag, squash or merge commit) accepted
+#      with release-please's outputs; refused, with no outputs, a run from another ref, a malformed
+#      tag, a missing, draft, prerelease or immutable release, one that isn't the newest, a tag whose
+#      commit isn't on main's first-parent line (a release PR branch, a merged branch's commit), a
+#      commit whose version files don't all say the version or that didn't set it, and a release
+#      that already has its bundle (accepted with republish=true, for the newest release only);
+#      a merged release PR still labelled `autorelease: pending` a warning;
+#   6. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
 #      tarball, and the refusals (another version, a file naming the owner's instance), and the
 #      owner-string check itself: each form of the owner's instance refused, the published image
 #      and repository allowed;
-#   6. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
+#   7. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
 #      release list from a local directory, and a stand-in gh answers `gh attestation
 #      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
 #      `latest` must read every page of the release list (following the Link headers), pick the
@@ -264,6 +272,187 @@ approve_case open someone/waypoint
 if approve_run env PR="$pr_output"; then approve_show; fail "accepted a release PR whose head is a fork's"; fi
 grep -q "^::error::#7 isn't example/waypoint's $branch" "$ap/out" || { approve_show; fail "the fork's head isn't named"; }
 [[ ! -e "$ap/case/listings" && ! -e "$ap/case/approved" ]] || fail "listed or approved runs of a refused PR"
+
+step "publish mode's checks (scripts/release-publish-check.sh)"
+# A scratch repository whose main has: the 0.1.0 commit, a feature, the 0.2.0 release commit, a
+# later fix, a merge of a branch that sets 0.3.0 (so the merge is the 0.3.0 release commit and the
+# branch's commit only an ancestor), a commit that bumps 0.4.0 everywhere but version.ts, and one
+# that fixes version.ts. Off main: the head of a 0.2.0 release PR branch. A stand-in gh answers
+# from $FAKE_PUBLISH: the release by tag (release-<tag>.json, else a 404), the release list
+# (releases.json, two pages), the tag ref (ref-<tag>.json), tag objects (tag-<sha>.json) and the
+# release PRs labelled `autorelease: pending` (pending.json).
+pub="$work/publish"
+mkdir -p "$pub/bin" "$pub/repo/packages/core/src"
+cat > "$pub/bin/gh" <<'GH'
+#!/usr/bin/env bash
+set -euo pipefail
+dir="$FAKE_PUBLISH"
+echo "$*" >> "$dir/gh.log"
+[[ "$1" == api ]] || { echo "fake gh: unexpected $*" >&2; exit 2; }
+shift
+[[ "$1" != --paginate ]] || shift
+case "$*" in
+  "repos/example/waypoint/releases/tags/"*) f="$dir/release-${1##*/}.json" ;;
+  "repos/example/waypoint/releases?per_page=100") f="$dir/releases.json" ;;
+  "repos/example/waypoint/git/ref/tags/"*) f="$dir/ref-${1##*/}.json" ;;
+  "repos/example/waypoint/git/tags/"*) f="$dir/tag-${1##*/}.json" ;;
+  "repos/example/waypoint/issues?state=closed&labels=autorelease%3A%20pending&per_page=100") f="$dir/pending.json" ;;
+  *) echo "fake gh: unexpected api $*" >&2; exit 2 ;;
+esac
+[[ -f "$f" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+cat "$f"
+GH
+chmod +x "$pub/bin/gh"
+pgit() { git -C "$pub/repo" -c user.name="release dry run" -c user.email=dry-run@example.test -c commit.gpgsign=false "$@"; }
+set_versions() { # $1 package.json and the manifest, $2 version.ts
+  printf '{ "name": "waypoint", "version": "%s" }\n' "$1" > "$pub/repo/package.json"
+  printf '{ ".": "%s" }\n' "$1" > "$pub/repo/.release-please-manifest.json"
+  printf 'export const WAYPOINT_VERSION: string = "%s"; // x-release-please-version\n' "$2" > "$pub/repo/packages/core/src/version.ts"
+}
+pcommit() { pgit add -A && pgit commit -q -m "$1" && pgit rev-parse HEAD; }
+pgit init -q -b main
+set_versions 0.1.0 0.1.0; pcommit "chore: 0.1.0" > /dev/null
+echo a > "$pub/repo/feature.txt"; c_feat="$(pcommit "feat: a feature")"
+pgit checkout -q -b release-pr
+set_versions 0.2.0 0.2.0; c_branch="$(pcommit "chore(main): release 0.2.0 (the PR branch)")"
+pgit checkout -q main
+set_versions 0.2.0 0.2.0; c_rel="$(pcommit "chore(main): release 0.2.0")"
+echo b > "$pub/repo/fix.txt"; c_later="$(pcommit "fix: after 0.2.0")"
+pgit checkout -q -b side
+set_versions 0.3.0 0.3.0; c_merged="$(pcommit "chore(main): release 0.3.0 (merged branch)")"
+pgit checkout -q main
+pgit merge -q --no-ff -m "Merge the 0.3.0 release" side
+c_merge="$(pgit rev-parse HEAD)"
+set_versions 0.4.0 0.3.0; c_partial="$(pcommit "chore(main): release 0.4.0 (version.ts missed)")"
+set_versions 0.4.0 0.4.0; c_head="$(pcommit "fix: version.ts")"
+[[ "$c_feat" != "$c_branch" ]] || fail "the scratch repository's history is wrong"
+# Fresh fake state: $1 the tag, $2 the commit it names, $3... every published release (default
+# v0.1.0 and the tag's). The list spans two pages, with a draft, a prerelease and a non-version tag
+# that are all newer and don't count.
+pstate() {
+  local tag="$1" commit="$2"; shift 2
+  (( $# > 0 )) || set -- v0.1.0 "$tag"
+  rm -rf "$pub/gh" && mkdir "$pub/gh"
+  jq -n --arg t "$tag" '{tag_name: $t, draft: false, prerelease: false, immutable: false,
+    assets: [{name: "notes.txt"}]}' > "$pub/gh/release-$tag.json"
+  jq -n --arg r "refs/tags/$tag" --arg s "$commit" '{ref: $r, object: {type: "commit", sha: $s}}' > "$pub/gh/ref-$tag.json"
+  { jq -n --arg t "$1" '[{tag_name: $t, draft: false, prerelease: false}, {tag_name: "v9.0.0", draft: true, prerelease: false},
+      {tag_name: "v8.0.0", draft: false, prerelease: true}, {tag_name: "nightly", draft: false, prerelease: false}]'
+    shift
+    printf '%s\n' "$@" | jq -R . | jq -s 'map({tag_name: ., draft: false, prerelease: false})'; } > "$pub/gh/releases.json"
+  echo '[]' > "$pub/gh/pending.json"
+}
+pedit() { jq "$2" "$pub/gh/$1" > "$pub/gh/$1.new" && mv "$pub/gh/$1.new" "$pub/gh/$1"; } # $1 file, $2 jq filter
+prun() { # the job's step, from the scratch repository; extra environment as arguments
+  : > "$pub/outputs"; : > "$pub/summary"
+  (cd "$pub/repo" && env PATH="$pub/bin:$PATH" FAKE_PUBLISH="$pub/gh" GH_TOKEN=fake GITHUB_REPOSITORY=example/waypoint \
+    GITHUB_REF=refs/heads/main GITHUB_SHA="$c_head" GITHUB_OUTPUT="$pub/outputs" GITHUB_STEP_SUMMARY="$pub/summary" \
+    REPUBLISH=false "$@" bash "$repo/scripts/release-publish-check.sh") > "$pub/out" 2>&1
+}
+prefused() { # $1 what, $2 a pattern of the error message, then prun's arguments
+  local what="$1" pattern="$2"; shift 2
+  if prun "$@"; then cat "$pub/out" >&2; fail "publish mode accepted $what"; fi
+  grep -q "^::error title=publish_tag refused::.*$pattern" "$pub/out" || { cat "$pub/out" >&2; fail "the refusal of $what isn't explained"; }
+  [[ ! -s "$pub/outputs" ]] || fail "publish mode wrote outputs for $what"
+}
+paccepted() { # $1 what, $2 tag, $3 the commit the outputs must name, then prun's arguments
+  local what="$1" tag="$2" commit="$3"; shift 3
+  prun "$@" || { cat "$pub/out" >&2; fail "publish mode refused $what"; }
+  [[ "$(cat "$pub/outputs")" == "$(printf 'release_created=true\ntag_name=%s\nversion=%s\nsha=%s' "$tag" "${tag#v}" "$commit")" ]] \
+    || { cat "$pub/outputs" >&2; fail "unexpected outputs for $what"; }
+}
+
+# Valid: a lightweight tag, an annotated one (peeled through two tag objects), and a release made
+# by merging a branch (the merge commit is the release commit).
+pstate v0.2.0 "$c_rel"
+paccepted "a valid release" v0.2.0 "$c_rel" TAG=v0.2.0
+grep -q "^Publish mode: publishing v0.2.0 (0.2.0) from $c_rel$" "$pub/summary" || fail "the job summary doesn't name the release"
+! grep -q '^::\(warning\|error\)' "$pub/out" || { cat "$pub/out" >&2; fail "a warning or error for a valid release"; }
+tag1="$(printf 'tag object 1' | sha1sum | cut -d' ' -f1)"
+tag2="$(printf 'tag object 2' | sha1sum | cut -d' ' -f1)"
+jq -n --arg s "$tag1" '{ref: "refs/tags/v0.2.0", object: {type: "tag", sha: $s}}' > "$pub/gh/ref-v0.2.0.json"
+jq -n --arg s "$tag2" '{object: {type: "tag", sha: $s}}' > "$pub/gh/tag-$tag1.json"
+jq -n --arg s "$c_rel" '{object: {type: "commit", sha: $s}}' > "$pub/gh/tag-$tag2.json"
+paccepted "an annotated tag" v0.2.0 "$c_rel" TAG=v0.2.0
+pstate v0.3.0 "$c_merge"
+paccepted "a release commit that merged a branch" v0.3.0 "$c_merge" TAG=v0.3.0
+
+# Refused before GitHub is asked anything: another ref, and malformed tags or republish values.
+pstate v0.2.0 "$c_rel"
+prefused "a run from another branch" "runs from main only, not refs/heads/release-pr" GITHUB_REF=refs/heads/release-pr TAG=v0.2.0
+prefused "a run from a tag" "runs from main only" GITHUB_REF=refs/tags/v0.2.0 TAG=v0.2.0
+for bad in "" 0.2.0 v0.2 v0.2.0-rc.1 "v0.2.0 " " v0.2.0" "v0.2.0;x" $'v0.2.0\nv0.3.0' refs/tags/v0.2.0 V0.2.0; do
+  prefused "the tag '$bad'" "publish_tag must be a release tag vX.Y.Z" TAG="$bad"
+done
+prefused "republish=yes" "republish must be true or false" TAG=v0.2.0 REPUBLISH=yes
+[[ ! -e "$pub/gh/gh.log" ]] || fail "publish mode asked GitHub before refusing the ref or the input"
+
+# The release: missing, a draft, a prerelease, immutable, or another tag's.
+rm "$pub/gh/release-v0.2.0.json"
+prefused "a tag without a release" "no published GitHub release for v0.2.0 (gh: Not Found (HTTP 404))" TAG=v0.2.0
+for case in "draft|.draft = true|is a draft" "prerelease|.prerelease = true|is a prerelease" \
+  "immutable release|.immutable = true|is immutable" "release of another tag|.tag_name = \"v0.1.0\"|another release than v0.2.0"; do
+  IFS='|' read -r what filter pattern <<< "$case"
+  pstate v0.2.0 "$c_rel"
+  pedit release-v0.2.0.json "$filter"
+  prefused "a $what" "$pattern" TAG=v0.2.0
+done
+
+# Not the newest published release (versions compared as numbers: 0.10.0 is newer than 0.2.0).
+pstate v0.2.0 "$c_rel" v0.1.0 v0.2.0 v0.10.0
+prefused "an older release" "v0.2.0 isn't the newest release (v0.10.0 is)" TAG=v0.2.0
+
+# A tag whose commit isn't a commit of main: a release PR branch's head, a merged branch's commit
+# (an ancestor of main, off its first-parent line), a commit GitHub has that main's history doesn't,
+# a tag that names a tree, and a ref GitHub answers for another tag.
+pstate v0.2.0 "$c_branch"
+prefused "the release PR branch's head" "names ${c_branch::12}, which isn't a commit of main" TAG=v0.2.0
+pstate v0.3.0 "$c_merged"
+prefused "a merged branch's commit" "names ${c_merged::12}, which isn't a commit of main" TAG=v0.3.0
+unknown="$(printf 'not in main' | sha1sum | cut -d' ' -f1)"
+pstate v0.2.0 "$unknown"
+prefused "an unknown commit" "which isn't in main's history" TAG=v0.2.0
+pstate v0.2.0 "$c_rel"
+pedit ref-v0.2.0.json '.object.type = "tree"'
+prefused "a tag naming a tree" "v0.2.0 doesn't name a commit" TAG=v0.2.0
+pstate v0.2.0 "$c_rel"
+pedit ref-v0.2.0.json '.ref = "refs/tags/v0.2.0-evil"'
+prefused "another tag's ref" "another ref than refs/tags/v0.2.0" TAG=v0.2.0
+# And main is the run's commit: from an older head, the 0.2.0 release commit isn't on it yet.
+pstate v0.2.0 "$c_rel"
+prefused "a release after the run's commit" "isn't a commit of main" TAG=v0.2.0 GITHUB_SHA="$c_feat"
+
+# A commit of main that isn't the version's release commit: another version, a version file left
+# behind, or a later commit of the same version (its parent already had it).
+pstate v0.2.1 "$c_rel"
+prefused "a tag of another version" "package.json says '0.2.0', not 0.2.1" TAG=v0.2.1
+pstate v0.4.0 "$c_partial"
+prefused "a version.ts out of step" "packages/core/src/version.ts says '0.3.0', not 0.4.0" TAG=v0.4.0
+pstate v0.2.0 "$c_later"
+prefused "a later commit of the same version" "0.2.0 was already released before it" TAG=v0.2.0
+pstate v0.4.0 "$c_head"
+prefused "the commit after a partial bump" "0.4.0 was already released before it" TAG=v0.4.0
+
+# Already published: refused, unless republish=true (still only for the newest release).
+pstate v0.2.0 "$c_rel"
+pedit release-v0.2.0.json '.assets += [{name: "waypoint-deploy-0.2.0.tgz"}, {name: "waypoint-deploy-0.2.0.tgz.sha256"}]'
+prefused "a release that has its bundle" "already has waypoint-deploy-0.2.0.tgz" TAG=v0.2.0
+paccepted "republishing" v0.2.0 "$c_rel" TAG=v0.2.0 REPUBLISH=true
+grep -q "^Publish mode: republishing v0.2.0" "$pub/summary" || fail "republishing isn't reported as such"
+pstate v0.2.0 "$c_rel" v0.1.0 v0.2.0 v0.3.0
+pedit release-v0.2.0.json '.assets += [{name: "waypoint-deploy-0.2.0.tgz"}]'
+prefused "republishing an older release" "isn't the newest release (v0.3.0 is)" TAG=v0.2.0 REPUBLISH=true
+
+# A merged release PR still labelled `autorelease: pending`: a warning naming it (not an open
+# one's), and still published. An unreadable list is a warning too.
+pstate v0.2.0 "$c_rel"
+echo '[{"number": 35, "pull_request": {"merged_at": "2026-10-08T00:00:00Z"}}, {"number": 40, "pull_request": {"merged_at": null}}]' > "$pub/gh/pending.json"
+paccepted "a release with a pending release PR" v0.2.0 "$c_rel" TAG=v0.2.0
+grep -q "^::warning title=Release PR still pending::merged release PR(s) #35 still have the 'autorelease: pending' label.*--add-label 'autorelease: tagged'$" "$pub/out" \
+  || { cat "$pub/out" >&2; fail "the pending release PR isn't named"; }
+rm "$pub/gh/pending.json"
+paccepted "a release whose PR labels can't be read" v0.2.0 "$c_rel" TAG=v0.2.0
+grep -q "^::warning title=Release PR labels unchecked::" "$pub/out" || { cat "$pub/out" >&2; fail "the unread labels aren't reported"; }
 
 step "build-release-bundle.sh"
 version="$(node -p 'require(process.argv[1]).version' "$repo/package.json")"

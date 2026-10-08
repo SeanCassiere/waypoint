@@ -13,6 +13,11 @@ name: Release
 #                digest), attested and attached to the release
 #   dispatch     starts the deploy workflow of the ops repository, if one is configured
 #
+# Publish mode (workflow_dispatch with publish_tag=vX.Y.Z, D61) publishes a release that exists but
+# was never published, when release-please can't create it: the release-please job then runs no
+# release-please, only scripts/release-publish-check.sh, which checks the release, its tag and its
+# commit and sets the same outputs, and the publishing jobs run exactly as for a new release.
+#
 # Nothing here uses the Turborepo remote cache: no TURBO_* credentials are set, the Dockerfile turns
 # turbo's caches off, and the reader builds with plain `pnpm --filter`. Every third-party action is
 # pinned by commit; every job gets only the permissions it needs.
@@ -20,9 +25,22 @@ on:
   push:
     branches: [main]
   # By hand, from main only: GitHub occasionally drops a push event, so merging the release PR
-  # can leave a release un-published. Re-running is safe: release-please releases whatever merged
-  # release PR is still pending, and every publishing job checks out the release commit by SHA.
+  # can leave a release un-published (docs/releasing.md#if-the-release-doesnt-start). Without
+  # inputs, release-please releases whatever merged release PR is still pending, as the push would
+  # have (D60), which GitHub allows only while the release commit is still the head of main. With
+  # publish_tag, it publishes a release a maintainer created by hand (D61).
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: "Publish this existing, unpublished release (vX.Y.Z) instead of running release-please"
+        type: string
+        required: false
+        default: ""
+      republish:
+        description: "With publish_tag: publish it again even though it has its bundle (rarely right; see docs/releasing.md)"
+        type: boolean
+        required: false
+        default: false
 permissions: {}
 # One release run at a time, never cancelled midway: a release half-published by a cancelled run
 # would need its failed jobs re-run by hand.
@@ -35,6 +53,12 @@ jobs:
   # "Allow GitHub Actions to create and approve pull requests" off) can't fail this job and skip
   # the publishing jobs, which would leave a release without its image or bundle (a re-run of
   # release-please doesn't report an existing release again).
+  #
+  # In publish mode (publish_tag set) it runs no release-please: scripts/release-publish-check.sh,
+  # from the run's own commit (the head of main), checks that the tag names a published release
+  # that is the newest, has no bundle yet (unless republish), and whose commit is the X.Y.Z release
+  # commit on main's first-parent line, and only then sets the same outputs. The publishing jobs
+  # can't tell the two modes apart.
   release-please:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -43,23 +67,41 @@ jobs:
       pull-requests: write # labelling the merged release PR as released
       issues: write # the labels
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
-      sha: ${{ steps.release.outputs.sha }}
+      release_created: ${{ steps.release.outputs.release_created || steps.publish.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name || steps.publish.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version || steps.publish.outputs.version }}
+      sha: ${{ steps.release.outputs.sha || steps.publish.outputs.sha }}
     steps:
       - id: release
+        if: ${{ !inputs.publish_tag }}
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           skip-github-pull-request: true
+      # main's full history, to find the tag's commit on it (scripts/release-dry-run.sh tests the
+      # script).
+      - if: ${{ inputs.publish_tag }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: publish
+        if: ${{ inputs.publish_tag }}
+        name: Check the release to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.publish_tag }}
+          REPUBLISH: ${{ inputs.republish }}
+        run: bash scripts/release-publish-check.sh
 
   # Opens or updates the release PR. After the release job: release-please won't open the next PR
   # while a merged release PR is still untagged. Nothing publishing depends on this job, so its
-  # failure fails the run (loudly) but doesn't hold back a release created above.
+  # failure fails the run (loudly) but doesn't hold back a release created above. Skipped in
+  # publish mode (and with it release-pr-checks), which leaves release-please alone.
   release-pr:
     needs: release-please
+    if: ${{ !inputs.publish_tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # the release branch
