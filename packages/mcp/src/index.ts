@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   DEFAULT_LIMITS,
   isWaypointError,
+  WAYPOINT_VERSION,
   withBase,
   type Limits,
   type McpStatusResponse,
@@ -385,6 +386,7 @@ export function createServer(client: WaypointClient, launcher?: LauncherInfo): M
       const result: McpStatusResponse = {
         ...status,
         mcp: {
+          version: WAYPOINT_VERSION,
           running_sha256: runningSha256,
           source: launcher?.source ?? "embedded",
           latest_sha256: latestSha256,

@@ -190,7 +190,10 @@ export async function candidates({
     source: "embedded",
   };
   const url = new URL(base);
+  // WAYPOINT_MCP_ALLOW_HTTP=1: the operator accepts plain HTTP to this writer (a private network
+  // or a TLS-terminating tunnel). `.ts.net` stays exempt for configs that predate the opt-out.
   if (
+    env.WAYPOINT_MCP_ALLOW_HTTP !== "1" &&
     url.protocol === "http:" &&
     url.hostname !== "localhost" &&
     !url.hostname.endsWith(".localhost") &&
