@@ -25,8 +25,9 @@
 // Anything else is refused: a label list, a `group:`/`labels:` mapping, a matrix that is an
 // expression (`${{ fromJSON(...) }}`) or has one where a NAME value could come from, any other
 // expression, a reusable workflow of another repository (its jobs pick their own runners), and a
-// lone label that isn't GitHub's (that is how self-hosted runners are selected). A GitHub-hosted
-// larger runner, or a new image label GitHub adds, needs a change to HOSTED.
+// lone label that isn't on GitHub's list (that is how self-hosted runners are selected), even one
+// shaped like GitHub's (`ubuntu-99.99`). A Linux or Windows larger runner (selected by a runner
+// group), or a new image label GitHub adds, needs a change to HOSTED.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,9 +45,43 @@ import {
   visit,
 } from "yaml";
 
-/** GitHub's standard hosted-runner image labels (ubuntu-24.04-arm, windows-2025, macos-15-intel, ...). */
-const HOSTED =
-  /^(?:ubuntu-(?:latest|slim|\d+\.\d+(?:-arm)?)|windows-(?:latest|\d{4}(?:-vs\d{4})?|11-arm)|macos-(?:latest(?:-large|-xlarge)?|\d+(?:-intel|-large|-xlarge)?))$/;
+/**
+ * GitHub's hosted-runner image labels, spelled out: the standard runners (docs.github.com, "GitHub-
+ * hosted runners") and the macOS larger runners. A pattern such as `ubuntu-\d+.\d+` would also
+ * accept a label GitHub doesn't have (`ubuntu-99.99`), which only a self-hosted runner could carry.
+ * A label GitHub adds is added here, and one it retires is removed (a self-hosted runner could carry
+ * that too).
+ */
+const HOSTED: ReadonlySet<string> = new Set([
+  "ubuntu-latest",
+  "ubuntu-slim",
+  "ubuntu-26.04",
+  "ubuntu-24.04",
+  "ubuntu-22.04",
+  "ubuntu-26.04-arm",
+  "ubuntu-24.04-arm",
+  "ubuntu-22.04-arm",
+  "windows-latest",
+  "windows-2025",
+  "windows-2025-vs2026",
+  "windows-2022",
+  "windows-11-arm",
+  "windows-11-vs2026-arm",
+  "macos-latest",
+  "macos-26",
+  "macos-15",
+  "macos-14",
+  "macos-26-intel",
+  "macos-15-intel",
+  "macos-latest-large",
+  "macos-26-large",
+  "macos-15-large",
+  "macos-14-large",
+  "macos-latest-xlarge",
+  "macos-26-xlarge",
+  "macos-15-xlarge",
+  "macos-14-xlarge",
+]);
 const MATRIX_VALUE = /^\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}$/;
 const LOCAL_WORKFLOW = /^\.\/\.github\/workflows\/[^@\s]+\.ya?ml$/;
 
@@ -153,8 +188,7 @@ function check(source: string): string[] {
   const label = (field: Field, what: string) => {
     const value = text(field.value);
     if (value === undefined) report(field.at, `${what} must be one GitHub-hosted label`);
-    else if (!HOSTED.test(value))
-      report(field.at, `${what}: ${value} is not a GitHub-hosted label`);
+    else if (!HOSTED.has(value)) report(field.at, `${what}: ${value} is not a GitHub-hosted label`);
   };
 
   for (const pair of jobs.value.items) {
@@ -184,7 +218,7 @@ function check(source: string): string[] {
       );
       continue;
     }
-    if (HOSTED.test(value)) continue;
+    if (HOSTED.has(value)) continue;
     const ref = MATRIX_VALUE.exec(value);
     if (!ref?.[1]) {
       report(runsOn.at, `job ${id}: runs-on: ${value} is not a single GitHub-hosted label`);

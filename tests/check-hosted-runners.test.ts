@@ -102,6 +102,13 @@ describe("check-hosted-runners.ts", () => {
       "    strategy:\n      matrix:\n        runner: ['self-hosted']\n    runs-on: ubuntu-latest\n",
     ],
     ["a custom label with a hosted prefix", "    runs-on: ubuntu-deploy\n"],
+    ["an invented version of a hosted image", "    runs-on: ubuntu-99.99\n"],
+    ["an invented windows image", "    runs-on: windows-2099\n"],
+    ["an invented macOS variant", "    runs-on: macos-15-deploy\n"],
+    [
+      "an invented label in a matrix",
+      "    strategy:\n      matrix:\n        runner: [ubuntu-latest, ubuntu-99.99-arm]\n    runs-on: ${{ matrix.runner }}\n",
+    ],
     ["a double-quoted runs-on key", '    "runs-on": deploy-box\n'],
     ["a single-quoted runs-on key", "    'runs-on': deploy-box\n"],
     ["a runs-on key in another case", "    Runs-On: deploy-box\n"],

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks the release pipeline without publishing anything (the CI job `release-dry-run`):
 #
-#   1. actionlint on every workflow and on the ops workflow template (deploy/ops/deploy.yml.example),
-#      with shellcheck on each run: script;
+#   1. actionlint on every workflow (.yml and .yaml) and on the ops workflow template
+#      (deploy/ops/deploy.yml.example), with shellcheck on each run: script;
 #   2. the release-please config against its schema, the versions it keeps in step, and oxfmt
 #      leaving the CHANGELOG.md it writes alone (else the release PR's format check fails);
 #   3. the release workflow's dispatch target check (scripts/release-dispatch-target.sh), which
@@ -42,8 +42,12 @@ actionlint_sha256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3
 schema_url=https://raw.githubusercontent.com/googleapis/release-please/712fcf01effd08d7b0e7b1fd3861f2cb388bc8d1/schemas/config.json
 schema_sha256=82ae5d0a805cd3e4c437ce7a4d3eae1e3db51706ad414c624cc749ca02e7c1c5
 
+# A relative ACTIONLINT or SHELLCHECK path means one from where the script was started; the
+# actionlint runs below change directory, so it's made absolute here.
+absolute() { if [[ "$1" == */* && "$1" != /* ]]; then echo "$PWD/$1"; else echo "$1"; fi; }
+
 step "actionlint"
-actionlint="${ACTIONLINT:-}"
+actionlint="$(absolute "${ACTIONLINT:-}")"
 if [[ -z "$actionlint" ]]; then
   [[ "$(uname -sm)" == "Linux x86_64" ]] || fail "no pinned actionlint for $(uname -sm); set ACTIONLINT"
   curl -fsSL --retry 3 -o "$work/actionlint.tgz" \
@@ -54,7 +58,7 @@ if [[ -z "$actionlint" ]]; then
 fi
 # Without shellcheck, actionlint silently skips the run: scripts, so a local run could pass what CI
 # then fails.
-shellcheck="${SHELLCHECK:-$(command -v shellcheck || true)}"
+shellcheck="$(absolute "${SHELLCHECK:-$(command -v shellcheck || true)}")"
 if [[ -n "$shellcheck" ]]; then
   "$shellcheck" --version > /dev/null || fail "$shellcheck doesn't run"
 elif [[ "${CI:-}" == true ]]; then
@@ -65,7 +69,13 @@ fi
 # This repository's workflows with actionlint's defaults, which know no custom runner label (none
 # may run on a self-hosted runner: scripts/check-hosted-runners.ts, D58). The ops template runs on
 # the deploy runner of an instance's private ops repository, labelled waypoint-deploy.
-(cd "$repo" && "$actionlint" -shellcheck="$shellcheck" .github/workflows/*.yml) || fail "actionlint"
+# Both extensions: GitHub runs .yaml workflows as well, and the hosted-runner check reads both.
+workflows=()
+for workflow in "$repo"/.github/workflows/*.yml "$repo"/.github/workflows/*.yaml; do
+  [[ -e "$workflow" ]] && workflows+=(".github/workflows/${workflow##*/}")
+done
+(( ${#workflows[@]} > 0 )) || fail "no workflows in .github/workflows"
+(cd "$repo" && "$actionlint" -shellcheck="$shellcheck" "${workflows[@]}") || fail "actionlint"
 cp "$repo/deploy/ops/deploy.yml.example" "$work/ops-deploy.yml"
 printf 'self-hosted-runner:\n  labels:\n    - waypoint-deploy\n' > "$work/ops-actionlint.yaml"
 (cd "$work" && "$actionlint" -shellcheck="$shellcheck" -config-file ops-actionlint.yaml ops-deploy.yml) \
