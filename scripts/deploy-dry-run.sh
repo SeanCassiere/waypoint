@@ -69,6 +69,20 @@ fi
 grep -q '^wrangler rollback dry-run-previous --config .*reader-prod.json' wrangler.log || fail "no rollback after the failed smoke test"
 grep -q 'reader-dev.json' wrangler.log || fail "dev didn't deploy before prod"
 
+echo "--- make-instance-env.sh writes a valid instance" >&2
+printf 'TS_AUTHKEY=dry-run\n' > ts.env
+chmod 600 ts.env
+bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" \
+  --writer-env writer.env --project deploy-dry-run --tailscale --ts-env ts.env --ts-tags tag:example \
+  --health-url https://writer.example.test/healthz --cloudflare-env cloudflare.env \
+  --reader dev,example-reader-dev,dev.share.example.com,reader-dev.env,example_access_dev,1001 \
+  --reader prod,example-reader,share.example.com,reader-prod.env,example_access,1002,true
+grep -qx 'READER_TARGETS=dev prod' made.env || fail "make-instance-env.sh lost the target order"
+grep -qx 'READER_prod_WORKERS_DEV=true' made.env || fail "make-instance-env.sh dropped WORKERS_DEV"
+if bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" --writer-env writer.env 2> /dev/null; then
+  fail "make-instance-env.sh overwrote an instance file"
+fi
+
 echo "--- invalid instance files are refused" >&2
 refuse() {
   local what="$1"
