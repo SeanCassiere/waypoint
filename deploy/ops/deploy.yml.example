@@ -134,6 +134,7 @@ jobs:
           if [[ -z "$version" ]]; then
             # The highest X.Y.Z that isn't a draft or prerelease and has its bundle; newer releases
             # still publishing (or whose publishing failed) are skipped, and named in the log.
+            # shellcheck disable=SC2016 # a jq program: $v is jq's variable, not the shell's
             releases="$("$GH" api "repos/$RELEASE_REPO/releases?per_page=100" --jq '
               .[] | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
               | (.tag_name | ltrimstr("v")) as $v

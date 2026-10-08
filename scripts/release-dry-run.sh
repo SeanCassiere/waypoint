@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks the release pipeline without publishing anything (the CI job `release-dry-run`):
 #
-#   1. actionlint on every workflow and on the ops workflow template (deploy/ops/deploy.yml.example);
+#   1. actionlint on every workflow and on the ops workflow template (deploy/ops/deploy.yml.example),
+#      with shellcheck on each run: script;
 #   2. the release-please config against its schema, the versions it keeps in step, and oxfmt
 #      leaving the CHANGELOG.md it writes alone (else the release PR's format check fails);
 #   3. the release workflow's dispatch target check (scripts/release-dispatch-target.sh), which
@@ -20,7 +21,8 @@
 #
 # Needs the reader build (pnpm --filter "@waypoint/reader..." build), the workspace's Wrangler,
 # Docker (compose config) and, for 1 and 2, the network. ACTIONLINT=<path> uses that actionlint
-# instead of downloading the pinned one.
+# instead of downloading the pinned one. actionlint runs shellcheck from PATH (or SHELLCHECK=<path>);
+# with CI=true a missing shellcheck fails the run (GitHub's runner image has it), else it's a warning.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,8 +48,19 @@ if [[ -z "$actionlint" ]]; then
   tar -xzf "$work/actionlint.tgz" -C "$work" actionlint
   actionlint="$work/actionlint"
 fi
+# Without shellcheck, actionlint silently skips the run: scripts, so a local run could pass what CI
+# then fails.
+shellcheck="${SHELLCHECK:-$(command -v shellcheck || true)}"
+if [[ -n "$shellcheck" ]]; then
+  "$shellcheck" --version > /dev/null || fail "$shellcheck doesn't run"
+elif [[ "${CI:-}" == true ]]; then
+  fail "shellcheck isn't installed, so actionlint can't check the workflows' run: scripts"
+else
+  echo "WARNING: shellcheck isn't installed (or set SHELLCHECK=<path>), so actionlint doesn't check the workflows' run: scripts; CI does" >&2
+fi
 cp "$repo/deploy/ops/deploy.yml.example" "$work/ops-deploy.yml"
-(cd "$repo" && "$actionlint" -config-file .github/actionlint.yaml .github/workflows/*.yml "$work/ops-deploy.yml") \
+(cd "$repo" && "$actionlint" -shellcheck="$shellcheck" -config-file .github/actionlint.yaml \
+  .github/workflows/*.yml "$work/ops-deploy.yml") \
   || fail "actionlint"
 
 step "release-please config"
