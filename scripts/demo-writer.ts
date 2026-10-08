@@ -84,7 +84,7 @@ const app = createApp({
   syncLoop,
   environment: "dev",
   port,
-  publicBaseUrl: "https://waypoint-dev.pingstash.com",
+  publicBaseUrl: "https://reader-dev.example.test",
   shareTokenKey,
 });
 
@@ -360,19 +360,16 @@ const plan = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 const webhooks = await create(
   "Webhook idempotency research",
   { project: "webhooks", tags: ["research"] },
-  "agent-1",
+  "devbox",
   "Add webhook idempotency comparison and references",
   [await put("index.md", webhooksV1), await put("sources.md", sources)],
 );
-await add(
-  webhooks.id,
-  "agent-1",
-  "Clarify outbox transactional DB requirement and serverless fit",
-  [await put("index.md", webhooksV2)],
-);
+await add(webhooks.id, "devbox", "Clarify outbox transactional DB requirement and serverless fit", [
+  await put("index.md", webhooksV2),
+]);
 const webhooks3 = await add(
   webhooks.id,
-  "agent-1",
+  "devbox",
   "Add implementation checklist based on research revision 2",
   [await put("checklist.md", checklist)],
 );
@@ -380,7 +377,7 @@ const webhooks3 = await add(
 const pg = await create(
   "Postgres 17 upgrade runbook",
   { project: "infra", tags: ["runbook"] },
-  "agent-1",
+  "devbox",
   "Initial upgrade runbook",
   [await put("runbook.md", runbook(1))],
 );
@@ -392,7 +389,7 @@ for (const [n, message] of [
   [5, "Add extension compatibility matrix"],
 ] as const)
   pgRevisions.push(
-    await add(pg.id, "agent-1", message, [
+    await add(pg.id, "devbox", message, [
       await put("runbook.md", runbook(n)),
       ...(n >= 5 ? [await put("extensions.md", extensions)] : []),
     ]),
@@ -435,7 +432,7 @@ await add(
 const rate = await create(
   "HTTP API rate limiting plan",
   { project: "api" },
-  "agent-1",
+  "devbox",
   "First draft of token-bucket limits",
   [
     await put(
@@ -444,7 +441,7 @@ const rate = await create(
     ),
   ],
 );
-await add(rate.id, "agent-1", "Add staged rollout and rollback criteria", [
+await add(rate.id, "devbox", "Add staged rollout and rollback criteria", [
   await put(
     "plan.md",
     "# HTTP API rate limiting plan\n\n## Limits\n\n| Tier | Requests / min | Burst |\n| --- | --- | --- |\n| Free | 60 | 20 |\n| Team | 600 | 200 |\n\n## Rollout\n\n1. Shadow mode for a week.\n2. Enforce for 10% of free-tier keys.\n3. Enforce everywhere.\n\n## Rollback criteria\n\nRoll back if 429s exceed 0.5% of requests for 15 minutes.\n",
@@ -460,14 +457,14 @@ const onboarding = await create(
 const e2e = await create(
   "Waypoint phase 1 — end-to-end check",
   { project: "waypoint", tags: ["e2e"] },
-  "agent-1",
+  "devbox",
   "Initial details",
-  [await put("details.md", "# Phase 1 end-to-end check\n\nAll checks passed on agent-1.\n")],
+  [await put("details.md", "# Phase 1 end-to-end check\n\nAll checks passed on devbox.\n")],
 );
-await add(e2e.id, "agent-1", "Update details", [
+await add(e2e.id, "devbox", "Update details", [
   await put(
     "details.md",
-    "# Phase 1 end-to-end check\n\nAll checks passed on agent-1 and the MacBook Air.\n",
+    "# Phase 1 end-to-end check\n\nAll checks passed on devbox and the MacBook Air.\n",
   ),
 ]);
 const auth = await create(
@@ -485,7 +482,7 @@ const auth = await create(
 const evalRun = await create(
   "Search relevance eval — run 2026-10-06",
   { project: "search", tags: ["eval"] },
-  "agent-1",
+  "devbox",
   "Initial eval report with raw events",
   [
     await put(
@@ -502,14 +499,14 @@ const evalRun = await create(
 const scratch = await create(
   "Scratch: MCP smoke run 2026-10-05",
   { tags: ["scratch"] },
-  "agent-1",
+  "devbox",
   "Smoke run",
   [await put("out.txt", "ok\n")],
 );
 const leaked = await create(
   "Leaked .env in run output (do not share)",
   {},
-  "agent-1",
+  "devbox",
   "Run output",
   [await put("output.md", "# Run output\n\n```\nAPI_KEY=redacted-for-demo\n```\n")],
 );
@@ -607,7 +604,7 @@ const forked = await add(
 );
 await add(
   pg.id,
-  "agent-1",
+  "devbox",
   "Add PgBouncer pause/resume script",
   [await put("pgbouncer.sh", pgbouncer)],
   { parent_revision_id: pgRevisions[4] },

@@ -202,7 +202,7 @@ const bindings = () => ({
   },
 });
 const get = (path: string, headers: Record<string, string> = {}) =>
-  app.request(`https://waypoint.pingstash.com${path}`, { headers }, bindings());
+  app.request(`https://reader.example.test${path}`, { headers }, bindings());
 /** Share-link lookups the reader has sent to the database so far. */
 const linkQueries = () => queries.filter((sql) => sql.includes("FROM share_links")).length;
 async function snap(res: Response) {
@@ -392,7 +392,7 @@ describe("adversarial reader probes", () => {
     // Time the Worker CPU work that scales with file count: the whole shell document.
     // The end-to-end request includes fake SQLite and Hono/Vitest scheduling overhead.
     const paths = Array.from({ length: 2000 }, (_, i) => ({ path: `dir${i % 40}/file-${i}.html` }));
-    const prefix = `https://waypoint.pingstash.com/s/${tokens.follow}/c/${A.pub}/`;
+    const prefix = `https://reader.example.test/s/${tokens.follow}/c/${A.pub}/`;
     const render = () =>
       renderPublicShell({
         title: "T",
@@ -400,7 +400,7 @@ describe("adversarial reader probes", () => {
         head: "index.html",
         current: "dir7/file-7.html",
         fileHref: (path) => prefix + encodePathSegments(path),
-        frameBase: "https://waypoint.pingstash.com/x/shl_x.cap/r/a2a2a2a2a2a2/",
+        frameBase: "https://reader.example.test/x/shl_x.cap/r/a2a2a2a2a2a2/",
         updatedAt: 1,
         snapshotAt: null,
       });

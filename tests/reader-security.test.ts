@@ -134,9 +134,10 @@ const bindings = () => ({
     },
   },
 });
+const base = "https://reader.example.test";
 const req = (path: string, init: RequestInit = {}, ip = "1.1.1.1") =>
   app.request(
-    `https://waypoint.pingstash.com${path}`,
+    `${base}${path}`,
     {
       ...init,
       headers: { "cf-connecting-ip": ip, ...Object.fromEntries(new Headers(init.headers)) },
@@ -292,7 +293,7 @@ describe("shell markup under hostile titles and paths", () => {
       }
       // The token never appears in the iframe or download URL.
       const frame = html.match(/id="doc"[^>]*(?:src|href)="([^"]+)"/)?.[1] ?? "";
-      expect(frame).toMatch(/^https:\/\/waypoint\.pingstash\.com\/x\/shl_/);
+      expect(frame.startsWith(`${base}/x/shl_`)).toBe(true);
       expect(frame).not.toContain(pinned);
     });
   }
