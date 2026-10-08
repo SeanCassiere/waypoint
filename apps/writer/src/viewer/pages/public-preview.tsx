@@ -6,7 +6,7 @@ import type { RevisionRow } from "../../read-model.ts";
 import { shellPath } from "../../viewer-paths.ts";
 import { Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
-import { HomeBarLite, type CollectionContext } from "./collection.tsx";
+import { HomeBarLite, type CollectionContext } from "./collection/index.tsx";
 
 /**
  * ?as=public: the public reader's shell on the writer (spec §2, §9), so the preview matches
