@@ -2,6 +2,7 @@ import { connect } from "@tursodatabase/serverless";
 import { AwsClient } from "aws4fetch";
 
 import { createReaderApp, type ReaderBlob, type ReaderDb, type ReaderEnv } from "./app.ts";
+import { blobUrl, probeUrl } from "./bucket-url.ts";
 
 declare const caches: { default: Cache };
 
@@ -24,20 +25,16 @@ function blobStore(env: ReaderEnv): ReaderBlob {
     accessKeyId: env.R2_READER_ACCESS_KEY_ID,
     secretAccessKey: env.R2_READER_SECRET_ACCESS_KEY,
     service: "s3",
-    region: "auto",
+    region: env.WAYPOINT_S3_REGION || "auto",
   });
   return {
     probe(): Promise<Response> {
-      return signer.fetch(
-        `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}?list-type=2&max-keys=0`,
-      );
+      return signer.fetch(probeUrl(env));
     },
     fetch(hash: string): Promise<Response> {
-      if (!/^sha256:[0-9a-f]{64}$/.test(hash))
-        return Promise.resolve(new Response(null, { status: 404 }));
-      return signer.fetch(
-        `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/blobs/sha256/${hash.slice(7)}`,
-      );
+      const url = blobUrl(env, hash);
+      if (!url) return Promise.resolve(new Response(null, { status: 404 }));
+      return signer.fetch(url);
     },
   };
 }
