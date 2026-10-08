@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { newId } from "@waypoint/core";
+import { newId, WAYPOINT_VERSION } from "@waypoint/core";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -939,11 +939,18 @@ it("reports the running and latest MCP bundle through waypoint_status", async ()
     await server.close();
   });
   const result = await client.callTool({ name: "waypoint_status" });
-  const statusMcp = z.object({ mcp: z.unknown() }).parse(result.structuredContent).mcp;
+  const structured = z
+    .object({ mcp: z.unknown(), version: z.string(), warnings: z.array(z.unknown()) })
+    .parse(result.structuredContent);
+  const statusMcp = structured.mcp;
+  // The writer's version and local-only warning pass straight through waypoint_status.
+  expect(structured.version).toBe(WAYPOINT_VERSION);
+  expect(structured.warnings).toEqual([expect.objectContaining({ code: "local_only" })]);
   const version = z
     .object({ server_sha256: z.string() })
     .parse(await (await app.request("/mcp/version")).json());
   expect(statusMcp).toEqual({
+    version: WAYPOINT_VERSION,
     running_sha256: "a".repeat(64),
     source: "cache",
     latest_sha256: version.server_sha256,

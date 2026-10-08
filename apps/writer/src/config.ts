@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-import { parseShareTokenKey } from "@waypoint/core";
+import { buildInfo, parseShareTokenKey, type BuildInfo } from "@waypoint/core";
 
 import { checkoutPath } from "./layout.ts";
 
@@ -29,16 +29,45 @@ export interface Config {
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2Bucket?: string;
+  /**
+   * The bucket's S3 API endpoint: WAYPOINT_S3_ENDPOINT, else Cloudflare R2's
+   * `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`. Requests use path-style addressing.
+   */
+  s3Endpoint?: string;
+  /** WAYPOINT_S3_REGION, the SigV4 signing region: `auto` for R2. */
+  s3Region?: string;
+  /** The version and git commit this writer reports (WAYPOINT_BUILD_SHA). */
+  build?: BuildInfo;
+}
+/** An http(s) URL without credentials, query or fragment, or an error naming `key`. */
+function httpUrl(key: string, raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${key} must be an HTTP URL`);
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(`${key} must be an HTTP URL without credentials, query or fragment`);
+  return url;
 }
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  // Required, with no default: it picks the default data directory and must match the
+  // environment marker in the local DB, the cloud DB and the bucket (docs/configuration.md).
   const environment = env.WAYPOINT_ENV;
   if (environment !== "dev" && environment !== "prod")
     throw new Error("WAYPOINT_ENV must be dev or prod");
   if (env.WAYPOINT_SYNC !== undefined && env.WAYPOINT_SYNC !== "on" && env.WAYPOINT_SYNC !== "off")
     throw new Error("WAYPOINT_SYNC must be on or off");
-  // WAYPOINT_SYNC=off is the local development path; it never contacts Turso or R2.
+  // WAYPOINT_SYNC=off is local-only mode, in dev or prod: it never contacts Turso or the bucket,
+  // so nothing is durable beyond this data directory (/status says so).
   const sync = env.WAYPOINT_SYNC !== "off";
-  if (!sync && environment === "prod") throw new Error("WAYPOINT_SYNC=off is only allowed in dev");
   const required = (key: string): string => {
     const value = env[key];
     if (!value) throw new Error(`${key} is required`);
@@ -63,39 +92,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (port > 65535) throw new Error("WAYPOINT_PORT must be at most 65535");
   const baseUrl =
     env.WAYPOINT_BASE_URL ?? (sync ? required("WAYPOINT_BASE_URL") : `http://127.0.0.1:${port}`);
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    throw new Error("WAYPOINT_BASE_URL must be an HTTP URL");
-  }
-  if (
-    !["http:", "https:"].includes(parsed.protocol) ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash
-  )
-    throw new Error("WAYPOINT_BASE_URL must be an HTTP URL without credentials, query or fragment");
+  httpUrl("WAYPOINT_BASE_URL", baseUrl);
   const publicBaseUrl = env.WAYPOINT_PUBLIC_BASE_URL;
-  if (publicBaseUrl) {
-    let publicUrl: URL;
-    try {
-      publicUrl = new URL(publicBaseUrl);
-    } catch {
-      throw new Error("WAYPOINT_PUBLIC_BASE_URL must be an HTTP URL");
-    }
-    if (
-      !["http:", "https:"].includes(publicUrl.protocol) ||
-      publicUrl.username ||
-      publicUrl.password ||
-      publicUrl.search ||
-      publicUrl.hash
-    )
-      throw new Error(
-        "WAYPOINT_PUBLIC_BASE_URL must be an HTTP URL without credentials, query or fragment",
-      );
-  }
+  if (publicBaseUrl) httpUrl("WAYPOINT_PUBLIC_BASE_URL", publicBaseUrl);
   let shareTokenKey: Uint8Array | undefined;
   if (env.WAYPOINT_SHARE_TOKEN_KEY) {
     try {
@@ -112,18 +111,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!Number.isSafeInteger(maxBlobBytes)) throw new Error("WAYPOINT_MAX_BLOB_MB is too large");
   if (!Number.isSafeInteger(maxRevisionBytes))
     throw new Error("WAYPOINT_MAX_REVISION_MB is too large");
-  const cloud = sync
-    ? {
-        tursoUrl: required("TURSO_DATABASE_URL"),
-        tursoAuthToken: required("TURSO_AUTH_TOKEN"),
-        r2AccountId: required("R2_ACCOUNT_ID"),
-        r2AccessKeyId: required("R2_ACCESS_KEY_ID"),
-        r2SecretAccessKey: required("R2_SECRET_ACCESS_KEY"),
-        r2Bucket: required("R2_BUCKET"),
-      }
-    : {};
-  if (sync && cloud.r2Bucket !== `waypoint-${environment}`)
-    throw new Error(`R2_BUCKET must be waypoint-${environment}`);
+  // Any bucket name works: the environment marker in the bucket (bucket.ts, D54) and in the
+  // cloud DB (guardEnvironment) keep a dev writer off prod data, not a naming rule.
+  const cloud = sync ? cloudConfig(env, required) : {};
   return {
     environment,
     dataDir,
@@ -136,6 +126,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxFiles,
     maxRevisionBytes,
     sync,
+    build: buildInfo(env.WAYPOINT_BUILD_SHA),
     mcpTarballPath: env.WAYPOINT_MCP_TARBALL
       ? resolve(env.WAYPOINT_MCP_TARBALL)
       : existsSync("/app/static/waypoint-mcp.tgz")
@@ -157,5 +148,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         ? "/app/static/skills/waypoint/SKILL.md"
         : checkoutPath("skills/waypoint/SKILL.md"),
     ...cloud,
+  };
+}
+
+/** Turso and the S3-compatible bucket, read only when sync is on. */
+function cloudConfig(
+  env: NodeJS.ProcessEnv,
+  required: (key: string) => string,
+): Pick<
+  Config,
+  | "tursoUrl"
+  | "tursoAuthToken"
+  | "r2AccountId"
+  | "r2AccessKeyId"
+  | "r2SecretAccessKey"
+  | "r2Bucket"
+  | "s3Endpoint"
+  | "s3Region"
+> {
+  const tursoUrl = required("TURSO_DATABASE_URL");
+  const tursoAuthToken = required("TURSO_AUTH_TOKEN");
+  const rawEndpoint = env.WAYPOINT_S3_ENDPOINT;
+  let s3Endpoint: string;
+  let r2AccountId: string | undefined;
+  if (rawEndpoint) {
+    const url = httpUrl("WAYPOINT_S3_ENDPOINT", rawEndpoint);
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    s3Endpoint = url.toString().replace(/\/$/, "");
+    r2AccountId = env.R2_ACCOUNT_ID || undefined;
+  } else {
+    r2AccountId = required("R2_ACCOUNT_ID");
+    // An account ID is a hostname label; anything else would redirect the signed requests.
+    if (!/^[A-Za-z0-9-]{1,63}$/.test(r2AccountId))
+      throw new Error("R2_ACCOUNT_ID must be a Cloudflare account ID");
+    s3Endpoint = `https://${r2AccountId}.r2.cloudflarestorage.com`;
+  }
+  const s3Region = env.WAYPOINT_S3_REGION || "auto";
+  if (!/^[a-z0-9-]{1,64}$/.test(s3Region))
+    throw new Error("WAYPOINT_S3_REGION must be a region name such as auto or us-east-1");
+  return {
+    tursoUrl,
+    tursoAuthToken,
+    ...(r2AccountId ? { r2AccountId } : {}),
+    r2AccessKeyId: required("R2_ACCESS_KEY_ID"),
+    r2SecretAccessKey: required("R2_SECRET_ACCESS_KEY"),
+    r2Bucket: required("R2_BUCKET"),
+    s3Endpoint,
+    s3Region,
   };
 }

@@ -1,4 +1,5 @@
 import {
+  buildInfo,
   hashShareToken,
   isShareToken,
   isTextMime,
@@ -15,11 +16,18 @@ import { deniedPage, rootPage } from "./pages.ts";
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;
   TURSO_READONLY_TOKEN: string;
-  R2_ACCOUNT_ID: string;
+  /** Cloudflare R2 account; optional when WAYPOINT_S3_ENDPOINT is set. */
+  R2_ACCOUNT_ID?: string;
   R2_READER_ACCESS_KEY_ID: string;
   R2_READER_SECRET_ACCESS_KEY: string;
   R2_BUCKET: string;
   RAW_CAP_KEY: string;
+  /** S3-compatible endpoint overriding R2's, e.g. `https://minio.example:9000`. */
+  WAYPOINT_S3_ENDPOINT?: string;
+  /** SigV4 signing region; `auto` (R2) when unset. */
+  WAYPOINT_S3_REGION?: string;
+  /** The git commit this Worker was deployed from (a Worker variable), for /healthz. */
+  WAYPOINT_BUILD_SHA?: string;
   TOKEN_MISS_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   ACCESS_LOG?: {
     writeDataPoint(point: { indexes: string[]; blobs: string[]; doubles: number[] }): void;
@@ -225,11 +233,18 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     }
     return source;
   }
-  app.get(
-    "/healthz",
-    () =>
-      new Response("ok", { headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" } }),
-  );
+  // Health bodies stay exactly `ok` or `fail` (deploy smoke checks compare them); the version and
+  // commit ride in headers.
+  const healthHeaders = (env: ReaderEnv): Record<string, string> => {
+    const build = buildInfo(env.WAYPOINT_BUILD_SHA);
+    return {
+      ...standard,
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Waypoint-Version": build.version,
+      ...(build.sha ? { "X-Waypoint-Sha": build.sha } : {}),
+    };
+  };
+  app.get("/healthz", (c) => new Response("ok", { headers: healthHeaders(c.env) }));
   app.get("/healthz/deep", async (c) => {
     // Each deep probe queries Turso and R2, so it counts toward the per-IP limiter like a
     // denial; a blocked IP gets the uniform denial without touching either.
@@ -239,15 +254,10 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       await deps.db(c.env).all("SELECT 1 FROM collections LIMIT 1");
       const result = await deps.blob(c.env).probe();
       if (!result.ok) throw new Error("R2 probe failed");
-      return new Response("ok", {
-        headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" },
-      });
+      return new Response("ok", { headers: healthHeaders(c.env) });
     } catch (error) {
       logFailure("health", error);
-      return new Response("fail", {
-        status: 503,
-        headers: { ...standard, "Content-Type": "text/plain; charset=utf-8" },
-      });
+      return new Response("fail", { status: 503, headers: healthHeaders(c.env) });
     }
   });
   // The bare root (spec §9.2): a fixed page that confirms nothing, so it is a 200 that uptime

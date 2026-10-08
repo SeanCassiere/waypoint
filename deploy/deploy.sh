@@ -48,7 +48,7 @@ fi
 
 sha=$(git rev-parse --verify HEAD)
 image="waypoint-writer:$sha"
-docker_run build -f apps/writer/Dockerfile -t "$image" .
+docker_run build -f apps/writer/Dockerfile --build-arg "WAYPOINT_BUILD_SHA=$sha" -t "$image" .
 
 # Preserve the image actually running, which may differ from the current tag.
 old_container=$(compose ps -q writer 2>/dev/null || true)

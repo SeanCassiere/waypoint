@@ -3,6 +3,7 @@ import { open, readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 
 import {
+  buildInfo,
   isContentHash,
   isWaypointError,
   validatePath,
@@ -17,6 +18,7 @@ import {
   shareShellUrl,
   type CreateCollectionRequest,
   type AddRevisionRequest,
+  type BuildInfo,
 } from "@waypoint/core";
 import { Hono } from "hono";
 import { Context } from "hono";
@@ -72,6 +74,8 @@ export interface HttpServices {
   committer?: WriterCommitter | undefined;
   syncLoop?: SyncLoop | undefined;
   environment?: "dev" | "prod";
+  /** Version and git commit for /healthz and /api/status; defaults to no recorded commit. */
+  build?: BuildInfo;
   port?: number;
   publicBaseUrl?: string;
   /** Derives share-link tokens; needed to create links and show URLs (see sharingEnabled). */
@@ -332,7 +336,9 @@ export function createApp(s: HttpServices): Hono {
       );
     await next();
   });
-  app.get("/healthz", (c) => c.json({ ok: true }));
+  // Deploy health gates read `ok`; version and sha are for operators and upgrade checks.
+  const build = s.build ?? buildInfo(undefined);
+  app.get("/healthz", (c) => c.json({ ok: true, version: build.version, sha: build.sha }));
   const mcpMarkdown = () => {
     const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
     const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");

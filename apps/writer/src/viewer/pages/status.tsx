@@ -6,7 +6,7 @@ import type { Child } from "hono/jsx";
 import type { CompareFile, FileDiff } from "../../compare.ts";
 import type { HealthItem } from "../../health.ts";
 import type { HttpServices } from "../../http.ts";
-import { getStatus } from "../../status-data.ts";
+import { getStatus, LOCAL_ONLY_DETAIL, LOCAL_ONLY_TITLE } from "../../status-data.ts";
 import { getChrome } from "../chrome.ts";
 import { revisionHref, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
@@ -94,6 +94,15 @@ export async function statusPage(
   const failedList = listWindow(c, "failed", health.failed);
   const pendingList = listWindow(c, "pending", health.pending);
   const heroes: Child[] = [];
+  // Persistent, whatever else is wrong: local-only mode keeps nothing anywhere but here.
+  if (!health.syncEnabled)
+    heroes.push(
+      <Hero
+        tone={status.environment === "prod" ? "warn" : "off"}
+        title={LOCAL_ONLY_TITLE}
+        body={LOCAL_ONLY_DETAIL}
+      />,
+    );
   if (health.blockedReason)
     heroes.push(
       <Hero
@@ -162,15 +171,7 @@ export async function statusPage(
       />,
     );
   if (!heroes.length) {
-    if (!health.syncEnabled)
-      heroes.push(
-        <Hero
-          tone="off"
-          title="Sync off."
-          body="This writer runs with WAYPOINT_SYNC=off: revisions stay here and nothing reaches the cloud."
-        />,
-      );
-    else if (health.pending.length)
+    if (health.pending.length)
       heroes.push(
         <Hero
           tone="warn"
@@ -221,7 +222,11 @@ export async function statusPage(
               <h1>Status</h1>
               <p>
                 Writer <span class="mono">{chrome.host}</span> · environment{" "}
-                <span class="mono">{status.environment}</span>
+                <span class="mono">{status.environment}</span> · version{" "}
+                <span class="mono" data-version>
+                  {status.version}
+                  {status.sha ? ` (${status.sha.slice(0, 12)})` : ""}
+                </span>
                 {bundle ? (
                   <>
                     {" "}

@@ -1,4 +1,4 @@
-import { hashShareToken, newShareToken, shareShellUrl } from "@waypoint/core";
+import { hashShareToken, newShareToken, shareShellUrl, WAYPOINT_VERSION } from "@waypoint/core";
 import { publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,18 @@ const secondPub = "cdefghjkmnpq";
 const hash = `sha256:${"a".repeat(64)}`;
 const renditionHash = `sha256:${"b".repeat(64)}`;
 const token = newShareToken();
-const base = "https://waypoint.pingstash.com";
+const base = "https://reader.example.test";
+/**
+ * Whether `url` really is on `base`'s origin, by parsed origin rather than by prefix, so that
+ * `…test.evil`, `…test:8080` and `…test@evil.example` (userinfo) don't pass. Unparseable is foreign.
+ */
+function isOwnOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "turso://test",
   TURSO_READONLY_TOKEN: "test",
@@ -331,9 +342,21 @@ describe("public reader", () => {
     expect(html.match(/<script>/g)).toHaveLength(1);
     expect(html).toContain(`<style>${publicShellCss}</style>`);
     expect(html).toContain(`<script>${publicShellScript}</script>`);
-    expect(html).not.toMatch(
-      /\sstyle=|\son[a-z]+=|<link\b|<script\s+src|https?:\/\/(?!waypoint\.pingstash\.com)/i,
+    // No inline handlers, external resources or absolute URLs except the reader's own origin.
+    expect(html).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
+    const foreign = (html.match(/https?:\/\/[^"'\s<>]*/gi) ?? []).filter(
+      (url) => !isOwnOrigin(url),
     );
+    expect(foreign).toEqual([]);
+    const lookalikes = [
+      "https://reader.example.test.evil/",
+      "https://reader.example.test:8080/",
+      "https://reader.example.test@evil.example/",
+      "https://user:pw@reader.example.test.evil/",
+      "http://reader.example.test/",
+    ];
+    expect(lookalikes.filter(isOwnOrigin)).toEqual([]);
+    expect(isOwnOrigin(`${base}/s/x`)).toBe(true);
     expect(shell.headers.get("content-security-policy")).toBe(
       `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     );
@@ -493,11 +516,21 @@ describe("public reader", () => {
     expect((await app.request("/", {}, bindings)).status).toBe(200);
     expect((await app.request("/index.html", {}, bindings)).status).toBe(404);
     expect((await app.request("/unknown", {}, bindings)).status).toBe(404);
-    expect(await (await app.request("/healthz", {}, bindings)).text()).toBe("ok");
+    const health = await app.request("/healthz", {}, bindings);
+    expect(await health.text()).toBe("ok");
+    expect(health.headers.get("x-waypoint-version")).toBe(WAYPOINT_VERSION);
+    expect(health.headers.get("x-waypoint-sha")).toBeNull();
     limiter.mockResolvedValue({ success: true });
     const deep = await app.request("/healthz/deep", {}, bindings);
     expect(deep.status).toBe(200);
     expect(await deep.text()).toBe("ok");
+    expect(deep.headers.get("x-waypoint-version")).toBe(WAYPOINT_VERSION);
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const built = await app.request("/healthz", {}, { ...bindings, WAYPOINT_BUILD_SHA: sha });
+    expect(await built.text()).toBe("ok");
+    expect(built.headers.get("x-waypoint-sha")).toBe(sha);
+    const stray = await app.request("/healthz", {}, { ...bindings, WAYPOINT_BUILD_SHA: "<b>" });
+    expect(stray.headers.get("x-waypoint-sha")).toBeNull();
     expect(reads).toContain("SELECT 1 FROM collections LIMIT 1");
     expect(await (await app.request("/robots.txt", {}, bindings)).text()).toContain("Disallow: /");
   });

@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { access, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -232,21 +232,75 @@ export class LocalSyncClient implements SyncClient {
     return Promise.resolve();
   }
 }
+const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+const nonEmpty = (path: string) =>
+  stat(path).then(
+    (info) => info.size > 0,
+    () => false,
+  );
+/**
+ * A data directory stays in the sync mode it started in. Turso Sync keeps its replication state
+ * next to waypoint.db (`waypoint.db-info`); writing that file without sync forks it from the
+ * cloud DB, and a local-only waypoint.db has no sync state to push. So either switch is refused
+ * before anything opens the database (docs/configuration.md).
+ *
+ * Turso Sync creates an empty waypoint.db before it contacts the server and writes
+ * waypoint.db-info only once the bootstrap succeeds. An empty waypoint.db with no WAL content
+ * holds no data in either mode, so it counts as absent: a first sync that failed (cloud
+ * unreachable, wrong credentials) is simply retried on the next start.
+ *
+ * Turso Sync writes the whole bootstrapped file before waypoint.db-info, so a first sync killed
+ * in between leaves a full waypoint.db with no sync state. `BOOTSTRAP_MARKER` is written before
+ * a first sync and removed once it succeeds, which tells that case apart from a local-only
+ * database. It's still refused either way (the copy may be partial), but with the real cause.
+ */
+const BOOTSTRAP_MARKER = "waypoint.db-bootstrap";
+export async function checkSyncMode(config: Pick<Config, "dataDir" | "sync">): Promise<void> {
+  const [database, wal, syncState, bootstrapping] = await Promise.all([
+    nonEmpty(join(config.dataDir, "waypoint.db")),
+    nonEmpty(join(config.dataDir, "waypoint.db-wal")),
+    exists(join(config.dataDir, "waypoint.db-info")),
+    exists(join(config.dataDir, BOOTSTRAP_MARKER)),
+  ]);
+  if (!syncState && bootstrapping && (database || wal))
+    throw new Error(
+      `${config.sync ? "Cloud sync" : "WAYPOINT_SYNC=off"} can't use ${config.dataDir}: a first cloud sync into it was interrupted before it finished, leaving a partial copy of the cloud DB. Delete its waypoint.db* files (they hold nothing that isn't in the cloud DB) or use a new WAYPOINT_DATA_DIR`,
+    );
+  if (!config.sync && syncState)
+    throw new Error(
+      `WAYPOINT_SYNC=off can't use ${config.dataDir}: its waypoint.db is a cloud-synced replica. Turn sync back on, or give local-only mode its own WAYPOINT_DATA_DIR`,
+    );
+  if (config.sync && (database || wal) && !syncState)
+    throw new Error(
+      `Cloud sync can't use ${config.dataDir}: its waypoint.db was created with WAYPOINT_SYNC=off and has no sync state. Use a new WAYPOINT_DATA_DIR (it bootstraps from the cloud DB)`,
+    );
+}
 export async function openDatabases(
   config: Config,
 ): Promise<{ waypoint: Db; queue: Db; syncClient: SyncClient }> {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  await checkSyncMode(config);
   const queue = new Db(await connectLocal(join(config.dataDir, "queue.db")));
+  const marker = join(config.dataDir, BOOTSTRAP_MARKER);
   if (!config.sync) {
+    // checkSyncMode let it through, so any marker belongs to a failed sync that left no data.
+    await rm(marker, { force: true });
     const waypoint = new Db(await connectLocal(join(config.dataDir, "waypoint.db")));
     await waypoint.exec("PRAGMA foreign_keys=OFF");
     return { waypoint, queue, syncClient: new LocalSyncClient() };
   }
+  const firstSync = !(await exists(join(config.dataDir, "waypoint.db-info")));
+  if (firstSync) await writeFile(marker, "", { mode: 0o600 });
   const remote = await connectSync({
     path: join(config.dataDir, "waypoint.db"),
     url: config.tursoUrl!,
     authToken: config.tursoAuthToken!,
   });
+  if (firstSync) await rm(marker, { force: true });
   const waypoint = new Db(remote);
   await waypoint.exec("PRAGMA foreign_keys=OFF");
   let pullFlight: Promise<boolean> | undefined;

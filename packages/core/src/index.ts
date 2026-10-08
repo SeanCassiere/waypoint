@@ -7,3 +7,4 @@ export * from "./mime.ts";
 export * from "./paths.ts";
 export * from "./share.ts";
 export * from "./urls.ts";
+export * from "./version.ts";

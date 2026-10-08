@@ -54,7 +54,7 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 
 ## Writer configuration
 
-The configuration lives in an env file on the writer machine, never committed. On agent-1 the files are `~/.config/waypoint/dev.env` and `~/.config/waypoint/prod.env`, mode 600, in a directory with mode 700:
+The configuration lives in an env file on the writer machine, never committed. Every variable, with its default, is in [configuration.md](configuration.md). On agent-1 the files are `~/.config/waypoint/dev.env` and `~/.config/waypoint/prod.env`, mode 600, in a directory with mode 700:
 
 ```bash
 WAYPOINT_ENV=prod                         # dev | prod
@@ -72,8 +72,12 @@ TURSO_AUTH_TOKEN=...
 R2_ACCOUNT_ID=...
 R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=waypoint-prod
+R2_BUCKET=waypoint-prod                   # any name; the bucket's environment marker guards it
+# WAYPOINT_S3_ENDPOINT=...                # optional: any S3-compatible store instead of R2
+# WAYPOINT_S3_REGION=auto
 ```
+
+`WAYPOINT_SYNC=off` (local-only mode, no Turso or bucket) is allowed in prod too, with a persistent no-durability warning on `/status`; the owner's instance always syncs.
 
 ## Free-tier headroom (as of 2026-10-07)
 

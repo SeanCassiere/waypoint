@@ -47,6 +47,8 @@ When publishing work that others should pick up, set `metadata` such as `{ "proj
 - Give them **`latest_url`**, which always shows the newest revision. Give `url` (pinned to this revision) only when they need a fixed snapshot.
 - `sync_state` of `pending` or `committed` is normal; the content is already viewable. It becomes `synced` once it reaches the cloud. `failed` means the cloud upload gave up; mention it and suggest checking `<writer>/status`. To re-check sync state later, call `list_revisions`.
 - If `waypoint_status` reports `mcp.update_available`, tell the user that restarting the agent session picks up the newer Waypoint MCP version.
+- If `waypoint_status` lists a `local_only` warning, the writer runs without cloud sync: writes stay on that machine only and share links can't be served publicly. Mention it when the user relies on durability or sharing.
+- A `warning: WAYPOINT_URL uses plain HTTP` line on stderr is informational. If the user trusts the network to the writer, `WAYPOINT_MCP_ALLOW_HTTP=1` in the MCP server's `env` silences it.
 
 ## Rules
 

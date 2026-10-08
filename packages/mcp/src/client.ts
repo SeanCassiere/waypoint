@@ -197,6 +197,9 @@ const statusResult = z.looseObject({
   sync_blocked: z.boolean(),
   account_paused: z.boolean(),
   account_error: z.string().nullable(),
+  version: z.string().optional(),
+  sha: z.string().nullable().optional(),
+  warnings: z.array(z.looseObject({ code: z.string(), message: z.string() })).optional(),
 }) satisfies z.ZodType<StatusResponse>;
 const CACHE_TTL_MS = 10 * 60_000;
 interface CachedIds {

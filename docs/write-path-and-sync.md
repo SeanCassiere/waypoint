@@ -202,7 +202,9 @@ GC runs under a writer-wide barrier that ingest also takes, as a shared lock. Pu
 
 On startup and before every push, the writer compares three values: `WAYPOINT_ENV`, `meta.environment` in the local `waypoint.db`, and `meta.environment` in the cloud DB. If any differ, it refuses to sync. When it bootstraps an empty cloud DB for the first time, the writer writes `meta.environment` itself.
 - The guard runs **before migrations**.
-- **Only a first start needs the cloud.** If the local `meta.environment` already exists and matches `WAYPOINT_ENV`, an unreachable cloud at startup isn't fatal. The writer starts with sync marked *unverified*, then performs the remote check before its first push. A first start, with no local `meta`, still requires the cloud.
+- **Only a first start needs the cloud.** If the local `meta.environment` already exists and matches `WAYPOINT_ENV`, an unreachable cloud at startup isn't fatal. The writer starts with sync marked *unverified*, then performs the remote check before its first push. A first start, with no local `meta`, still requires the cloud. If it can't reach it, the writer exits and the next start (or the container's restart policy) retries: a failed bootstrap leaves only an empty `waypoint.db`, which the sync-mode check treats as absent.
+- **The bucket has a marker too.** Before its first bucket request, the writer reads `meta/environment.json` from the bucket. A missing marker (older buckets have none) is written, with `If-None-Match: *`; a marker naming the other environment, or an unreadable one, pauses the committer as an account error and stops `restore`. So the bucket can have any name (D54; [configuration.md](configuration.md#bucket-environment-marker)).
+- **Local-only mode** (`WAYPOINT_SYNC=off`, allowed in dev and prod) writes `meta.environment` locally and never contacts the cloud. A data directory can't switch between a synced replica and a local-only database ([configuration.md](configuration.md#local-only-mode)).
 
 ## Restore / disaster recovery
 

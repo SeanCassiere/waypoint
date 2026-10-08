@@ -53,7 +53,7 @@ beforeEach(async () => {
     environment: "dev",
     dataDir: directory,
     baseUrl: "http://localhost:7410",
-    publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    publicBaseUrl: "https://reader-dev.example.test",
     port: 7410,
     queueGiveUpHours: 72,
     maxBlobBytes: 1024 * 1024,
@@ -77,7 +77,7 @@ beforeEach(async () => {
     blobs,
     reads,
     ingest,
-    publicBaseUrl: "https://waypoint-dev.pingstash.com",
+    publicBaseUrl: "https://reader-dev.example.test",
     shareTokenKey,
   });
   const bytes = new TextEncoder().encode("hello public");
@@ -313,7 +313,7 @@ describe("writer share links", () => {
       RAW_CAP_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     };
     const shell = await reader.request(
-      `https://waypoint-dev.pingstash.com/s/${created.token}/c/${collectionPublicId}/`,
+      `https://reader-dev.example.test/s/${created.token}/c/${collectionPublicId}/`,
       {},
       bindings,
     );
@@ -532,7 +532,7 @@ describe("writer share links", () => {
 });
 
 describe("deterministic share-link tokens (D50)", () => {
-  const base = "https://waypoint-dev.pingstash.com";
+  const base = "https://reader-dev.example.test";
   const links = z.object({
     share_links: z.array(z.object({ id: z.string(), url: z.string().nullable() })),
   });
@@ -737,7 +737,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
       reads,
       ingest,
       syncLoop: loop,
-      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      publicBaseUrl: "https://reader-dev.example.test",
       shareTokenKey,
     });
     const pinned = await createdId(await create({ revision_id: revisionId, label: "pinned" }));
@@ -865,7 +865,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
       reads,
       ingest,
       syncLoop: restarted,
-      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      publicBaseUrl: "https://reader-dev.example.test",
       shareTokenKey,
     });
     expect(
@@ -1165,7 +1165,7 @@ describe("owner feedback 1: copyable links, calm Links tab, History state", () =
       blobs: new BlobStore(directory, 1024 * 1024),
       reads,
       ingest,
-      publicBaseUrl: "https://waypoint-dev.pingstash.com",
+      publicBaseUrl: "https://reader-dev.example.test",
     });
     const shell = await viewerHtml(`/c/${collectionPublicId}/?panel=links`, keyless);
     expect(shell).not.toContain('commandfor="share"');

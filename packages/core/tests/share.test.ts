@@ -68,7 +68,7 @@ describe("deterministic share tokens", () => {
   });
   it("builds path-less link URLs the reader parses as the head file", async () => {
     const token = await deriveShareToken(parseShareTokenKey(keyText), linkId);
-    const base = "https://waypoint.pingstash.com";
+    const base = "https://reader.example.test";
     const latest = shareShellUrl(base, token, "0123456789ab");
     expect(latest).toBe(`${base}/s/${token}/c/0123456789ab/`);
     expect(parseShareUrl(latest)).toEqual({
@@ -99,7 +99,7 @@ describe("share tokens and URLs", () => {
   });
   it("round trips encoded and reserved paths", () => {
     const token = newShareToken();
-    const base = "https://waypoint.pingstash.com";
+    const base = "https://reader.example.test";
     const collection = "0123456789ab";
     const revision = "bcdefghjkmnp";
     const path = `raw/${revision}/a b#c?.md`;

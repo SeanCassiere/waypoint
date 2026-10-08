@@ -70,7 +70,9 @@ Running a statement prepared before a schema change aborts the process inside th
 
 ### Cloud storage
 - **Turso cloud DB**: rows for collections, revisions, files, blobs, renditions, and share links. Created as a Turso Sync (`--tursodb`) database. There is one per environment.
-- **R2 bucket**: blob contents, renditions, and JSON manifests for disaster recovery. Private, Standard storage class only. There is one per environment.
+- **R2 bucket**: blob contents, renditions, and JSON manifests for disaster recovery. Private, Standard storage class only. There is one per environment, marked with `meta/environment.json`. Any S3-compatible store works through `WAYPOINT_S3_ENDPOINT` ([configuration.md](configuration.md)).
+
+With `WAYPOINT_SYNC=off` (local-only mode) a writer uses neither: everything stays in its data directory, with no cloud durability and no public sharing.
 
 ## Runtimes and code layout
 
@@ -105,7 +107,7 @@ TypeScript only type-checks; bundlers emit everything ([D53](decisions.md)).
 
 - **Libraries** (`core`, `ui`, `render`): tsdown emits ESM to `dist/`, one module per source file, with `.d.ts` that oxc generates from `isolatedDeclarations` source. `render` has a second entry, `dist/render-worker.js`, the worker thread it starts next to itself.
 - **Writer**: tsdown bundles `src/main.ts` into `dist/main.js`, plus two worker-thread entries in the same directory, `dist/compare-worker.js` (diffs and Changes-page fragments) and `dist/render-worker.js` (renditions). The `@waypoint/*` packages are inlined from their `dist`; npm dependencies stay external and are installed next to the bundle, so the writer declares every npm package an inlined package uses, at the same version (its tsdown config checks this). Runtime file lookups go through `src/layout.ts`, which resolves the bundle directory whether the writer runs bundled or from source. esbuild bundles the viewer's browser scripts and stylesheet into `dist/viewer/` (a turbo task of its own, `build:viewer`).
-- **MCP**: tsdown builds the server bundle (`dist/waypoint-mcp-server.mjs`, one minified file). The launcher stays on esbuild, unchanged, because npx caches it indefinitely.
+- **MCP**: tsdown builds the server bundle (`dist/waypoint-mcp-server.mjs`, one minified file). The launcher stays on esbuild and changes as little as possible, because npx caches it indefinitely (D53; its only change since is the `WAYPOINT_MCP_ALLOW_HTTP` opt-out, D54).
 - **Reader**: Wrangler bundles it, reading `core` and `ui` from their `dist`.
 - **Source condition.** Each library's `exports` starts with a `@waypoint/source` condition pointing at `src/`. Type checking (`customConditions`), lint and tests (Vitest's resolve conditions) use it, so none of them needs a build; runtime code and bundles use `dist`. Relative imports name the real `.ts` file and the libraries use only erasable syntax, so Node 24 runs the source directly: in tests, the render and diff worker threads start from `src/` with `--conditions=@waypoint/source`.
 - **Tests** live in their package (`packages/*/tests`, `apps/*/tests`). CPU-budget and wall-clock tests are a separate Vitest project and turbo task (`test:timing`) that runs alone after the others. Cross-package tests and checks of built artifacts (the MCP tarball and launcher, the writer process, the bundled renderer, the browser checks) are in `tests/`, whose turbo tasks build the writer and MCP first.

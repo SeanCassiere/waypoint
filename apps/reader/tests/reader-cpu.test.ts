@@ -99,7 +99,7 @@ describe("CPU budget worst cases", () => {
           probe: () => Promise.resolve(new Response("ok")),
         }),
       });
-      const url = `https://waypoint.pingstash.com/s/${shareToken}/c/${A.pub}/`;
+      const url = `https://reader.example.test/s/${shareToken}/c/${A.pub}/`;
       let bytes = 0;
       const one = async () => {
         const res = await shapeApp.request(url, {}, env);

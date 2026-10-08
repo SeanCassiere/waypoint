@@ -109,13 +109,13 @@ describe("search tokens and redirects (B6)", () => {
   it("parses tokens, quoted values and free text", () => {
     expect(
       parseSearch(
-        'rate project:"api team" tag:plan host:agent-1 is:shared is:unsynced is:pending in:trash',
+        'rate project:"api team" tag:plan host:devbox is:shared is:unsynced is:pending in:trash',
       ),
     ).toEqual({
       text: "rate",
       project: "api team",
       tags: ["plan"],
-      host: "agent-1",
+      host: "devbox",
       shared: true,
       unsynced: true,
       pending: true,
@@ -130,7 +130,7 @@ describe("search tokens and redirects (B6)", () => {
   it("filters by tokens, redirects exact IDs and URLs, and serves facets", async () => {
     const one = await write("/api/collections", {
       title: "Rate plan",
-      metadata: { project: "api", tags: ["plan", "q4"], source_host: "agent-1" },
+      metadata: { project: "api", tags: ["plan", "q4"], source_host: "devbox" },
       files: [await upload("index.md", "# Rate")],
     });
     await write("/api/collections", {
@@ -221,7 +221,7 @@ describe("Connect an agent, gallery and watchers", () => {
     });
     const waiting = app.request(
       `/api/collections/${created.collection_id}/revisions?after=${created.revision_id}&wait=2`,
-      { headers: { "x-waypoint-client": "codex-mcp-client/agent-1" } },
+      { headers: { "x-waypoint-client": "codex-mcp-client/devbox" } },
     );
     await new Promise((resolve) => setTimeout(resolve, 200));
     const during: unknown = await (await app.request("/api/watchers")).json();
@@ -230,25 +230,25 @@ describe("Connect an agent, gallery and watchers", () => {
         {
           collection_id: created.collection_id,
           after: created.revision_id,
-          client: "codex-mcp-client/agent-1",
+          client: "codex-mcp-client/devbox",
         },
       ],
     });
     const status = await (await app.request("/status")).text();
-    expect(status).toContain("codex on agent-1");
+    expect(status).toContain("codex on devbox");
     expect(status).toContain("is waiting for a new revision of");
     await waiting;
     expect(await (await app.request("/api/watchers")).json()).toEqual({ watchers: [] });
   });
   it("the MCP server bundle sends X-Waypoint-Client", async () => {
     const seen: string[] = [];
-    const client = new WaypointClient("http://writer.test", "agent-1", undefined, (input, init) => {
+    const client = new WaypointClient("http://writer.test", "devbox", undefined, (input, init) => {
       seen.push(new Headers(init?.headers).get("x-waypoint-client") ?? "");
       void input;
       return Promise.resolve(new Response(JSON.stringify({ collections: [], next_cursor: null })));
     });
     client.clientName = "claude-code";
     await client.searchCollections({});
-    expect(seen).toEqual(["claude-code/agent-1"]);
+    expect(seen).toEqual(["claude-code/devbox"]);
   });
 });

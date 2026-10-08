@@ -1,16 +1,28 @@
-import type { StatusResponse } from "@waypoint/core";
+import { buildInfo, type StatusResponse, type StatusWarning } from "@waypoint/core";
 
 import { LocalSyncClient } from "./db.ts";
 import type { HttpServices } from "./http.ts";
 
 export interface ViewerStatus extends StatusResponse {
   sync_enabled: boolean;
+  version: string;
+  sha: string | null;
+  warnings: StatusWarning[];
   pending_items: { id: string; collection_public_id: string | null }[];
   failed_items: (StatusResponse["failed_items"][number] & {
     error_kind: string | null;
     collection_public_id: string | null;
   })[];
 }
+/** The local-only warning's headline and detail; /status shows them as its hero's title and body. */
+export const LOCAL_ONLY_TITLE = "Local-only mode (WAYPOINT_SYNC=off): no cloud durability.";
+export const LOCAL_ONLY_DETAIL =
+  "There is no Turso cloud DB and no bucket backup, so everything lives only in this writer's data directory; back it up yourself. Public share links can't be served until cloud sync is configured.";
+/** Shown on /status and returned by /api/status (and so `waypoint_status`) while sync is off. */
+export const LOCAL_ONLY_WARNING: StatusWarning = {
+  code: "local_only",
+  message: `${LOCAL_ONLY_TITLE} ${LOCAL_ONLY_DETAIL}`,
+};
 /**
  * Standalone queued renditions: `pending_renditions` rows whose source no queued revision (pending
  * or failed) references, i.e. the `rerender` backlog. The committer commits or drops each of
@@ -72,8 +84,13 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     .toSorted(
       (a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
     )[0]?.last_error;
+  const syncEnabled = !(s.ingest.sync instanceof LocalSyncClient);
+  const build = s.build ?? buildInfo(undefined);
   return {
     environment: s.environment ?? "dev",
+    version: build.version,
+    sha: build.sha,
+    warnings: syncEnabled ? [] : [LOCAL_ONLY_WARNING],
     queue: {
       pending_collections: pendingCollections.length,
       pending_revisions: pending.length,
@@ -113,7 +130,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
       null,
     sync_verified: Boolean(s.ingest.sync.verified),
     sync_blocked: Boolean(s.syncLoop?.blocked),
-    sync_enabled: !(s.ingest.sync instanceof LocalSyncClient),
+    sync_enabled: syncEnabled,
     account_paused: Boolean(s.committer?.accountError),
     account_error: s.committer?.accountError ?? null,
     cloud_last_ok_at: cloudLastOkAt(s),

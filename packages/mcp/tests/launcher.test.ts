@@ -180,7 +180,7 @@ it("does not attach another server after startServer rejects", async () => {
   ).rejects.toThrow("start failed");
 });
 
-it("warns for plain HTTP away from loopback and ts.net", async () => {
+it("warns for plain HTTP away from loopback and ts.net unless WAYPOINT_MCP_ALLOW_HTTP=1", async () => {
   const { env, embeddedPath } = await setup();
   const written = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   try {
@@ -205,6 +205,24 @@ it("warns for plain HTTP away from loopback and ts.net", async () => {
         String(call[0]).includes("warning: WAYPOINT_URL uses plain HTTP"),
       ),
     ).toBe(false);
+    for (const [extra, warns] of [
+      [{ WAYPOINT_URL: "http://waypoint.example-tailnet.ts.net" }, false],
+      [{ WAYPOINT_URL: "http://writer.example.test", WAYPOINT_MCP_ALLOW_HTTP: "1" }, false],
+      [{ WAYPOINT_URL: "http://writer.example.test", WAYPOINT_MCP_ALLOW_HTTP: "yes" }, true],
+    ] as const) {
+      written.mockClear();
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each case reads the warnings it caused.
+      await candidates({
+        env: { ...env, ...extra },
+        embeddedPath,
+        fetcher: () => Promise.reject(new Error("offline")),
+      });
+      expect(
+        written.mock.calls.some((call) =>
+          String(call[0]).includes("warning: WAYPOINT_URL uses plain HTTP"),
+        ),
+      ).toBe(warns);
+    }
   } finally {
     written.mockRestore();
   }

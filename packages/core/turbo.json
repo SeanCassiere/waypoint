@@ -3,8 +3,13 @@
   "extends": ["//"],
   "tasks": {
     "test": {
-      // core.test.ts runs the core import guard against fixtures.
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/check-core-imports.mjs"]
+      // core.test.ts runs the core import guard against fixtures; version.test.ts checks
+      // WAYPOINT_VERSION against the root package.json.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/check-core-imports.mjs",
+        "$TURBO_ROOT$/package.json"
+      ]
     }
   }
 }
