@@ -12,11 +12,17 @@ const hash = `sha256:${"a".repeat(64)}`;
 const renditionHash = `sha256:${"b".repeat(64)}`;
 const token = newShareToken();
 const base = "https://reader.example.test";
-/** `base`'s own origin, and nothing that merely starts with it (`…test.evil`, `…test:8080`). */
-const ownOrigin = new RegExp(
-  `^${new URL(base).origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w.:-])`,
-  "i",
-);
+/**
+ * Whether `url` really is on `base`'s origin, by parsed origin rather than by prefix, so that
+ * `…test.evil`, `…test:8080` and `…test@evil.example` (userinfo) don't pass. Unparseable is foreign.
+ */
+function isOwnOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "turso://test",
   TURSO_READONLY_TOKEN: "test",
@@ -339,14 +345,18 @@ describe("public reader", () => {
     // No inline handlers, external resources or absolute URLs except the reader's own origin.
     expect(html).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
     const foreign = (html.match(/https?:\/\/[^"'\s<>]*/gi) ?? []).filter(
-      (url) => !ownOrigin.test(url),
+      (url) => !isOwnOrigin(url),
     );
     expect(foreign).toEqual([]);
-    expect(
-      ["https://reader.example.test.evil/", "http://reader.example.test/"].filter(
-        (url) => !ownOrigin.test(url),
-      ),
-    ).toHaveLength(2);
+    const lookalikes = [
+      "https://reader.example.test.evil/",
+      "https://reader.example.test:8080/",
+      "https://reader.example.test@evil.example/",
+      "https://user:pw@reader.example.test.evil/",
+      "http://reader.example.test/",
+    ];
+    expect(lookalikes.filter(isOwnOrigin)).toEqual([]);
+    expect(isOwnOrigin(`${base}/s/x`)).toBe(true);
     expect(shell.headers.get("content-security-policy")).toBe(
       `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     );

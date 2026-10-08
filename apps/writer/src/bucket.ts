@@ -339,7 +339,27 @@ export class EnvironmentCheckedBucket implements Bucket {
       );
     return parsed.environment;
   }
+  /**
+   * The check's errors reach whichever request triggered it, so none of them may read as a
+   * problem with that request: a "permanent" one (say the marker deleted between readMarker's
+   * HEAD and GET) would fail the revision being uploaded and its children. Anything that isn't
+   * already transient is a bucket problem, reported like one ("account": retried, on /status).
+   */
   private async check(): Promise<void> {
+    try {
+      await this.checkMarker();
+    } catch (error) {
+      if (error instanceof BucketError && (error.kind === "account" || error.kind === "transient"))
+        throw error;
+      throw new BucketError(
+        `Bucket environment marker check failed: ${error instanceof Error ? error.message : String(error)}`,
+        "account",
+        error instanceof BucketError ? error.status : undefined,
+        error instanceof BucketError ? error.code : undefined,
+      );
+    }
+  }
+  private async checkMarker(): Promise<void> {
     let marker = await this.readMarker();
     if (marker === undefined) {
       const body = new TextEncoder().encode(

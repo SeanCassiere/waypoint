@@ -76,6 +76,23 @@ describe("bucket environment marker", () => {
       message: `Bucket environment marker ${ENVIRONMENT_MARKER_KEY} is unreadable`,
     });
   });
+  it("reports a permanent failure during the check as a bucket problem, not the request's", async () => {
+    const inner = new MemoryBucket();
+    inner.objects.set(ENVIRONMENT_MARKER_KEY, marker("dev"));
+    // The marker vanishes between readMarker's HEAD and GET: a 404 NoSuchKey, "permanent".
+    inner.get = () =>
+      Promise.reject(
+        new BucketError("Bucket request failed (404): NoSuchKey", "permanent", 404, "NoSuchKey"),
+      );
+    const bucket = new EnvironmentCheckedBucket(inner, "dev");
+    await expect(bucket.put("blobs/sha256/cc", new Uint8Array([1]))).rejects.toMatchObject({
+      kind: "account",
+      status: 404,
+      code: "NoSuchKey",
+      message: "Bucket environment marker check failed: Bucket request failed (404): NoSuchKey",
+    });
+    expect(inner.objects.has("blobs/sha256/cc")).toBe(false);
+  });
   it("retries the check after a transient failure", async () => {
     const inner = new MemoryBucket();
     const bucket = new EnvironmentCheckedBucket(inner, "dev");
