@@ -89,6 +89,21 @@ dialog of the PR you merge.
 3. When `ci-ok` passes, squash-merge it. The release run that follows publishes the release
    ([below](#what-a-release-publishes)) and, if configured, dispatches the deploy.
 
+### If the release doesn't start
+
+GitHub occasionally drops a push event, so merging the release PR can start no `Release` run
+(`gh run list --repo <repo> --workflow release.yml --limit 1` shows nothing for the merge commit).
+Nothing is lost: the merged release PR stays labelled `autorelease: pending`. Run the workflow by
+hand from `main`:
+
+```bash
+gh workflow run release.yml --repo <repo> --ref main
+```
+
+release-please then tags and publishes the pending release exactly as the push would have, and
+every publishing job builds the release commit itself, not the head of `main`. Runs from any
+other branch skip everything.
+
 ## What a release publishes
 
 All from the release commit, in the run that created the release:
