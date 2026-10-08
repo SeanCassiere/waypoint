@@ -1,8 +1,8 @@
 name: Release
 # Releases are cut by release-please (docs/releasing.md). Every push to main updates its release
-# PR (version bump and CHANGELOG from the conventional commits since the last release) and approves
-# its CI runs (release-pr, release-pr-checks). Merging that PR creates the GitHub release and tag vX.Y.Z
-# (release-please), and the same run publishes it:
+# PR (version bump and CHANGELOG from the conventional commits since the last release) and
+# approves the PR's CI runs (release-pr, release-pr-checks). Merging that PR creates the GitHub
+# release and tag vX.Y.Z (release-please), and the same run publishes it:
 #
 #   image-build  the writer image, natively on amd64 and arm64, pushed by digest, then started once
 #                on its own architecture (/healthz must report the release's version and commit)
