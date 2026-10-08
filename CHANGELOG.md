@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/SeanCassiere/waypoint/compare/v0.1.1...v0.1.2) (2026-10-08)
+
+
+### Documentation
+
+* **release:** keep the version heading out of hand-made release notes ([#39](https://github.com/SeanCassiere/waypoint/issues/39)) ([b0d6d4a](https://github.com/SeanCassiere/waypoint/commit/b0d6d4a0cf0104cb1a4ac270d1dc5d9d9eac4e9e))
+
 ## [0.1.1](https://github.com/SeanCassiere/waypoint/compare/v0.1.0...v0.1.1) (2026-10-08)
 
 
