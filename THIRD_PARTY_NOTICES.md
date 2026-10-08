@@ -32,6 +32,7 @@ copyleft (GPL, LGPL, AGPL) or unlicensed package is shipped.
   | `typeid-js`                                                     | Apache-2.0   | Jetify                                              |
   | `uuid`                                                          | MIT          | (c) 2010-2020 Robert Kieffer and other contributors |
 
+This file and [LICENSE](LICENSE) ship in the writer image (`/app/`) and in each release bundle.
 Each package's full license text is in its published npm package. The permission notices of the
 MIT, ISC and BSD licenses, and the Apache License 2.0, apply to the copies inlined above.
 

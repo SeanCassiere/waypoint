@@ -70,8 +70,8 @@ All from the release commit, in the run that created the release:
 The bundle is one directory, `waypoint-deploy-X.Y.Z/`: `upgrade.sh` and `lib/`, the Compose files,
 `serve.json`, `instance.env.example`, `make-instance-env.sh`, the runbook (`README.md`),
 `docs/self-hosting.md`, `ops/deploy.yml.example`, `reader/index.js` (the prebuilt Worker),
-`reader/wrangler.jsonc` (the config template), `reader/WRANGLER_VERSION`, `VERSION`, `BUILD_SHA`,
-`IMAGE_DIGEST` and `SHA256SUMS`. The tarball is reproducible: the same commit gives the same bytes.
+`reader/wrangler.jsonc` (the config template), `reader/WRANGLER_VERSION`, `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, `VERSION`, `BUILD_SHA`, `IMAGE_DIGEST` and `SHA256SUMS`. The tarball is reproducible: the same commit gives the same bytes.
 
 To check a release by hand (gh 2.102.0 or later; `upgrade.sh` runs the same checks):
 

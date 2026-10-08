@@ -144,7 +144,8 @@ tar -xzf "$tgz" -C "$work/unpacked" --strip-components=1
 u="$work/unpacked"
 for f in upgrade.sh lib/env.sh lib/reader-config.mjs compose.yaml compose.tailscale.yaml serve.json \
   instance.env.example make-instance-env.sh README.md ops/deploy.yml.example docs/self-hosting.md \
-  VERSION BUILD_SHA IMAGE_DIGEST reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION SHA256SUMS; do
+  VERSION BUILD_SHA IMAGE_DIGEST reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION SHA256SUMS \
+  LICENSE THIRD_PARTY_NOTICES.md; do
   [[ -s "$u/$f" ]] || fail "the bundle has no $f"
 done
 (cd "$u" && sha256sum --quiet -c SHA256SUMS) || fail "SHA256SUMS doesn't match"

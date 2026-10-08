@@ -64,6 +64,8 @@ install -m 644 "$repo/deploy/compose.yaml" "$repo/deploy/compose.tailscale.yaml"
 install -m 644 "$repo/deploy/lib/env.sh" "$repo/deploy/lib/reader-config.mjs" "$d/lib/"
 install -m 644 "$repo/deploy/ops/deploy.yml.example" "$d/ops/"
 install -m 644 "$repo/docs/self-hosting.md" "$d/docs/"
+# The reader Worker inlines third-party code: its notices travel with it.
+install -m 644 "$repo/LICENSE" "$repo/THIRD_PARTY_NOTICES.md" "$d/"
 install -m 644 "$reader" "$d/reader/index.js"
 install -m 644 "$repo/apps/reader/wrangler.jsonc" "$d/reader/wrangler.jsonc"
 printf '%s\n' "$wrangler_version" > "$d/reader/WRANGLER_VERSION"
@@ -78,7 +80,8 @@ find "$d" -type d -exec chmod 755 {} +
 
 # What upgrade.sh expects in a bundle (resolve_release, exec_release_bundle, resolve_wrangler).
 for f in upgrade.sh lib/env.sh lib/reader-config.mjs compose.yaml compose.tailscale.yaml serve.json \
-  VERSION BUILD_SHA SHA256SUMS reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION; do
+  VERSION BUILD_SHA SHA256SUMS reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION \
+  LICENSE THIRD_PARTY_NOTICES.md; do
   [[ -s "$d/$f" ]] || die "the bundle has no $f"
 done
 bash "$repo/scripts/check-owner-strings.sh" "$d" >&2 || die "the bundle names the owner's instance"
