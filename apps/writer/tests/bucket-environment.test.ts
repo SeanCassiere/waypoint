@@ -85,6 +85,30 @@ describe("bucket environment marker", () => {
     expect(await bucket.head("x")).toBe(false);
     expect(read(inner)).toMatchObject({ environment: "dev" });
   });
+  it("lets a caller's signal stop waiting for the check without failing it for others", async () => {
+    const inner = new MemoryBucket();
+    inner.objects.set(ENVIRONMENT_MARKER_KEY, marker("dev"));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const head = inner.head.bind(inner);
+    inner.head = async (key) => {
+      if (key === ENVIRONMENT_MARKER_KEY) await gate;
+      return head(key);
+    };
+    const bucket = new EnvironmentCheckedBucket(inner, "dev");
+    const controller = new AbortController();
+    const stopped = bucket.put("a", new Uint8Array([1]), controller.signal);
+    const other = bucket.put("b", new Uint8Array([2]));
+    controller.abort();
+    await expect(stopped).rejects.toMatchObject({ kind: "transient", code: "AbortError" });
+    release();
+    await other;
+    expect(inner.objects.has("a")).toBe(false);
+    expect(inner.objects.get("b")).toEqual(new Uint8Array([2]));
+    await expect(bucket.head("a", AbortSignal.abort())).rejects.toMatchObject({
+      code: "AbortError",
+    });
+  });
   it("lets the first of two racing environments win", async () => {
     const inner = new MemoryBucket();
     const results = await Promise.allSettled([

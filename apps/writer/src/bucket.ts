@@ -265,6 +265,9 @@ export class R2Bucket implements Bucket {
   }
 }
 
+const abortedRequest = () =>
+  new BucketError("Bucket request aborted", "transient", undefined, "AbortError");
+
 /** The bucket object recording which environment (dev or prod) owns the bucket (D54). */
 export const ENVIRONMENT_MARKER_KEY = "meta/environment.json";
 
@@ -287,14 +290,24 @@ export class EnvironmentCheckedBucket implements Bucket {
     this.environment = environment;
     this.now = now;
   }
-  /** Resolves once the marker matches this writer's environment. */
-  verify(): Promise<void> {
-    // No caller's abort signal: one caller giving up must not fail the check for the others.
+  /**
+   * Resolves once the marker matches this writer's environment. The check is shared and runs
+   * without any caller's abort signal, so one caller giving up doesn't fail it for the others; a
+   * caller's signal only stops that caller waiting for it (a stopping committer isn't held up).
+   */
+  verify(signal?: AbortSignal): Promise<void> {
     this.checked ??= this.check().catch((error: unknown) => {
       this.checked = undefined;
       throw error;
     });
-    return this.checked;
+    if (!signal) return this.checked;
+    if (signal.aborted) return Promise.reject(abortedRequest());
+    const checked = this.checked;
+    return new Promise<void>((resolve, reject) => {
+      const onAbort = () => reject(abortedRequest());
+      signal.addEventListener("abort", onAbort, { once: true });
+      checked.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    });
   }
   private async readMarker(): Promise<string | undefined> {
     if (!(await this.inner.head(ENVIRONMENT_MARKER_KEY))) return undefined;
@@ -348,23 +361,23 @@ export class EnvironmentCheckedBucket implements Bucket {
       );
   }
   async putIfAbsent(...args: Parameters<Bucket["putIfAbsent"]>): Promise<void> {
-    await this.verify();
+    await this.verify(args[2].signal);
     return this.inner.putIfAbsent(...args);
   }
   async put(key: string, body: Uint8Array, signal?: AbortSignal): Promise<void> {
-    await this.verify();
+    await this.verify(signal);
     return this.inner.put(key, body, signal);
   }
   async get(key: string, signal?: AbortSignal): Promise<Readable> {
-    await this.verify();
+    await this.verify(signal);
     return this.inner.get(key, signal);
   }
   async head(key: string, signal?: AbortSignal): Promise<boolean> {
-    await this.verify();
+    await this.verify(signal);
     return this.inner.head(key, signal);
   }
   async delete(key: string, signal?: AbortSignal): Promise<void> {
-    await this.verify();
+    await this.verify(signal);
     return this.inner.delete(key, signal);
   }
   async list(prefix: string): Promise<string[]> {
