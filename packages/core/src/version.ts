@@ -4,7 +4,7 @@
  * A constant, not a JSON import, so the writer, the reader Worker, the MCP server and source runs
  * all get it without bundler-specific steps.
  */
-export const WAYPOINT_VERSION: string = "0.1.0"; // x-release-please-version
+export const WAYPOINT_VERSION: string = "0.1.1"; // x-release-please-version
 
 /** What a build reports about itself on health and status endpoints. */
 export interface BuildInfo {

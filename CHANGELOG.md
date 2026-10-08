@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/SeanCassiere/waypoint/compare/v0.1.0...v0.1.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **deps:** bump diff from 8.0.4 to 9.0.0 ([#33](https://github.com/SeanCassiere/waypoint/issues/33)) ([ae35f68](https://github.com/SeanCassiere/waypoint/commit/ae35f68567f0fd007fd5b4291bffae9661b89423))
+
 ## 0.1.0 (2026-10-08)
 
 
