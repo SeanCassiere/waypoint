@@ -29,7 +29,12 @@ updates:
       # Whatever ships is a `dependency`: what the writer image and the reader Worker run, and
       # what the MCP server bundle inlines (packages/mcp/tsdown.config.ts bundles its
       # dependencies). Its updates are a `fix`, which makes a release. Tooling updates are
-      # devDependencies and don't.
+      # devDependencies and don't. tests/inlined-packages.test.ts fails if a package a bundle
+      # inlines (scripts/inlined-packages.json) is a devDependency of what brings it in, such as
+      # @modelcontextprotocol/sdk or zod in packages/mcp. A package that's also a devDependency
+      # elsewhere (the integration tests use both) still counts as production: Dependabot treats a
+      # dependency as production when any manifest lists it under `dependencies`, so it gets this
+      # prefix and the production group below.
       prefix: "fix(deps)"
       prefix-development: "chore(deps)"
     # A dependency goes to the first group it matches.
