@@ -77,7 +77,7 @@ pending_blobs       (hash PRIMARY KEY, size)                     -- incl. rendit
 pending_renditions  (source_hash, renderer, renderer_version, output_hash, output_mime, created_at)
 pending_snapshots   (collection_id PRIMARY KEY, requested_at)    -- collections/<id>.json rewrites
 pending_r2_deletes  (key PRIMARY KEY, requested_at)              -- bucket objects to delete
-pending_purges      (collection_id PRIMARY KEY, requested_at, step)
+pending_purges      (collection_id PRIMARY KEY, requested_at, step, title, public_id)   -- title/public_id name a purge after its rows are gone
 unpushed            (revision_id PRIMARY KEY, committed_at)      -- committed, not yet pushed
 last_push           (id = 1, started_at, finished_at)            -- the last successful push
 ```
