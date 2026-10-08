@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
-  // Root scripts and every package's build and test configs (*.config.ts, viewer.build.ts, the
+  // Root scripts, deploy/lib's generator and every package's build and test configs (*.config.ts, viewer.build.ts, the
   // MCP package scripts). Each package's own tsconfig.json files cover its source and tests.
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -12,6 +12,7 @@
   },
   "include": [
     "scripts/**/*.mjs",
+    "deploy/**/*.mjs",
     "scripts/**/*.ts",
     "*.config.ts",
     "vitest.shared.ts",

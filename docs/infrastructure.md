@@ -27,15 +27,13 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 - [x] **(P2)** Deploy token `waypoint-reader-deploy` (custom token; permissions in [provisioning.md](provisioning.md#23-cloudflare-deploy-api-token)), scoped to this account and the `pingstash.com` zone only. Verified with a throwaway Worker on a custom domain, which was then deleted.
 - [x] **(P2)** Workers Analytics Engine enabled. Account is on the Workers **Free** plan.
 - [x] **(P2)** `waypoint.pingstash.com`, `waypoint-dev.pingstash.com` and `*.pingstash.com` had no DNS records before the custom domains were attached, and no zone rules match them.
-- [x] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`), deployed from `apps/reader/wrangler.jsonc` (`--env prod` / `--env dev`). The dev Worker has `workers_dev: false` and `preview_urls: false`. The prod Worker's `workers.dev` route and preview URLs are enabled, but only behind Cloudflare Access (see the PR previews item). Each has:
+- [x] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`): the `prod` and `dev` reader targets of the owner's `instance.env` (below), deployed with configs generated from `apps/reader/wrangler.jsonc`. Both have `workers_dev: false` and `preview_urls: false` (D55; until the first `upgrade.sh` deploy, the prod Worker's `workers.dev` route and previews were on behind Cloudflare Access, D49). Each has:
   - seven secrets from `~/.config/waypoint/reader-<env>.env`, uploaded with `wrangler secret bulk`: `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `RAW_CAP_KEY` (the per-environment HMAC key for raw capabilities). Blobs are read over the S3 API, **not** an R2 binding (decision D38).
   - an Analytics Engine binding `ACCESS_LOG` (datasets `waypoint_access` and `waypoint_access_dev`)
   - a Rate Limiting binding `TOKEN_MISS_LIMITER` (30 per 60 s; namespaces `1002` prod and `1001` dev)
 - [x] **(P2)** Custom domains `waypoint.pingstash.com` and `waypoint-dev.pingstash.com`, attached by Wrangler (`custom_domain: true`), which created their DNS records and certificates. Both answer `/healthz` and `/healthz/deep`.
-- [x] **(P2)** Reader deploy pipeline: the **Deploy** workflow's `reader` job runs on the self-hosted runner after the writer deploy succeeds, builds `@waypoint/reader`, then runs `deploy/deploy-reader.sh dev` and `deploy/deploy-reader.sh prod`. Each run uploads secrets, deploys, smoke-tests the live hostname and rolls back to the previous version on failure. `DRY_RUN=1 bash deploy/deploy-reader.sh <env>` checks it locally without secrets. Runbook: [deploy/README.md](../deploy/README.md).
-- [x] **PR previews** (decision D49): a Worker Preview of `waypoint-reader` per same-repo PR, at `pr-<number>-waypoint-reader.seancassiere.workers.dev`, made by the Preview workflow on the self-hosted runner and deleted when the PR closes. Details: [provisioning.md](provisioning.md#27-pr-previews) and [deploy/README.md](../deploy/README.md#pr-previews).
-  - Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` (owner only) covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. `waypoint.pingstash.com` stays public, without Access or previews.
-  - Previews get the prod read-only reader secrets with each upload, the Analytics Engine dataset `waypoint_access_preview`, and rate-limit namespace `1003`.
+- [x] **(P2)** Reader deploys: `deploy/upgrade.sh` deploys `dev`, then `prod`, after the writer, from the Deploy workflow. Each uploads secrets, deploys, smoke-tests the live hostname and rolls back to the previous version on failure. Runbook: [deploy/README.md](../deploy/README.md#public-reader-workers).
+- [ ] **PR previews were dropped** (D55, reversing D49). Left to clean up by hand: the Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` (it covered `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`), any preview still listed under Workers & Pages → `waypoint-reader` → Previews, and the `waypoint_access_preview` dataset and rate-limit namespace `1003`, which nothing uses any more.
 
 ### Tailscale
 - [x] **(P1)** The tag owner `tag:waypoint` is in the tailnet policy (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`). The policy is otherwise allow-all.
@@ -48,9 +46,100 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 ### Deployment (P1)
 - [x] **Docker** is installed on agent-1, and `agent-1` is in the `docker` group. Deploys use `sg docker` when a session predates the group change, so no logout or reboot is ever needed.
 - [x] **Self-hosted GitHub Actions runner** `agent-1-waypoint` (label `waypoint-deploy`) runs as the systemd user unit `waypoint-gh-runner.service` from `~/actions-runner-waypoint`, with low priority (Nice=10, MemoryHigh=2G).
-- [x] **Deploy workflow:** each successful CI run on `main` runs `deploy/deploy.sh`, which builds the image locally, recreates only the writer, health-checks it (container health check plus HTTPS via the tailnet), and rolls back to the previous image on failure.
-- **Secrets** stay in `~/.config/waypoint/{prod,ts}.env` (mode 600) and are passed at runtime with `env_file`. They never go into the repo, the image, or its layers.
+- [x] **Deploy workflow:** each successful CI run on `main` runs `deploy/upgrade.sh --instance ~/.config/waypoint/instance.env current-checkout`, which builds the writer image and the reader locally, recreates only the writer, health-checks it (container health check, reported commit, then HTTPS via the tailnet) and rolls back to the previous image on failure, then deploys the readers. Runbook: [deploy/README.md](../deploy/README.md).
+- **Secrets** stay in `~/.config/waypoint/{prod,ts,cloudflare,reader-dev,reader-prod}.env` (mode 600) and are passed at runtime with `env_file`, or to Wrangler. They never go into the repo, the image, or its layers.
+- **Instance file** `~/.config/waypoint/instance.env` (no secrets; [deploy/instance.env.example](../deploy/instance.env.example)). It was written once with `deploy/make-instance-env.sh`:
+
+  ```bash
+  bash deploy/make-instance-env.sh --output ~/.config/waypoint/instance.env \
+    --data-dir /home/agent-1/.local/share/waypoint/prod --writer-env prod.env \
+    --tailscale --ts-env ts.env --ts-hostname waypoint --ts-tags tag:waypoint \
+    --health-url https://waypoint.tail7aca06.ts.net/healthz --cloudflare-env cloudflare.env \
+    --reader dev,waypoint-reader-dev,waypoint-dev.pingstash.com,reader-dev.env,waypoint_access_dev,1001 \
+    --reader prod,waypoint-reader,waypoint.pingstash.com,reader-prod.env,waypoint_access,1002
+  ```
+
+  `upgrade.sh` keeps its state in `~/.config/waypoint/state/waypoint/`. Local images are `waypoint-writer:waypoint-<sha>`, `waypoint-writer:waypoint-current` and `waypoint-writer:waypoint-previous`; the older `waypoint-writer:<sha>`, `current` and `previous` tags from `deploy.sh` can be removed once a deploy through `upgrade.sh` has succeeded. That first deploy also recreates the sidecar `waypoint-ts-waypoint-1` once, and the writer with it: the sidecar used to mount `serve.json` from the runner's checkout and now mounts the copy in the state directory, which changes its Compose config. The `waypoint_tailscale-state` volume, and with it the node's identity, survives (`TS_AUTH_ONCE`), so no auth key is needed, but the tailnet URL is briefly down.
+- **Re-rendering** after a `RENDERER_VERSION` bump: `bash deploy/upgrade.sh rerender` from a checkout on agent-1. A deploy that starts meanwhile waits for its lock (at most 30 minutes, then it fails without changing anything; re-run it afterwards), so the runner doesn't need stopping.
 - **Resource limits:** writer 1 GB / 1.5 CPU / 512 pids; sidecar 256 MB / 0.5 CPU; Docker logs rotate at 10 MB × 3.
+
+### Reinstalling the deploy runner
+
+These are recovery steps for the already installed runner, not part of a
+normal deployment. Run as `agent-1`; no `sudo` is needed. Obtain a fresh,
+short-lived registration token from the repository's **Settings → Actions →
+Runners → New self-hosted runner** page. If removing an existing runner
+registration, obtain a separate removal token from that page first. Tokens are
+read without echoing them:
+
+```bash
+systemctl --user stop waypoint-gh-runner.service
+cd ~/actions-runner-waypoint
+read -rsp 'Runner removal token: ' REMOVE_TOKEN; echo
+./config.sh remove --token "$REMOVE_TOKEN"
+unset REMOVE_TOKEN
+read -rsp 'Runner registration token: ' RUNNER_TOKEN; echo
+./config.sh --url https://github.com/SeanCassiere/waypoint \
+  --token "$RUNNER_TOKEN" --name agent-1-waypoint \
+  --labels waypoint-deploy --unattended --replace
+unset RUNNER_TOKEN
+```
+
+If the runner files themselves must be replaced, after removing the old
+registration, download and extract the current Linux x64 runner archive, then
+run the registration command above:
+
+```bash
+cd ~/actions-runner-waypoint
+RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
+curl -fsSLo /tmp/waypoint-actions-runner.tar.gz \
+  "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+# Verify against the SHA-256 published in the release notes before extracting.
+expected=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
+  | grep -o "actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz.\{0,200\}" | grep -oE '[0-9a-f]{64}' | head -1)
+echo "${expected}  /tmp/waypoint-actions-runner.tar.gz" | sha256sum -c -
+tar -xzf /tmp/waypoint-actions-runner.tar.gz
+rm /tmp/waypoint-actions-runner.tar.gz
+unset RUNNER_VERSION
+```
+
+The existing user unit is:
+
+```ini
+[Unit]
+Description=GitHub Actions runner for SeanCassiere/waypoint (deploys Waypoint)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/actions-runner-waypoint
+ExecStart=%h/actions-runner-waypoint/run.sh
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+Nice=10
+CPUWeight=50
+MemoryHigh=2G
+
+[Install]
+WantedBy=default.target
+```
+
+To restore that unit if missing, save the block above as
+`~/.config/systemd/user/waypoint-gh-runner.service`, then run:
+
+```bash
+loginctl show-user "$USER" -p Linger
+systemctl --user daemon-reload
+systemctl --user enable --now waypoint-gh-runner.service
+systemctl --user status waypoint-gh-runner.service
+```
+
+`Linger=yes` is already configured. If it was removed, run
+`loginctl enable-linger "$USER"` as `agent-1` before starting the unit.
 
 ## Writer configuration
 

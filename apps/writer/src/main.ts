@@ -158,10 +158,10 @@ try {
       ...(config.mcpServerPath ? { mcpServerPath: config.mcpServerPath } : {}),
       ...(config.mcpSkillPath ? { mcpSkillPath: config.mcpSkillPath } : {}),
     }).fetch,
-    hostname: "127.0.0.1",
+    hostname: config.host ?? "127.0.0.1",
     port: config.port,
   });
-  console.log(`Waypoint writer listening on 127.0.0.1:${config.port}`);
+  console.log(`Waypoint writer listening on ${config.host ?? "127.0.0.1"}:${config.port}`);
   let shuttingDown = false;
   const shutdown = () => {
     if (shuttingDown) return;

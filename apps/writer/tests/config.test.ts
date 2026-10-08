@@ -14,6 +14,17 @@ describe("writer config", () => {
     expect(config.port).toBe(7411);
     expect(config.baseUrl).toBe("http://127.0.0.1:7411");
     expect(config.sync).toBe(false);
+    expect(config.host).toBe("127.0.0.1");
+  });
+  it("listens on loopback unless WAYPOINT_HOST names another address", () => {
+    const base = { WAYPOINT_ENV: "dev", WAYPOINT_SYNC: "off" };
+    expect(loadConfig({ ...base, WAYPOINT_HOST: "0.0.0.0" }).host).toBe("0.0.0.0");
+    expect(loadConfig({ ...base, WAYPOINT_HOST: "::" }).host).toBe("::");
+    expect(loadConfig({ ...base, WAYPOINT_HOST: "" }).host).toBe("127.0.0.1");
+    // A base URL derived from the port stays on loopback, whatever the listen address.
+    expect(loadConfig({ ...base, WAYPOINT_HOST: "0.0.0.0" }).baseUrl).toBe("http://127.0.0.1:7410");
+    for (const host of ["localhost", "example.test", "0.0.0.0:7410"])
+      expect(() => loadConfig({ ...base, WAYPOINT_HOST: host })).toThrow("WAYPOINT_HOST");
   });
   it("allows local-only production and keeps WAYPOINT_ENV required", () => {
     const config = loadConfig({

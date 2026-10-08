@@ -1,39 +1,35 @@
+# The Waypoint writer. deploy/upgrade.sh runs it with the values from instance.env; to run it by
+# hand, set the variables below yourself (docs/self-hosting.md).
+#
+#   WAYPOINT_IMAGE            image reference, a tag or a digest (required)
+#   WAYPOINT_WRITER_ENV_FILE  the writer's env file, mode 600 (required)
+#   WAYPOINT_DATA_HOST_DIR    the data directory on the host, owned by WAYPOINT_UID:WAYPOINT_GID
+#                             (required)
+#   WAYPOINT_UID, WAYPOINT_GID       the writer's user and group (default 1000:1000)
+#   WAYPOINT_BIND_ADDRESS     host address the port is published on (default 127.0.0.1)
+#   WAYPOINT_HOST_PORT        host port (default 7410)
+#
+# The writer has no login: anyone who can reach the port can read and change everything. Keep it
+# on the host's loopback, or use compose.tailscale.yaml, which publishes nothing.
+#
+# Keep the service and volume names: they make the container names (<project>-writer-1) and the
+# Tailscale state volume (<project>_tailscale-state) that existing installs depend on.
 name: waypoint
 services:
-  ts-waypoint:
-    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
-    hostname: waypoint
-    env_file: /home/agent-1/.config/waypoint/ts.env
-    environment:
-      TS_STATE_DIR: /var/lib/tailscale
-      TS_USERSPACE: "true"
-      # The auth key is single-use: only log in when no node state exists yet.
-      TS_AUTH_ONCE: "true"
-      TS_SERVE_CONFIG: /config/serve.json
-      TS_EXTRA_ARGS: --advertise-tags=tag:waypoint
-    volumes:
-      - tailscale-state:/var/lib/tailscale
-      - ./serve.json:/config/serve.json:ro
-    mem_limit: 256m
-    cpus: 0.5
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
-
   writer:
-    image: waypoint-writer:${WAYPOINT_IMAGE_TAG:-current}
-    network_mode: service:ts-waypoint
-    depends_on:
-      - ts-waypoint
-    env_file: /home/agent-1/.config/waypoint/prod.env
+    image: ${WAYPOINT_IMAGE:?set WAYPOINT_IMAGE}
+    env_file: ${WAYPOINT_WRITER_ENV_FILE:?set WAYPOINT_WRITER_ENV_FILE}
     environment:
       WAYPOINT_DATA_DIR: /data
+      # The container port is fixed; WAYPOINT_HOST_PORT picks the host side.
+      WAYPOINT_PORT: "7410"
+      # Listen on every container interface so Docker can publish the port.
+      WAYPOINT_HOST: 0.0.0.0
+    ports:
+      - ${WAYPOINT_BIND_ADDRESS:-127.0.0.1}:${WAYPOINT_HOST_PORT:-7410}:7410
     volumes:
-      - /home/agent-1/.local/share/waypoint/prod:/data
-    user: "1000:1000"
+      - ${WAYPOINT_DATA_HOST_DIR:?set WAYPOINT_DATA_HOST_DIR}:/data
+    user: "${WAYPOINT_UID:-1000}:${WAYPOINT_GID:-1000}"
     mem_limit: 1g
     cpus: 1.5
     pids_limit: 512
@@ -55,6 +51,3 @@ services:
       options:
         max-size: 10m
         max-file: "3"
-
-volumes:
-  tailscale-state:

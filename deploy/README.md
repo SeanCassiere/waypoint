@@ -1,391 +1,325 @@
-# Waypoint production deployment
+# Operating a Waypoint instance
 
-Start with [AGENTS.md](../AGENTS.md) for how updates reach production and the
-rules for operating on agent-1.
+The runbook for installing, upgrading, rolling back and operating a Waypoint instance with
+[`upgrade.sh`](upgrade.sh). Every instance, the maintainer's included, deploys through these files
+and nothing else; its own values live in one `instance.env` outside the repository. New to
+Waypoint? Start with [docs/self-hosting.md](../docs/self-hosting.md). What each setting means:
+[docs/configuration.md](../docs/configuration.md). Who can reach what: [docs/trust-model.md](../docs/trust-model.md).
 
-The production writer runs on agent-1 in the `waypoint` Compose project. The
-`ts-waypoint` sidecar owns a separate Tailscale node named `waypoint` and serves
-`https://waypoint.tail7aca06.ts.net` to the writer on the shared container
-loopback. The writer publishes no host port. Docker, the host Tailscale daemon,
-and the host's `tailscale serve` settings are not changed by deployment.
+| File | What it is |
+|---|---|
+| `upgrade.sh` | Install, upgrade, roll back, status, validate, rerender, compose passthrough |
+| `instance.env.example` | Every instance setting, documented line by line |
+| `make-instance-env.sh` | Writes an `instance.env` from flags, for an install whose env files already exist |
+| `compose.yaml` | The writer, published on the host's `127.0.0.1:7410` by default |
+| `compose.tailscale.yaml` | Overlay: the writer behind its own Tailscale node, with no host port |
+| `serve.json` | The Tailscale sidecar's Serve config: HTTPS on 443 to the writer |
+| `lib/env.sh` | The strict env-file parser |
+| `lib/reader-config.mjs` | Renders a reader target's Wrangler config from `apps/reader/wrangler.jsonc` |
 
-## First-time setup
+## Requirements
 
-The runner `agent-1-waypoint` with label `waypoint-deploy` is already installed
-in `~/actions-runner-waypoint` as the systemd user unit
-`waypoint-gh-runner.service`. Linger is already enabled for `agent-1`.
+A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.4+ (`upgrade.sh` checks), `flock`, `curl`,
+`sha256sum` and Node.js 22 or later (`upgrade.sh` uses it for JSON, and Wrangler 4 refuses
+anything older; `upgrade.sh` checks before deploying a reader). Deploying a git checkout
+(`current-checkout`) also needs `git`, and with reader targets, Node.js 24 (the workspace's
+minimum), pnpm and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
 
-As `agent-1`, create the env files outside the repository. Keep their directory
-at mode 700 and each file at mode 600:
+If your login session predates your `docker` group membership, `upgrade.sh` runs Docker through
+`sg docker`; no logout or daemon restart is needed.
 
-```bash
-install -d -m 700 ~/.config/waypoint
-install -m 600 /dev/null ~/.config/waypoint/prod.env
-install -m 600 /dev/null ~/.config/waypoint/ts.env
-install -d -m 700 ~/.local/share/waypoint/prod
-```
+## The instance file
 
-If the files already exist, leave their contents intact. `prod.env` contains
-the writer's production Turso and R2 credentials and must include
-`WAYPOINT_ENV=prod`, `WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net`,
-and `WAYPOINT_PORT=7410`. The deploy script sets `WAYPOINT_DATA_DIR=/data`
-inside the container. `ts.env` contains only `TS_AUTHKEY=...`: a single-use
-Tailscale auth key tagged `tag:waypoint`. It's used only for the sidecar's first
-login (`TS_AUTH_ONCE=true`); afterwards the node identity lives in the
-`waypoint_tailscale-state` volume. Only if that volume is lost do you need a new
-key. In the Tailscale admin
-console, set the tag owner for `tag:waypoint` to the account or group authorized
-to create this node before generating the key. Enable HTTPS certificates for
-the tailnet so Tailscale Serve can use the node's certificate. Never put these
-keys in Git, image build arguments, or workflow secrets.
-
-The deploy script requires the data directory to be owned by uid/gid 1000.
-`agent-1` has Docker group membership; older login sessions may not see it, so
-the script automatically runs Docker commands through `sg docker` when needed.
-No logout or Docker daemon restart is required.
-
-## Deploy and rollback
-
-From the checked out repository on agent-1:
+`upgrade.sh` reads `~/.config/waypoint/instance.env` (or `$XDG_CONFIG_HOME/waypoint/instance.env`,
+`$WAYPOINT_INSTANCE`, or `--instance FILE`, in increasing precedence). Copy [instance.env.example](instance.env.example) and fill it in, or have
+[make-instance-env.sh](make-instance-env.sh) write it. `upgrade.sh` refuses an instance file (or
+a `COMPOSE_OVERRIDE` file) that's writable by group or others, which a plain `cp` gives you under
+the usual umask 002, so copy with a mode:
 
 ```bash
-bash deploy/deploy.sh
+install -m 600 deploy/instance.env.example ~/.config/waypoint/instance.env
 ```
 
-Successful CI on `main` triggers the same command on the installed runner. A
-manual `workflow_dispatch` deploys the selected ref's exact commit. The script
-builds a commit-tagged image (with the commit as the `WAYPOINT_BUILD_SHA` build
-arg, reported on `/healthz`), saves the running image as `previous`, updates
-`current`, starts the sidecar, recreates only the writer, and checks both its
-Docker health status and the HTTPS tailnet endpoint. On failure it recreates
-the writer from `previous` and prints the failed writer's recent logs. On a
-first deployment with no previous writer, it stops the failed writer.
-
-To roll back a healthy deploy manually, run from the repository root:
+or:
 
 ```bash
-sg docker -c 'docker tag waypoint-writer:previous waypoint-writer:current'
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml up -d --no-deps --force-recreate writer'
+deploy/make-instance-env.sh --output ~/.config/waypoint/instance.env \
+  --data-dir ~/.local/share/waypoint/prod --writer-env writer.env
 ```
 
-If the current shell already has Docker access, `docker` may replace
-`sg docker -c 'docker …'`. Check the result with
-`curl -fsS https://waypoint.tail7aca06.ts.net/healthz`.
-
-## Logs and stopping
+The instance file holds no secrets. It names the files that do (the writer env file, the
+Tailscale auth key, the Cloudflare deploy token, each reader's secrets), which must be mode 600.
+It's parsed strictly: literal `KEY=value` lines with known keys only, never executed, and values
+are never printed. `cloudflare.env` and the reader secrets files are parsed the same way, except
+that their values may contain quotes, `$` and backticks, taken literally (a value wrapped in a
+pair of quotes is refused, since the quotes would become part of it). Check the instance, and
+every file it names, with:
 
 ```bash
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml logs --tail=100 writer'
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml logs --tail=100 ts-waypoint'
+deploy/upgrade.sh validate
 ```
 
-To stop the deployment safely, preserving the writer data and Tailscale state:
+## Deploying
 
 ```bash
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml stop writer ts-waypoint'
+deploy/upgrade.sh 1.4.0            # a release: its image (pinned by digest) and its bundle
+deploy/upgrade.sh latest           # the newest release
+deploy/upgrade.sh current-checkout # this git checkout: builds the writer image and the reader
+deploy/upgrade.sh image my/waypoint-writer:test   # the writer from an image you built
+deploy/upgrade.sh --dry-run current-checkout      # everything except changing anything
 ```
 
-Avoid `down --volumes`: the named volume holds the sidecar's Tailscale identity.
-The deployment never touches unrelated containers, networks, images, the host
-Tailscale daemon, or the host's Serve configuration. It needs no reboot.
+A release is deployed by **its own** `upgrade.sh`: run from a release bundle
+(`waypoint-deploy-X.Y.Z.tgz`) at the same version, it uses the files beside it; asked for any
+other version, it downloads that release's bundle into the state directory, checks its
+`SHA256SUMS` and runs that bundle's `upgrade.sh`. A release image is pulled by its tag, then
+pinned to the digest that arrived (the writer runs that digest, never the moving tag), and it must
+report the bundle's commit. Checking that digest against the release's attestation, before the
+pull, comes with the release pipeline. Downloaded bundles live in `<STATE_DIR>/releases/`; the
+running one and the newest three others are kept. A run that fetches another version's bundle
+takes the instance lock first (a `--dry-run` too) and its bundle's `upgrade.sh` inherits it, so
+concurrent runs never unpack over, replace or prune a bundle another run is using.
+
+What a deploy does, in order:
+
+1. **Fetch and check, before anything running changes.** Validate the instance and every file it
+   names. Build or pull the writer image. With reader targets, render each target's Wrangler
+   config, build the reader (`current-checkout`), prepare the secrets, and record the Worker
+   version each target to deploy serves now (`wrangler deployments list`), the one a failure
+   rolls back to. If that lookup fails for any reason other than the Worker not existing yet,
+   the run stops here: deploying without a rollback target isn't safe.
+2. **The writer.** Record the running image as the rollback target (`rollback-writer`, see
+   below), start the Tailscale sidecar if the overlay is on (a no-op when it's already running
+   unchanged), tag the rollback target `waypoint-writer:<project>-previous`, point
+   `waypoint-writer:<project>-current` at the new one, and recreate only the writer. The
+   rollback target is recorded before the sidecar step because a recreated or restarted sidecar
+   leaves the running writer in the old sidecar's network namespace, unreachable: interrupted
+   from there on, the writer is recreated from its rollback target, in the new sidecar's
+   namespace, and a sidecar change always recreates the writer.
+   Wait for the container's health check, for up to 120 s (`WRITER_HEALTH_TIMEOUT`; raise it
+   for a writer that starts slowly, such as a first start that restores from the cloud); a
+   restart of the new container fails it at once. Then check that `/healthz` (from inside the
+   container) reports the expected version and commit, then that `WRITER_HEALTH_URL`, if set,
+   answers the same within 90 s (`WRITER_URL_TIMEOUT`). On any failure, print the failed writer's logs, recreate it from the previous image, and
+   exit nonzero. A first install with no previous image stops the failed writer instead.
+3. **Each reader target, in `READER_TARGETS` order.** Upload the secrets (`wrangler secret
+   bulk`), deploy the prebuilt Worker with the commit as the `WAYPOINT_BUILD_SHA` variable, then
+   smoke test the custom domain for up to 120 s
+   (`SMOKE_TIMEOUT_SECONDS`): `/healthz` answers `ok` with the expected `X-Waypoint-Version` and
+   `X-Waypoint-Sha`, `/healthz/deep` answers `ok`, an unknown share link answers 404 with
+   `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer`, `/` answers 200, and
+   `/robots.txt` disallows everything. On failure, `wrangler rollback` to the recorded version.
+   A reader failure stops the run; the readers after it aren't touched. Wrangler is the
+   checkout's (`apps/reader/node_modules/.bin/wrangler`) or, from a release bundle, the version
+   it pins, through `npx`; `WRANGLER=<path>` overrides both.
+
+Old local builds and pulled releases are pruned to the newest three; the current and previous
+images keep their tags. A pulled release is also tagged `waypoint-writer:<project>-X.Y.Z`, and
+only those tags are counted, so instances that share a host and an `IMAGE` don't prune each
+other's releases.
+
+### Re-entrance and idempotence
+
+`upgrade.sh` keeps its state in `STATE_DIR` (default `<CONFIG_DIR>/state/<project>`): what each
+component runs (`writer`, `reader-<target>`), the last completed deploy (`release`), a `lock`
+that serializes runs on one instance (a second run waits up to 30 minutes, `LOCK_WAIT_SECONDS`,
+then fails without changing anything), and a `deploying` marker while a deploy is in progress.
+
+- **The same version twice** only repeats the health checks and smoke tests. The writer counts as
+  deployed when it's the container the last successful run created, on the target image, with
+  the Compose config that run recorded (`compose config --hash`; an edited env file or instance
+  setting redeploys it) and, with the overlay, in the running sidecar's network namespace; a
+  reader, when the build, its generated config and its secrets are unchanged. `--force` redeploys anyway. A component that runs the target but
+  fails its checks is reported, not redeployed: rerun with `--force`.
+- **A partial deploy converges on a rerun.** If the writer was upgraded and a reader rolled back,
+  the next run leaves the writer alone and deploys the reader again.
+- **Failures and interruptions roll back the component in progress.** A failed step, `Ctrl-C`
+  (SIGINT) or SIGTERM rolls back the writer or the reader being deployed, then exits nonzero
+  (130 or 143 for a signal). Further `Ctrl-C`s and SIGTERMs are ignored while the rollback runs,
+  so it can't be cut short halfway. The `deploying` marker is removed once the rollback succeeds. If the
+  process is killed outright (SIGKILL), the marker stays and the next run reports it and
+  converges.
+- **A killed run keeps its rollback targets.** Before uploading anything to a reader,
+  `upgrade.sh` saves the Worker version it serves in `rollback-reader-<target>`, and removes the
+  file only once that deploy passes its smoke test or is rolled back. A run killed in between
+  leaves it, so the next run deploys that reader again (even at the same version) and, if the
+  smoke test fails, rolls back to the version from before the killed run, not to whatever the
+  killed run left. The writer works the same way: before recreating it, `upgrade.sh` saves the
+  image it rolls back to in `rollback-writer`, and removes the file once the new writer passes
+  every health gate (including `WRITER_HEALTH_URL`) or the previous one is back. A rerun after a
+  killed run keeps that image as `<project>-previous`, even if the writer the killed run started
+  is Docker-healthy by then. A reader's file also names its Worker: if `READER_<target>_WORKER`
+  changed since, the next run looks up the new Worker's version instead, and reports that the
+  old Worker may still serve what the killed run uploaded. After a failed first install (no image to go back to) the file stays
+  until a deploy succeeds. `status` reports leftover files. If you fix a component by hand
+  meanwhile, delete its file.
+
+### Rolling back
+
+Rolling back is deploying the older version: `upgrade.sh 1.3.2`, or `upgrade.sh image
+waypoint-writer:<project>-previous` for the writer alone. **The rollback window:** schema changes
+are additive only ([docs/data-model.md](../docs/data-model.md#migrations)), so an older writer
+runs on a data directory and cloud DB that a newer one migrated, ignoring the tables and columns
+it doesn't know. CI proves exactly one hop on every change: the install test runs the previous
+`main` writer, this one, the previous one again and this one again against one data directory
+([scripts/install-test.sh](../scripts/install-test.sh)). Going back further is expected to work
+but isn't tested; read the release notes in between first. An older `upgrade.sh` refuses `instance.env` keys it doesn't know (keys are only ever added), so comment out settings introduced after the release you're going back to. Renditions made by a newer renderer
+stay in place, and Worker secrets aren't versioned: after rolling back a reader because of a bad
+secret, fix the secrets file and deploy again.
+
+To roll back a reader by hand, with `cloudflare.env` loaded in the shell (without echoing it):
+
+```bash
+cd apps/reader
+./node_modules/.bin/wrangler deployments list --name <worker>
+./node_modules/.bin/wrangler rollback <version-id> --name <worker> --yes
+```
+
+## Status, logs and stopping
+
+```bash
+deploy/upgrade.sh status                          # recorded and running versions, health
+deploy/upgrade.sh compose ps
+deploy/upgrade.sh compose logs --tail=100 writer
+deploy/upgrade.sh compose restart -t 60 writer    # safe: queued writes survive in queue.db
+deploy/upgrade.sh compose stop                    # keeps the data and the Tailscale state
+```
+
+`compose` runs `docker compose` with this instance's project, files and values (with
+`--dry-run`, it only prints the command). Commands that can change containers (`up`, `restart`,
+`start`, `stop`, `down`, `run` and the rest, but not `ps`, `logs`, `config`, `exec` and other
+read-only ones) wait for the instance lock first, so they can't start the writer under a
+`rerender` or recreate it in the middle of a deploy. Never use
+`down --volumes` with the Tailscale overlay: the `<project>_tailscale-state` volume holds the
+node's identity, and losing it means a new auth key. Nothing here touches other Compose projects,
+the Docker daemon, the host's Tailscale daemon or its Serve config.
 
 ## Memory
 
-The writer container is limited to 1 GB. Check its usage with:
+The writer container is limited to 1 GB (`COMPOSE_OVERRIDE` can change it). Check its usage with
+`docker stats --no-stream <project>-writer-1`.
 
-```bash
-sg docker -c 'docker stats --no-stream waypoint-writer-1'
-```
-
-The Turso engine leaks native memory for each statement it prepares, so the
-writer caches prepared statements by SQL text and reuses them (see
+The Turso engine leaks native memory for each statement it prepares, so the writer caches
+prepared statements by SQL text and reuses them (see
 [Prepared statements and native memory](../docs/architecture.md#prepared-statements-and-native-memory)).
-With the cache, RSS grows by about 0.16 KB per query and flattens over time,
-instead of about 12.5 KB per query before (when prod reached 294 MiB of its
-1 GiB after 14 h).
-If usage still climbs toward the limit, restarting the writer is safe, because
-queued writes survive in `queue.db`:
-
-```bash
-sg docker -c 'docker compose -p waypoint -f deploy/compose.yaml restart -t 60 writer'
-```
-
-Note the usage and uptime before restarting, so the growth rate can be compared
-with the numbers above.
+With the cache, RSS grows by about 0.16 KB per query and flattens over time, instead of about
+12.5 KB per query before. If usage still climbs toward the limit, restarting the writer is safe
+(above). Note the usage and uptime first, so the growth rate can be compared.
 
 ## Re-rendering markdown after a renderer upgrade
 
-Markdown is rendered at ingest, so a deploy that bumps `RENDERER_VERSION` only
-affects new content. Older documents keep their previous rendition (which is
-fine to serve) until `rerender` gives them one at the new version. Do it once
-after the deploy, in batches, with this procedure.
-
-`rerender` takes the data-directory lock, so the writer must be stopped while it
-runs; agents' writes fail during that window. The rendered output is only
-queued. The writer uploads it after it starts again, a batch of 50 renditions
-at a time between new revisions, so a large backlog never holds up agents.
-
-Run everything from the repository root on agent-1. `$C` is the compose
-prefix. Every command passes `--version 2`, which must match the deployed
-`RENDERER_VERSION`; change it if the deploy bumped to a different version.
+Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
+content. Older documents keep their previous rendition (which is fine to serve) until they're
+re-rendered. After such a deploy, run once:
 
 ```bash
-C="docker compose -p waypoint -f deploy/compose.yaml"
-S=https://waypoint.tail7aca06.ts.net/api/status
+deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
+deploy/upgrade.sh --dry-run rerender     # count only ("N to render"; the writer still stops for the count)
 ```
 
-Before starting:
+`rerender` takes the data directory's lock, so the writer must be stopped while a batch runs, and
+agents' writes fail meanwhile. The subcommand:
 
-- Note the baseline, so you can tell what this procedure changed:
+1. takes the instance lock, dry runs included (so no deploy recreates the writer meanwhile), and
+   refuses to start if a deploy didn't finish or the writer isn't healthy (a restart while it
+   waits counts as unhealthy; one from before doesn't);
+2. refuses, before every stop, if the writer doesn't run with the instance's current settings:
+   the batches run in one-off containers built from `instance.env`, the writer env file and the
+   current image, while the running writer, created by the last deploy, uploads what they queue.
+   After a change to any of those (a new `DATA_DIR`, say), or a rollback, deploy first;
+3. stops the writer (60 s to finish in-flight uploads) and runs the rerender dry run in a one-off
+   container of the same image, to learn the image's renderer version, which every batch then
+   pins with `--version`;
+4. renders a batch of at most `--limit` (default 500) renditions, starts the writer, waits until
+   it's healthy, then waits until it has uploaded the queued renditions (`rerender_pending` on
+   `/api/status` reaches 0, for up to an hour per batch: `RERENDER_UPLOAD_TIMEOUT` seconds);
+5. repeats from the check while the batch reported `remaining` above 0.
 
-  ```bash
-  curl -fsS "$S" | jq '{queue, failed: (.failed_items | length)}'
-  ```
+If anything fails, or the run is interrupted, it starts the writer again before exiting. It
+starts the same container it stopped (`compose start`), never a new one: applying a changed
+config is a deploy's job, with its health gate and rollback. A deploy
+that starts meanwhile waits for the lock for at most 30 minutes (`LOCK_WAIT_SECONDS`) and then
+fails without changing anything; a long rerender can outlast that, so deploy again afterwards. Each
+batch's JSON summary lists `missing` sources (in neither the local blob cache nor the bucket) and
+`failed` ones (the renderer returned nothing or timed out, as at ingest); those keep their
+previous rendition, and a later run retries them. Every step is safe to repeat: sources with a
+current-version rendition, committed or queued, are skipped. Only the writer container is stopped
+and started; the Tailscale sidecar, Docker and the host are left alone.
 
-- If **Status** (`/status`) lists failed revisions, retry or drop them there
-  first. Their own renditions stay queued until they commit or are dropped, so
-  they show in `pending_renditions` but not in `rerender_pending`.
+If **Status** (`/status`) lists failed revisions, retry or drop them first: their own renditions
+stay queued until they commit or are dropped, so they show in `pending_renditions` but not in
+`rerender_pending`.
 
-1. Stop the deploy runner, so no deploy can recreate the writer during the
-   window:
+## The writer's network
 
-   ```bash
-   systemctl --user stop waypoint-gh-runner.service
-   ```
+Without the overlay, the writer listens on `0.0.0.0` inside its container (`WAYPOINT_HOST`) and
+Docker publishes it on `WRITER_BIND_ADDRESS:WRITER_HOST_PORT` (default `127.0.0.1:7410`). The
+writer has no login, so keep it on loopback and put something you trust in front of it.
 
-2. Check that the Tailscale sidecar is running (its `STATUS` starts with
-   `Up`). Don't stop it; the writer shares its network namespace.
+With `TAILSCALE=on`, the `ts-waypoint` sidecar joins the tailnet as its own node
+(`TAILSCALE_HOSTNAME`, userspace networking, optional `TAILSCALE_TAGS`) and serves
+`https://<hostname>.<tailnet>.ts.net`, proxying to the writer on the loopback they share. The
+writer listens on `127.0.0.1` only and publishes no host port. The auth key in
+`TAILSCALE_ENV_FILE` (`TS_AUTHKEY=...`) is used only for the node's first login
+(`TS_AUTH_ONCE=true`); afterwards the identity lives in the `<project>_tailscale-state` volume.
+The sidecar mounts a copy of [serve.json](serve.json) that `upgrade.sh` keeps in `STATE_DIR`, so
+its path doesn't change from one release directory to the next (a changed mount would recreate
+the sidecar on every upgrade). Enable HTTPS certificates for the tailnet so Serve can use the
+node's certificate. Set
+`WAYPOINT_BASE_URL` in the writer env file to the `https://…ts.net` URL. Set `WRITER_HEALTH_URL`
+to its `/healthz` only if the deploying host can reach it, that is, the host is on the tailnet and
+resolves `*.ts.net` through MagicDNS: `upgrade.sh` checks it from the host, and an unreachable URL
+fails every deploy and its rollback. The sidecar is its own node, so the host doesn't have to be
+on the tailnet; leave the URL out then, and the container's health check gates the deploy.
 
-   ```bash
-   sg docker -c "$C ps ts-waypoint"
-   ```
-
-3. Stop the writer, giving it 60 s to finish in-flight uploads, and check that
-   it exited (its `STATUS` starts with `Exited`):
-
-   ```bash
-   sg docker -c "$C stop -t 60 writer"
-   sg docker -c "$C ps -a writer"
-   ```
-
-4. Preview, then render one batch. Each run prints its JSON summary, then
-   `missing: X`, `failed: Y` and a last `remaining: N` line. `remaining`
-   counts sources this run didn't reach because of `--limit`; it excludes
-   missing and failed sources, which another run won't fix.
-
-   ```bash
-   sg docker -c "$C run --rm --no-deps -T writer node dist/main.js rerender --all --renderer markdown --version 2 --dry-run"
-   sg docker -c "$C run --rm --no-deps -T writer node dist/main.js rerender --all --renderer markdown --version 2 --limit 500"
-   ```
-
-5. Start the writer and wait until it's healthy:
-
-   ```bash
-   sg docker -c "$C up -d --no-deps writer"
-   until [ "$(sg docker -c "docker inspect -f '{{.State.Health.Status}}' waypoint-writer-1")" = healthy ]; do sleep 2; done
-   ```
-
-6. Check it through the tailnet, then wait for the queued renditions to upload
-   (`rerender_pending` reaches 0). Don't wait on `pending_renditions`: it also
-   counts renditions of queued revisions, which commit with their revision.
-
-   ```bash
-   curl -fsS https://waypoint.tail7aca06.ts.net/healthz
-   until [ "$(curl -fsS "$S" | jq .queue.rerender_pending)" = 0 ]; do sleep 10; done
-   ```
-
-7. If step 4 printed `remaining:` above 0, repeat steps 3 to 6. Stop once it
-   prints `remaining: 0`, whatever `missing` and `failed` say.
-
-8. Restart the deploy runner:
-
-   ```bash
-   systemctl --user start waypoint-gh-runner.service
-   ```
-
-9. If any run reported `missing` or `failed` above 0, investigate the hashes
-   listed in that run's JSON summary (`missing`, `failed`). A missing source is
-   in neither the local blob cache nor R2; a failed one made the renderer
-   return nothing or time out, as it would at ingest. Those documents keep
-   their previous rendition. A later run retries them.
-
-If anything fails, start the writer (step 5) and the runner (step 8) before
-investigating. Every step is safe to repeat: sources that already have a
-current-version rendition, committed or queued, are skipped.
-
-The summary's fields are `sources`, `current`, `queued`, `remaining`, and the
-`missing` and `failed` source hashes. `--limit` caps the renditions queued per
-run; missing and failed sources don't count toward it, so each run with
-renderable sources left makes progress. `--collection <id or public id>`
-limits the scope. A source blob missing from the local cache is fetched from
-R2. `--renderer markdown --version <n>` is a guard: it fails if the image
-renders a different version. `docker compose run` reuses the writer service's
-env file, data volume and user, so no secrets are loaded in your shell. `-T`
-keeps the output plain for scripts.
+The service and volume names are fixed (`writer`, `ts-waypoint`, `tailscale-state`), so a
+`COMPOSE_PROJECT` keeps the same containers (`<project>-writer-1`, `<project>-ts-waypoint-1`) and
+Tailscale state across upgrades.
 
 ## Public reader Workers
 
-The reader job runs on the same self-hosted runner after the writer job succeeds. It checks out the same commit, installs the frozen lockfile, builds the reader, then deploys dev before prod. No reader credentials enter GitHub Actions secrets. The runner reads mode-600 `~/.config/waypoint/cloudflare.env` for `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `reader-dev.env` or `reader-prod.env` for the seven reader values listed in [provisioning](../docs/provisioning.md#part-2-cloud-reader). The deploy script writes them to a mode-600 temporary JSON file for `wrangler secret bulk`, then deletes it immediately after upload.
+Each reader target is a Cloudflare Worker on a custom domain, deployed after the writer. It
+needs, on the deploying host:
 
-Both readers are live, at `https://waypoint-dev.pingstash.com` (`waypoint-reader-dev`) and `https://waypoint.pingstash.com` (`waypoint-reader`). The writers point their share links at them with `WAYPOINT_PUBLIC_BASE_URL` in `dev.env` and `prod.env`; a change to that setting takes effect after the writer restarts through the normal deploy. Wrangler attaches the custom domains, so don't add DNS records by hand. When rebuilding the runner host, provision the env files above before the first reader deploy.
+- `CLOUDFLARE_ENV_FILE` with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (a token that can
+  deploy Workers and edit the zone's DNS and routes; [provisioning](../docs/provisioning.md#23-cloudflare-deploy-api-token)).
+- The target's `READER_<t>_SECRETS_FILE`, with `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`,
+  `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, `RAW_CAP_KEY`, and
+  `R2_ACCOUNT_ID` or `WAYPOINT_S3_ENDPOINT` (plus `WAYPOINT_S3_REGION` if needed)
+  ([configuration](../docs/configuration.md#public-reader-cloudflare-worker)). Only the keys that
+  are set are uploaded. Removing a key from the file doesn't delete the Worker secret; do that
+  with `wrangler secret delete`.
 
-Manual deploy from the checked out repository on agent-1:
+The deploy renders a Wrangler config from the committed
+[apps/reader/wrangler.jsonc](../apps/reader/wrangler.jsonc) (compatibility settings, observability,
+binding names and limits) and the target (Worker name, custom domain, Analytics Engine dataset,
+rate-limit namespace). Worker Previews are always off, and so is the `workers.dev` hostname unless
+`READER_<t>_WORKERS_DEV=true` (decision D55). It uploads the reader build (`dist/index.js` in a
+checkout, `reader/index.js` in a bundle) unchanged. Wrangler attaches the custom domain, so don't
+add DNS records by hand. Credentials reach Wrangler through its environment only, and the
+secrets go through a mode-600 temporary file that's written just before the upload and deleted
+right after it, in `$TMPDIR` or, under GitHub Actions, the runner's per-job `$RUNNER_TEMP`
+(emptied after every job, so even a killed run's file doesn't outlive it).
 
-```bash
-pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
-pnpm --filter "@waypoint/reader..." build
-bash deploy/deploy-reader.sh dev
-bash deploy/deploy-reader.sh prod
-```
+The first deployment of a Worker has no previous version to roll back to; if its smoke test fails
+because DNS or the certificate is still provisioning, raise `SMOKE_TIMEOUT_SECONDS` and run again.
 
-The script records the current Worker version, uploads secrets, deploys, then retries `/healthz`, `/healthz/deep`, an unknown share URL, and `/robots.txt` for up to 120 seconds by default. For prod it also requires `https://waypoint-reader.seancassiere.workers.dev/healthz` to answer 302 to the Cloudflare Access login, because the prod Worker's `workers.dev` route and previews are on ([PR previews](#pr-previews)). On smoke failure it calls `wrangler rollback` with the recorded version when one exists and exits nonzero. For a manual rollback, inspect versions and select the prior known-good version:
+`--dry-run` renders every target's config and validates it with `wrangler deploy --dry-run`, runs
+the deploy steps against a stand-in Wrangler, and skips the smoke test. `DRY_RUN_LOG=<file>`
+records the stand-in's calls; `DRY_RUN_FAIL_SMOKE=<target>` makes that target's smoke test fail,
+to exercise the rollback ([scripts/deploy-dry-run.sh](../scripts/deploy-dry-run.sh) does both).
 
-```bash
-cd apps/reader
-./node_modules/.bin/wrangler deployments list --env prod
-./node_modules/.bin/wrangler rollback <version-id> --env prod --yes
-./node_modules/.bin/wrangler tail --env prod
-```
+## Tuning
 
-Use `dev` in place of `prod` for the dev Worker. Load `cloudflare.env` in the shell before manual `wrangler` commands, without echoing it. `DRY_RUN=1 bash deploy/deploy-reader.sh dev` checks the script's local stages without reading secrets or calling Wrangler.
+All optional, set in the environment of the `upgrade.sh` run (`upgrade.sh --help` lists them
+too):
 
-The prod Worker's `workers.dev` route (`https://waypoint-reader.seancassiere.workers.dev`) and its version and preview URLs are enabled, and all of them are behind Cloudflare Access (owner only; see [PR previews](#pr-previews)). The custom domain `waypoint.pingstash.com` stays public and has previews disabled. The dev Worker has no `workers.dev` route.
-
-## PR previews
-
-Every pull request from this repository gets a [Worker Preview](https://developers.cloudflare.com/workers/previews/) of the **production** reader Worker `waypoint-reader`, named `pr-<number>`:
-
-```
-https://pr-<number>-waypoint-reader.seancassiere.workers.dev
-```
-
-It runs the PR's reader code against **production data, read-only**: it gets the same read-only Turso token and R2 keys as the prod reader. Prod share links work on it unchanged; swap `https://waypoint.pingstash.com` for the preview URL and keep the `/s/<token>/c/…` path. Each upload also has an immutable deployment URL, `https://<deployment-id>-waypoint-reader.seancassiere.workers.dev`.
-
-**Access.** The Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` ("Waypoint reader workers.dev and previews") covers `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`. It has one Allow policy (the owner's email), with login by One-time PIN or Cloudflare. Without signing in, every one of those hostnames answers 302 to `seancassiere.cloudflareaccess.com`. That redirect is the expected success state: it proves Access protects the preview. Previews are never enabled on `waypoint.pingstash.com`, and Access is never put on it.
-
-**Workflow.** [.github/workflows/preview.yml](../.github/workflows/preview.yml) runs on `pull_request` (`opened`, `synchronize`, `reopened`, `closed`):
-
-1. `guard` (GitHub-hosted) fails unless the PR's head repository is this repository and both `github.actor` and `github.triggering_actor` are allow-listed (only `SeanCassiere`). Fork PRs skip every job.
-2. `up` (self-hosted `waypoint-deploy` runner, PR head commit) installs only `@waypoint/reader...`, builds the reader, runs the reader dry run and the preview script's dry run, then runs `deploy/preview-reader.sh <number> up`.
-3. `comment` (GitHub-hosted, no checkout) upserts one sticky PR comment with the preview URL, the commit, and the deployment URL.
-4. On `closed`, `down` runs `deploy/preview-reader.sh <number> down`, and `comment` edits the comment to say the preview was deleted.
-
-A newer push cancels an in-flight `up`. `closed` waits for it and then deletes the preview. The preview doesn't wait for the CI workflow; it repeats CI's reader build checks before uploading.
-
-**What `preview-reader.sh <number> up` does.**
-
-1. It loads `cloudflare.env` and `reader-prod.env` with the same strict parser as `deploy-reader.sh` ([reader-env.sh](reader-env.sh)).
-2. It writes the seven reader values to a mode-600 JSON file and runs:
-
-   ```
-   wrangler preview --env prod --name pr-<number> --secrets-file <file> --json --ignore-base-config
-   ```
-
-   That creates or updates the preview and uploads a deployment with those values as its secrets. The file is deleted immediately after. Preview secrets are never inherited from production, so every deployment carries the current prod values. `--ignore-base-config` applies only when the preview is created (a PR's first push); every deployment sends its full runtime env anyway, so the `previews` block in `wrangler.jsonc` and the secrets file are the whole configuration. Keep the dashboard's Preview base config empty. That block binds `ACCESS_LOG` to the separate Analytics Engine dataset `waypoint_access_preview`, and `TOKEN_MISS_LIMITER` to its own rate-limit namespace `1003`.
-3. It checks that both URLs are `workers.dev` hostnames of `waypoint-reader`, and that the preview's latest deployment is the one just uploaded.
-4. It retries for up to 120 s (`SMOKE_TIMEOUT_SECONDS`) until `/healthz` on both the preview URL and the deployment URL answers 302 to the Access login for its own hostname. A 2xx (served without Access) stops it at once. The deep health check can't run, because it would need to get past Access.
-5. It prints the URLs and writes them to `$GITHUB_OUTPUT`.
-
-It **fails closed**. From the moment `wrangler preview` starts until step 4 passes, any failure deletes the preview on exit (an `EXIT` trap, which also runs on SIGINT and SIGTERM). That covers a failed or partial upload, unusable Wrangler output, unexpected URLs, a deployment mismatch, a 2xx, a redirect elsewhere, an error status, no response, a timeout and a cancelled run. If the delete itself fails, the log says so; delete it by hand (see Cleanup). A failed push therefore takes down that PR's previous preview too, until the next successful push.
-
-`down` deletes the preview with `wrangler preview delete --skip-confirmation`, and confirms through the API that it's gone. It succeeds if the preview was already gone.
-
-`DRY_RUN=1 bash deploy/preview-reader.sh 1 up` (and `down`) runs the script against a fake Wrangler and fake responses, without reading secrets or using the network. [preview-reader-check.sh](preview-reader-check.sh) runs `up` and `down`, then makes each stage fail in turn (`DRY_RUN_FAIL=wrangler|json|urls|served|redirect|error|unreachable`, plus a SIGTERM mid-smoke). Each one must exit nonzero after deleting the preview. CI's `build-reader` job runs it, and so does the Preview workflow before every upload.
-
-**Manual use** from the checked-out branch on agent-1, after `pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint` and `pnpm --filter "@waypoint/reader..." build`:
-
-```bash
-bash deploy/preview-reader.sh 123 up
-bash deploy/preview-reader.sh 123 down
-```
-
-**Cleanup.** Closing a PR deletes its preview. If a `down` run failed, or the workflow was disabled, delete leftovers by hand. Load `cloudflare.env` without echoing it, then:
-
-```bash
-cd apps/reader
-./node_modules/.bin/wrangler preview delete --env prod --name pr-123 --skip-confirmation
-```
-
-The dashboard lists every preview under Workers & Pages → `waypoint-reader` → Previews. The Free plan keeps at most 100 previews per Worker and 100 deployments per preview; past that, Cloudflare deletes the least recently deployed preview or the oldest deployment.
-
-**If previews have no URL.** `wrangler preview` warns that the deployment has no active URLs, and the script fails on the URL check. This happens when the Worker's `workers.dev` route or its previews are disabled. The prod deploy sets both from `wrangler.jsonc` (`workers_dev: true`, `preview_urls: true`). Before enabling them by any other route, confirm that the Access app still covers both hostnames.
-
-## Reinstalling the existing runner
-
-These are recovery steps for the already installed runner, not part of a
-normal deployment. Run as `agent-1`; no `sudo` is needed. Obtain a fresh,
-short-lived registration token from the repository's **Settings → Actions →
-Runners → New self-hosted runner** page. If removing an existing runner
-registration, obtain a separate removal token from that page first. Tokens are
-read without echoing them:
-
-```bash
-systemctl --user stop waypoint-gh-runner.service
-cd ~/actions-runner-waypoint
-read -rsp 'Runner removal token: ' REMOVE_TOKEN; echo
-./config.sh remove --token "$REMOVE_TOKEN"
-unset REMOVE_TOKEN
-read -rsp 'Runner registration token: ' RUNNER_TOKEN; echo
-./config.sh --url https://github.com/SeanCassiere/waypoint \
-  --token "$RUNNER_TOKEN" --name agent-1-waypoint \
-  --labels waypoint-deploy --unattended --replace
-unset RUNNER_TOKEN
-```
-
-If the runner files themselves must be replaced, after removing the old
-registration, download and extract the current Linux x64 runner archive, then
-run the registration command above:
-
-```bash
-cd ~/actions-runner-waypoint
-RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
-curl -fsSLo /tmp/waypoint-actions-runner.tar.gz \
-  "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
-# Verify against the SHA-256 published in the release notes before extracting.
-expected=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
-  | grep -o "actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz.\{0,200\}" | grep -oE '[0-9a-f]{64}' | head -1)
-echo "${expected}  /tmp/waypoint-actions-runner.tar.gz" | sha256sum -c -
-tar -xzf /tmp/waypoint-actions-runner.tar.gz
-rm /tmp/waypoint-actions-runner.tar.gz
-unset RUNNER_VERSION
-```
-
-The existing user unit is:
-
-```ini
-[Unit]
-Description=GitHub Actions runner for SeanCassiere/waypoint (deploys Waypoint)
-After=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=%h/actions-runner-waypoint
-ExecStart=%h/actions-runner-waypoint/run.sh
-Restart=always
-RestartSec=10
-KillMode=process
-KillSignal=SIGTERM
-TimeoutStopSec=5min
-Nice=10
-CPUWeight=50
-MemoryHigh=2G
-
-[Install]
-WantedBy=default.target
-```
-
-To restore that unit if missing, save the block above as
-`~/.config/systemd/user/waypoint-gh-runner.service`, then run:
-
-```bash
-loginctl show-user "$USER" -p Linger
-systemctl --user daemon-reload
-systemctl --user enable --now waypoint-gh-runner.service
-systemctl --user status waypoint-gh-runner.service
-```
-
-`Linger=yes` is already configured. If it was removed, run
-`loginctl enable-linger "$USER"` as `agent-1` before starting the unit.
-
-The smoke window defaults to 120 seconds; set `SMOKE_TIMEOUT_SECONDS` for slow first-time custom-domain DNS and certificate provisioning. The smoke includes `/healthz/deep`. A first deployment with no previous version cannot roll back. Worker secrets are not versioned: after a rollback caused by a bad secret, correct and re-upload that secret.
+| Variable | Default | What it bounds |
+|---|---|---|
+| `WAYPOINT_INSTANCE` | `~/.config/waypoint/instance.env` | the instance file, when `--instance` isn't given |
+| `WRITER_HEALTH_TIMEOUT` | 120 | seconds the new writer gets to pass its container health check |
+| `WRITER_URL_TIMEOUT` | 90 | seconds `WRITER_HEALTH_URL` gets to answer with the new build |
+| `SMOKE_TIMEOUT_SECONDS` | 120 | seconds each reader's smoke test retries for |
+| `LOCK_WAIT_SECONDS` | 1800 | seconds a run waits for another run on the same instance |
+| `RERENDER_UPLOAD_TIMEOUT` | 3600 | seconds the writer gets to upload one rerender batch |
+| `WRANGLER` | the checkout's, or the bundle's pinned version through `npx` | the Wrangler executable |
