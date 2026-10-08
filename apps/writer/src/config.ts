@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -14,6 +15,12 @@ export interface Config {
   /** WAYPOINT_SHARE_TOKEN_KEY: derives share-link tokens (D50). Sharing needs it too. */
   shareTokenKey?: Uint8Array;
   port: number;
+  /**
+   * WAYPOINT_HOST: the address to listen on, `127.0.0.1` by default. A container that publishes
+   * its port sets `0.0.0.0` (deploy/compose.yaml); the host side still binds loopback.
+   * Unset means `127.0.0.1`.
+   */
+  host?: string;
   queueGiveUpHours: number;
   maxBlobBytes: number;
   maxFiles?: number;
@@ -90,6 +97,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   );
   const port = number("WAYPOINT_PORT", 7410);
   if (port > 65535) throw new Error("WAYPOINT_PORT must be at most 65535");
+  const host = env.WAYPOINT_HOST || "127.0.0.1";
+  if (!isIP(host)) throw new Error("WAYPOINT_HOST must be an IPv4 or IPv6 address");
   const baseUrl =
     env.WAYPOINT_BASE_URL ?? (sync ? required("WAYPOINT_BASE_URL") : `http://127.0.0.1:${port}`);
   httpUrl("WAYPOINT_BASE_URL", baseUrl);
@@ -121,6 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(publicBaseUrl ? { publicBaseUrl } : {}),
     ...(shareTokenKey ? { shareTokenKey } : {}),
     port,
+    host,
     queueGiveUpHours,
     maxBlobBytes,
     maxFiles,
