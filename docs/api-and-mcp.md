@@ -32,7 +32,8 @@ Read responses use the types exported by `@waypoint/core` (`api.ts`). They conta
 - `RevisionDetail`: a revision summary plus `files`, an array of `{ path, hash, mime, size, url }`. Each file URL is pinned to that revision's raw route.
 - `GET /api/collections` returns `{ collections: CollectionSummary[] }`; `GET /api/collections/:id` returns `CollectionDetail`; `GET /api/collections/:id/revisions` returns `{ revisions: RevisionSummary[] }`; `GET /api/revisions/:id` returns `RevisionDetail`.
 - `POST /api/resolve` returns `{ collection_id, revision_id?, path? }`.
-- `GET /api/status` returns `queue` counts (`rerender_pending` counts queued renditions no queued revision references, the `rerender` backlog), `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, and `sync_verified`. Timestamps are Unix milliseconds or `null`.
+- `GET /api/status` returns `queue` counts (`rerender_pending` counts queued renditions no queued revision references, the `rerender` backlog), `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, `sync_verified`, the writer's `version` and `sha` (the build's git commit, or `null`), and `warnings`, a list of `{ code, message }` (`local_only` while `WAYPOINT_SYNC=off`: nothing is durable beyond the writer's data directory, and public links can't be served). Timestamps are Unix milliseconds or `null`.
+- `GET /healthz` returns `{ ok: true, version, sha }`. Health checks need only `ok`.
 - `PATCH /api/collections/:id`, `DELETE /api/collections/:id`, and `POST /api/collections/:id/undelete` return `CollectionDetail`.
 - `POST /api/collections/:id/purge` returns `{ purged: true }` for a pending collection or `{ queued: true }` for a committed one, with status 202.
 - `POST /api/queue/:revision_id/retry` returns `{ retried: string[] }`; `DELETE /api/queue/:revision_id` returns `{ dropped: string[] }`.
@@ -92,6 +93,8 @@ The configured URL never changes. The tarball is a small **launcher**. npx cache
 
 A writer deploy therefore reaches every agent the next time it starts the MCP server. `waypoint_status` reports `mcp.update_available` when a running server is older than the writer's bundle. Set `WAYPOINT_MCP_PIN=embedded` to skip fetching, for debugging.
 
+The launcher warns on stderr when `WAYPOINT_URL` is plain HTTP to anything but loopback or a `*.ts.net` host. Set `WAYPOINT_MCP_ALLOW_HTTP=1` in the MCP config's `env` to silence it for any host, for example a writer on a private network. It's read by the launcher itself, so it takes effect only on machines whose cached launcher includes it (installed after this change, or after clearing the npx cache); an older launcher just keeps warning. Every MCP setting is listed in [configuration.md](configuration.md#mcp-server-the-agents-machine).
+
 Related writer routes:
 - `GET /mcp`: setup page
 - `GET /mcp/waypoint-mcp.tgz`: the launcher
@@ -146,7 +149,7 @@ type SourceDir = {
 | `wait_for_revision` | `collection` (ID, public ID, or URL; `collection_id` alias), `after_revision_id`, `timeout_seconds?` (default 30, max 50) | `{ changed, revisions: RevisionSummary[] }`: revisions newer than `after_revision_id`, returned as soon as one appears |
 | `read_file` | `collection` (ID, public ID, or URL; `collection_id` alias), `path`, `revision_id?` | text content for text files; metadata and URL for images and other binaries |
 | `resolve_url` | `url` | `{ collection_id, revision_id?, path? }` |
-| `waypoint_status` | — | queue counts, oldest pending age, failed items, last successful bucket upload, push, and pull, and the last error |
+| `waypoint_status` | — | queue counts, oldest pending age, failed items, last successful bucket upload, push, and pull, the last error, the writer's `version`, `sha` and `warnings`, and `mcp` (`version`, running and latest bundle hashes, `update_available`) |
 
 **Notes**
 - **`create_collection` also creates the first revision.** A collection without a head document has no purpose.

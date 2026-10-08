@@ -57,7 +57,7 @@ Prerequisite: the Turso CLI (`brew install tursodatabase/tap/turso`), logged in 
 ### 1.2 Cloudflare R2 buckets and writer tokens
 
 1. **Enable R2.** This needs a payment method on the account even on the free plan; the checkout flow asks for one. Add a **budget alert** under Billing → Budget alerts (a low threshold such as $1). Cloudflare has no hard spending cap.
-2. **Create the bucket** `waypoint-<env>`: R2 → Create bucket. Location: Automatic. Default storage class: **Standard** (Infrequent Access has no free tier). Leave public access, `r2.dev`, custom domains, and CORS **off**.
+2. **Create the bucket** `waypoint-<env>` (any name works; the writer marks the bucket with `meta/environment.json` on first use, which keeps dev and prod apart; D54): R2 → Create bucket. Location: Automatic. Default storage class: **Standard** (Infrequent Access has no free tier). Leave public access, `r2.dev`, custom domains, and CORS **off**.
 3. **Create the writer token:** R2 → Manage API tokens → **Create Account API token**:
    - Name `waypoint-writer-<env>`, permission **Object Read & Write**
    - **Apply to specific buckets only** → `waypoint-<env>`
@@ -109,7 +109,7 @@ R2 → Manage API tokens → **Create Account API token**:
 - **Apply to specific buckets only** → `waypoint-<env>`
 - TTL Forever, no IP filtering
 
-**Record** `R2_READER_ACCESS_KEY_ID` and `R2_READER_SECRET_ACCESS_KEY` into `reader-<env>.env`, plus `R2_ACCOUNT_ID` and `R2_BUCKET`. Generate `RAW_CAP_KEY` as 32 random bytes with `openssl rand -base64 32 | tr "+/" "-_" | tr -d "="` and record it in the same file.
+**Record** `R2_READER_ACCESS_KEY_ID` and `R2_READER_SECRET_ACCESS_KEY` into `reader-<env>.env`, plus `R2_ACCOUNT_ID` and `R2_BUCKET`. (Another S3-compatible store would use the `WAYPOINT_S3_ENDPOINT` and `WAYPOINT_S3_REGION` settings instead of `R2_ACCOUNT_ID`, for writer and reader alike; see [configuration.md](configuration.md). The owner's deploy scripts upload only the seven values above.) Generate `RAW_CAP_KEY` as 32 random bytes with `openssl rand -base64 32 | tr "+/" "-_" | tr -d "="` and record it in the same file.
 
 **Verify:**
 - `list-objects-v2 --max-keys 1` on its own bucket → **200**

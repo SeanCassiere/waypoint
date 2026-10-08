@@ -70,7 +70,9 @@ Running a statement prepared before a schema change aborts the process inside th
 
 ### Cloud storage
 - **Turso cloud DB**: rows for collections, revisions, files, blobs, renditions, and share links. Created as a Turso Sync (`--tursodb`) database. There is one per environment.
-- **R2 bucket**: blob contents, renditions, and JSON manifests for disaster recovery. Private, Standard storage class only. There is one per environment.
+- **R2 bucket**: blob contents, renditions, and JSON manifests for disaster recovery. Private, Standard storage class only. There is one per environment, marked with `meta/environment.json`. Any S3-compatible store works through `WAYPOINT_S3_ENDPOINT` ([configuration.md](configuration.md)).
+
+With `WAYPOINT_SYNC=off` (local-only mode) a writer uses neither: everything stays in its data directory, with no cloud durability and no public sharing.
 
 ## Runtimes and code layout
 

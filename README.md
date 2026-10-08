@@ -36,6 +36,7 @@ Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm che
 | [Write path & sync](docs/write-path-and-sync.md) | Ingest, local queue, R2 upload, Turso Sync, retries, restore |
 | [API & MCP](docs/api-and-mcp.md) | HTTP API and MCP tools for agents |
 | [Public reader](docs/public-reader.md) | The Workers reader, share links, safeguards |
+| [Configuration](docs/configuration.md) | Every writer, MCP and reader setting, with defaults; local-only mode; version reporting |
 | [Infrastructure](docs/infrastructure.md) | Turso, R2, Cloudflare, and Tailscale setup checklist |
 | [Provisioning](docs/provisioning.md) | Step-by-step: obtaining and verifying every account, token, bucket, and DNS item for the writer and the reader |
 | [Roadmap](docs/roadmap.md) | Phases, what's next, deferred work |

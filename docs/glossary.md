@@ -39,7 +39,7 @@ The private Cloudflare R2 bucket. It holds every blob, plus DR manifests and col
 `dev` or `prod`. Each environment has its own cloud DB, bucket, and writer data directory.
 
 **Environment guard**
-A writer's check, made at startup and before every push, that its config, its local DB, and the cloud DB all agree on the environment. If they don't, the writer refuses to sync.
+A writer's check, made at startup and before every push, that its config, its local DB, and the cloud DB all agree on the environment, plus a check of the bucket's environment marker before the first bucket request. If they don't agree, the writer refuses to sync.
 
 ## Content
 

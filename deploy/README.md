@@ -54,7 +54,8 @@ bash deploy/deploy.sh
 
 Successful CI on `main` triggers the same command on the installed runner. A
 manual `workflow_dispatch` deploys the selected ref's exact commit. The script
-builds a commit-tagged image, saves the running image as `previous`, updates
+builds a commit-tagged image (with the commit as the `WAYPOINT_BUILD_SHA` build
+arg, reported on `/healthz`), saves the running image as `previous`, updates
 `current`, starts the sidecar, recreates only the writer, and checks both its
 Docker health status and the HTTPS tailnet endpoint. On failure it recreates
 the writer from `previous` and prints the failed writer's recent logs. On a

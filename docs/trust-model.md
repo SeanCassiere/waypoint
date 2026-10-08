@@ -16,7 +16,7 @@ The tailnet is the trust boundary, not the home LAN. The writer is **not reachab
 
 1. **IDs identify; they never authorize** (D4). Collection and revision IDs and public IDs end up in logs, screenshots, and chat. Knowing one never grants public access.
 2. **Stored is not exposed** (D5). Turso and R2 hold *everything*, private content included. Public access exists only through share links.
-3. **Deny by default in public.** The reader answers **404** for anything not explicitly allowed by a valid share link, with one fixed page that is byte-identical for every reason. It never returns 403, so it never confirms that something exists. The other non-denial URLs are the bare root `/` (a fixed 200 with no data, which has nothing to confirm) and the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`. `/healthz/deep` counts toward the per-IP limiter, since it queries Turso and R2.
+3. **Deny by default in public.** The reader answers **404** for anything not explicitly allowed by a valid share link, with one fixed page that is byte-identical for every reason. It never returns 403, so it never confirms that something exists. The other non-denial URLs are the bare root `/` (a fixed 200 with no data, which has nothing to confirm) and the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`. `/healthz/deep` counts toward the per-IP limiter, since it queries Turso and R2. The health endpoints reveal only the release version and deployed commit (`X-Waypoint-Version`, `X-Waypoint-Sha`), which are public in the repository anyway.
 4. **The reader can't write, structurally:**
    - **Metadata:** its Turso token is created `--read-only`; writes return `BLOCKED`.
    - **Blobs:** it reads R2 over the S3 API with an **Object Read only** token scoped to one bucket. It has no R2 binding (D38).
@@ -80,7 +80,7 @@ The writer trusts any client on the tailnet, but defends against *websites* atta
 
 ## Code that runs on agent machines
 
-The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (D36). The trust root is the writer, reached over **tailnet HTTPS**, and the bundle is checked against `X-Waypoint-Content-SHA256`. That check guards against truncation, not tampering: the writer itself is trusted. The launcher warns on stderr when `WAYPOINT_URL` is plain HTTP to a host other than loopback or `*.ts.net`.
+The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (D36). The trust root is the writer, reached over **tailnet HTTPS**, and the bundle is checked against `X-Waypoint-Content-SHA256`. That check guards against truncation, not tampering: the writer itself is trusted. The launcher warns on stderr when `WAYPOINT_URL` is plain HTTP to a host other than loopback or `*.ts.net`, unless the operator sets `WAYPOINT_MCP_ALLOW_HTTP=1`, accepting that the bundle it then executes crosses that network unprotected.
 
 ## Deploy pipeline
 
