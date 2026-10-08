@@ -11,7 +11,7 @@ import { encodeLinkPath, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
 import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.ts";
-import { deniedPage, rootPage } from "./pages.ts";
+import { deniedPage, frameDeniedPage, rootPage } from "./pages.ts";
 
 export interface ReaderEnv {
   TURSO_DATABASE_URL: string;
@@ -79,18 +79,31 @@ const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbo
  */
 const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
-const staticHeaders = (cache: string): Record<string, string> => ({
+/** The `/x/` denial card's policy: the static one, but the shell (same origin) may frame it. */
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+const staticHeaders = (cache: string, policy = staticPolicy): Record<string, string> => ({
   "X-Robots-Tag": standard["X-Robots-Tag"],
   "Referrer-Policy": standard["Referrer-Policy"],
   "X-Content-Type-Options": standard["X-Content-Type-Options"],
   "Content-Type": "text/html; charset=utf-8",
-  "Content-Security-Policy": staticPolicy,
+  "Content-Security-Policy": policy,
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cache-Control": cache,
 });
 const deniedHeaders = staticHeaders("no-store");
-/** The one denial response: same status, body and headers for every reason (spec §9.2). */
+const frameDeniedHeaders = staticHeaders("no-store", framePolicy);
+/**
+ * One denial per route family (spec §9.2): same status, body and headers for every reason within
+ * the family. Build denials only through deniedFor().
+ */
 const denied = (): Response => new Response(deniedPage, { status: 404, headers: deniedHeaders });
+const frameDenied = (): Response =>
+  new Response(frameDeniedPage, { status: 404, headers: frameDeniedHeaders });
+/**
+ * Picks the family from the requested path alone, never from the reason: raw content (`/x/`, shown
+ * inside the shell's frame) gets the framable card, everything else the full page.
+ */
+const deniedFor = (path: string): Response => (path.startsWith("/x/") ? frameDenied() : denied());
 /** Content the sandboxed iframe can show; anything else gets the download card. */
 const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
 /**
@@ -188,9 +201,9 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     blockedIps.set(ip, until);
     return true;
   }
-  async function deny(env: ReaderEnv, ip: string): Promise<Response> {
+  async function deny(env: ReaderEnv, ip: string, path: string): Promise<Response> {
     await count(env, ip);
-    return denied();
+    return deniedFor(path);
   }
   /**
    * Looks up a link by token hash (shell) or link ID (raw). Only live links are cached, for
@@ -249,7 +262,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     // Each deep probe queries Turso and R2, so it counts toward the per-IP limiter like a
     // denial; a blocked IP gets the uniform denial without touching either.
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    if (blocked(ip) || !(await count(c.env, ip))) return denied();
+    if (blocked(ip) || !(await count(c.env, ip))) return deniedFor(c.req.path);
     try {
       await deps.db(c.env).all("SELECT 1 FROM collections LIMIT 1");
       const result = await deps.blob(c.env).probe();
@@ -264,7 +277,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   // checks can probe. Hono answers HEAD from this GET handler with the same headers.
   const rootHeaders = staticHeaders("public, max-age=3600");
   app.get("/", (c) =>
-    c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : denied(),
+    c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : deniedFor(c.req.path),
   );
   app.get(
     "/robots.txt",
@@ -276,7 +289,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const serve = async (c: Context<{ Bindings: ReaderEnv }>) => {
     const env = c.env;
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    if (blocked(ip)) return denied();
+    if (blocked(ip)) return deniedFor(c.req.path);
     const cf = (c.req.raw as Request & { cf?: { country?: string } }).cf;
     const record = (link: Link, revisionId: string, path: string, status: number): void => {
       try {
@@ -305,7 +318,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
           /^\/x\/(shl_[a-z0-9]{26})\.([A-Za-z0-9_-]{22})\/r\/([0-9a-hjkmnp-tv-z]{12})\/(.+)$/i.exec(
             c.req.path,
           );
-        if (!match) return deny(env, ip);
+        if (!match) return deny(env, ip, c.req.path);
         route = {
           kind: "raw",
           linkId: match[1]!,
@@ -315,14 +328,14 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         };
       } else {
         const parsed = parseShareUrl(c.req.path);
-        if (parsed.kind !== "shell") return deny(env, ip);
+        if (parsed.kind !== "shell") return deny(env, ip, c.req.path);
         route = parsed;
       }
     } catch {
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     if (route.kind === "shell" && (!route.token || !isShareToken(route.token)))
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     const db = deps.db(env);
     let link: Link | null;
     try {
@@ -333,16 +346,16 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       );
     } catch (error) {
       logFailure("Turso", error);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
-    if (!link) return deny(env, ip);
+    if (!link) return deny(env, ip, c.req.path);
     if (route.kind === "raw") {
       try {
         if (!equalCap(route.cap!, await rawCap(env.RAW_CAP_KEY, link.id, route.revisionPublicId!)))
-          return deny(env, ip);
+          return deny(env, ip, c.req.path);
       } catch (error) {
         logFailure("capability", error);
-        return deny(env, ip);
+        return deny(env, ip, c.req.path);
       }
     }
     if (
@@ -351,15 +364,15 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       link.deleted_at !== null
     ) {
       record(link, link.revision_id ?? "", route.path ?? "", 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     if (route.kind === "shell" && route.collectionPublicId !== link.public_id) {
       record(link, link.revision_id ?? "", route.path ?? "", 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     if (route.kind === "shell" && link.revision_id && !route.revisionPublicId) {
       record(link, link.revision_id, route.path ?? "", 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     const revision = link.revision_id
       ? link.pinned_public_id && link.pinned_head_path && link.pinned_created_at !== null
@@ -378,18 +391,18 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         )[0];
     if (!revision) {
       record(link, link.revision_id ?? "", route.path ?? "", 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     if (route.revisionPublicId && route.revisionPublicId !== revision.public_id) {
       record(link, revision.id, route.path ?? "", 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     const path = route.kind === "shell" ? (route.path ?? revision.head_path) : route.path!;
     try {
       validatePath(path);
     } catch {
       record(link, revision.id, path, 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     const file = (
       await db.all<File>(
@@ -399,7 +412,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     )[0];
     if (!file) {
       record(link, revision.id, path, 404);
-      return deny(env, ip);
+      return deny(env, ip, c.req.path);
     }
     let status = 200;
     let response: Response;
@@ -484,7 +497,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         source = await blobResponse(env, hash, origin, retain);
       } catch (error) {
         logFailure("R2", error);
-        return deny(env, ip);
+        return deny(env, ip, c.req.path);
       }
       if (!source.ok && markdown && hash !== file.blob_hash) {
         hash = file.blob_hash;
@@ -493,13 +506,13 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
           source = await blobResponse(env, hash, origin, retain);
         } catch (error) {
           logFailure("R2", error);
-          return deny(env, ip);
+          return deny(env, ip, c.req.path);
         }
       }
       if (!source.ok || !source.body) {
         console.error(`R2: HttpError: status ${source.status}`);
         record(link, revision.id, path, 404);
-        return deny(env, ip);
+        return deny(env, ip, c.req.path);
       }
       const headers = new Headers({
         ...standard,
@@ -515,12 +528,12 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   };
   app.get("/s/*", serve);
   app.get("/x/*", serve);
-  app.notFound(() => denied());
+  app.notFound((c) => deniedFor(c.req.path));
   app.onError((error, c) => {
     logFailure("reader", error);
     return c.req.path.startsWith("/s/") || c.req.path.startsWith("/x/")
-      ? deny(c.env, c.req.header("cf-connecting-ip") ?? "unknown")
-      : denied();
+      ? deny(c.env, c.req.header("cf-connecting-ip") ?? "unknown", c.req.path)
+      : deniedFor(c.req.path);
   });
   return app;
 }

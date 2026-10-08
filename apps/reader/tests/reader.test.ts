@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
 import { staticStyleHash } from "../src/csp-hashes.ts";
-import { deniedPage, rootPage, staticCss } from "../src/pages.ts";
+import { deniedPage, frameDeniedPage, rootPage, staticCss } from "../src/pages.ts";
 
 const collection = "0123456789ab";
 const firstPub = "bcdefghjkmnp";
@@ -82,8 +82,10 @@ async function sha256(text: string): Promise<string> {
   );
   return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }
-/** Exact policy for the two static pages (spec §9.2). */
+/** Exact policy for the root and denial pages (spec §9.2). */
 const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+/** The `/x/` denial card's policy: the same, but framable by the shell. */
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
@@ -244,7 +246,7 @@ describe("public reader", () => {
     expect(html).not.toContain("Updated <time");
     expect((await app.request(await rawUrl(secondPub, "index.md"), {}, bindings)).status).toBe(404);
   });
-  it("uses identical denials for every reason", async () => {
+  it("uses identical denials for every reason within each route family", async () => {
     const { app, bindings } = fixture();
     const path = await rawUrl(firstPub, "index.md");
     link.revoked_at = 1;
@@ -273,34 +275,40 @@ describe("public reader", () => {
       bindings,
     );
     const others = await Promise.all(
-      ["/index.html", "/s", "/s/", "//", "/assets/1/x.js", "/x/", "/s/wps_short/c/x/"].map(
-        async (url) => app.request(url, {}, bindings),
+      ["/index.html", "/s", "/s/", "//", "/assets/1/x.js", "/s/wps_short/c/x/"].map(async (url) =>
+        app.request(url, {}, bindings),
       ),
     );
+    const bareRaw = await app.request("/x/", {}, bindings);
     const post = await app.request("/", { method: "POST" }, bindings);
-    const all = [
-      revoked,
-      expired,
-      tombstoned,
-      missing,
-      unknown,
-      wrongCollection,
-      missingShellPath,
-      post,
-      ...others,
+    // The raw route (`/x/`) gets the framable card; everything else the full page.
+    const families = [
+      {
+        page: frameDeniedPage,
+        policy: framePolicy,
+        all: [revoked, expired, tombstoned, missing, bareRaw],
+      },
+      {
+        page: deniedPage,
+        policy: staticPolicy,
+        all: [unknown, wrongCollection, missingShellPath, post, ...others],
+      },
     ];
-    const bodies = await Promise.all(all.map(async (response) => response.text()));
-    expect(bodies).toEqual(all.map(() => deniedPage));
-    for (const response of all) {
-      expect(response.status).toBe(404);
-      expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-      expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(response.headers.get("content-security-policy")).toBe(staticPolicy);
-      expect([...response.headers]).toEqual([...revoked.headers]);
+    for (const { page, policy, all } of families) {
+      const bodies = await Promise.all(all.map(async (response) => response.text()));
+      expect(bodies).toEqual(all.map(() => page));
+      for (const response of all) {
+        expect(response.status).toBe(404);
+        expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+        expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(response.headers.get("content-security-policy")).toBe(policy);
+        expect(response.headers.get("x-frame-options")).toBeNull();
+        expect([...response.headers]).toEqual([...all[0]!.headers]);
+      }
+      expect([...all[0]!.headers.keys()].toSorted()).toEqual(staticHeaderNames);
     }
-    expect([...revoked.headers.keys()].toSorted()).toEqual(staticHeaderNames);
   });
   it("serves the bare root only at /, as a 200 with no data", async () => {
     const { app, bindings } = fixture();
@@ -323,10 +331,10 @@ describe("public reader", () => {
     expect(limiter).not.toHaveBeenCalled();
     expect(rootPage).toContain("<title>Waypoint</title>");
     expect(rootPage).toContain("<h1>This address is for shared Waypoint documents</h1>");
-    expect(deniedPage).toContain("<title>Not available</title>");
+    expect(deniedPage).toContain("<title>Link not available · Waypoint</title>");
     expect(deniedPage).toContain("<h1>This link isn't available</h1>");
     // No data, links, inputs, scripts or style attributes; one <style> covered by one hash.
-    for (const page of [rootPage, deniedPage]) {
+    for (const page of [rootPage, deniedPage, frameDeniedPage]) {
       expect(page).not.toMatch(/<(?:a|input|form|button|script|select|textarea|link|img)\b/i);
       expect(page).not.toMatch(/\sstyle=|\son[a-z]+=/i);
       expect(page.match(/<style>/g)).toHaveLength(1);

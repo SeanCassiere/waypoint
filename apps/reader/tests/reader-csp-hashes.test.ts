@@ -5,7 +5,7 @@ import { publicShellCss, publicShellScript } from "@waypoint/ui";
 import { expect, it } from "vitest";
 
 import * as hashes from "../src/csp-hashes.ts";
-import { staticCss } from "../src/pages.ts";
+import { deniedPage, frameDeniedPage, rootPage, staticCss } from "../src/pages.ts";
 
 const sha256 = (text: string): string =>
   `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
@@ -31,4 +31,8 @@ ${Object.entries(expected)
     writeFileSync(file, source);
   expect({ ...hashes }).toEqual(expected);
   expect(staticCss).toMatchSnapshot();
+});
+// The exact bytes of the three static pages that embed staticCss (root, denial, `/x/` card).
+it("pins the static pages' bytes", () => {
+  expect({ rootPage, deniedPage, frameDeniedPage }).toMatchSnapshot();
 });
