@@ -2,10 +2,10 @@
 import { isTextMime, type ManifestFileEntry, type RevisionChanges } from "@waypoint/core";
 import type { Child } from "hono/jsx";
 
-import type { Health } from "../health.js";
-import { shellPath } from "../viewer-paths.js";
-import { changesTitle, plural } from "./format.js";
-import { formatTime, fullDate, type TimeFormat } from "./timefmt.js";
+import type { Health } from "../health.ts";
+import { shellPath } from "../viewer-paths.ts";
+import { changesTitle, plural } from "./format.ts";
+import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
 
 export function LogoMark(props: { size?: number }) {
   const size = props.size ?? 22;

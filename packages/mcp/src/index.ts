@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 
 import manifest from "../package.json" with { type: "json" };
-import { ApiError, WaypointClient } from "./client.js";
+import { ApiError, WaypointClient } from "./client.ts";
 
 const id = z.string().describe("Waypoint ID, such as col_… or rev_…");
 const file = z

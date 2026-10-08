@@ -1,4 +1,4 @@
-import { $, $$, storage } from "./dom.js";
+import { $, $$, storage } from "./dom.ts";
 
 function typing(target: EventTarget | null): boolean {
   return (

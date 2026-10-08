@@ -1,4 +1,4 @@
-import { formatTime, fullDate, type TimeFormat } from "../viewer/timefmt.js";
+import { formatTime, fullDate, type TimeFormat } from "../viewer/timefmt.ts";
 
 const formats: readonly TimeFormat[] = ["clock", "ago", "full", "day", "date", "until"];
 const isFormat = (value: string): value is TimeFormat => formats.some((format) => format === value);

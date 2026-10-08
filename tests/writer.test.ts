@@ -5,21 +5,21 @@ import { Readable } from "node:stream";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases } from "../apps/writer/src/db.js";
-import type { Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases } from "../apps/writer/src/db.ts";
+import type { Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   migrate,
   waypointMigrations,
   queueMigrations,
   guardEnvironment,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { writerRenderer } from "../apps/writer/src/renderer.js";
-import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { writerRenderer } from "../apps/writer/src/renderer.ts";
+import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.ts";
 function noop(): void {}
 let dir: string;
 let close: () => Promise<void>;
@@ -433,7 +433,7 @@ describe("ingest and read model", () => {
     const beforeInt = process.listenerCount("SIGINT");
     const beforeTerm = process.listenerCount("SIGTERM");
     vi.resetModules();
-    await import("../apps/writer/src/http.js");
+    await import("../apps/writer/src/http.ts");
     expect(process.listenerCount("SIGINT")).toBe(beforeInt);
     expect(process.listenerCount("SIGTERM")).toBe(beforeTerm);
   });

@@ -28,7 +28,7 @@ import {
 } from "@waypoint/core";
 import { z } from "zod";
 
-import { prepareFiles, type FileInput, type PreparedFile, type SourceDir } from "./files.js";
+import { prepareFiles, type FileInput, type PreparedFile, type SourceDir } from "./files.ts";
 
 export class ApiError extends Error {
   constructor(

@@ -9,7 +9,7 @@ import {
   parseShareUrl,
   shareRawUrl,
   shareShellUrl,
-} from "../src/index.js";
+} from "../src/index.ts";
 
 describe("deterministic share tokens", () => {
   // Bytes 0..31; the token below was computed with Python's hmac module.

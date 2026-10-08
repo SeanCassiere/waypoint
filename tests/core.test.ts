@@ -3,7 +3,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { brand } from "../packages/core/src/brand.js";
+import { brand } from "../packages/core/src/brand.ts";
 import {
   buildManifest,
   type CollectionId,
@@ -39,7 +39,7 @@ import {
   validateClientId,
   validatePath,
   WaypointError,
-} from "../packages/core/src/index.js";
+} from "../packages/core/src/index.ts";
 
 const hash = brand<ContentHash>(`sha256:${"a".repeat(64)}`);
 const entry: ManifestEntry = { hash, mime: "text/html", size: 5 };

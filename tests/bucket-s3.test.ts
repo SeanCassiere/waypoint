@@ -4,8 +4,8 @@ import { Readable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { R2Bucket, bucketError } from "../apps/writer/src/bucket.js";
-import type { Config } from "../apps/writer/src/config.js";
+import { R2Bucket, bucketError } from "../apps/writer/src/bucket.ts";
+import type { Config } from "../apps/writer/src/config.ts";
 
 let server: Server,
   bucket: R2Bucket,

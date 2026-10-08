@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { parseMultipart } from "../apps/writer/src/multipart.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { parseMultipart } from "../apps/writer/src/multipart.ts";
 function encode(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }

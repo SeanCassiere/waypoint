@@ -1,25 +1,25 @@
 import { serve } from "@hono/node-server";
 
-import { BlobStore } from "./blob-store.js";
-import { R2Bucket } from "./bucket.js";
-import { WriterCommitter } from "./committer.js";
-import { loadConfig } from "./config.js";
-import { ownDataDirectory } from "./data-dir.js";
-import { openDatabases } from "./db.js";
-import { createApp } from "./http.js";
-import { IngestService } from "./ingest.js";
-import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.js";
-import { ReadModel } from "./read-model.js";
-import { writerRenderer } from "./renderer.js";
+import { BlobStore } from "./blob-store.ts";
+import { R2Bucket } from "./bucket.ts";
+import { WriterCommitter } from "./committer.ts";
+import { loadConfig } from "./config.ts";
+import { ownDataDirectory } from "./data-dir.ts";
+import { openDatabases } from "./db.ts";
+import { createApp } from "./http.ts";
+import { IngestService } from "./ingest.ts";
+import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.ts";
+import { ReadModel } from "./read-model.ts";
+import { writerRenderer } from "./renderer.ts";
 import {
   formatRerenderSummary,
   parseRerenderArgs,
   RERENDER_USAGE,
   rerender,
   type RerenderOptions,
-} from "./rerender.js";
-import { restore } from "./restore.js";
-import { SyncLoop } from "./sync-loop.js";
+} from "./rerender.ts";
+import { restore } from "./restore.ts";
+import { SyncLoop } from "./sync-loop.ts";
 
 const command = process.argv[2] ?? "serve";
 const restoreMode = process.argv[3];

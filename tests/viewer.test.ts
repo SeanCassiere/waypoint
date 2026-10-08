@@ -4,24 +4,24 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { MemoryBucket } from "../apps/writer/src/bucket.js";
-import { WriterCommitter } from "../apps/writer/src/committer.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { getHealth } from "../apps/writer/src/health.js";
-import { createApp, type HttpServices } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { MemoryBucket } from "../apps/writer/src/bucket.ts";
+import { WriterCommitter } from "../apps/writer/src/committer.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { getHealth } from "../apps/writer/src/health.ts";
+import { createApp, type HttpServices } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
-import { pathFromRaw, rawPath, shellPath } from "../apps/writer/src/viewer-paths.js";
-import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
+import { pathFromRaw, rawPath, shellPath } from "../apps/writer/src/viewer-paths.ts";
+import { newId, mintRevisionId, publicIdFor } from "../packages/core/src/index.ts";
 
 let dir: string;
 let waypoint: Db;

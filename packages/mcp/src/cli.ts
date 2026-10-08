@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { MCP_LAUNCHER_API } from "@waypoint/core";
 
-import { startServer } from "./index.js";
+import { startServer } from "./index.ts";
 
 export const LAUNCHER_API = MCP_LAUNCHER_API;
 export { startServer };

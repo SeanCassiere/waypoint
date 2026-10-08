@@ -21,10 +21,10 @@ import {
   DEFAULT_LIMITS,
 } from "@waypoint/core";
 
-import type { BlobStore } from "./blob-store.js";
-import { inSeries, type Db, type SyncClient } from "./db.js";
-import { GcBarrier } from "./gc-barrier.js";
-import { ReadModel } from "./read-model.js";
+import type { BlobStore } from "./blob-store.ts";
+import { inSeries, type Db, type SyncClient } from "./db.ts";
+import { GcBarrier } from "./gc-barrier.ts";
+import { ReadModel } from "./read-model.ts";
 export interface Committer {
   /** The collection-commit step must run inside withCollectionLock(collectionId, fn). */
   wake(): void;

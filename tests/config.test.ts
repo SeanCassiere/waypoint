@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { loadConfig } from "../apps/writer/src/config.js";
+import { loadConfig } from "../apps/writer/src/config.ts";
 describe("writer config", () => {
   it("expands home and validates local development mode", () => {
     const config = loadConfig({

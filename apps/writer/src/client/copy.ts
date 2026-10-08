@@ -1,4 +1,4 @@
-import { toast } from "./toast.js";
+import { toast } from "./toast.ts";
 
 function fallback(text: string): boolean {
   const area = document.createElement("textarea");

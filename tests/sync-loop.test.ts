@@ -4,10 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, retrySyncBusy, type Db, type SyncClient } from "../apps/writer/src/db.js";
-import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, retrySyncBusy, type Db, type SyncClient } from "../apps/writer/src/db.ts";
+import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 
 let dir: string;
 let queue: Db;

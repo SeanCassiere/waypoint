@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$ } from "./dom.ts";
 
 export interface ConfirmOptions {
   title: string;

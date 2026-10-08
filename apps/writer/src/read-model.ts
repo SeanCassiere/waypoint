@@ -24,7 +24,7 @@ import {
 } from "@waypoint/core";
 import { z } from "zod";
 
-import type { Db } from "./db.js";
+import type { Db } from "./db.ts";
 function parseManifest(json: string): Manifest {
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== "object" || !("headPath" in parsed) || !("files" in parsed))

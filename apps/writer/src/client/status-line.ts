@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$ } from "./dom.ts";
 
 const words = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
 

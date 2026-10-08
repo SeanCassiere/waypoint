@@ -1,11 +1,11 @@
 /** @jsxImportSource hono/jsx */
 import type { Context } from "hono";
 
-import type { HttpServices } from "../../http.js";
-import { rawPath, shellPath } from "../../viewer-paths.js";
-import { bytes, plural } from "../format.js";
-import { Layout } from "../layout.js";
-import { noStore } from "../respond.js";
+import type { HttpServices } from "../../http.ts";
+import { rawPath, shellPath } from "../../viewer-paths.ts";
+import { bytes, plural } from "../format.ts";
+import { Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
 import {
   CollectionBar,
   CollectionDialogs,
@@ -19,7 +19,7 @@ import {
   ShellRoot,
   TabBar,
   type CollectionContext,
-} from "./collection.js";
+} from "./collection.tsx";
 
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
 

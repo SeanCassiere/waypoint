@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { describe, it, expect } from "vitest";
 
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases } from "../apps/writer/src/db.js";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases } from "../apps/writer/src/db.ts";
 function noop(): void {}
 describe("Db connection isolation", () => {
   it("holds all outside statements until a transaction exits", async () => {

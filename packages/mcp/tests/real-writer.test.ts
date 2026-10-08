@@ -12,21 +12,21 @@ import { newId } from "@waypoint/core";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BlobStore } from "../../../apps/writer/src/blob-store.js";
-import type { Config } from "../../../apps/writer/src/config.js";
-import { openDatabases } from "../../../apps/writer/src/db.js";
-import { createApp } from "../../../apps/writer/src/http.js";
-import { IngestService } from "../../../apps/writer/src/ingest.js";
+import { BlobStore } from "../../../apps/writer/src/blob-store.ts";
+import type { Config } from "../../../apps/writer/src/config.ts";
+import { openDatabases } from "../../../apps/writer/src/db.ts";
+import { createApp } from "../../../apps/writer/src/http.ts";
+import { IngestService } from "../../../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../../../apps/writer/src/migrations.js";
-import { ReadModel } from "../../../apps/writer/src/read-model.js";
-import { writerRenderer } from "../../../apps/writer/src/renderer.js";
-import { WaypointClient } from "../src/client.js";
-import { createServer } from "../src/index.js";
+} from "../../../apps/writer/src/migrations.ts";
+import { ReadModel } from "../../../apps/writer/src/read-model.ts";
+import { writerRenderer } from "../../../apps/writer/src/renderer.ts";
+import { WaypointClient } from "../src/client.ts";
+import { createServer } from "../src/index.ts";
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => {

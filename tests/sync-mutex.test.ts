@@ -8,9 +8,9 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { describe, expect, it } from "vitest";
 
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases } from "../apps/writer/src/db.js";
-import { guardEnvironment, migrate, waypointMigrations } from "../apps/writer/src/migrations.js";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases } from "../apps/writer/src/db.ts";
+import { guardEnvironment, migrate, waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 async function freePort(): Promise<number> {
   const socket = createTcp();

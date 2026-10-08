@@ -2,11 +2,11 @@
 import { renderPublicShell } from "@waypoint/ui";
 import type { Context } from "hono";
 
-import type { RevisionRow } from "../../read-model.js";
-import { shellPath } from "../../viewer-paths.js";
-import { Layout } from "../layout.js";
-import { noStore } from "../respond.js";
-import { HomeBarLite, type CollectionContext } from "./collection.js";
+import type { RevisionRow } from "../../read-model.ts";
+import { shellPath } from "../../viewer-paths.ts";
+import { Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
+import { HomeBarLite, type CollectionContext } from "./collection.tsx";
 
 /**
  * ?as=public: the public reader's shell on the writer (spec §2, §9), so the preview matches

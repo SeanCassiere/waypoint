@@ -8,19 +8,19 @@ import { Readable } from "node:stream";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { mintRevisionId, publicIdFor, type RevisionId } from "../packages/core/src/index.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { mintRevisionId, publicIdFor, type RevisionId } from "../packages/core/src/index.ts";
 
 const REVISIONS = 300;
 const FILES = 300;

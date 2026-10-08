@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$ } from "./dom.ts";
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 /**

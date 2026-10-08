@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { publicShellCss } from "../packages/ui/src/index.js";
+import { publicShellCss } from "../packages/ui/src/index.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 // The writer viewer, its browser client, the shared UI package and the public reader.

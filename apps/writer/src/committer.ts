@@ -4,11 +4,11 @@ import { stat } from "node:fs/promises";
 import { isContentHash, type Manifest, type SyncState } from "@waypoint/core";
 import { z, ZodError } from "zod";
 
-import type { BlobStore } from "./blob-store.js";
-import { Bucket, BucketError } from "./bucket.js";
-import { type Db } from "./db.js";
-import type { Committer, IngestService } from "./ingest.js";
-import { SyncLoop } from "./sync-loop.js";
+import type { BlobStore } from "./blob-store.ts";
+import { Bucket, BucketError } from "./bucket.ts";
+import { type Db } from "./db.ts";
+import type { Committer, IngestService } from "./ingest.ts";
+import { SyncLoop } from "./sync-loop.ts";
 
 type Revision = {
   id: string;

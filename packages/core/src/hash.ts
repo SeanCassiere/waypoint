@@ -1,5 +1,5 @@
-import { brand } from "./brand.js";
-import { WaypointError } from "./errors.js";
+import { brand } from "./brand.ts";
+import { WaypointError } from "./errors.ts";
 
 declare const contentHashBrand: unique symbol;
 export type ContentHash = string & { readonly [contentHashBrand]: true };

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, it, expect } from "vitest";
 
-import { LOCK_FILE, OWNER_FILE, ownDataDirectory } from "../apps/writer/src/data-dir.js";
+import { LOCK_FILE, OWNER_FILE, ownDataDirectory } from "../apps/writer/src/data-dir.ts";
 
 const dataDirModule = fileURLToPath(new URL("../apps/writer/src/data-dir.ts", import.meta.url));
 // The child takes the lock, reports, and holds it until stdin closes or the test kills it.

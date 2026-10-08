@@ -8,8 +8,8 @@ import { Worker } from "node:worker_threads";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { markdownRenderer, renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "../src/index.js";
-import { FRAME_REPORTER, processor, TOC_MIN_H2 } from "../src/render.js";
+import { markdownRenderer, renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "../src/index.ts";
+import { FRAME_REPORTER, processor, TOC_MIN_H2 } from "../src/render.ts";
 
 function h2s(count: number): string {
   return Array.from({ length: count }, (_, index) => `## Part *${index + 1}*\n\ntext`).join("\n\n");

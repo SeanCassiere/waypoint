@@ -1,6 +1,6 @@
 import { parentPort } from "node:worker_threads";
 
-import { renderMarkdown } from "./render.js";
+import { renderMarkdown } from "./render.ts";
 
 if (!parentPort) throw new Error("Renderer worker requires a parent port");
 const port = parentPort;

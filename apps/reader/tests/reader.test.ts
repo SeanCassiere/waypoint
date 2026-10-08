@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { hashShareToken, newShareToken, shareShellUrl } from "../../../packages/core/src/index.js";
-import { publicShellCss, publicShellScript } from "../../../packages/ui/src/index.js";
-import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.js";
-import { deniedPage, rootPage, staticCss } from "../src/pages.js";
+import { hashShareToken, newShareToken, shareShellUrl } from "../../../packages/core/src/index.ts";
+import { publicShellCss, publicShellScript } from "../../../packages/ui/src/index.ts";
+import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
+import { deniedPage, rootPage, staticCss } from "../src/pages.ts";
 
 const collection = "0123456789ab";
 const firstPub = "bcdefghjkmnp";

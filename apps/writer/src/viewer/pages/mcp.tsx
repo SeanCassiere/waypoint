@@ -2,11 +2,11 @@
 import { MCP_LAUNCHER_API, withBase } from "@waypoint/core";
 import type { Context } from "hono";
 
-import type { HttpServices } from "../../http.js";
-import { getChrome } from "../chrome.js";
-import { Time } from "../components.js";
-import { HomeBar, Layout } from "../layout.js";
-import { noStore } from "../respond.js";
+import type { HttpServices } from "../../http.ts";
+import { getChrome } from "../chrome.ts";
+import { Time } from "../components.tsx";
+import { HomeBar, Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
 
 export interface McpCommands {
   claude: string;

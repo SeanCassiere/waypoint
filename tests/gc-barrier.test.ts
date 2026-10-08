@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { GcBarrier } from "../apps/writer/src/gc-barrier.js";
+import { GcBarrier } from "../apps/writer/src/gc-barrier.ts";
 
 const noop = (): void => undefined;
 function gate(): { promise: Promise<void>; open: () => void } {

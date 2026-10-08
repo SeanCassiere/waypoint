@@ -5,23 +5,23 @@ import { Readable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.ts";
 import {
   blobKey,
   RENDITIONS_PER_PASS,
   SimulatedCrash,
   WriterCommitter,
-} from "../apps/writer/src/committer.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db, type SyncClient } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService, type Renderer } from "../apps/writer/src/ingest.js";
-import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { writerRenderer } from "../apps/writer/src/renderer.js";
-import { formatRerenderSummary, parseRerenderArgs, rerender } from "../apps/writer/src/rerender.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
+} from "../apps/writer/src/committer.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db, type SyncClient } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService, type Renderer } from "../apps/writer/src/ingest.ts";
+import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { writerRenderer } from "../apps/writer/src/renderer.ts";
+import { formatRerenderSummary, parseRerenderArgs, rerender } from "../apps/writer/src/rerender.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 
 class FakeRenderer implements Renderer {
   readonly rendererName = "markdown";

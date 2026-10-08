@@ -1,5 +1,5 @@
-import { $, shellRoot, storage } from "./dom.js";
-import { setPanel, showTab, togglePanel, panelOpen, wide } from "./panel.js";
+import { $, shellRoot, storage } from "./dom.ts";
+import { setPanel, showTab, togglePanel, panelOpen, wide } from "./panel.ts";
 
 export type Command =
   | "copy-latest"

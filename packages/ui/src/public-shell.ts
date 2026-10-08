@@ -1,5 +1,5 @@
-import { escapeHtml } from "./html.js";
-import { tokensCss } from "./tokens.js";
+import { escapeHtml } from "./html.ts";
+import { tokensCss } from "./tokens.ts";
 
 /**
  * The Folio public shell (spec §9): a quiet letterhead, the file tabs or a "Files (N)" tree,

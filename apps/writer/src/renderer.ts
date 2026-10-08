@@ -1,6 +1,6 @@
 import { markdownRenderer, RENDERER_NAME, RENDERER_VERSION } from "@waypoint/render";
 
-import type { Renderer } from "./ingest.js";
+import type { Renderer } from "./ingest.ts";
 export const writerRenderer: Renderer = {
   rendererName: RENDERER_NAME,
   rendererVersion: RENDERER_VERSION,

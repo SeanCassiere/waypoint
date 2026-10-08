@@ -3,9 +3,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { expect, it } from "vitest";
 
-import * as hashes from "../apps/reader/src/csp-hashes.js";
-import { staticCss } from "../apps/reader/src/pages.js";
-import { publicShellCss, publicShellScript } from "../packages/ui/src/index.js";
+import * as hashes from "../apps/reader/src/csp-hashes.ts";
+import { staticCss } from "../apps/reader/src/pages.ts";
+import { publicShellCss, publicShellScript } from "../packages/ui/src/index.ts";
 
 const sha256 = (text: string): string =>
   `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;

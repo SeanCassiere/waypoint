@@ -9,11 +9,11 @@ import {
   LOOKUP_TTL_MS,
   type ReaderDb,
   type ReaderEnv,
-} from "../apps/reader/src/app.js";
-import { deniedPage } from "../apps/reader/src/pages.js";
-import { waypointMigrations } from "../apps/writer/src/migrations.js";
-import { hashShareToken, newShareToken } from "../packages/core/src/index.js";
-import { encodePathSegments, renderPublicShell } from "../packages/ui/src/index.js";
+} from "../apps/reader/src/app.ts";
+import { deniedPage } from "../apps/reader/src/pages.ts";
+import { waypointMigrations } from "../apps/writer/src/migrations.ts";
+import { hashShareToken, newShareToken } from "../packages/core/src/index.ts";
+import { encodePathSegments, renderPublicShell } from "../packages/ui/src/index.ts";
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",

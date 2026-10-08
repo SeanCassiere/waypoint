@@ -1,4 +1,4 @@
-import { $, $$, storage } from "./dom.js";
+import { $, $$, storage } from "./dom.ts";
 
 // The panel docks at ≥ 1100px (spec §3.3) and is an overlay sheet below that.
 const WIDE = "(min-width: 1100px)";

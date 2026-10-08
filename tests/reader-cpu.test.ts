@@ -3,8 +3,8 @@
 // suite isn't competing for the CPU while they measure.
 import { describe, expect, it } from "vitest";
 
-import { createReaderApp, type ReaderEnv } from "../apps/reader/src/app.js";
-import { newShareToken } from "../packages/core/src/index.js";
+import { createReaderApp, type ReaderEnv } from "../apps/reader/src/app.ts";
+import { newShareToken } from "../packages/core/src/index.ts";
 
 // Workers' Free-plan limit is 10 ms per request. Locally we hold a 5 ms margin; shared CI
 // runners are slower and noisier, so CI allows 8 ms, which still leaves headroom under 10 ms.

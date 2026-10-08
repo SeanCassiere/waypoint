@@ -1,10 +1,10 @@
 import { displayNumbers, parseId } from "@waypoint/core";
 
-import { LocalSyncClient } from "./db.js";
-import type { HttpServices } from "./http.js";
-import { sourceHost } from "./read-model.js";
-import { cloudLastOkAt } from "./status-data.js";
-import { plural } from "./viewer/format.js";
+import { LocalSyncClient } from "./db.ts";
+import type { HttpServices } from "./http.ts";
+import { sourceHost } from "./read-model.ts";
+import { cloudLastOkAt } from "./status-data.ts";
+import { plural } from "./viewer/format.ts";
 
 /** Writer health for the pill, the popover, Needs attention and Status (spec §4.2). */
 export type HealthState = "blocked" | "failed" | "offline" | "off" | "uploading" | "synced";

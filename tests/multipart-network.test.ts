@@ -9,18 +9,18 @@ import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
 
 const boundary = "waypoint-abort-test";
 const partial = `--${boundary}\r\nContent-Disposition: form-data; name="meta"\r\n\r\n{"title":"Incomplete"}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file:plan.md"; filename="plan.md"\r\nContent-Type: text/markdown\r\n\r\n`;

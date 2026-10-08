@@ -1,9 +1,9 @@
 /** @jsxImportSource hono/jsx */
 import type { Child } from "hono/jsx";
 
-import type { Health } from "../health.js";
-import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.js";
-import { HealthPill, HealthPopover, LogoMark } from "./components.js";
+import type { Health } from "../health.ts";
+import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.ts";
+import { HealthPill, HealthPopover, LogoMark } from "./components.tsx";
 
 /** Per-request data every page needs for its chrome (bar, health pill and popover). */
 export interface Chrome {

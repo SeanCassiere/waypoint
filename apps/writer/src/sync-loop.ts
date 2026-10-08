@@ -1,4 +1,4 @@
-import type { Db, SyncClient } from "./db.js";
+import type { Db, SyncClient } from "./db.ts";
 
 function constraint(error: unknown): boolean {
   return error instanceof Error && /UNIQUE|CONSTRAINT|BATCH_STEP_ERROR/i.test(error.message);

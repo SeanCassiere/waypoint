@@ -23,10 +23,10 @@ import { Hono } from "hono";
 import { Context } from "hono";
 import { z } from "zod";
 
-import { BlobStore } from "./blob-store.js";
-import type { Bucket } from "./bucket.js";
-import { BucketError } from "./bucket.js";
-import { blobKey, type WriterCommitter } from "./committer.js";
+import { BlobStore } from "./blob-store.ts";
+import type { Bucket } from "./bucket.ts";
+import { BucketError } from "./bucket.ts";
+import { blobKey, type WriterCommitter } from "./committer.ts";
 import {
   compareManifests,
   DiffCache,
@@ -34,12 +34,12 @@ import {
   MAX_SIDE_BYTES,
   type CompareFile,
   type FileDiff,
-} from "./compare.js";
-import { compression } from "./compression.js";
-import { inSeries, type Db, type DbHandle } from "./db.js";
-import { IngestService } from "./ingest.js";
-import { parseMultipart } from "./multipart.js";
-import { ReadModel } from "./read-model.js";
+} from "./compare.ts";
+import { compression } from "./compression.ts";
+import { inSeries, type Db, type DbHandle } from "./db.ts";
+import { IngestService } from "./ingest.ts";
+import { parseMultipart } from "./multipart.ts";
+import { ReadModel } from "./read-model.ts";
 import {
   allLinks,
   API_LINKS_DEFAULT,
@@ -56,12 +56,12 @@ import {
   shareViews,
   withoutCollection,
   type ShareRow,
-} from "./shares.js";
-import { getStatus } from "./status-data.js";
-import type { SyncLoop } from "./sync-loop.js";
-import { viewerApp } from "./viewer/index.js";
-import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.js";
-import { mcpPage } from "./viewer/pages/mcp.js";
+} from "./shares.ts";
+import { getStatus } from "./status-data.ts";
+import type { SyncLoop } from "./sync-loop.ts";
+import { viewerApp } from "./viewer/index.tsx";
+import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.tsx";
+import { mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;

@@ -9,23 +9,23 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { MemoryBucket } from "../apps/writer/src/bucket.js";
-import { WriterCommitter } from "../apps/writer/src/committer.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { MemoryBucket } from "../apps/writer/src/bucket.ts";
+import { WriterCommitter } from "../apps/writer/src/committer.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { writerRenderer } from "../apps/writer/src/renderer.js";
-import { restore } from "../apps/writer/src/restore.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { writerRenderer } from "../apps/writer/src/renderer.ts";
+import { restore } from "../apps/writer/src/restore.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 
 async function port(): Promise<number> {
   const socket = createServer();

@@ -1,4 +1,4 @@
-import { WaypointError } from "./errors.js";
+import { WaypointError } from "./errors.ts";
 
 const types = new Map<string, string>(
   Object.entries({

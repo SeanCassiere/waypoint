@@ -1,12 +1,12 @@
-import { shellPath } from "../viewer-paths.js";
-import { plural } from "../viewer/format.js";
-import { api, field } from "./api.js";
-import { copyText, showCopied } from "./copy.js";
-import { bindForm, confirmDialog } from "./dialogs.js";
-import { $, $$, el, run, shellRoot } from "./dom.js";
-import { readMark } from "./lastread.js";
-import { setPanel, showTab, togglePanel } from "./panel.js";
-import { toast } from "./toast.js";
+import { shellPath } from "../viewer-paths.ts";
+import { plural } from "../viewer/format.ts";
+import { api, field } from "./api.ts";
+import { copyText, showCopied } from "./copy.ts";
+import { bindForm, confirmDialog } from "./dialogs.ts";
+import { $, $$, el, run, shellRoot } from "./dom.ts";
+import { readMark } from "./lastread.ts";
+import { setPanel, showTab, togglePanel } from "./panel.ts";
+import { toast } from "./toast.ts";
 
 type Action = (element: HTMLElement) => Promise<void> | void;
 const actions = new Map<string, Action>();

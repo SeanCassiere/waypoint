@@ -5,13 +5,13 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { MemoryBucket, R2Bucket } from "../apps/writer/src/bucket.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases } from "../apps/writer/src/db.js";
-import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.js";
-import { restore } from "../apps/writer/src/restore.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
-import { mintRevisionId, newId, parseId, publicIdFor } from "../packages/core/src/index.js";
+import { MemoryBucket, R2Bucket } from "../apps/writer/src/bucket.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases } from "../apps/writer/src/db.ts";
+import { migrate, queueMigrations, waypointMigrations } from "../apps/writer/src/migrations.ts";
+import { restore } from "../apps/writer/src/restore.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
+import { mintRevisionId, newId, parseId, publicIdFor } from "../packages/core/src/index.ts";
 
 const bytes = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(value));
 const sourceHash = `sha256:${"a".repeat(64)}`;

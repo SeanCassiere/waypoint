@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $ } from "./dom.ts";
 
 /**
  * Changes page: folded runs of unchanged blocks aren't on the page. Opening one fetches its

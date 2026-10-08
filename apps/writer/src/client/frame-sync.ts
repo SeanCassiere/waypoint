@@ -1,8 +1,8 @@
 import { frameLocationHref } from "@waypoint/ui";
 
-import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.js";
-import { $, $$, el, shellRoot } from "./dom.js";
-import { refreshStatusLine } from "./status-line.js";
+import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.ts";
+import { $, $$, el, shellRoot } from "./dom.ts";
+import { refreshStatusLine } from "./status-line.ts";
 
 /** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
 const SHELL_PARAMS = ["panel", "history"];

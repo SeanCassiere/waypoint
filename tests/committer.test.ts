@@ -5,23 +5,23 @@ import { Readable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
-import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { BucketError, MemoryBucket } from "../apps/writer/src/bucket.ts";
 import {
   WriterCommitter,
   blobKey,
   collectionKey,
   manifestKey,
-} from "../apps/writer/src/committer.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
-import { migrate, waypointMigrations, queueMigrations } from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { restore } from "../apps/writer/src/restore.js";
-import { SyncLoop } from "../apps/writer/src/sync-loop.js";
-import { newId, mintRevisionId, publicIdFor, parseId } from "../packages/core/src/index.js";
+} from "../apps/writer/src/committer.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
+import { migrate, waypointMigrations, queueMigrations } from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { restore } from "../apps/writer/src/restore.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
+import { newId, mintRevisionId, publicIdFor, parseId } from "../packages/core/src/index.ts";
 
 let dir: string;
 let waypoint: Db;

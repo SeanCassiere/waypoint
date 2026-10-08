@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
 import {
   DiffCache,
   diffBlocks,
@@ -19,19 +19,19 @@ import {
   splitBlocks,
   type CompareFile,
   type FileDiff,
-} from "../apps/writer/src/compare.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+} from "../apps/writer/src/compare.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { renderFragments } from "../packages/render/src/fragment.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { renderFragments } from "../packages/render/src/fragment.ts";
 
 /** Deterministic pseudo-random words, so failures reproduce. */
 function words(seed: number) {

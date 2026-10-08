@@ -1,8 +1,8 @@
-import { WaypointError } from "./errors.js";
-import type { ContentHash } from "./hash.js";
-import { isContentHash } from "./hash.js";
-import { normalizeMime } from "./mime.js";
-import { findCaseConflicts, findFileDirectoryConflicts, validatePath } from "./paths.js";
+import { WaypointError } from "./errors.ts";
+import type { ContentHash } from "./hash.ts";
+import { isContentHash } from "./hash.ts";
+import { normalizeMime } from "./mime.ts";
+import { findCaseConflicts, findFileDirectoryConflicts, validatePath } from "./paths.ts";
 
 export interface ManifestEntry {
   hash: ContentHash;

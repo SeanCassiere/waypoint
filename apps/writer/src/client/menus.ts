@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$ } from "./dom.ts";
 
 // Menus are native popover="auto" elements (popovertarget, light dismiss, Esc, top layer)
 // placed with CSS anchor positioning. Script adds what the platform can't do:

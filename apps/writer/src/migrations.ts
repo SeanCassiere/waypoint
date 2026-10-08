@@ -1,4 +1,4 @@
-import { inSeries, type Db, type SyncClient } from "./db.js";
+import { inSeries, type Db, type SyncClient } from "./db.ts";
 export const waypointMigrations = [
   {
     id: "0001_init",

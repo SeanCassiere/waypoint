@@ -2,9 +2,9 @@ import { Worker } from "node:worker_threads";
 
 import { isMarkdown } from "@waypoint/core";
 
-import { fallbackDocument, RENDERER_NAME, RENDERER_VERSION } from "./render.js";
+import { fallbackDocument, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
 
-export { renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "./render.js";
+export { renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
 
 type Result = { bytes: Uint8Array; mime: "text/html" };
 type Renderer = {
@@ -98,4 +98,4 @@ export {
   renderFragment,
   renderFragments,
   SENTINELS,
-} from "./fragment.js";
+} from "./fragment.ts";

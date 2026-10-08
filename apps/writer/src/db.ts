@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { connect as connectLocal } from "@tursodatabase/database";
 import { connect as connectSync } from "@tursodatabase/sync";
 
-import type { Config } from "./config.js";
+import type { Config } from "./config.ts";
 
 export type Params = readonly (string | number | null)[];
 export interface RunResult {

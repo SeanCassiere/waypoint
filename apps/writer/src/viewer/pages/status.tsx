@@ -3,16 +3,16 @@ import { MCP_LAUNCHER_API } from "@waypoint/core";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 
-import type { CompareFile, FileDiff } from "../../compare.js";
-import type { HealthItem } from "../../health.js";
-import type { HttpServices } from "../../http.js";
-import { getStatus } from "../../status-data.js";
-import { getChrome } from "../chrome.js";
-import { revisionHref, Time } from "../components.js";
-import { plural, shortId } from "../format.js";
-import { HomeBar, Layout } from "../layout.js";
-import { noStore } from "../respond.js";
-import { formatTime } from "../timefmt.js";
+import type { CompareFile, FileDiff } from "../../compare.ts";
+import type { HealthItem } from "../../health.ts";
+import type { HttpServices } from "../../http.ts";
+import { getStatus } from "../../status-data.ts";
+import { getChrome } from "../chrome.ts";
+import { revisionHref, Time } from "../components.tsx";
+import { plural, shortId } from "../format.ts";
+import { HomeBar, Layout } from "../layout.tsx";
+import { noStore } from "../respond.ts";
+import { formatTime } from "../timefmt.ts";
 
 export interface ViewerExtras {
   /** Short hash of the MCP server bundle the writer serves, if built. */

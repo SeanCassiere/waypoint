@@ -11,7 +11,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
-import type { Config } from "./config.js";
+import type { Config } from "./config.ts";
 
 export interface Bucket {
   putIfAbsent(

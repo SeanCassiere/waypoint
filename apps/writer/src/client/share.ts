@@ -1,12 +1,12 @@
-import { plural } from "../viewer/format.js";
-import { fullDate } from "../viewer/timefmt.js";
-import { registerAction } from "./actions.js";
-import { api, field } from "./api.js";
-import { copyText, showCopied } from "./copy.js";
-import { confirmDialog } from "./dialogs.js";
-import { $, $$, el, run, shellRoot } from "./dom.js";
-import { onCommand } from "./keys.js";
-import { toast } from "./toast.js";
+import { plural } from "../viewer/format.ts";
+import { fullDate } from "../viewer/timefmt.ts";
+import { registerAction } from "./actions.ts";
+import { api, field } from "./api.ts";
+import { copyText, showCopied } from "./copy.ts";
+import { confirmDialog } from "./dialogs.ts";
+import { $, $$, el, run, shellRoot } from "./dom.ts";
+import { onCommand } from "./keys.ts";
+import { toast } from "./toast.ts";
 
 const DAY = 86_400_000;
 /** Keep in step with STOPS_SOON and NOT_PUSHED in viewer/pages/share.tsx. */

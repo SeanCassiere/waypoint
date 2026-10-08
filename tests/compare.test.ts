@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BlobStore } from "../apps/writer/src/blob-store.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
 import {
   compareManifests,
   diffBlocks,
@@ -12,19 +12,19 @@ import {
   diffTextLines,
   splitBlocks,
   toHunks,
-} from "../apps/writer/src/compare.js";
-import type { Config } from "../apps/writer/src/config.js";
-import { openDatabases, type Db } from "../apps/writer/src/db.js";
-import { createApp } from "../apps/writer/src/http.js";
-import { IngestService } from "../apps/writer/src/ingest.js";
+} from "../apps/writer/src/compare.ts";
+import type { Config } from "../apps/writer/src/config.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/src/migrations.js";
-import { ReadModel } from "../apps/writer/src/read-model.js";
-import { markWords, renderFragment } from "../packages/render/src/fragment.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { markWords, renderFragment } from "../packages/render/src/fragment.ts";
 
 type FixtureManifest = Parameters<typeof compareManifests>[1];
 type FixtureEntry = FixtureManifest["files"][string];
