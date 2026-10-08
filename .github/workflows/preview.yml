@@ -67,9 +67,9 @@ jobs:
         with:
           node-version-file: .node-version
       - run: pnpm install --frozen-lockfile --filter @waypoint/reader... --store-dir /tmp/pnpm-store-waypoint
-      - run: pnpm --filter @waypoint/reader build
-      # The reader build checks from CI's build-reader job, run before anything is uploaded.
-      - run: pnpm --filter @waypoint/reader dry-run
+      # The reader build (Wrangler's dry-run bundle) and the workspace packages it bundles (`...`),
+      # as in CI's build-reader job, before anything is uploaded.
+      - run: pnpm --filter "@waypoint/reader..." build
       - run: bash deploy/preview-reader-check.sh
       - id: preview
         run: bash deploy/preview-reader.sh "$PR" up
