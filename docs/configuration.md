@@ -14,7 +14,8 @@ Values are plain environment variables (the writer, the MCP server) or Worker bi
 | `WAYPOINT_SYNC` | no | `on` | `on` or `off`. `off` is [local-only mode](#local-only-mode), in dev or prod. |
 | `WAYPOINT_DATA_DIR` | no | `~/.local/share/waypoint/<WAYPOINT_ENV>` | Local DB, queue, blob cache and the data-directory lock. `~` and `~/` expand to the home directory. The Docker image expects a bind mount. |
 | `WAYPOINT_BASE_URL` | with sync on | `http://127.0.0.1:<port>` when sync is off | The writer's own URL, as agents and browsers reach it (for example the tailnet HTTPS name). Used in returned URLs, MCP snippets and the viewer's CSRF origin checks. An HTTP(S) URL without credentials, query or fragment. |
-| `WAYPOINT_PORT` | no | `7410` | Port to listen on. The writer always binds `127.0.0.1`; expose it through a proxy or sidecar. |
+| `WAYPOINT_PORT` | no | `7410` | Port to listen on. Inside the Compose deployment it's fixed at `7410`; pick the host port in `instance.env` instead ([self-hosting](self-hosting.md)). |
+| `WAYPOINT_HOST` | no | `127.0.0.1` | Address to listen on: an IPv4 or IPv6 literal. Keep the default outside containers and expose the writer through a proxy or sidecar. `deploy/compose.yaml` sets `0.0.0.0` inside the container so Docker can publish the port (on the host's `127.0.0.1` by default); the Tailscale overlay sets `127.0.0.1` again, because the sidecar's Serve reaches it on the shared loopback. The writer has no login, so never publish it beyond a network you trust ([trust model](trust-model.md)). |
 | `WAYPOINT_PUBLIC_BASE_URL` | no | unset (sharing off) | The public reader's origin, used to build share-link URLs. Same URL rules as `WAYPOINT_BASE_URL`. |
 | `WAYPOINT_SHARE_TOKEN_KEY` | no (secret) | unset | 32 random bytes, base64url (43 characters); derives every share token (D50). Needed to create links and show their URLs. Never echoed in errors. |
 | `WAYPOINT_QUEUE_GIVE_UP_HOURS` | no | `72` | How long a pending revision keeps retrying before it's marked `failed`. |
@@ -51,7 +52,7 @@ All of these are read only when `WAYPOINT_SYNC` is `on`. The names keep their `R
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `WAYPOINT_BUILD_SHA` | empty | Baked into the image as the `WAYPOINT_BUILD_SHA` env var. `deploy/deploy.sh` passes `git rev-parse HEAD`. |
+| `WAYPOINT_BUILD_SHA` | empty | Baked into the image as the `WAYPOINT_BUILD_SHA` env var. `deploy/upgrade.sh current-checkout` passes `git rev-parse HEAD`; a release deploy checks that the image reports the release's commit. |
 
 The version itself comes from the root `package.json` (`WAYPOINT_VERSION` in `@waypoint/core`, kept equal by a test), so every image and bundle knows it without a build argument.
 
@@ -94,7 +95,7 @@ Set in the agent's MCP config, not on the writer.
 
 ## Public reader (Cloudflare Worker)
 
-Secrets are uploaded with `wrangler secret bulk`; bindings come from `wrangler.jsonc`.
+Secrets are uploaded with `wrangler secret bulk`; bindings come from the Wrangler config `deploy/upgrade.sh` generates for each reader target.
 
 | Name | Kind | Required | Meaning |
 |---|---|---|---|
@@ -107,11 +108,11 @@ Secrets are uploaded with `wrangler secret bulk`; bindings come from `wrangler.j
 | `WAYPOINT_S3_ENDPOINT` | secret or variable | no | S3-compatible endpoint, as for the writer (path-style). |
 | `WAYPOINT_S3_REGION` | secret or variable | no (`auto`) | SigV4 signing region, as for the writer. |
 | `RAW_CAP_KEY` | secret | yes | 32 random bytes, base64url; derives raw-content capabilities (D40). |
-| `WAYPOINT_BUILD_SHA` | variable | no | The commit deployed; `deploy/deploy-reader.sh` sets it with `wrangler deploy --var`. Reported in `X-Waypoint-Sha`. |
+| `WAYPOINT_BUILD_SHA` | variable | no | The commit deployed; `deploy/upgrade.sh` sets it with `wrangler deploy --var`, so a rollback restores the old value. Reported in `X-Waypoint-Sha`. |
 | `TOKEN_MISS_LIMITER` | Rate Limiting binding | no | Counts denials and deep health probes per IP; missing skips rate limiting. |
 | `ACCESS_LOG` | Analytics Engine binding | no | Access log; missing skips logging. |
 
-The Worker reads all of these, but this repo's reader deploy scripts (`deploy/deploy-reader.sh`, via `deploy/reader-env.sh`) still accept only the seven R2-era secrets and require `R2_ACCOUNT_ID`. Until the generic deploy tooling lands, a reader on another S3-compatible store needs `WAYPOINT_S3_ENDPOINT` (and `WAYPOINT_S3_REGION`) set by hand, with `wrangler secret put` or as a `vars` entry in its Wrangler config.
+`deploy/upgrade.sh` uploads the secrets from each reader target's secrets file: every key in the table marked secret, only those that are set. The bindings' names and limits come from `apps/reader/wrangler.jsonc`; the dataset and rate-limit namespace come from the target in `instance.env` ([deploy/README.md](../deploy/README.md#public-reader-workers)).
 
 ## Version reporting
 

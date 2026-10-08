@@ -24,9 +24,10 @@ Current values, for reference: Cloudflare account `2129f9f79b31857b67e19f0a43194
 | `~/.config/waypoint/prod.env` | prod writer container | `WAYPOINT_*` config (including the secret `WAYPOINT_SHARE_TOKEN_KEY`), `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` |
 | `~/.config/waypoint/dev.env` | local dev writer | same keys, dev values |
 | `~/.config/waypoint/ts.env` | Tailscale sidecar | `TS_AUTHKEY` only |
-| `~/.config/waypoint/reader-prod.env` | reader deploy (prod) | `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, `RAW_CAP_KEY` |
+| `~/.config/waypoint/reader-prod.env` | reader deploy (prod) | `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, `RAW_CAP_KEY`; optionally `WAYPOINT_S3_ENDPOINT` (instead of `R2_ACCOUNT_ID`) and `WAYPOINT_S3_REGION` |
 | `~/.config/waypoint/reader-dev.env` | reader deploy (dev) | same keys, dev values |
 | `~/.config/waypoint/cloudflare.env` | reader deploy | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
+| `~/.config/waypoint/instance.env` | `deploy/upgrade.sh` | No secrets: the paths above, the data directory, the Tailscale settings and the reader targets ([deploy/instance.env.example](../deploy/instance.env.example); the owner's values are in [infrastructure.md](infrastructure.md#deployment-p1)) |
 
 Create them with `install -d -m 700 ~/.config/waypoint` and `install -m 600 /dev/null <file>`, then fill them in with an editor. Never echo secrets into shell history.
 
@@ -79,9 +80,10 @@ Prerequisite: the Turso CLI (`brew install tursodatabase/tap/turso`), logged in 
 
 ### 1.4 Writer host (agent-1)
 
-- **Docker:** `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker <user>`. No re-login is needed; the deploy script uses `sg docker`.
+- **Docker:** `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker <user>`. No re-login is needed; `deploy/upgrade.sh` uses `sg docker`.
 - **Data directory:** `install -d -m 700 ~/.local/share/waypoint/prod`, owned by uid/gid 1000.
-- **Self-hosted GitHub Actions runner:** see "Reinstalling the existing runner" in [deploy/README.md](../deploy/README.md). Repo-scoped, label `waypoint-deploy`, running as a systemd **user** unit, with linger enabled.
+- **Self-hosted GitHub Actions runner:** see [Reinstalling the deploy runner](infrastructure.md#reinstalling-the-deploy-runner). Repo-scoped, label `waypoint-deploy`, running as a systemd **user** unit, with linger enabled.
+- **Instance file:** `~/.config/waypoint/instance.env`, written with `deploy/make-instance-env.sh` ([infrastructure.md](infrastructure.md#deployment-p1)). Check it with `bash deploy/upgrade.sh validate`.
 - **Writer config** in `prod.env`: `WAYPOINT_ENV=prod`, `WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net`, `WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com`, `WAYPOINT_PORT=7410`. Dev sharing uses `WAYPOINT_PUBLIC_BASE_URL=https://waypoint-dev.pingstash.com` in `dev.env`. See [infrastructure.md](infrastructure.md#writer-configuration).
 - **Share token key:** sharing also needs `WAYPOINT_SHARE_TOKEN_KEY`, 32 random bytes in base64url (43 characters), from which the writer derives every link's token (D50). Generate it with `openssl rand -base64 32 | tr "+/" "-_" | tr -d "="` and record it in `prod.env`; generate a **separate** one for `dev.env`. Without it, the writer warns once at startup, can't create links or show their URLs, and can still list, extend and revoke existing links. Rotating it doesn't break existing links, but their URLs can no longer be copied from the writer; see [trust-model.md](trust-model.md#share-links).
 
@@ -155,30 +157,9 @@ My Profile → API Tokens → Create Token → **Custom token**, named `waypoint
 
 ### 2.6 Where the reader's secrets go
 
-The seven values in `reader-<env>.env` are uploaded with `wrangler secret bulk` by the deploy pipeline, running on the self-hosted runner with `cloudflare.env`. The temporary JSON file is mode 600 and removed on exit. Values never appear in `wrangler.jsonc`, the repo, or CI logs.
+The values in `reader-<env>.env` are uploaded with `wrangler secret bulk` by `deploy/upgrade.sh`, running on the self-hosted runner with `cloudflare.env`. The temporary JSON file is mode 600 and removed right after the upload. Values never appear in a Wrangler config, the repo, or CI logs.
 
-PR previews also get the `reader-prod.env` values; see 2.7.
-
-### 2.7 PR previews
-
-PR previews are Worker Previews of the prod Worker `waypoint-reader` (decision D49; operations in [deploy/README.md](../deploy/README.md#pr-previews)). They need no new credential, but they depend on four things being in place.
-
-- **Wrangler ≥ 4.135.** Worker Previews are in open beta, and `wrangler preview` first shipped in 4.135. The reader pins 4.147.0.
-- **The `workers.dev` route and previews enabled on `waypoint-reader`.** Its Worker settings must show `{enabled: true, previews_enabled: true}`. The prod deploy sets both from `workers_dev: true` and `preview_urls: true` in `wrangler.jsonc`. They were first enabled on 2026-10-08, by hand through the API, right after confirming the Access app below. The call was `POST /accounts/<account>/workers/scripts/waypoint-reader/subdomain` with `{"enabled":true,"previews_enabled":true}`. The custom domain `waypoint.pingstash.com` keeps `previews_enabled: false`.
-- **The Cloudflare Access app.** Zero Trust → Access → Applications → `fb19dcb4-9f87-47dc-a038-1b41cef93d0f`, "Waypoint reader workers.dev and previews", a self-hosted app with these hostnames:
-  - `waypoint-reader.seancassiere.workers.dev`
-  - `*-waypoint-reader.seancassiere.workers.dev` (every preview, deployment and version URL)
-
-  It has one Allow policy (the owner's email), with login by One-time PIN or Cloudflare. The team domain is `seancassiere.cloudflareaccess.com`.
-  - **Verify with no credentials:** `curl -sI https://waypoint-reader.seancassiere.workers.dev/healthz`, and the same for any `<anything>-waypoint-reader…` hostname. Each must answer `302` to `https://seancassiere.cloudflareaccess.com/cdn-cgi/access/login/<that hostname>`.
-  - **Never** add `waypoint.pingstash.com` to this app or any other Access app, and never widen the policy. If the app changes, disable the Worker's `workers.dev` route and previews first. Do that in `wrangler.jsonc` (`workers_dev: false`, `preview_urls: false` in the prod env) **and** with the API call above (`false` for both), and disable the Preview workflow. A change made only in the dashboard or API is undone by the next prod deploy, which applies `wrangler.jsonc`. Every prod deploy fails and rolls back unless `waypoint-reader.seancassiere.workers.dev` redirects to Access, so while it's disabled, remove that check from `deploy-reader.sh` in the same change.
-  - The deploy token can't read Access apps, by design: it has no Access permissions, and shouldn't get any. Check the app in the dashboard.
-- **Preview secrets and bindings.**
-  - Previews don't inherit production secrets, so the Preview workflow sends the seven `reader-prod.env` values with every preview deployment (`wrangler preview --secrets-file`, from a mode-600 temporary file). Keep the dashboard's Preview base config empty. `--ignore-base-config` only takes effect when a preview is created (Wrangler sends it on the create request, at a PR's first push); later deployments to that preview send their full runtime env, bindings and secrets, so the base config isn't what they run with either way.
-  - Bindings come only from the `previews` block of the prod env in `wrangler.jsonc`: Analytics Engine dataset `waypoint_access_preview` (created on first write, like the others) and rate-limit namespace `1003`.
-  - Rotating a prod reader credential reaches existing previews on their next push. Closing and reopening a PR also re-uploads.
-
-**Cleanup.** Closing a PR deletes its preview. To find and delete leftovers, see [deploy/README.md](../deploy/README.md#pr-previews). Deleting a preview removes all of its deployments and their secrets.
+The reader deploys turn every Worker's `workers.dev` route and Worker Previews off (D55). PR previews (D49) are gone: to finish removing them, delete the Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` ("Waypoint reader workers.dev and previews") and any preview still listed under Workers & Pages → `waypoint-reader` → Previews (`wrangler preview delete --name pr-<n> --skip-confirmation`, with `cloudflare.env` loaded). Until the first deploy through `upgrade.sh`, the prod Worker's `workers.dev` hostname stays on behind that app, so delete the app only after that deploy.
 
 ---
 
