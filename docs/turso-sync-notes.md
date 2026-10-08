@@ -36,7 +36,7 @@ Versions tested (2026-10-07, Linux x64, Node 24): `@tursodatabase/sync` and `@tu
 
 ## Migration rehearsal (S4)
 
-An additive migration (guarded `ADD COLUMN`, `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, recorded in `schema_migrations`) applied on replica A, pushed, pulled by replica B, and re-run on both, converged: identical schema, one migration row, and data written by each side under the new schema. This validates **serialized** rollout (one writer migrates first). Simultaneous DDL from two writers was not tested. `tests/sync.test.ts` now repeats the two-replica check for the real migration set; see [data-model.md](data-model.md#migrations).
+An additive migration (guarded `ADD COLUMN`, `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, recorded in `schema_migrations`) applied on replica A, pushed, pulled by replica B, and re-run on both, converged: identical schema, one migration row, and data written by each side under the new schema. This validates **serialized** rollout (one writer migrates first). Simultaneous DDL from two writers was not tested. `apps/writer/tests/sync.test.ts` now repeats the two-replica check for the real migration set; see [data-model.md](data-model.md#migrations).
 
 ## Still unverified
 

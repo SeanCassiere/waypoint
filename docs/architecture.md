@@ -91,11 +91,25 @@ apps/
                    queue.db, committer, viewer UI
   reader/          Workers adapter: read-only R2 S3 API, @tursodatabase/serverless,
                    Cache API, Analytics Engine
+tests/             @waypoint/integration-tests: cross-package tests, checks of built
+                   artifacts, and the real-Chromium browser checks
 ```
 
 - `core` and `ui` must never import `node:*`, `@aws-sdk/*`, `@tursodatabase/sync`, or any native module.
 - The reader's build fails if anything Node-only leaks in. A separate tsconfig and the package `exports` conditions enforce this.
 - Tooling: a pnpm workspace with TypeScript, Hono on both runtimes, the MCP TypeScript SDK, `typeid-js`, and `@aws-sdk/client-s3` for R2.
+
+### Builds
+
+TypeScript only type-checks; bundlers emit everything ([D53](decisions.md)).
+
+- **Libraries** (`core`, `ui`, `render`): tsdown emits ESM to `dist/`, one module per source file, with `.d.ts` that oxc generates from `isolatedDeclarations` source. `render` has a second entry, `dist/render-worker.js`, the worker thread it starts next to itself.
+- **Writer**: tsdown bundles `src/main.ts` into `dist/main.js`, plus two worker-thread entries in the same directory, `dist/compare-worker.js` (diffs and Changes-page fragments) and `dist/render-worker.js` (renditions). The `@waypoint/*` packages are inlined from their `dist`; npm dependencies stay external and are installed next to the bundle, so the writer declares every npm package an inlined package uses, at the same version (its tsdown config checks this). Runtime file lookups go through `src/layout.ts`, which resolves the bundle directory whether the writer runs bundled or from source. esbuild bundles the viewer's browser scripts and stylesheet into `dist/viewer/` (a turbo task of its own, `build:viewer`).
+- **MCP**: tsdown builds the server bundle (`dist/waypoint-mcp-server.mjs`, one minified file). The launcher stays on esbuild, unchanged, because npx caches it indefinitely.
+- **Reader**: Wrangler bundles it, reading `core` and `ui` from their `dist`.
+- **Source condition.** Each library's `exports` starts with a `@waypoint/source` condition pointing at `src/`. Type checking (`customConditions`), lint and tests (Vitest's resolve conditions) use it, so none of them needs a build; runtime code and bundles use `dist`. Relative imports name the real `.ts` file and the libraries use only erasable syntax, so Node 24 runs the source directly: in tests, the render and diff worker threads start from `src/` with `--conditions=@waypoint/source`.
+- **Tests** live in their package (`packages/*/tests`, `apps/*/tests`). CPU-budget and wall-clock tests are a separate Vitest project and turbo task (`test:timing`) that runs alone after the others. Cross-package tests and checks of built artifacts (the MCP tarball and launcher, the writer process, the bundled renderer, the browser checks) are in `tests/`, whose turbo tasks build the writer and MCP first.
+- **Image**: the Dockerfile prunes the workspace to the writer and the MCP package (`turbo prune --docker`), builds them with turbo's caches off, and keeps the writer bundle with its production npm dependencies (`pnpm deploy`).
 
 ## Data flow summary
 
