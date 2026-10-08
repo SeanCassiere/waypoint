@@ -6,6 +6,9 @@
 #   scripts/check-owner-strings.sh            every file tracked by git (CI's lint job)
 #   scripts/check-owner-strings.sh PATH...    every file under these paths (the release bundle)
 #
+# Exits 1 when it finds something, and 2 for a path that doesn't exist; a file it can't read fails
+# the check too.
+#
 # Matching is case-insensitive. Caught: the owner's handle in any form (so its Cloudflare
 # workers.dev subdomain and its Turso organization too), its public domain, its tailnet name, its
 # host's name (as a whole name), Cloudflare Access team domains, and a few opaque IDs (Cloudflare
@@ -39,7 +42,9 @@ strip_for() {
 }
 # sha256 of the owner's Cloudflare account ID, Cloudflare Access app ID, GitHub App ID and the
 # App's client ID. Candidates are strings of those shapes (32 hex digits, a UUID, a 7-digit number,
-# a GitHub App client ID), so hashing them stays cheap. Hex is matched in either case, and a
+# a GitHub App client ID), so hashing them stays cheap. Hex is matched in either case, a 32-digit
+# hex string is also checked as a UUID and a UUID without its dashes (APIs and URLs print UUIDs
+# both ways), and a
 # candidate may be glued to other text as long as it doesn't follow a hex digit (a digit, for the
 # number): `id1234567` and `x1234567y` hold one, `01234567` doesn't hold `1234567`.
 id_shapes='[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{7}|Iv[0-9a-z]{16,20}'
@@ -56,25 +61,36 @@ id_hashes=(
 
 found=0
 report() { printf '%s\n' "$1" >&2; found=1; }
+# grep's status 1 is "no match"; anything else (an unreadable file, say) is an error, and fails the
+# check rather than passing it. Each list is collected before it's read (set -e then stops on an
+# error), not read from a process substitution, whose status nothing checks.
+none() { (($? == 1)); }
 
 # Hits as `file:line:text`, from `git grep` (repository mode) or `grep -r` (paths).
 if (($# == 0)); then
   cd "$repo"
   label="the tracked files"
-  hits() { git grep -I -n -i -E "$pattern" -- . ':(exclude)CHANGELOG.md' || true; }
-  candidates() { git grep -I -h -o -i -E "$id_candidates" -- . ':(exclude)CHANGELOG.md' || true; }
-  names() { git ls-files | grep -i -E "$pattern" || true; }
+  hits() { git grep -I -n -i -E "$pattern" -- . ':(exclude)CHANGELOG.md' || none; }
+  candidates() { git grep -I -h -o -i -E "$id_candidates" -- . ':(exclude)CHANGELOG.md' || none; }
+  files() { git ls-files; }
 else
+  for path in "$@"; do
+    [[ -e "$path" ]] || { echo "check-owner-strings.sh: no such file or directory: $path" >&2; exit 2; }
+  done
   label="${*#"$repo"/}"
-  hits() { grep -r -I -n -i -E "$pattern" "$@" || true; }
-  candidates() { grep -r -I -h -o -i -E "$id_candidates" "$@" || true; }
+  hits() { grep -r -I -n -i -E "$pattern" "$@" || none; }
+  candidates() { grep -r -I -h -o -i -E "$id_candidates" "$@" || none; }
   # Names below each path, so a path's own location (a home directory, say) doesn't count.
-  names() { find "$@" -mindepth 1 -printf '%P\n' | grep -i -E "$pattern" || true; }
+  files() { find "$@" -mindepth 1 -printf '%P\n'; }
 fi
 
+all_files="$(files "$@")"
+names="$(grep -i -E "$pattern" <<<"$all_files" || none)"
 while IFS= read -r name; do
   [[ -n "$name" ]] && report "${name#"$repo"/}: the file name names the owner's instance"
-done < <(names "$@")
+done <<<"$names"
+
+all_hits="$(hits "$@")"
 
 while IFS= read -r hit; do
   file="${hit%%:*}"
@@ -85,13 +101,22 @@ while IFS= read -r hit; do
   if sed -E "$strip_global; $(strip_for "$rel")" <<<"$text" | grep -qiE "$pattern"; then
     report "$rel:$rest"
   fi
-done < <(hits "$@")
+done <<<"$all_hits"
 
-tokens() { candidates "$@" | grep -o -i -E "$id_shapes" || true; }
+all_candidates="$(candidates "$@")"
+tokens="$(grep -o -i -E "$id_shapes" <<<"$all_candidates" | sort -u || none)"
 while IFS= read -r token; do
   [[ -n "$token" ]] || continue
-  # As written, and lowercased (the hex IDs' hashes are of their lowercase form).
-  for form in "$token" "${token,,}"; do
+  # As written, and lowercased (the hex IDs' hashes are of their lowercase form); a hex ID also
+  # with its dashes added or removed.
+  lower="${token,,}"
+  forms=("$token" "$lower")
+  if [[ "$lower" =~ ^[0-9a-f]{32}$ ]]; then
+    forms+=("${lower:0:8}-${lower:8:4}-${lower:12:4}-${lower:16:4}-${lower:20:12}")
+  elif [[ "$lower" =~ ^[0-9a-f-]{36}$ ]]; then
+    forms+=("${lower//-/}")
+  fi
+  for form in "${forms[@]}"; do
     sum="$(printf '%s' "$form" | sha256sum)"
     for h in "${id_hashes[@]}"; do
       if [[ "${sum%% *}" == "$h" ]]; then
@@ -100,7 +125,7 @@ while IFS= read -r token; do
       fi
     done
   done
-done < <(tokens "$@" | sort -u)
+done <<<"$tokens"
 
 if ((found)); then
   echo "Owner-specific values above. Use generic wording or example values; an instance's own values belong in its instance.env (deploy tooling) or its operator's notes" >&2

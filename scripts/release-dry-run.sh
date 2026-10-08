@@ -187,6 +187,7 @@ printf '%s\n' "ghcr.io/$owner/waypoint-writer:1.0.0" "https://github.com/$owner/
 bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1 || fail "the owner-string check refused the published image, the repository or another agent name"
 mkdir -p "$probe/agent""-1"
 if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed a directory named for the owner's host"; fi
+if bash "$repo/scripts/check-owner-strings.sh" "$work/no-such-dir" > /dev/null 2>&1; then fail "the owner-string check passed a path that doesn't exist"; fi
 
 step "upgrade.sh release mode against a fake release"
 bin="$work/bin"
