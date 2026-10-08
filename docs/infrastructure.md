@@ -47,7 +47,23 @@ Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed f
 - [x] **Docker** is installed on agent-1, and `agent-1` is in the `docker` group. Deploys use `sg docker` when a session predates the group change, so no logout or reboot is ever needed.
 - [x] **Self-hosted GitHub Actions runner** `agent-1-waypoint` (label `waypoint-deploy`) runs as the systemd user unit `waypoint-gh-runner.service` from `~/actions-runner-waypoint`, with low priority (Nice=10, MemoryHigh=2G).
 - [x] **Deploy workflow:** each successful CI run on `main` runs `deploy/upgrade.sh --instance ~/.config/waypoint/instance.env current-checkout`, which builds the writer image and the reader locally, recreates only the writer, health-checks it (container health check, reported commit, then HTTPS via the tailnet) and rolls back to the previous image on failure, then deploys the readers. Runbook: [deploy/README.md](../deploy/README.md).
-- [ ] **Release-driven deploys** (at the cutover, when the repository goes public; [releasing.md](releasing.md)): the GitHub App `waypoint-deploy-dispatch` (App ID 5231260, client ID `Iv23liTdWHWJqaKZRRQ1`, Actions: write on `SeanCassiere/waypoint-ops` only) dispatches the ops repository's deploy workflow ([deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example)) after each release. Its key goes in the `release` environment (`main` only) as `DEPLOY_APP_PRIVATE_KEY`, with the variables `DEPLOY_APP_CLIENT_ID` and `DEPLOY_DISPATCH_REPO`; the runner moves to the ops repository, and the Deploy workflow goes away.
+- [ ] **Release-driven deploys** (at the cutover, when the repository goes public; [releasing.md](releasing.md)): the GitHub App `waypoint-deploy-dispatch` (App ID 5231260, client ID `Iv23liTdWHWJqaKZRRQ1`, Actions: write on `SeanCassiere/waypoint-ops` only) dispatches the ops repository's deploy workflow ([deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example)) after each release. Its key goes in the `release` environment (`main` only) as `DEPLOY_APP_PRIVATE_KEY`, with the variables `DEPLOY_APP_CLIENT_ID` and `DEPLOY_DISPATCH_REPO`; the runner moves to the ops repository, and the Deploy workflow goes away. At the cutover:
+  - Branch protection on `main` requires `ci-ok` only. **Not** `conventional-title` (the PR title check): it never runs on the release PR, which GITHUB_TOKEN opens, so requiring it would block every release ([releasing.md](releasing.md#versions-and-the-release-pr)).
+  - **The first release goes out without the dispatch**, following [releasing.md](releasing.md#the-first-release) step by step: leave `DEPLOY_DISPATCH_REPO` unset, merge the release PR, make the `waypoint-writer` package public (GHCR creates it private, and the ops deploy can't pull a private image), check an anonymous pull, then set `DEPLOY_DISPATCH_REPO` and start the first deploy by hand with `gh workflow run deploy.yml --repo SeanCassiere/waypoint-ops`.
+  - **Manual `upgrade.sh <version>` (or `latest`) runs on agent-1 need gh 2.102.0 or later** to verify attestations, and the distro's `/usr/bin/gh` is 2.46.0, so they stop with "release attestations need gh 2.102.0 or later". Either set `VERIFY_ATTESTATIONS=0` in `instance.env` (not recommended: the ops deploys read the same file, so their image check would be off too), or install a current gh for the `agent-1` user only, checked against the checksum GitHub publishes in the release's `gh_<version>_checksums.txt`:
+
+    ```bash
+    v=2.102.0 sum=bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386  # gh_2.102.0_linux_amd64.tar.gz
+    d="$(mktemp -d)"
+    curl -fsSL -o "$d/gh.tgz" "https://github.com/cli/cli/releases/download/v$v/gh_${v}_linux_amd64.tar.gz"
+    echo "$sum  $d/gh.tgz" | sha256sum -c - \
+      && tar -xzf "$d/gh.tgz" -C "$d" --strip-components=1 \
+      && install -m 755 "$d/bin/gh" ~/.local/bin/gh
+    rm -rf "$d"
+    ~/.local/bin/gh --version   # gh version 2.102.0
+    ```
+
+    `~/.local/bin` comes before `/usr/bin` in agent-1's `PATH`; where it doesn't (check `command -v gh`), pass `GH_BIN=~/.local/bin/gh` to `upgrade.sh`. It uses the existing `gh auth` login. The ops workflow is unaffected: it installs its own pinned gh in its work directory.
 - **Secrets** stay in `~/.config/waypoint/{prod,ts,cloudflare,reader-dev,reader-prod}.env` (mode 600) and are passed at runtime with `env_file`, or to Wrangler. They never go into the repo, the image, or its layers.
 - **Instance file** `~/.config/waypoint/instance.env` (no secrets; [deploy/instance.env.example](../deploy/instance.env.example)). It was written once with `deploy/make-instance-env.sh`:
 
