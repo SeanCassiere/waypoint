@@ -1,0 +1,121 @@
+/* timeline */
+.tl {
+  padding: 4px 4px;
+}
+.rv {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 0 8px;
+  padding: 8px 8px 10px 4px;
+  border-radius: 9px;
+  color: inherit;
+  position: relative;
+}
+.rv:hover {
+  background: var(--hover);
+}
+.rv[aria-current] {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--rule-2),
+    var(--sh-1);
+}
+.rv .g {
+  position: relative;
+}
+.rv .g::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: -10px;
+  bottom: -12px;
+  border-left: 2px solid var(--rule-2);
+}
+.rv:first-child .g::before {
+  top: 12px;
+}
+.rv.root .g::before {
+  bottom: calc(100% - 12px);
+}
+.rv:first-child.root .g::before {
+  display: none;
+}
+.rv .g i {
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--muted);
+}
+.rv[aria-current] .g i {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.rv.pending .g i {
+  border-style: dashed;
+  border-color: var(--pending);
+}
+.rv.failed .g i {
+  border-color: var(--failed);
+  background: var(--failed-bg);
+}
+.rv .h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rv .h a {
+  text-decoration: none;
+}
+.rv .h b {
+  font: 650 13px var(--mono);
+}
+.rv .h .w {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rv > span {
+  display: block;
+  min-width: 0;
+}
+.rv .msg {
+  display: block;
+  font: 13.5px/1.38 var(--sans);
+  margin: 3px 0 4px;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.rv a.msg:hover {
+  text-decoration: underline;
+}
+.rv .f {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.rv .acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+  flex-wrap: wrap;
+}
+.err {
+  display: block;
+  font: 12px/1.4 var(--mono);
+  color: var(--failed);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.fork {
+  font-size: 12px;
+  color: var(--muted);
+}

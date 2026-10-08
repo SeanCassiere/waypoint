@@ -1,0 +1,45 @@
+/* gallery lightbox: view modes are radio inputs styled as a segmented control (:has(), no script) */
+#lightbox .slider {
+  display: none;
+}
+#lightbox:has(input[value="slider"]:checked) .pair {
+  display: none;
+}
+#lightbox:has(input[value="slider"]:checked) .slider {
+  display: grid;
+}
+#lightbox:has(input[value="only"]:checked) [data-lbx-before],
+#lightbox.single [data-lbx-before],
+#lightbox.single .seg {
+  display: none;
+}
+#lightbox:has(input[value="only"]:checked) .pair,
+#lightbox.single .pair {
+  grid-template-columns: 1fr;
+}
+.lbx .seg label {
+  padding: 4px 10px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+}
+.lbx .seg label:has(input:checked) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+  font-weight: 600;
+}
+.lbx .seg label:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.lbx .seg input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.slider .stack img.after {
+  clip-path: inset(0 0 0 var(--cut, 50%));
+}

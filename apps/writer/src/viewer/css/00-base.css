@@ -1,0 +1,333 @@
+/* Folio shell stylesheet (spec §3–4). Tokens come from @waypoint/ui and are prepended at build. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.skip {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 70;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.skip:focus {
+  top: 8px;
+}
+.mono {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+.muted {
+  color: var(--muted);
+}
+.faint {
+  color: var(--faint);
+}
+kbd {
+  font: 600 10.5px/1 var(--mono);
+  border: 1px solid var(--rule-2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 5px;
+  color: var(--muted);
+  background: var(--surface);
+}
+mark {
+  background: var(--pending-bg);
+  color: var(--ink);
+  border-radius: 3px;
+}
+[hidden] {
+  display: none !important;
+}
+/* top bar */
+.bar {
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: saturate(1.4) blur(8px);
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  flex: none;
+}
+.logo svg,
+.mk svg {
+  display: block;
+}
+.wmark rect {
+  fill: currentColor;
+}
+.wmark path {
+  fill: none;
+  stroke: var(--paper);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+}
+.crumbs a {
+  text-decoration: none;
+  flex: none;
+  max-width: 18ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumbs a:hover {
+  color: var(--ink);
+}
+.crumbs .sep {
+  color: var(--faint);
+}
+.crumbs h1 {
+  font: 650 15px/1.2 var(--sans);
+  color: var(--ink);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--control);
+  background: var(--surface);
+  border-radius: var(--r-md);
+  padding: 0 10px;
+  color: var(--muted);
+  min-width: 280px;
+  flex: 0 1 420px;
+  margin: 0 auto;
+  position: relative;
+  height: 34px;
+}
+.search:focus-within {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.search input {
+  flex: 1;
+  border: 0;
+  background: none;
+  outline: 0;
+  min-width: 0;
+  height: 100%;
+  color: var(--ink);
+}
+.search input::placeholder {
+  color: var(--muted);
+}
+.search input::-webkit-search-cancel-button {
+  display: none;
+}
+.suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -1px;
+  right: -1px;
+  z-index: 40;
+  background: var(--dlg);
+  border: 1px solid var(--rule-2);
+  border-radius: 12px;
+  box-shadow: var(--sh-2);
+  padding: 6px;
+  margin: 0;
+  list-style: none;
+}
+.suggest li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+}
+.suggest li small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggest li b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggest li[aria-selected="true"],
+.suggest li:hover {
+  background: var(--hover);
+}
+.grow {
+  flex: 1;
+}
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 5px 9px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  background: none;
+  cursor: pointer;
+  flex: none;
+}
+.health:hover {
+  border-color: var(--rule);
+}
+.health .short {
+  display: none;
+}
+.health .d {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+.health.off .d {
+  background: var(--faint);
+}
+.health.pending {
+  color: var(--pending);
+  background: var(--pending-bg);
+}
+.health.pending .d {
+  background: var(--pending);
+}
+.health.failed {
+  color: var(--failed);
+  background: var(--failed-bg);
+}
+.health.failed .d {
+  background: var(--failed);
+}
+.iconbtn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-2);
+  text-decoration: none;
+  flex: none;
+  font-size: 16px;
+}
+.iconbtn:hover {
+  background: var(--hover);
+}
+/* buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--sh-1);
+}
+.btn:hover {
+  border-color: var(--muted);
+}
+.btn[disabled],
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn.ghost {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+.btn.ghost:hover {
+  background: var(--hover);
+}
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.btn.public {
+  color: var(--public);
+  border-color: var(--public-line);
+}
+.btn.public:hover {
+  border-color: var(--public);
+}
+.btn.public-solid {
+  background: var(--public);
+  border-color: var(--public);
+  color: var(--on-public);
+}
+.btn.danger {
+  color: var(--failed);
+  border-color: var(--failed-line);
+}
+.btn.danger-solid {
+  background: var(--failed);
+  border-color: var(--failed);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .btn.danger-solid {
+    color: #2a0d0a;
+  }
+}
+.btn.sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12.5px;
+  border-radius: 7px;
+}
+.btn.center {
+  justify-content: center;
+}
+.btn kbd {
+  margin-left: 2px;
+}

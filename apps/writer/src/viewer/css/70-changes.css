@@ -1,0 +1,297 @@
+/* compare */
+.cmp {
+  overflow: auto;
+  flex: 1;
+  padding: 22px 28px 60px;
+}
+.cmphead {
+  max-width: 860px;
+  margin: 0 auto 18px;
+}
+.cmphead h2 {
+  font: 700 20px/1.2 var(--sans);
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+.sumrow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  align-items: center;
+}
+.fd {
+  max-width: 860px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--sh-1);
+}
+.fd > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sunken);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.fd > header .p {
+  font: 600 13px var(--mono);
+  overflow-wrap: anywhere;
+}
+/* Phones: the glyph, path and "Open in #N" share the first row (a long path wraps within it,
+   so the button never wraps onto a row of its own); the chips and change summary go below. */
+@media (max-width: 760px) {
+  .fd > header {
+    row-gap: 4px;
+  }
+  .fd > header > * {
+    order: 3;
+  }
+  .fd > header > :first-child,
+  .fd > header > .p {
+    order: 0;
+  }
+  .fd > header > .p {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .fd > header > .btn {
+    order: 1;
+    flex: none;
+  }
+  .fd > header > .grow {
+    order: 2;
+    flex-basis: 100%;
+    height: 0;
+  }
+}
+.fd .note {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.blk {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  border-top: 1px solid transparent;
+}
+.blk .tx {
+  padding: 8px 18px 8px 10px;
+  font: 15.5px/1.6 var(--sans);
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.blk.ctx .tx {
+  color: var(--ink-2);
+}
+.blk.add {
+  background: var(--add-bg);
+  box-shadow: inset 3px 0 0 var(--add);
+}
+.blk.del {
+  background: var(--del-bg);
+  box-shadow: inset 3px 0 0 var(--del);
+}
+.blk.del .tx {
+  color: var(--ink-2);
+}
+.blk.mod {
+  box-shadow: inset 3px 0 0 var(--pending);
+}
+.blk .mk {
+  font: 700 13px/1 var(--mono);
+  padding-top: 12px;
+  text-align: center;
+}
+.blk.add .mk {
+  color: var(--add);
+}
+.blk.del .mk {
+  color: var(--del);
+}
+.blk.mod .mk {
+  color: var(--pending);
+}
+.blk .ctxnote {
+  color: var(--muted);
+  font-size: 13px;
+}
+.blk .tx.rd > :first-child {
+  margin-top: 0;
+}
+.blk .tx.rd > :last-child {
+  margin-bottom: 0;
+}
+.blk .tx.rd h1,
+.blk .tx.rd h2,
+.blk .tx.rd h3,
+.blk .tx.rd h4 {
+  margin: 0;
+  font: 650 1.2em/1.3 var(--sans);
+}
+.blk .tx.rd h1 {
+  font-size: 1.45em;
+}
+.blk .tx.rd p,
+.blk .tx.rd ul,
+.blk .tx.rd ol,
+.blk .tx.rd blockquote {
+  margin: 0;
+}
+.blk .tx.rd ul,
+.blk .tx.rd ol {
+  padding-left: 1.4em;
+}
+.blk .tx.rd blockquote {
+  border-left: 3px solid var(--rule-2);
+  padding-left: 1em;
+  color: var(--ink-2);
+}
+.blk .tx.rd code {
+  font: 0.86em var(--mono);
+  background: var(--sunken);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0 0.3em;
+}
+.blk .tx.rd a {
+  color: var(--public);
+}
+.blk.src .tx,
+.blk .tx.code {
+  font: 12.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+.blk.src .tx .lnadd {
+  display: block;
+  background: var(--add-word);
+  color: var(--ink);
+}
+.blk.src .tx .lndel {
+  display: block;
+  background: var(--del-word);
+  text-decoration: line-through;
+  text-decoration-color: var(--del);
+}
+.blk.src .tx .row0 {
+  display: block;
+}
+.srcnote {
+  font: 600 10.5px/1 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 6px;
+}
+ins {
+  background: var(--add-word);
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+del {
+  background: var(--del-word);
+  text-decoration: line-through;
+  text-decoration-color: var(--del);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.blk.mod .tx ins {
+  text-decoration: underline;
+  text-decoration-color: var(--add);
+  text-underline-offset: 2px;
+}
+.fold {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px;
+  background: var(--sunken);
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+  list-style: none;
+}
+.fold::-webkit-details-marker {
+  display: none;
+}
+details.folded[open] > summary.fold {
+  border-bottom-color: var(--rule);
+}
+.lines {
+  font: 12.5px/1.6 var(--mono);
+  overflow-x: auto;
+}
+.lines .ln {
+  display: grid;
+  grid-template-columns: 44px 44px 18px minmax(0, 1fr);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lines .ln .n {
+  color: var(--faint);
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+}
+.lines .ln .s {
+  text-align: center;
+  user-select: none;
+}
+.lines .ln.add {
+  background: var(--add-bg);
+}
+.lines .ln.add .s {
+  color: var(--add);
+}
+.lines .ln.del {
+  background: var(--del-bg);
+}
+.lines .ln.del .s {
+  color: var(--del);
+}
+.lines .ln.del del,
+.lines .ln.add ins {
+  border-radius: 2px;
+}
+.lines .hunk {
+  background: var(--sunken);
+  color: var(--muted);
+  padding: 3px 10px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.imgpair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 14px;
+}
+.imgpair figure {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+.imgpair img {
+  max-width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+.imgpair figcaption {
+  font-size: 12px;
+  color: var(--muted);
+}
