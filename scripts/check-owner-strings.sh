@@ -13,8 +13,8 @@
 #
 # Allowed everywhere, because they name the published project rather than an instance:
 #   - its image, ghcr.io/seancassiere/... (the default IMAGE);
-#   - its repository, seancassiere/waypoint (GitHub URLs, releases, attestations), but not another
-#     repository of the owner's, such as its private ops repository.
+#   - its repository, seancassiere/waypoint (GitHub URLs and clone URLs ending .git, releases,
+#     attestations), but not another repository of the owner's, such as its private ops repository.
 # Allowed in one file each: the owner's GitHub handle in .github/CODEOWNERS (@handle),
 # .github/FUNDING.yml (github: [handle]) and CODE_OF_CONDUCT.md (@handle and its profile URL, the
 # contact). CHANGELOG.md, written by release-please, isn't scanned.
@@ -26,7 +26,7 @@ owner='sean''cassiere'
 pattern="$owner|ping""stash|tail7a""ca06|agent""-1|cloudflare""access"
 # A form that isn't followed by more of a repository name ends the match.
 end='([^-[:alnum:]_.]|\.([^[:alnum:]]|$)|$)'
-strip_global="s#ghcr\\.io/$owner/##Ig; s#$owner/waypoint$end#\\1#Ig"
+strip_global="s#ghcr\\.io/$owner/##Ig; s#$owner/waypoint(\\.git)?$end#\\2#Ig"
 # Per-file allowances: sed expressions applied to that file's lines only.
 strip_for() {
   case "$1" in
@@ -37,9 +37,15 @@ strip_for() {
   esac
 }
 # sha256 of the owner's Cloudflare account ID, Cloudflare Access app ID, GitHub App ID and the
-# App's client ID. Candidates are tokens of those shapes (32 hex digits, a UUID, a 7-digit number,
-# a GitHub App client ID), so hashing them stays cheap.
-id_shapes='[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{7}|Iv[0-9A-Za-z]{16,20}'
+# App's client ID. Candidates are strings of those shapes (32 hex digits, a UUID, a 7-digit number,
+# a GitHub App client ID), so hashing them stays cheap. Hex is matched in either case, and a
+# candidate may be glued to other text as long as it doesn't follow a hex digit (a digit, for the
+# number): `id1234567` and `x1234567y` hold one, `01234567` doesn't hold `1234567`.
+id_shapes='[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{7}|Iv[0-9a-z]{16,20}'
+# The shapes with what may precede them (matched case-insensitively); `tokens` then takes the
+# shape back out of each match.
+hex='[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+id_candidates="(^|[^0-9a-f])($hex)|(^|[^0-9])[0-9]{7}|Iv[0-9a-z]{16,20}"
 id_hashes=(
   781bdfb8dc578c6ac2c0567e2efb3f3151eb073f94a32aaa446f0c53f31da6f6
   cf5412cc60ce75d147fddbfecb919b9ea4234feacd77184c0290eae72acf0cc5
@@ -55,12 +61,12 @@ if (($# == 0)); then
   cd "$repo"
   label="the tracked files"
   hits() { git grep -I -n -i -E "$pattern" -- . ':(exclude)CHANGELOG.md' || true; }
-  tokens() { git grep -I -h -o -w -E "$id_shapes" -- . ':(exclude)CHANGELOG.md' || true; }
+  candidates() { git grep -I -h -o -i -E "$id_candidates" -- . ':(exclude)CHANGELOG.md' || true; }
   names() { git ls-files | grep -i -E "$pattern" || true; }
 else
   label="${*#"$repo"/}"
   hits() { grep -r -I -n -i -E "$pattern" "$@" || true; }
-  tokens() { grep -r -I -h -o -w -E "$id_shapes" "$@" || true; }
+  candidates() { grep -r -I -h -o -i -E "$id_candidates" "$@" || true; }
   # Names below each path, so a path's own location (a home directory, say) doesn't count.
   names() { find "$@" -mindepth 1 -printf '%P\n' | grep -i -E "$pattern" || true; }
 fi
@@ -80,13 +86,18 @@ while IFS= read -r hit; do
   fi
 done < <(hits "$@")
 
+tokens() { candidates "$@" | grep -o -i -E "$id_shapes" || true; }
 while IFS= read -r token; do
   [[ -n "$token" ]] || continue
-  sum="$(printf '%s' "$token" | sha256sum)"
-  for h in "${id_hashes[@]}"; do
-    if [[ "${sum%% *}" == "$h" ]]; then
-      report "an identifier of the owner's accounts: $token (find it with: grep -rn '$token')"
-    fi
+  # As written, and lowercased (the hex IDs' hashes are of their lowercase form).
+  for form in "$token" "${token,,}"; do
+    sum="$(printf '%s' "$form" | sha256sum)"
+    for h in "${id_hashes[@]}"; do
+      if [[ "${sum%% *}" == "$h" ]]; then
+        report "an identifier of the owner's accounts: $token (find it with: grep -rni '$token')"
+        continue 3
+      fi
+    done
   done
 done < <(tokens "$@" | sort -u)
 
