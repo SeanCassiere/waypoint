@@ -5,11 +5,10 @@ secrets it needs, how forks publish their own, and how a release reaches a deplo
 release: [deploy/README.md](../deploy/README.md). Why it works this way: decision D56. Who can do
 what: [trust-model.md](trust-model.md#deploy-pipeline).
 
-> **Until the repository goes public**, the release path can't run end to end: GitHub artifact
-> attestations and environments aren't available to private repositories on this plan. Don't merge
-> a release PR before the cutover; until then, every merge to `main` still deploys the maintainer's
-> instance through `.github/workflows/deploy.yml` (see [AGENTS.md](../AGENTS.md#how-changes-ship)).
-> CI's `release-dry-run` job tests everything that can run without publishing.
+Instances deploy releases, never merges: merging a pull request to `main` publishes and deploys
+nothing until the release PR that includes it is merged, and no workflow in this repository runs
+on a self-hosted runner (D58). CI's `release-dry-run` job tests everything in the release path
+that can run without publishing.
 
 ## Versions and the release PR
 
@@ -165,7 +164,8 @@ Without `DEPLOY_DISPATCH_REPO`, the dispatch job is skipped.
 
 The maintainer's instance deploys every release automatically, and any instance can do the same,
 through a private ops repository whose only workflow is [deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example), run by a
-self-hosted runner on the instance's host ([self-hosting](self-hosting.md#optional-automatic-deploys-on-release)).
+self-hosted runner on the instance's host that is registered to the ops repository only, never to
+this one ([self-hosting](self-hosting.md#optional-automatic-deploys-on-release)).
 
 After the image and the bundle are published, the `dispatch` job (environment `release`, so only
 on `main`) mints a token for the dispatching GitHub App (`DEPLOY_APP_CLIENT_ID`) with
