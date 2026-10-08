@@ -3,7 +3,8 @@
 //
 // Diffing is superlinear, and the Changes page is a plain GET, so every jsdiff call has an edit
 // length cap and a time budget, word diffs and similarity pairing are bounded, and large inputs
-// are diffed in a worker thread (compare-worker.ts) that is terminated if it overruns. A diff that hits a limit is `truncated` with a reason.
+// are diffed in a worker thread (compare-worker.ts) that is terminated if it overruns. A diff
+// that hits a limit is `truncated` with a reason.
 import { Worker } from "node:worker_threads";
 
 import { isMarkdown, isTextMime, type Manifest } from "@waypoint/core";
