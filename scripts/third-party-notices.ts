@@ -10,8 +10,10 @@
 // heads the MCP server bundle (packages/mcp/tsdown.config.ts).
 import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = dirname(dirname(new URL(import.meta.url).pathname));
+// fileURLToPath decodes the URL: a checkout path with a space or a non-ASCII character works.
+const root = fileURLToPath(new URL("..", import.meta.url));
 const output = join(root, "THIRD_PARTY_NOTICES.md");
 
 interface Inlined {
