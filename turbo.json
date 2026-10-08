@@ -3,6 +3,7 @@
   "ui": "stream",
   "agentGuidance": false,
   "noUpdateNotifier": true,
+  "cacheDir": ".turbo/cache",
   "remoteCache": {
     "signature": true
   },

@@ -14,7 +14,7 @@
     "test:browser:reader": "turbo run test:browser:reader",
     "core:guard": "node scripts/check-core-imports.mjs",
     "format:check:root": "oxfmt --check .",
-    "lint:root": "oxlint . && node scripts/check-core-imports.mjs",
+    "lint:root": "oxlint . && pnpm core:guard",
     "typecheck:root": "tsc -p tsconfig.json --noEmit",
     "test:root": "vitest run",
     "test:browser:root": "node --experimental-strip-types tests/viewer-browser.ts",
