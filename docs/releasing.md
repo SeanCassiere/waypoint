@@ -129,7 +129,8 @@ out without the dispatch, and its deploy is started by hand once the package is 
    ```bash
    token="$(curl -fsS 'https://ghcr.io/token?scope=repository:seancassiere/waypoint-writer:pull' | jq -r .token)"
    curl -fsS -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
-     -H 'Accept: application/vnd.oci.image.index.v1+json' \
+     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+     -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
      https://ghcr.io/v2/seancassiere/waypoint-writer/manifests/X.Y.Z   # 200; fails while private
    ```
 
