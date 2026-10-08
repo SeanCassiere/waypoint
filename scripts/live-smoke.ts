@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-import { R2Bucket } from "../apps/writer/src/bucket.ts";
+import { ENVIRONMENT_MARKER_KEY, openBucket } from "../apps/writer/src/bucket.ts";
 import { loadConfig } from "../apps/writer/src/config.ts";
 
 const envPath = process.argv[2];
@@ -27,7 +27,13 @@ if (
   status.environment !== "dev"
 )
   throw new Error("Writer status is not dev");
-const bucket = new R2Bucket(config);
+// The marker-checked bucket (D54), so a dev env file pointing at another environment's bucket is
+// refused here rather than probed. The marker must already exist (the dev writer writes it): the
+// smoke never stamps an unmarked bucket as dev.
+const bucket = openBucket(config);
+if (!(await bucket.inner.head(ENVIRONMENT_MARKER_KEY)))
+  throw new Error(`Bucket has no ${ENVIRONMENT_MARKER_KEY}; run the dev writer against it first`);
+await bucket.verify();
 const runId = randomUUID();
 const files = [
   {
