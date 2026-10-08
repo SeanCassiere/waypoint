@@ -1,42 +1,31 @@
 # Agent guide to Waypoint
 
-Read this before changing or operating Waypoint. Background on what Waypoint is: [README.md](README.md) and [docs/glossary.md](docs/glossary.md).
+Read this before changing Waypoint's code or docs. It's written for coding agents and works just as well for people; [CONTRIBUTING.md](CONTRIBUTING.md) is the shorter human version. Background on what Waypoint is: [README.md](README.md) and [docs/glossary.md](docs/glossary.md).
 
-## Where it runs
+## Where things are
 
-|                   |                                                                                                                                                                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Production writer | `https://waypoint.tail7aca06.ts.net`, reachable **only on the Tailscale tailnet**                                                                                                                                                            |
-| Public reader     | Cloudflare Worker `waypoint-reader` at `https://waypoint.pingstash.com` (public; serves only what share links allow). Deployed from agent-1 after the writer.                                                                                |
-| Dev reader        | Cloudflare Worker `waypoint-reader-dev` at `https://waypoint-dev.pingstash.com` (dev DB and bucket)                                                                                                                                          |
-| Host              | `agent-1`, Docker Compose project `waypoint` ([deploy/compose.yaml](deploy/compose.yaml) + [compose.tailscale.yaml](deploy/compose.tailscale.yaml)), instance file `~/.config/waypoint/instance.env`                                         |
-| Containers        | `waypoint-writer-1` (the writer) and `waypoint-ts-waypoint-1` (Tailscale sidecar; its own tailnet node `waypoint`, `tag:waypoint`)                                                                                                           |
-| Data              | `~/.local/share/waypoint/prod` on agent-1 (local DB, queue, blob cache). Durable copies live in Turso (`waypoint-prod`) and R2 (`waypoint-prod`).                                                                                            |
-| Secrets           | `~/.config/waypoint/prod.env` (writer), `ts.env` (sidecar), `cloudflare.env` (Workers deploy token) and `reader-<env>.env` (reader read-only credentials). Mode 600, passed at runtime only. `instance.env` names them and holds no secrets. |
-| Dev writer        | Not deployed. Run a writer locally with `~/.config/waypoint/dev.env` on `http://127.0.0.1:7411` (see [Developing](#developing)).                                                                                                             |
-
-The writer publishes **no host port**. It's reachable only through the sidecar's tailnet HTTPS endpoint, not from the plain LAN.
+| Path                       | What                                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/core`            | Runtime-agnostic domain logic (IDs, paths, manifests, URLs, API types, route handlers). Web APIs only                                                  |
+| `packages/render`          | The markdown renderer (renditions); `RENDERER_VERSION` lives here                                                                                      |
+| `packages/ui`              | UI shared by the writer viewer and the reader: tokens, escaping, the public shell. Web APIs only                                                       |
+| `packages/mcp`             | The stdio MCP server bundle and the launcher tarball (`src/launcher.ts`, which must stay backward-compatible)                                          |
+| `apps/writer`              | The writer (Node): API, viewer, queue, committer, sync, restore, rerender; `Dockerfile`; `src/config.ts` reads every setting                           |
+| `apps/reader`              | The public reader (Cloudflare Worker); `wrangler.jsonc` is a generic template that deploys render per instance                                         |
+| `deploy/`                  | `upgrade.sh` and its library, `instance.env.example`, the Compose files, the ops workflow template, the runbook ([deploy/README.md](deploy/README.md)) |
+| `skills/waypoint/SKILL.md` | Agent-facing usage guidance, also served by every writer at `/mcp/skill/SKILL.md`                                                                      |
+| `scripts/`                 | Dev helpers, CI checks and release tooling                                                                                                             |
+| `tests/`                   | Cross-package tests, checks of built artifacts, real-Chromium browser checks                                                                           |
+| `docs/`                    | The specs. Start with the [glossary](docs/glossary.md); [decisions.md](docs/decisions.md) records why things are the way they are                      |
 
 ## Trust model
 
-Before changing anything that affects access, credentials, share links, or content serving, read [docs/trust-model.md](docs/trust-model.md) and keep it up to date.
+Before changing anything that affects access, credentials, share links, content serving, the deploy tooling or the release pipeline, read [docs/trust-model.md](docs/trust-model.md) and keep it up to date in the same PR.
 
-## agent-1 must stay up
+## How changes ship
 
-agent-1 runs the user's other agent workloads, including T3 Code on the host's own Tailscale `:443`. When operating Waypoint:
-
-- Never restart the Docker daemon or the host's `tailscaled`, and never change the host's `tailscale serve` config.
-- Never reboot, log out, or require a re-login. If a shell lacks Docker group access, use `sg docker -c 'docker …'`.
-- Only touch containers, images, and volumes that belong to the `waypoint` project or are tagged `waypoint-writer:*`. Never run a global `docker system prune` or `docker image prune -a`.
-
-## How updates reach production
-
-**Merging to `main` deploys** until the cutover to release-driven deploys (when the repository goes public). Don't deploy by hand unless the pipeline is broken.
-
-The release pipeline ([docs/releasing.md](docs/releasing.md), D56) is already in place: every push to `main` updates release-please's release PR, and merging that PR publishes a release (the attested multi-arch image `ghcr.io/seancassiere/waypoint-writer:X.Y.Z` and the attested bundle `waypoint-deploy-X.Y.Z.tgz`) and dispatches the deploy in the private ops repository. **Don't merge a release PR before the cutover**: attestations and environments don't work while the repository is private. After the cutover, releases deploy and feature merges don't, and the Deploy workflow below goes away.
-
-1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
-   - `lint` (format check, lint, core import guard, shellcheck of every script, and `scripts/check-owner-strings.sh`: nothing in `deploy/` may name an instance)
+1. Open a PR. Its title must be a conventional commit (`type(scope): subject`, `!` for a breaking change), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged, and release-please builds the version and changelog from those titles. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
+   - `lint` (format check, lint, core import guard, shellcheck of every script, and `scripts/check-owner-strings.sh`: no tracked file may name a particular instance's hosts, domains, machines or accounts)
    - `typecheck`
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))
@@ -46,39 +35,28 @@ The release pipeline ([docs/releasing.md](docs/releasing.md), D56) is already in
    - `browser`
    - `release-dry-run` (actionlint, the release-please config, oxfmt leaving release-please's `CHANGELOG.md` alone, the dispatch target check, the release bundle, and `upgrade.sh`'s release mode against a fake release with stand-in attestations: [scripts/release-dry-run.sh](scripts/release-dry-run.sh))
 
-   `ci-ok` passes only if every one of them succeeds. There are no PR previews (D55). PR titles must be conventional commits (`type(scope): subject`), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged and release-please builds the version and changelog from them. CI also runs on release-please's branch, started by the release workflow (`workflow_dispatch`).
+   `ci-ok` passes only if every one of them succeeds. CI also runs on release-please's branch, started by the release workflow (`workflow_dispatch`). Dependabot ([.github/dependabot.yml](.github/dependabot.yml)) opens grouped weekly update PRs that go through the same CI.
 
-2. Merge to `main`. CI runs again on `main`.
-3. When CI on `main` succeeds, the **Deploy** workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) runs on the self-hosted runner `agent-1-waypoint` (label `waypoint-deploy`, systemd user unit `waypoint-gh-runner.service`), for that exact commit. It installs the reader's dependencies and runs the same path every instance uses:
+2. Merge to `main`. CI runs again on `main`, and release-please updates its release PR.
+3. Merging the release PR publishes a release ([docs/releasing.md](docs/releasing.md), D56): the attested multi-arch writer image `ghcr.io/seancassiere/waypoint-writer:X.Y.Z` and the attested deploy bundle `waypoint-deploy-X.Y.Z.tgz`, and dispatches the deploy workflow of an ops repository if one is configured.
+4. Each instance deploys releases with the bundle's `upgrade.sh` ([docs/self-hosting.md](docs/self-hosting.md), [deploy/README.md](deploy/README.md)), by hand or from its own ops repository.
 
-   ```
-   deploy/upgrade.sh --instance ~/.config/waypoint/instance.env current-checkout
-   ```
+**Transitional, until the repository goes public:** attestations and environments don't work in a private repository, so release PRs aren't merged yet, and every merge to `main` still deploys the maintainer's instance through [.github/workflows/deploy.yml](.github/workflows/deploy.yml) (`upgrade.sh current-checkout` on a self-hosted runner, after CI on `main` succeeds). Treat a merge as a production deploy until then.
 
-   1. Builds the writer image `waypoint-writer:waypoint-<sha>` (no registry, commit as `WAYPOINT_BUILD_SHA`) and the reader, before touching anything running.
-   2. **Writer:** recreates only the writer container, waits for its health check, checks that `/healthz` reports this version and commit, then that `https://waypoint.tail7aca06.ts.net/healthz` does through the tailnet. **On failure, rolls back** to `waypoint-writer:waypoint-previous` and fails the workflow.
-   3. **Readers,** `dev` then `prod`: uploads the read-only secrets, deploys with a generated Wrangler config, smoke-tests `/healthz` (with the version headers), `/healthz/deep`, an unknown share URL and `/robots.txt`. **On failure, rolls back** to the previous Worker version.
+## Things that need care
 
-   A rerun of the same commit only repeats the checks; a rerun after a partial deploy finishes it. Details: [deploy/README.md](deploy/README.md).
-
-4. Confirm with `gh run list --workflow Deploy --limit 1`, `curl -fsS https://waypoint.tail7aca06.ts.net/healthz` and `curl -fsS https://waypoint.pingstash.com/healthz/deep`, or `bash deploy/upgrade.sh status` on agent-1.
-
-Manual deploy, rollback, logs, and stopping: [deploy/README.md](deploy/README.md). The owner's runner and instance values: [docs/infrastructure.md](docs/infrastructure.md#deployment-p1).
-
-**After a deploy that bumps `RENDERER_VERSION`**, re-render existing markdown on agent-1 with `bash deploy/upgrade.sh rerender` ([deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)). It holds the instance lock, so a deploy that starts meanwhile waits for it, for at most 30 minutes; a Deploy run that times out changes nothing, so re-run it (`gh run rerun <id>`) after the rerender. It restarts the writer if anything fails.
-
-Things that need care when changing code:
-
-- **Schema changes are additive only** (new tables, columns, indexes; never rename or drop). Turso Sync has bugs with destructive DDL. See [docs/data-model.md](docs/data-model.md#migrations).
-- **Renderer output changes** (dependencies, CSS, template, language set) require bumping `RENDERER_VERSION`; a golden-hash test enforces it.
+- **Schema changes are additive only** (new tables, columns, indexes; never rename or drop). Turso Sync has bugs with destructive DDL, and an older release must run on a database a newer one migrated (the rollback window). See [docs/data-model.md](docs/data-model.md#migrations).
+- **Renderer output changes** (dependencies, CSS, template, language set) require bumping `RENDERER_VERSION`; a golden-hash test enforces it. If a change shouldn't affect output and the hash moved, find the cause rather than bumping it. After a release that bumps it, instances run `upgrade.sh rerender` once ([deploy/README.md](deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)).
 - **The writer is the only path to the cloud.** A deploy that leaves the writer unhealthy is rolled back. Queued writes survive restarts in `queue.db`.
+- **The deploy hand-off between releases is a fixed contract** (an old `upgrade.sh` starts every newer one): [deploy/README.md](deploy/README.md#deploying). New releases may add options and `instance.env` keys, never change or remove them.
+- **No instance-specific values in the repository:** use `example.com`, `example.test`, `<tailnet>` and similar placeholders. `scripts/check-owner-strings.sh` scans every tracked file in CI; its few allowances are the published image (`ghcr.io/seancassiere/...`), the upstream repository slug (`SeanCassiere/waypoint`), the owner's handle in `.github/CODEOWNERS`, `.github/FUNDING.yml` and `CODE_OF_CONDUCT.md`, and release-please's `CHANGELOG.md`.
 
 ## The MCP server and how it updates
 
-Agents use Waypoint through a stdio MCP server started with `npx`. It's configured **once** per machine with the stable URL:
+Agents use Waypoint through a stdio MCP server started with `npx`. It's configured **once** per machine with the writer's stable URL (`<writer>` is the writer's base URL, for example `https://waypoint.<tailnet>.ts.net` or `http://127.0.0.1:7410`):
 
 ```
-npx --prefer-offline -y https://waypoint.tail7aca06.ts.net/mcp/waypoint-mcp.tgz      (env WAYPOINT_URL=https://waypoint.tail7aca06.ts.net)
+npx --prefer-offline -y <writer>/mcp/waypoint-mcp.tgz      (env WAYPOINT_URL=<writer>)
 ```
 
 The writer's `/mcp` page has copy-paste snippets for Claude Code and Codex, plus skill install commands.
@@ -86,7 +64,7 @@ The writer's `/mcp` page has copy-paste snippets for Claude Code and Codex, plus
 How updates work, so configs never need to change:
 
 - The tarball is a small **launcher**. npx caches it indefinitely, so the launcher is deliberately tiny and must stay backward-compatible.
-- Each time the MCP server starts, the launcher fetches the current server bundle from the writer (`/mcp/server.mjs`, ETag-cached and sha256-verified) and runs it. A new deploy reaches agents the **next time they start a session**.
+- Each time the MCP server starts, the launcher fetches the current server bundle from the writer (`/mcp/server.mjs`, ETag-cached and sha256-verified) and runs it. A writer upgrade reaches agents the **next time they start a session**.
 - If the writer is unreachable, it runs the last cached bundle, or else the copy embedded in the launcher.
 - `waypoint_status` reports `mcp.update_available` when the running bundle is older than the writer's.
 - **`--prefer-offline` matters.** Without it, npx retries the tarball URL for about 70 s when the writer is down, which exceeds MCP startup timeouts. With it, npx reuses its cached launcher immediately, and the launcher still checks the writer for a newer server bundle on every start.
@@ -95,7 +73,7 @@ How updates work, so configs never need to change:
 
 When changing `packages/mcp`:
 
-- Changes to the server bundle ship automatically with the next deploy.
+- Changes to the server bundle ship automatically with the next writer upgrade.
 - Changes to the **launcher** reach machines only after their npx cache is cleared. Avoid them. If unavoidable, keep `LAUNCHER_API` compatible.
 - The MCP server must never write to stdout except MCP protocol messages.
 
@@ -119,11 +97,19 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 - Specs live in [docs/](docs/). Update them in the same PR when behavior changes; [docs/decisions.md](docs/decisions.md) records why things are the way they are.
 - Lint config is `oxlint.config.ts`; formatting is `oxfmt.config.ts`. No blanket lint disables.
 
+## Operating an instance
+
+If you're asked to install, upgrade or operate a Waypoint instance (rather than change the code), follow [docs/self-hosting.md](docs/self-hosting.md) and the runbook [deploy/README.md](deploy/README.md), and the instance operator's own notes. In short:
+
+- Deploy only through `upgrade.sh` with the instance's `instance.env`; it fetches and verifies a release before touching anything, health-gates each component and rolls back on failure. Rolling back is deploying the older version.
+- `upgrade.sh` and its `compose` passthrough touch only the instance's own Compose project. Never run global Docker cleanups (`docker system prune`, `docker image prune -a`, `docker volume prune`), never restart the Docker daemon or the host's Tailscale daemon, and never `docker compose down --volumes` with the Tailscale overlay (the state volume holds the node's identity).
+- Never print, log, commit, or bake into images the contents of an instance's env files (by default in `~/.config/waypoint/`). `instance.env` holds no secrets, but the files it names do.
+
 ## Provisioning
 
-How to create or rotate every external credential (Turso, R2, Cloudflare, Tailscale), for the local writer and the cloud reader: [docs/provisioning.md](docs/provisioning.md).
+How to create or rotate every external credential (Turso, R2 or another S3-compatible store, Cloudflare, Tailscale, the CI cache, the deploy dispatch App): [docs/provisioning.md](docs/provisioning.md).
 
 ## Secrets
 
-- Never print, log, commit, or bake into images anything from `~/.config/waypoint/`. Load env files only inside the command that needs them (`set -a; . file; set +a`).
-- Never run `scripts/live-smoke.ts` or tests against `prod.env`.
+- Never print, log, commit, or bake into images anything from `~/.config/waypoint/` (or wherever an instance keeps its env files). Load env files only inside the command that needs them (`set -a; . file; set +a`).
+- Never run `scripts/live-smoke.ts` or tests against a production env file; use a dev environment's cloud resources, or a local-only writer with a scratch data directory.

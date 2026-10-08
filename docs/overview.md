@@ -2,7 +2,7 @@
 
 ## Problem
 
-Development happens across a fleet of machines: agent-1 (Linux), a MacBook Air, and more later. Agents running on those machines produce artifacts that need to be looked at, often from a different machine than the one that produced them:
+Agent-driven development often happens across several machines: a Linux workstation or server, a laptop, more later. Agents running on those machines produce artifacts that need to be looked at, often from a different machine than the one that produced them:
 
 - HTML and markdown plan files
 - Screenshots, images, and snapshots
@@ -15,7 +15,7 @@ Today these artifacts are scattered across machines' disks. Waypoint gives them 
 
 1. **Agents can write with no friction.** Any agent on any tailnet machine can create a collection, or add a revision to one, over MCP or HTTP and get a URL back. No auth or interactive steps are involved.
 2. **Content renders instantly on the tailnet.** It is viewable the moment it is written, even if the internet is down.
-3. **Nothing is lost when a machine dies.** Every collection and every revision is stored durably in the cloud. The local machines are not designed for high availability.
+3. **Nothing is lost when a machine dies.** With cloud sync on, every collection and every revision is stored durably in the cloud, and a writer rebuilds itself from it. The local machines are not designed for high availability. (Local-only mode trades this for zero setup; see [self-hosting.md](self-hosting.md).)
 4. **Public access is safe.** The public side can never write. It serves only what has been explicitly shared, and knowing an ID is never enough to see anything.
 5. **History is kept.** Every revision is kept forever and can be browsed with a revision picker.
 6. **The design is ready to grow** into multiple writers, finer-grained access control (passwords, expiring tokens, audiences), and comments, without reworking the core schema.
@@ -28,7 +28,7 @@ Today these artifacts are scattered across machines' disks. Waypoint gives them 
 - Grants beyond simple share links: passwords, audiences, and so on.
 - A CLI. Agents are the primary writers and use MCP or HTTP. A CLI may come later.
 - In-app editing of documents.
-- Storage quotas or retention policies. Everything is kept, and R2's free tier is ample for now.
+- Storage quotas or retention policies. Everything is kept, and R2's free tier is ample for one person's use.
 
 ## Trust model
 
