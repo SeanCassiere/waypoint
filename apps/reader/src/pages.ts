@@ -1,11 +1,14 @@
 // The reader's two static pages (spec §9.2): the bare root and the uniform denial page.
 // Both are fixed constants with no per-request data, share one <style> element (one CSP hash),
-// and carry no script, no style attributes, no links and no inputs. Copied verbatim from the
-// design generator (scripts/gen_public_static.py in the Folio design collection).
+// and carry no script, no style attributes, no links and no inputs. Built from sharedTokensCss
+// plus these page rules, so the static pages can't drift from the shell.
 
-export const staticCss = `:root{color-scheme:light dark;--paper:#fcfbf9;--surface:#fff;--ink:#1b1a17;--ink-2:#46433d;--muted:#66615a;--rule:#e7e3dc;font:16px/1.6 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif}
-@media(prefers-color-scheme:dark){:root{--paper:#151514;--surface:#1c1c1a;--ink:#ebe8e2;--ink-2:#c6c1b8;--muted:#9a958b;--rule:#2b2a27}}
-*{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--paper);color:var(--ink);display:flex;min-height:100dvh;align-items:flex-start;justify-content:center}
+import { sharedTokensCss } from "@waypoint/ui";
+
+export const staticCss: string =
+  sharedTokensCss +
+  `:root{font:16px/1.6 var(--sans)}
+html,body{min-height:100%}body{display:flex;min-height:100dvh;align-items:flex-start;justify-content:center}
 main{width:100%;max-width:560px;margin:18dvh 24px 48px}
 .mark{display:flex;align-items:center;gap:8px;font-weight:650;font-size:14px;color:var(--muted);margin:0 0 28px;letter-spacing:-.005em}
 .mark svg{width:20px;height:20px;flex:none}.mark rect{fill:var(--muted)}.mark path{fill:none;stroke:var(--paper);stroke-width:6;stroke-linecap:round;stroke-linejoin:round}

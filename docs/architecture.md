@@ -85,8 +85,9 @@ packages/
                    Storage / Repo interfaces. Web APIs only (fetch, Web Crypto, Web Streams).
   render/          markdown → HTML renderer (runs on the writer only)
   ui/              runtime-agnostic UI shared by the writer viewer and the reader:
-                   design tokens, HTML escaping, the public shell, and the frame
-                   location listener. Web APIs only, like core.
+                   design tokens (shared, writer-only, and the frozen reading set),
+                   HTML escaping, the public shell, and the frame location listener.
+                   Web APIs only, like core.
   mcp/             stdio MCP server, and the launcher tarball the writer serves for `npx`
 apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,

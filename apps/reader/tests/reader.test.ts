@@ -3,6 +3,7 @@ import { publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
+import { staticStyleHash } from "../src/csp-hashes.ts";
 import { deniedPage, rootPage, staticCss } from "../src/pages.ts";
 
 const collection = "0123456789ab";
@@ -81,9 +82,8 @@ async function sha256(text: string): Promise<string> {
   );
   return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }
-/** Exact policy for the two static pages (spec §9.2); the hash is the design generator's. */
-const staticPolicy =
-  "default-src 'none'; style-src 'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/** Exact policy for the two static pages (spec §9.2). */
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
@@ -332,7 +332,7 @@ describe("public reader", () => {
       expect(page.match(/<style>/g)).toHaveLength(1);
       expect(page).toContain(`<style>${staticCss}</style>`);
     }
-    expect(await sha256(staticCss)).toBe("'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='");
+    expect(await sha256(staticCss)).toBe(staticStyleHash);
   });
   it("hashes the shell's only inline style and script in a strict CSP", async () => {
     const { app, bindings } = fixture();
