@@ -2,6 +2,7 @@
   "name": "@waypoint/mcp",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "tsdown && node esbuild.config.ts && node scripts/bundle.ts",
