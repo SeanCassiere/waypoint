@@ -3,6 +3,8 @@
 // revision, share links in every state, images, a binary file, an HTML plan, and Trash).
 // Usage: pnpm build && pnpm demo [port] [data-dir] (tsx runs the writer from source; the build
 // provides the viewer assets).
+// Set WAYPOINT_PUBLIC_BASE_URL (e.g. http://127.0.0.1:7422) so share URLs point at a demo reader
+// (`pnpm demo:reader`).
 // It never touches Turso, R2, or ~/.config/waypoint.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -27,6 +29,8 @@ import {
 import { ReadModel } from "../apps/writer/src/read-model.ts";
 import { writerRenderer } from "../apps/writer/src/renderer.ts";
 import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
+// @waypoint/core from source: the repository root doesn't depend on the workspace packages.
+import { parseShareTokenKey } from "../packages/core/src/index.ts";
 
 const port = Number(process.argv[2] ?? 7421);
 const dir = process.argv[3] ?? (await mkdtemp(join(tmpdir(), "waypoint-demo-")));
@@ -68,10 +72,13 @@ const committer = new WriterCommitter(
   (id) => reads.notifyRevision(id),
 );
 ingest.committer = committer;
-// An ephemeral share token key (what WAYPOINT_SHARE_TOKEN_KEY holds as 43 base64url characters),
-// so the seeded share links have URLs. A rerun on the same data dir has a new key, and shows
-// those links as "URL unavailable".
-const shareTokenKey = new Uint8Array(randomBytes(32));
+// The share token key (what WAYPOINT_SHARE_TOKEN_KEY holds as 43 base64url characters), so the
+// seeded share links have URLs. It's ephemeral unless WAYPOINT_SHARE_TOKEN_KEY is set: without it
+// a rerun on the same data dir has a new key, and shows those links as "URL unavailable"; with it,
+// a rerun keeps its links' URLs.
+const shareTokenKey = process.env.WAYPOINT_SHARE_TOKEN_KEY
+  ? parseShareTokenKey(process.env.WAYPOINT_SHARE_TOKEN_KEY)
+  : new Uint8Array(randomBytes(32));
 syncLoop.start();
 committer.wake();
 const app = createApp({
@@ -84,7 +91,7 @@ const app = createApp({
   syncLoop,
   environment: "dev",
   port,
-  publicBaseUrl: "https://reader-dev.example.test",
+  publicBaseUrl: process.env.WAYPOINT_PUBLIC_BASE_URL || "https://reader-dev.example.test",
   shareTokenKey,
 });
 
