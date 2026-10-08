@@ -5,7 +5,7 @@ import { isContentHash, type Manifest, type SyncState } from "@waypoint/core";
 import { z, ZodError } from "zod";
 
 import type { BlobStore } from "./blob-store.ts";
-import { Bucket, BucketError } from "./bucket.ts";
+import { type Bucket, BucketError } from "./bucket.ts";
 import { type Db } from "./db.ts";
 import type { Committer, IngestService } from "./ingest.ts";
 import { SyncLoop } from "./sync-loop.ts";

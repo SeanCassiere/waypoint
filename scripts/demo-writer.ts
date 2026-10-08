@@ -1,7 +1,8 @@
 // A fully local writer for UI work: an in-memory bucket, a no-op cloud sync, and realistic
 // seeded content (several collections, histories with a fork, a failed and an uploading
 // revision, share links in every state, images, a binary file, an HTML plan, and Trash).
-// Usage: pnpm build && node scripts/demo-writer.ts [port] [data-dir]
+// Usage: pnpm build && pnpm demo [port] [data-dir] (tsx runs the writer from source; the build
+// provides the viewer assets).
 // It never touches Turso, R2, or ~/.config/waypoint.
 import { createHash } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -11,21 +12,21 @@ import { deflateSync } from "node:zlib";
 
 import { serve } from "@hono/node-server";
 
-import { BlobStore } from "../apps/writer/dist/blob-store.js";
-import { MemoryBucket } from "../apps/writer/dist/bucket.js";
-import { WriterCommitter } from "../apps/writer/dist/committer.js";
-import { openDatabases, type SyncClient } from "../apps/writer/dist/db.js";
-import { createApp } from "../apps/writer/dist/http.js";
-import { IngestService } from "../apps/writer/dist/ingest.js";
+import { BlobStore } from "../apps/writer/src/blob-store.ts";
+import { MemoryBucket } from "../apps/writer/src/bucket.ts";
+import { WriterCommitter } from "../apps/writer/src/committer.ts";
+import { openDatabases, type SyncClient } from "../apps/writer/src/db.ts";
+import { createApp } from "../apps/writer/src/http.ts";
+import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
   queueMigrations,
   waypointMigrations,
-} from "../apps/writer/dist/migrations.js";
-import { ReadModel } from "../apps/writer/dist/read-model.js";
-import { writerRenderer } from "../apps/writer/dist/renderer.js";
-import { SyncLoop } from "../apps/writer/dist/sync-loop.js";
+} from "../apps/writer/src/migrations.ts";
+import { ReadModel } from "../apps/writer/src/read-model.ts";
+import { writerRenderer } from "../apps/writer/src/renderer.ts";
+import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 
 const port = Number(process.argv[2] ?? 7421);
 const dir = process.argv[3] ?? (await mkdtemp(join(tmpdir(), "waypoint-demo-")));

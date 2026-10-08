@@ -1,16 +1,19 @@
 {
+  // TypeScript only type-checks: tsdown, esbuild and Wrangler emit everything. Workspace packages
+  // resolve to their TypeScript source through the `@waypoint/source` export condition, so type
+  // checking never needs a build, and relative imports name the real `.ts` file, so Node 24 can
+  // run the source directly (worker threads and scripts started from source).
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "customConditions": ["@waypoint/source"],
     "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "sourceMap": true,
-    "composite": true
+    "skipLibCheck": true
   }
 }

@@ -3,7 +3,21 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": ["$TURBO_EXTENDS$", "viewer.build.ts"]
+      "dependsOn": ["$TURBO_EXTENDS$", "build:viewer"],
+      "outputs": ["dist/**", "!dist/viewer/**"]
+    },
+    // The viewer's browser assets (dist/viewer/). The writer's tests serve them too, so this
+    // reads workspace packages from source and needs no library build.
+    "build:viewer": {
+      "dependsOn": ["transit"],
+      "inputs": ["src/**", "viewer.build.ts", "package.json"],
+      "outputs": ["dist/viewer/**"]
+    },
+    "test": {
+      "dependsOn": ["$TURBO_EXTENDS$", "build:viewer"]
+    },
+    "test:timing": {
+      "dependsOn": ["$TURBO_EXTENDS$", "build:viewer"]
     }
   }
 }

@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { parseShareTokenKey } from "@waypoint/core";
+
+import { checkoutPath } from "./layout.ts";
 
 export interface Config {
   environment: "dev" | "prod";
@@ -139,24 +140,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? resolve(env.WAYPOINT_MCP_TARBALL)
       : existsSync("/app/static/waypoint-mcp.tgz")
         ? "/app/static/waypoint-mcp.tgz"
-        : fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url)),
+        : checkoutPath("packages/mcp/dist/waypoint-mcp.tgz"),
     mcpLauncherPath: env.WAYPOINT_MCP_LAUNCHER
       ? resolve(env.WAYPOINT_MCP_LAUNCHER)
       : existsSync("/app/static/launcher.mjs")
         ? "/app/static/launcher.mjs"
-        : fileURLToPath(new URL("../../../packages/mcp/dist/launcher.mjs", import.meta.url)),
+        : checkoutPath("packages/mcp/dist/launcher.mjs"),
     mcpServerPath: env.WAYPOINT_MCP_SERVER
       ? resolve(env.WAYPOINT_MCP_SERVER)
       : existsSync("/app/static/waypoint-mcp-server.mjs")
         ? "/app/static/waypoint-mcp-server.mjs"
-        : fileURLToPath(
-            new URL("../../../packages/mcp/dist/waypoint-mcp-server.mjs", import.meta.url),
-          ),
+        : checkoutPath("packages/mcp/dist/waypoint-mcp-server.mjs"),
     mcpSkillPath: env.WAYPOINT_MCP_SKILL
       ? resolve(env.WAYPOINT_MCP_SKILL)
       : existsSync("/app/static/skills/waypoint/SKILL.md")
         ? "/app/static/skills/waypoint/SKILL.md"
-        : fileURLToPath(new URL("../../../skills/waypoint/SKILL.md", import.meta.url)),
+        : checkoutPath("skills/waypoint/SKILL.md"),
     ...cloud,
   };
 }

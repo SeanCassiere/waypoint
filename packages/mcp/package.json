@@ -3,22 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
   "scripts": {
-    "build": "tsc -b && node esbuild.config.ts && node scripts/bundle.ts",
-    "smoke": "node scripts/smoke.ts"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "@waypoint/core": "workspace:*",
-    "zod": "^4.6.5"
+    "build": "tsdown && node esbuild.config.ts && node scripts/bundle.ts",
+    "smoke": "node scripts/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tests/tsconfig.json",
+    "test": "vitest run --project unit"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@waypoint/core": "workspace:*",
+    "esbuild": "^0.28.2",
+    "tsdown": "catalog:",
+    "zod": "^4.6.5"
   }
 }

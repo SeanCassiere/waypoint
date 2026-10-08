@@ -96,7 +96,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--pap
 `;
 
 /** The public shell's complete stylesheet: Folio tokens plus the shell rules. */
-export const publicShellCss = tokensCss + shellCss;
+export const publicShellCss: string = tokensCss + shellCss;
 
 /**
  * The shell's only script, progressive enhancement over server-rendered links:

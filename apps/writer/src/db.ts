@@ -73,7 +73,10 @@ export class Db implements DbHandle {
   private busy = new Set<EngineStatement>();
   /** Called after each statement with its execution time (tests and diagnostics). */
   onStatement: ((sql: string, ms: number) => void) | undefined = undefined;
-  constructor(readonly engine: Engine) {}
+  readonly engine: Engine;
+  constructor(engine: Engine) {
+    this.engine = engine;
+  }
   connectionOperation<T>(fn: () => Promise<T>): Promise<T> {
     const task = this.chain.then(fn);
     this.chain = task.catch(() => undefined);

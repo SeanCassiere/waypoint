@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { fileURLToPath } from "node:url";
 
 import {
   isContentHash,
@@ -38,6 +37,7 @@ import {
 import { compression } from "./compression.ts";
 import { inSeries, type Db, type DbHandle } from "./db.ts";
 import { IngestService } from "./ingest.ts";
+import { checkoutPath } from "./layout.ts";
 import { parseMultipart } from "./multipart.ts";
 import { ReadModel } from "./read-model.ts";
 import {
@@ -197,21 +197,13 @@ export function createApp(s: HttpServices): Hono {
     { collection_id: string; after: string; since: number; client: string | null }
   >();
   let watcherSeq = 0;
-  const tarballPath =
-    s.mcpTarballPath ??
-    fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp.tgz", import.meta.url));
+  const tarballPath = s.mcpTarballPath ?? checkoutPath("packages/mcp/dist/waypoint-mcp.tgz");
   const tarball = artifact(tarballPath);
-  const launcher = artifact(
-    s.mcpLauncherPath ??
-      fileURLToPath(new URL("../../../packages/mcp/dist/launcher.mjs", import.meta.url)),
-  );
+  const launcher = artifact(s.mcpLauncherPath ?? checkoutPath("packages/mcp/dist/launcher.mjs"));
   const serverBundle = artifact(
-    s.mcpServerPath ??
-      fileURLToPath(new URL("../../../packages/mcp/dist/waypoint-mcp-server.mjs", import.meta.url)),
+    s.mcpServerPath ?? checkoutPath("packages/mcp/dist/waypoint-mcp-server.mjs"),
   );
-  const skill = artifact(
-    s.mcpSkillPath ?? fileURLToPath(new URL("../../../skills/waypoint/SKILL.md", import.meta.url)),
-  );
+  const skill = artifact(s.mcpSkillPath ?? checkoutPath("skills/waypoint/SKILL.md"));
   const downloads = new Map<string, Promise<void>>();
   async function ensureBlob(hash: string): Promise<void> {
     if (await s.blobs.has(hash)) return;

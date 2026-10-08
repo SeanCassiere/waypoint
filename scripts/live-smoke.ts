@@ -1,12 +1,12 @@
-// Run after `pnpm build`: node scripts/live-smoke.ts /path/to/dev.env
+// Usage: pnpm live-smoke /path/to/dev.env (tsx runs the writer modules from source).
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-import { R2Bucket } from "../apps/writer/dist/bucket.js";
-import { loadConfig } from "../apps/writer/dist/config.js";
+import { R2Bucket } from "../apps/writer/src/bucket.ts";
+import { loadConfig } from "../apps/writer/src/config.ts";
 
 const envPath = process.argv[2];
-if (!envPath) throw new Error("Usage: node scripts/live-smoke.ts /path/to/dev.env");
+if (!envPath) throw new Error("Usage: pnpm live-smoke /path/to/dev.env");
 const env: NodeJS.ProcessEnv = {};
 for (const line of (await readFile(envPath, "utf8")).split(/\r?\n/)) {
   const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());

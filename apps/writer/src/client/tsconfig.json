@@ -1,0 +1,11 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  // The viewer's browser code, bundled by viewer.build.ts.
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2024", "DOM"],
+    "types": []
+  },
+  "include": ["."]
+}

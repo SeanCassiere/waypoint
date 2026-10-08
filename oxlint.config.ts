@@ -9,7 +9,7 @@ export default defineConfig({
     "**/coverage/**",
     "**/.tools/**",
     "**/node_modules/**",
-    "tests/fixtures/core-denied-import/**",
+    "packages/core/tests/fixtures/core-denied-import/**",
   ],
   rules: {
     "typescript/no-floating-promises": "error",
@@ -28,13 +28,13 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ["packages/core/**", "packages/ui/**", "apps/reader/**"],
+      files: ["packages/core/src/**", "packages/ui/src/**", "apps/reader/src/**"],
       rules: { "import/no-nodejs-modules": "error" },
     },
     {
-      files: ["tests/**"],
+      files: ["tests/**", "*/*/tests/**"],
       rules: { "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "code"] }] },
     },
-    { files: ["tests/fixtures/**"], rules: { "import/no-unassigned-import": "off" } },
+    { files: ["packages/core/tests/fixtures/**"], rules: { "import/no-unassigned-import": "off" } },
   ],
 });

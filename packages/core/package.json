@@ -6,14 +6,20 @@
   "sideEffects": false,
   "exports": {
     ".": {
+      "@waypoint/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tests/tsconfig.json",
+    "test": "vitest run --project unit"
   },
   "dependencies": {
     "typeid-js": "^1.2.0"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:"
   }
 }

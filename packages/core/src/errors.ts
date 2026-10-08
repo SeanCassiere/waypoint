@@ -54,13 +54,13 @@ export const ERROR_STATUS: Record<WaypointErrorCode, number> = {
 };
 
 export class WaypointError extends Error {
+  readonly code: WaypointErrorCode;
+  readonly details: Record<string, unknown>;
   readonly httpStatus: number;
-  constructor(
-    readonly code: WaypointErrorCode,
-    message: string,
-    readonly details: Record<string, unknown> = {},
-  ) {
+  constructor(code: WaypointErrorCode, message: string, details: Record<string, unknown> = {}) {
     super(message);
+    this.code = code;
+    this.details = details;
     this.name = "WaypointError";
     this.httpStatus = ERROR_STATUS[code];
   }

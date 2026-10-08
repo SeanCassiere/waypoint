@@ -1,17 +1,8 @@
 import { build } from "esbuild";
 
-await build({
-  entryPoints: ["src/cli.ts"],
-  outfile: "dist/waypoint-mcp-server.mjs",
-  bundle: true,
-  platform: "node",
-  target: "node24",
-  format: "esm",
-  packages: "bundle",
-  minify: true,
-  external: ["node:*"],
-});
-
+// The launcher stays on esbuild, unchanged: npx caches it indefinitely, so it must stay
+// backward-compatible. The server bundle is built by tsdown (tsdown.config.ts), which runs first
+// and cleans dist/.
 await build({
   entryPoints: ["src/launcher.ts"],
   outfile: "dist/launcher.mjs",

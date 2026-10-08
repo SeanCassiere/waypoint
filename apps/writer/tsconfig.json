@@ -1,24 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
+  // The server. The browser code in src/client has a tsconfig.json of its own.
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "lib": ["ES2023"],
+    "lib": ["ES2024"],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "types": ["node"]
   },
   "include": ["src"],
-  "exclude": ["src/viewer-client.browser.ts", "src/viewer-pages.browser.ts", "src/client"],
-  "references": [
-    {
-      "path": "../../packages/core"
-    },
-    {
-      "path": "../../packages/render"
-    },
-    {
-      "path": "../../packages/ui"
-    }
-  ]
+  "exclude": ["src/client"]
 }

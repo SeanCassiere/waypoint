@@ -1,11 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
+  // The library source. isolatedDeclarations lets tsdown generate the .d.ts with oxc, and
+  // erasableSyntaxOnly keeps the source runnable by Node (worker threads started from source).
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "lib": ["ES2023"],
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "erasableSyntaxOnly": true,
+    "lib": ["ES2024"],
     "types": ["node"]
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }]
+  "include": ["src"]
 }

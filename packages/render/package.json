@@ -5,12 +5,19 @@
   "type": "module",
   "exports": {
     ".": {
+      "@waypoint/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./render-worker": {
+      "@waypoint/source": "./src/render-worker.ts",
+      "default": "./dist/render-worker.js"
     }
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tests/tsconfig.json",
+    "test": "vitest run --project unit"
   },
   "dependencies": {
     "@shikijs/core": "4.5.0",
@@ -28,6 +35,8 @@
     "unified": "11.0.5"
   },
   "devDependencies": {
-    "@types/hast": "3.0.5"
+    "@types/hast": "3.0.5",
+    "@types/mdast": "4.0.4",
+    "tsdown": "catalog:"
   }
 }
