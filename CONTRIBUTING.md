@@ -74,7 +74,10 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
     start inlining another npm package, add it there and run `pnpm notices`: the MCP build fails
     on a package that isn't listed, a test (`tests/inlined-packages.test.ts`) fails when the
     reader's list doesn't match its bundle, and CI's `pnpm notices:check` fails when the notices
-    are out of date.
+    are out of date. It also fails when one of the writer's production dependencies (which the
+    writer image installs as they are) ships no license file: add its license text from its
+    source repository to `scripts/license-texts/`, and the package to `missingLicenseFiles` in
+    `scripts/third-party-notices.ts`.
   - **What ships is a `dependency`, tooling a `devDependency`.** A package the writer or the
     reader runs, or the MCP server bundle inlines, goes in `dependencies` (the MCP bundle's
     `tsdown.config.ts` bundles them all, and its build fails if one is left as an import).

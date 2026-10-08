@@ -1,5 +1,7 @@
-// Writes THIRD_PARTY_NOTICES.md: the third-party packages each distributed artifact inlines, with
-// every package's full license text, read from the installed package. Run it after `pnpm install`:
+// Writes THIRD_PARTY_NOTICES.md: the third-party packages each distributed artifact inlines, and
+// the writer image's npm dependencies that ship no license file of their own, with every package's
+// full license text, read from the installed package (or, for a package that ships none, kept in
+// scripts/license-texts/ from its source repository). Run it after `pnpm install`:
 //
 //   pnpm notices          rewrite THIRD_PARTY_NOTICES.md
 //   pnpm notices:check    fail if it's out of date (CI's lint job)
@@ -70,33 +72,60 @@ const bundles: Bundle[] = [
   },
 ];
 
-// Packages whose npm tarball has no license file: the text from their source repository.
-const missingLicenseFiles: Record<string, { source: string; text: string }> = {
-  "@tursodatabase/serverless": {
-    source: "LICENSE.md of https://github.com/tursodatabase/turso (the package's repository)",
-    text: `MIT License
-
-Copyright 2024 the Turso authors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-`,
-  },
+// Packages whose npm tarball has no license file: the license text from their source repository,
+// kept in scripts/license-texts/. The writer image's dependencies are checked for this too (see
+// `writerImage` below), not only the bundles' inlined packages.
+interface MissingLicenseFile {
+  /** The SPDX id, checked against the package's manifest where it's installed. */
+  license: string;
+  /** Where the text comes from. */
+  source: string;
+  /** The file in scripts/license-texts/. */
+  file: string;
+}
+const awsSdk: MissingLicenseFile = {
+  license: "Apache-2.0",
+  source: "`LICENSE` of https://github.com/aws/aws-sdk-js-v3",
+  file: "aws-sdk-js-v3.LICENSE.txt",
 };
+const turso: MissingLicenseFile = {
+  license: "MIT",
+  source: "`LICENSE.md` of https://github.com/tursodatabase/turso",
+  file: "turso.LICENSE.md.txt",
+};
+const missingLicenseFiles = new Map<string, MissingLicenseFile>(
+  Object.entries({
+    "@aws-sdk/credential-provider-http": awsSdk,
+    "@aws-sdk/credential-provider-login": awsSdk,
+    "@aws-sdk/nested-clients": awsSdk,
+    "@tursodatabase/database": turso,
+    "@tursodatabase/database-common": turso,
+    // The native builds: the image installs the one for its architecture (linux/amd64, linux/arm64).
+    "@tursodatabase/database-linux-arm64-gnu": turso,
+    "@tursodatabase/database-linux-x64-gnu": turso,
+    "@tursodatabase/serverless": turso,
+    "@tursodatabase/sync": turso,
+    "@tursodatabase/sync-common": turso,
+    "@tursodatabase/sync-linux-arm64-gnu": turso,
+    "@tursodatabase/sync-linux-x64-gnu": turso,
+    // Its manifest has the old `licenses: [{ type: "MIT" }]` form, and format.js only a header.
+    format: {
+      license: "MIT",
+      source: "`License.md` of https://github.com/samsonjs/format",
+      file: "format.License.md.txt",
+    },
+  }),
+);
+
+// Optional (platform-specific) writer dependencies the image never installs: it runs on Debian
+// (glibc) Linux, amd64 or arm64. Any other optional dependency that isn't installed here must be
+// listed here or in missingLicenseFiles, so a checkout on one platform still vouches for the other.
+const notInImage = new Set([
+  "@tursodatabase/database-darwin-arm64",
+  "@tursodatabase/database-win32-x64-msvc",
+  "@tursodatabase/sync-darwin-arm64",
+  "@tursodatabase/sync-win32-x64-msvc",
+]);
 
 // Anything else (copyleft, unknown, custom) needs a decision before it ships.
 const permissive = new Set(["MIT", "ISC", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "Apache-2.0"]);
@@ -128,15 +157,51 @@ interface Resolved {
   /** Where the texts come from, for the reader of the notices. */
   source: string;
   texts: string[];
+  /** The scripts/license-texts/ file the text is from, when the package ships no license file. */
+  fallback?: string;
+}
+
+type Manifest = Record<string, unknown>;
+
+async function manifestOf(dir: string): Promise<Manifest> {
+  const value: unknown = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error(`${relative(root, dir)}/package.json isn't an object`);
+  return Object.fromEntries(Object.entries(value));
+}
+
+/** The manifest's license: `license`, or the old `licenses: [{ type }]` form with one entry. */
+function declaredLicense(manifest: Manifest): string {
+  if (typeof manifest.license === "string") return manifest.license;
+  const list: unknown = manifest.licenses;
+  if (!Array.isArray(list) || list.length !== 1) return "";
+  const entry: unknown = list[0];
+  return typeof entry === "object" &&
+    entry !== null &&
+    "type" in entry &&
+    typeof entry.type === "string"
+    ? entry.type
+    : "";
+}
+
+/** The names in a manifest's dependency map (`dependencies`, `optionalDependencies`, ...). */
+function depNames(map: unknown): string[] {
+  return typeof map === "object" && map !== null ? Object.keys(map) : [];
+}
+
+async function fromFallback(name: string, fallback: MissingLicenseFile): Promise<Resolved> {
+  const text = await readFile(join(root, "scripts", "license-texts", fallback.file), "utf8");
+  return {
+    name,
+    license: fallback.license,
+    source: `${fallback.source}, the package's repository (the npm package ships no license file)`,
+    texts: [text],
+    fallback: fallback.file,
+  };
 }
 
 async function licenseOf(name: string, dir: string): Promise<Resolved> {
-  const manifest: unknown = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
-  const field =
-    typeof manifest === "object" && manifest !== null && "license" in manifest
-      ? manifest.license
-      : undefined;
-  const license = typeof field === "string" ? field : "";
+  const license = declaredLicense(await manifestOf(dir));
   if (!permissive.has(license))
     throw new Error(`${name}: license ${JSON.stringify(license)} isn't on the permissive list`);
   // The license, then (Apache-2.0, section 4(d)) any NOTICE file.
@@ -146,12 +211,20 @@ async function licenseOf(name: string, dir: string): Promise<Resolved> {
       (a, b) => Number(/^notice/i.test(a)) - Number(/^notice/i.test(b)) || a.localeCompare(b),
     );
   if (files.length === 0) {
-    const fallback = missingLicenseFiles[name];
-    if (!fallback) throw new Error(`${name} ships no license file; add its text to this script`);
-    return { name, license, source: fallback.source, texts: [fallback.text] };
+    const fallback = missingLicenseFiles.get(name);
+    if (!fallback)
+      throw new Error(
+        `${name} (${relative(root, dir)}) ships no license file: add the license text from its source repository to scripts/license-texts/, and the package to missingLicenseFiles in this script`,
+      );
+    if (fallback.license !== license)
+      throw new Error(
+        `${name}: its manifest says ${JSON.stringify(license)}, missingLicenseFiles says ${fallback.license}`,
+      );
+    return fromFallback(name, fallback);
   }
   const texts = await Promise.all(files.map((f) => readFile(join(dir, f), "utf8")));
-  return { name, license, source: files.map((f) => `\`${f}\``).join(" and "), texts };
+  const source = `the package's ${files.map((f) => `\`${f}\``).join(" and ")}`;
+  return { name, license, source, texts };
 }
 
 async function resolveBundle(bundle: Bundle): Promise<Resolved[]> {
@@ -174,6 +247,55 @@ async function resolveBundle(bundle: Bundle): Promise<Resolved[]> {
   return resolved;
 }
 
+/**
+ * The writer image's npm dependencies that ship no license file. Walks the writer's installed
+ * production dependency tree (what `pnpm deploy --prod` puts in the image's node_modules/), and
+ * fails on a package whose license isn't permissive, or that ships no license file and isn't in
+ * missingLicenseFiles. An optional dependency that isn't installed on this platform must be in
+ * missingLicenseFiles (the image may install it) or notInImage (it never does).
+ */
+async function writerImage(): Promise<Resolved[]> {
+  const seen = new Set<string>();
+  const without = new Map<string, Resolved>();
+  const walk = async (dir: string): Promise<void> => {
+    const manifest = await manifestOf(dir);
+    const deps = [
+      ...depNames(manifest.dependencies).map((name) => ({ name, kind: "required" })),
+      ...depNames(manifest.optionalDependencies).map((name) => ({ name, kind: "optional" })),
+      // A peer (optional or not) ships when it's installed, which is when something depends on it.
+      ...depNames(manifest.peerDependencies).map((name) => ({ name, kind: "peer" })),
+    ];
+    const visit = async ({ name, kind }: { name: string; kind: string }): Promise<void> => {
+      if (notInImage.has(name)) return;
+      const child = await resolvePackage(name, dir).catch((error: unknown) => {
+        if (kind === "required") throw error;
+        return undefined;
+      });
+      if (child === undefined) {
+        // An optional dependency for another platform may still ship, on the image's other
+        // architecture: it needs an entry, checked against its npm package.
+        if (kind === "peer") return;
+        const fallback = missingLicenseFiles.get(name);
+        if (!fallback)
+          throw new Error(
+            `${name}, an optional dependency of ${String(manifest.name)}, isn't installed on this platform: add it to notInImage in this script if the writer image (glibc Linux, amd64 or arm64) never installs it, or else check its npm package: add it to missingLicenseFiles if it ships no license file (if it ships one, nothing here can read it: extend this check)`,
+          );
+        without.set(name, await fromFallback(name, fallback));
+        return;
+      }
+      // Claimed before the first await below, so a package two dependents share is read once.
+      if (seen.has(child)) return;
+      seen.add(child);
+      const resolved = await licenseOf(name, child);
+      if (resolved.fallback) without.set(name, resolved);
+      await walk(child);
+    };
+    await Promise.all(deps.map(visit));
+  };
+  await walk(join(root, "apps", "writer"));
+  return [...without.values()].toSorted((a, b) => a.name.localeCompare(b.name));
+}
+
 function fence(text: string): string {
   let ticks = "```";
   while (text.includes(ticks)) ticks += "`";
@@ -190,28 +312,37 @@ function anchor(name: string): string {
 async function render(): Promise<string> {
   const lines: string[] = [];
   const all = new Map<string, Resolved>();
-  lines.push(
-    "# Third-party notices",
-    "",
-    "<!-- Generated by scripts/third-party-notices.ts from the installed packages; don't edit it by hand. `pnpm notices` rewrites it, and CI fails when it's out of date (`pnpm notices:check`). -->",
-    "",
-    "Waypoint is MIT-licensed ([LICENSE](LICENSE)). Some of what it distributes contains third-party code, all under permissive licenses. No copyleft (GPL, LGPL, AGPL) or unlicensed package is shipped. Each package's full license text, as it ships in the package, is under [Licenses](#licenses).",
-    "",
-    "This file and [LICENSE](LICENSE) ship in the writer image (`/app/`), in each release bundle and in the MCP launcher package, and head the MCP server bundle as a comment.",
-    "",
-    "## What ships where",
-    "",
-    "- **The writer image** (`ghcr.io/seancassiere/waypoint-writer`) installs the writer's production npm dependencies unmodified in `node_modules/`, each with its own license file. Only Waypoint's own packages (`@waypoint/*`) are inlined into the writer bundle. The image's base layers are the official `node` Debian image, under its own licenses. It also serves the MCP server bundle and launcher package below.",
-  );
-  for (const bundle of bundles) {
-    const resolved = await resolveBundle(bundle);
-    lines.push(`- ${bundle.title}`, "", "  | Package | License |", "  | --- | --- |");
+  const table = (resolved: Resolved[]): void => {
+    lines.push("", "  | Package | License |", "  | --- | --- |");
     for (const r of resolved) {
       lines.push(`  | [\`${r.name}\`](#${anchor(r.name)}) | ${r.license} |`);
       all.set(r.name, r);
     }
     lines.push("");
+  };
+  lines.push(
+    "# Third-party notices",
+    "",
+    "<!-- Generated by scripts/third-party-notices.ts from the installed packages; don't edit it by hand. `pnpm notices` rewrites it, and CI fails when it's out of date (`pnpm notices:check`). -->",
+    "",
+    "Waypoint is MIT-licensed ([LICENSE](LICENSE)). Some of what it distributes contains third-party code, all under permissive licenses. No copyleft (GPL, LGPL, AGPL) or unlicensed package is shipped. Each package's full license text, as it ships in the package (or from its source repository, for a package that ships none), is under [Licenses](#licenses).",
+    "",
+    "This file and [LICENSE](LICENSE) ship in the writer image (`/app/`), in each release bundle and in the MCP launcher package, and head the MCP server bundle as a comment.",
+    "",
+    "## What ships where",
+    "",
+    "- **The writer image** (`ghcr.io/seancassiere/waypoint-writer`) installs the writer's production npm dependencies unmodified in `node_modules/`. Only Waypoint's own packages (`@waypoint/*`) are inlined into the writer bundle. The image's base layers are the official `node` Debian image, under its own licenses. It also serves the MCP server bundle and launcher package below. Each npm dependency carries its own license file, except these, whose npm packages ship none (the image installs the native `linux-x64-gnu` or `linux-arm64-gnu` build, by its architecture):",
+  );
+  table(await writerImage());
+  for (const bundle of bundles) {
+    lines.push(`- ${bundle.title}`);
+    table(await resolveBundle(bundle));
   }
+  const unused = [...missingLicenseFiles.keys()].filter((name) => !all.has(name));
+  if (unused.length > 0)
+    throw new Error(
+      `missingLicenseFiles lists packages that nothing ships: ${unused.join(", ")}; remove them`,
+    );
   lines.push(
     "## Checking it again",
     "",
@@ -221,12 +352,20 @@ async function render(): Promise<string> {
     "pnpm -r licenses list --prod    # the dependencies of the writer, the reader and the MCP bundles",
     "```",
     "",
-    "The packages each bundle inlines are listed in `scripts/inlined-packages.json`, and nothing ships that the list misses: the MCP server build fails when it would inline a package that isn't listed, and a test (`tests/inlined-packages.test.ts`) fails when the reader bundle's source map names packages other than the reader's list. When a bundle starts inlining another package, add it to the list (with `via`, the package it's a dependency of, if it isn't the bundle's own dependency) and run `pnpm notices`. A license that isn't permissive fails `pnpm notices` and needs a decision first.",
+    "The packages each bundle inlines are listed in `scripts/inlined-packages.json`, and nothing ships that the list misses: the MCP server build fails when it would inline a package that isn't listed, and a test (`tests/inlined-packages.test.ts`) fails when the reader bundle's source map names packages other than the reader's list. When a bundle starts inlining another package, add it to the list (with `via`, the package it's a dependency of, if it isn't the bundle's own dependency) and run `pnpm notices`. The writer image's npm dependencies are checked too: `pnpm notices` walks the writer's installed production dependency tree, and fails on a package that ships no license file unless `scripts/third-party-notices.ts` lists it, with its license text from its source repository in `scripts/license-texts/`. A license that isn't permissive fails `pnpm notices` and needs a decision first.",
     "",
     "## Licenses",
   );
+  // A text several packages share (one repository's license) is printed once.
+  const printed = new Map<string, string>();
   for (const r of all.values()) {
-    lines.push("", `### ${r.name}`, "", `${r.license}, from the package's ${r.source}.`);
+    lines.push("", `### ${r.name}`, "", `${r.license}, from ${r.source}.`);
+    const first = r.fallback === undefined ? undefined : printed.get(r.fallback);
+    if (first !== undefined) {
+      lines.push("", `The same text as [\`${first}\`](#${anchor(first)}).`);
+      continue;
+    }
+    if (r.fallback !== undefined) printed.set(r.fallback, r.name);
     for (const text of r.texts) lines.push("", fence(text));
   }
   return lines.join("\n") + "\n";
@@ -238,7 +377,7 @@ if (check) {
   const current = await readFile(output, "utf8").catch(() => "");
   if (current !== next) {
     console.error(
-      "THIRD_PARTY_NOTICES.md is out of date (an inlined package changed its license text, or scripts/inlined-packages.json changed): run `pnpm notices` and commit it.",
+      "THIRD_PARTY_NOTICES.md is out of date (a shipped package changed its license text, or scripts/inlined-packages.json changed): run `pnpm notices` and commit it.",
     );
     process.exit(1);
   }

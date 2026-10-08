@@ -40,7 +40,8 @@ COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/launcher.mjs /app/sta
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/waypoint-mcp-server.mjs /app/static/waypoint-mcp-server.mjs
 COPY --chown=1000:1000 skills/waypoint/SKILL.md /app/static/skills/waypoint/SKILL.md
 # Waypoint's license, and the notices (with full license texts) of the third-party code the MCP
-# bundles inline (the npm dependencies under node_modules/ carry their own).
+# bundles inline and of the npm dependencies under node_modules/ that ship no license file (the
+# rest carry their own).
 COPY --chown=1000:1000 LICENSE THIRD_PARTY_NOTICES.md /app/
 LABEL org.opencontainers.image.licenses="MIT"
 # The git commit the image is built from, reported on /healthz and /status. Optional: an image
