@@ -44,10 +44,12 @@ then run its `./upgrade.sh <version>`. From then on, `upgrade.sh` fetches and ve
 release itself, the image included (`VERIFY_ATTESTATIONS` in `instance.env`;
 [deploy/README.md](../deploy/README.md#release-provenance)).
 
-Until the first release is published, deploy from a git checkout instead: clone the repository and
-run `deploy/upgrade.sh current-checkout`, which builds the writer image locally (and, with reader
-targets, the reader; run `pnpm install --frozen-lockfile --filter @waypoint/reader...` first). The
-examples below use `deploy/upgrade.sh`; from a bundle it's `./upgrade.sh`.
+To deploy a commit that isn't a release (your own changes, or a fork), use a git checkout instead:
+clone the repository and run `deploy/upgrade.sh current-checkout`, which builds the writer image
+locally (and, with reader targets, the reader; run
+`pnpm install --frozen-lockfile --filter @waypoint/reader...` first). Nothing verifies such a build
+against a release attestation. The examples below use `deploy/upgrade.sh`; from a bundle it's
+`./upgrade.sh`.
 
 ## Tier 0: local-only
 
