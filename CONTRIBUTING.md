@@ -88,7 +88,8 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
   `docs`, `test`, `build`, `ci`, `chore`, `style`, `spike`. Scopes are free-form (`writer`,
   `reader`, `viewer`, `mcp`, `render`, `deploy`, `deps`, ...). A check enforces this.
 - PRs are **squash-merged**, so the title becomes the commit on `main` that release-please reads
-  to pick the next version and write the changelog. Write it for the changelog.
+  to pick the next version and write the changelog. Write it for the changelog. The commit body
+  stays blank, so nothing in the PR description reaches release-please.
 - CI must pass (the `ci-ok` check). Fork PRs run without the remote build cache, so they take a
   little longer.
 - **The review bar:** a change is merged when it's correct (including its failure and rollback

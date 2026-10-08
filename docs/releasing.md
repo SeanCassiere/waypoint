@@ -21,7 +21,11 @@ writer and the reader report on their health endpoints. Workspace packages aren'
 commits on `main` ([release-please-config.json](../release-please-config.json),
 [.release-please-manifest.json](../.release-please-manifest.json)):
 
-1. PRs are squash-merged, so the **PR title** is the commit release-please reads. The PR title check
+1. PRs are squash-merged, so the **PR title** is the commit release-please reads. The squash
+   commit's body is left blank (the repository's default squash message): release-please also
+   parses commit bodies for `BREAKING CHANGE:` and `Release-As:` footers, and a PR description, or
+   the upstream release notes a Dependabot PR quotes, must not change the version or the changelog
+   by accident. The PR title check
    ([.github/workflows/pr-title.yml](../.github/workflows/pr-title.yml)) requires
    `type(scope): subject`, with `!` after the type or scope for a breaking change. Types: `feat`,
    `fix`, `perf`, `refactor`, `revert`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `spike`.
@@ -53,7 +57,8 @@ Versioning before 1.0: a `feat` bumps the minor version, a `fix` the patch versi
 change the minor version (`bump-minor-pre-major`). The first release is **0.1.0**: the manifest
 starts at 0.0.0, no `v0.0.0` tag exists, so release-please treats it as a first release and uses
 `initial-version`, which it ignores once a release exists, so nothing needs removing afterwards. To
-force a version, put `Release-As: X.Y.Z` in a commit body on `main`.
+force a version, add a `Release-As: X.Y.Z` footer to the commit message in the squash-merge
+dialog of the PR you merge.
 
 ## What a release publishes
 
