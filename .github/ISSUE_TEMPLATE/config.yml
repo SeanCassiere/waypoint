@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/SeanCassiere/waypoint/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue. See SECURITY.md.
+  - name: Self-hosting guide
+    url: https://github.com/SeanCassiere/waypoint/blob/main/docs/self-hosting.md
+    about: Installing, upgrading and rolling back an instance.

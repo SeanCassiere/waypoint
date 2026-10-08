@@ -13,24 +13,24 @@ copyleft (GPL, LGPL, AGPL) or unlicensed package is shipped.
 - **The public reader Worker** (`apps/reader/dist/index.js`, and `reader/index.js` in each release
   bundle) inlines:
 
-  | Package | License | Copyright |
-  |---|---|---|
-  | `hono` | MIT | (c) 2021 - present, Yusuke Wada and Hono contributors |
-  | `@tursodatabase/serverless` | MIT | Turso (tursodatabase) |
-  | `aws4fetch` | MIT | 2018 Michael Hart |
+  | Package                     | License | Copyright                                             |
+  | --------------------------- | ------- | ----------------------------------------------------- |
+  | `hono`                      | MIT     | (c) 2021 - present, Yusuke Wada and Hono contributors |
+  | `@tursodatabase/serverless` | MIT     | Turso (tursodatabase)                                 |
+  | `aws4fetch`                 | MIT     | 2018 Michael Hart                                     |
 
 - **The MCP server bundle** (`/mcp/server.mjs` on a writer) and **the MCP launcher**
   (`/mcp/waypoint-mcp.tgz`) inline:
 
-  | Package | License | Copyright |
-  |---|---|---|
-  | `@modelcontextprotocol/sdk` | MIT | (c) 2024 Anthropic, PBC |
-  | `zod` | MIT | (c) 2025 Colin McDonnell |
-  | `zod-to-json-schema` | ISC | (c) 2020, Stefan Terdell |
-  | `ajv`, `ajv-formats`, `fast-deep-equal`, `json-schema-traverse` | MIT | (c) 2015-2021 Evgeny Poberezkin |
-  | `fast-uri` | BSD-3-Clause | (c) 2011-2021, Gary Court; Fastify contributors |
-  | `typeid-js` | Apache-2.0 | Jetify |
-  | `uuid` | MIT | (c) 2010-2020 Robert Kieffer and other contributors |
+  | Package                                                         | License      | Copyright                                           |
+  | --------------------------------------------------------------- | ------------ | --------------------------------------------------- |
+  | `@modelcontextprotocol/sdk`                                     | MIT          | (c) 2024 Anthropic, PBC                             |
+  | `zod`                                                           | MIT          | (c) 2025 Colin McDonnell                            |
+  | `zod-to-json-schema`                                            | ISC          | (c) 2020, Stefan Terdell                            |
+  | `ajv`, `ajv-formats`, `fast-deep-equal`, `json-schema-traverse` | MIT          | (c) 2015-2021 Evgeny Poberezkin                     |
+  | `fast-uri`                                                      | BSD-3-Clause | (c) 2011-2021, Gary Court; Fastify contributors     |
+  | `typeid-js`                                                     | Apache-2.0   | Jetify                                              |
+  | `uuid`                                                          | MIT          | (c) 2010-2020 Robert Kieffer and other contributors |
 
 Each package's full license text is in its published npm package. The permission notices of the
 MIT, ISC and BSD licenses, and the Apache License 2.0, apply to the copies inlined above.
