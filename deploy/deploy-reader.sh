@@ -58,7 +58,12 @@ rm -f "$temporary/secrets.json"
 rollback() {
   if [[ -n "$previous" ]]; then "$wrangler" rollback "$previous" --env "$environment" --yes; else echo 'No previous version was available for rollback' >&2; fi
 }
-if ! "$wrangler" deploy --env "$environment"; then
+# The commit rides along as a Worker variable (part of the version, so a rollback restores the
+# old one); the reader reports it in the X-Waypoint-Sha header on /healthz.
+deploy_args=(deploy --env "$environment")
+build_sha="$(git -C "$repo_root" rev-parse --verify HEAD 2>/dev/null || true)"
+if [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]]; then deploy_args+=(--var "WAYPOINT_BUILD_SHA:$build_sha"); fi
+if ! "$wrangler" "${deploy_args[@]}"; then
   echo "Reader deploy failed for $environment; rolling back" >&2
   rollback
   exit 1

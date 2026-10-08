@@ -29,13 +29,17 @@ RUN pnpm exec turbo run build --filter=@waypoint/writer --filter=@waypoint/mcp -
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
-# The base image's `node` user is uid/gid 1000, matching agent-1's owner of the bind-mounted data dir.
+# The base image's `node` user is uid/gid 1000, which must own the bind-mounted data dir.
 WORKDIR /app
 COPY --from=build --chown=1000:1000 /out/ ./
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/waypoint-mcp.tgz /app/static/waypoint-mcp.tgz
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/launcher.mjs /app/static/launcher.mjs
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/waypoint-mcp-server.mjs /app/static/waypoint-mcp-server.mjs
 COPY --chown=1000:1000 skills/waypoint/SKILL.md /app/static/skills/waypoint/SKILL.md
+# The git commit the image is built from, reported on /healthz and /status. Optional: an image
+# built without it reports `"sha": null`. Declared late, so a new commit reuses the build layers.
+ARG WAYPOINT_BUILD_SHA=""
+ENV WAYPOINT_BUILD_SHA=$WAYPOINT_BUILD_SHA
 ENV NODE_ENV=production WAYPOINT_MCP_TARBALL=/app/static/waypoint-mcp.tgz WAYPOINT_MCP_LAUNCHER=/app/static/launcher.mjs WAYPOINT_MCP_SERVER=/app/static/waypoint-mcp-server.mjs WAYPOINT_MCP_SKILL=/app/static/skills/waypoint/SKILL.md
 USER 1000:1000
 EXPOSE 7410
