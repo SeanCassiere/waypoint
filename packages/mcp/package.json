@@ -2,6 +2,7 @@
   "name": "@waypoint/mcp",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "tsdown && node esbuild.config.ts && node scripts/bundle.ts",
@@ -9,11 +10,13 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tests/tsconfig.json",
     "test": "vitest run --project unit"
   },
-  "devDependencies": {
+  "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@waypoint/core": "workspace:*",
-    "esbuild": "^0.28.2",
-    "tsdown": "catalog:",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "tsdown": "catalog:"
   }
 }

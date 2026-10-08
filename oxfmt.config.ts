@@ -10,6 +10,8 @@ export default defineConfig({
     "pnpm-lock.yaml",
     "docs/**",
     "README.md",
+    // Written by scripts/third-party-notices.ts.
+    "THIRD_PARTY_NOTICES.md",
     // Written by release-please, in its own style.
     "CHANGELOG.md",
   ],

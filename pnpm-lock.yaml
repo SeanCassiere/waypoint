@@ -173,22 +173,23 @@ importers:
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)
 
   packages/mcp:
-    devDependencies:
+    dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(supports-color@10.2.2)(zod@4.6.5)
       '@waypoint/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
       tsdown:
         specifier: 'catalog:'
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)
-      zod:
-        specifier: ^4.6.5
-        version: 4.6.5
 
   packages/render:
     dependencies:

@@ -5,20 +5,20 @@ These are the canonical terms. Code, API fields, and the other docs use them exa
 ## The system
 
 **Waypoint**
-A private store for the artifacts agents produce: plans, screenshots, research docs, run output. Agents write to it over MCP or HTTP. Anything stored in it can be viewed at a stable URL from any machine on the tailnet. A collection can be shared outside the tailnet with a link. Technically, Waypoint is the writer(s), the reader, the cloud DB, and the bucket.
+A self-hosted, private store for the artifacts agents produce: plans, screenshots, research docs, run output. Agents write to it over MCP or HTTP. Anything stored in it can be viewed at a stable URL from any machine on the tailnet. A collection can be shared outside the tailnet with a link. Technically, a Waypoint **instance** is the writer(s), the reader, the cloud DB, and the bucket, the last three optional.
 "Waypoint" names the product only. There is no entity called "a waypoint": the thing you create, view, and share is a [collection](#content).
 
 **Tailnet**
-The user's private Tailscale network (agent-1, the MacBook Air, and so on). Everything on the tailnet is **trusted**. See [trust-model.md](trust-model.md).
+The owner's private Tailscale network: their machines and the agents running on them. Everything on the tailnet is **trusted**. An instance without Tailscale has the writer host's loopback as its private network instead, with the same trust. See [trust-model.md](trust-model.md).
 
 **Writer**
-A Waypoint instance running on the tailnet in *write mode*. It accepts writes from agents, renders content, serves the viewer, keeps a local replica of the database, and syncs to the cloud. Writers have no auth: being on the tailnet is the credential. There is one writer today (on agent-1), and the design allows several.
+A Waypoint instance running on the tailnet in *write mode*. It accepts writes from agents, renders content, serves the viewer, keeps a local replica of the database, and syncs to the cloud. Writers have no auth: being on the tailnet is the credential. An instance runs one writer today, and the design allows several.
 
 **Reader**
-The Waypoint instance on Cloudflare Workers at `waypoint.pingstash.com` (dev: `waypoint-dev.pingstash.com`), running in *read mode*. It faces the public internet, is read-only forever, and serves only what a [share link](#access) permits.
+An instance's Cloudflare Worker on its own public domain (one per environment), running in *read mode*. It's optional. It faces the public internet, is read-only forever, and serves only what a [share link](#access) permits.
 
 **Viewer**
-The writer's web UI ("Folio"; spec in the "Waypoint UI redesign" collection). Server-rendered pages: **Recent** (home, with Needs attention and search), the **collection shell** (top bar, a Files / History / Links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
+The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home, with Needs attention and search), the **collection shell** (top bar, a Files / History / Links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
 
 **Links**
 The viewer's share-link management: the **Links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all) and the global **Public links** page (`/links`, filtered by Active, Expired and Revoked).
@@ -33,7 +33,7 @@ The part of the viewer that lists soft-deleted (tombstoned) collections and lets
 The Turso database that holds every collection's metadata rows. It is the durable source of truth for rows.
 
 **Bucket**
-The private Cloudflare R2 bucket. It holds every blob, plus DR manifests and collection snapshots. It is the durable source of truth for file contents. It is never publicly listable or readable directly.
+The private Cloudflare R2 bucket (or another S3-compatible one). It holds every blob, plus DR manifests and collection snapshots. It is the durable source of truth for file contents. It is never publicly listable or readable directly.
 
 **Environment**
 `dev` or `prod`. Each environment has its own cloud DB, bucket, and writer data directory.
@@ -161,7 +161,7 @@ Rebuilding state from durable storage. A new writer bootstraps from the cloud DB
 A database row granting the public reader access to one collection. It either follows the latest revision or pins one revision. It can be revoked and can expire. Share links are created only from the tailnet. They are the first and simplest kind of grant.
 
 **Share token**
-The secret inside a share link's URL: `wps_` plus 32 random bytes in base64url, as in `https://waypoint.pingstash.com/s/<token>/c/<public id>/`. Only its hash is stored.
+The secret inside a share link's URL: `wps_` plus 32 bytes in base64url, derived from the link's ID with the writer's share token key (D50), as in `https://share.example.com/s/<token>/c/<public id>/`. Only its hash is stored.
 
 **Capability URL**
 A URL whose secret part is the whole credential: anyone holding it has access until it's revoked or expires. Share links are capability URLs.

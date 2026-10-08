@@ -2,6 +2,7 @@
   "name": "@waypoint/reader",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "wrangler deploy --dry-run --outdir dist",

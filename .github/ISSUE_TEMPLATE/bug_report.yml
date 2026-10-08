@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in Waypoint doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Security vulnerabilities go through private reporting instead**
+        (Security → Report a vulnerability; see SECURITY.md), never a public issue.
+
+        Don't paste secrets, share URLs or the contents of env files: redact them.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Writer (API, sync, queue)
+        - Viewer (the writer's web UI)
+        - Public reader (Cloudflare Worker, share links)
+        - MCP server or launcher
+        - Markdown rendering
+        - Deploying (upgrade.sh, Compose, release bundle)
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release (`/healthz` or `/status` on the writer reports it), or the commit if you run from a checkout.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Setup
+      description: Which tiers of docs/self-hosting.md the instance uses.
+      multiple: true
+      options:
+        - Local-only (WAYPOINT_SYNC=off)
+        - Tailscale
+        - Cloud sync (Turso + R2)
+        - Cloud sync (Turso + another S3-compatible store)
+        - Public reader
+        - Running from a checkout (development)
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and output
+      description: For example `upgrade.sh compose logs --tail=100 writer`, the `upgrade.sh` output, or the MCP server's stderr. Redact anything secret.
+      render: text

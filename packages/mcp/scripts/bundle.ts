@@ -13,12 +13,16 @@ await mkdir(`${stage}/bin`, { recursive: true });
 await copyFile("dist/waypoint-mcp-server.mjs", `${stage}/bin/waypoint-mcp-server.mjs`);
 await copyFile("dist/launcher.mjs", `${stage}/bin/launcher.mjs`);
 await chmod(`${stage}/bin/launcher.mjs`, 0o755);
+// Waypoint's license, and the notices of the third-party code the server bundle inlines.
+for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
+  await copyFile(`../../${file}`, `${stage}/${file}`);
 await writeFile(
   `${stage}/package.json`,
   JSON.stringify(
     {
       name: manifest.name,
       version: manifest.version,
+      license: "MIT",
       type: "module",
       engines: { node: ">=24" },
       bin: { "waypoint-mcp": "bin/launcher.mjs" },

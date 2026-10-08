@@ -37,8 +37,14 @@ jobs:
       - run: pnpm lint
       # Every shell script (deploy tooling, CI helpers). shellcheck comes with the runner image.
       - run: shellcheck -x deploy/*.sh deploy/lib/*.sh scripts/*.sh
-      # Deploy tooling must take the owner's instance values from instance.env, not the repo.
+      # No tracked file may name a particular instance (hosts, domains, machines, accounts): deploy
+      # tooling takes them from instance.env, docs use example values (scripts/check-owner-strings.sh).
       - run: bash scripts/check-owner-strings.sh
+      # THIRD_PARTY_NOTICES.md holds the license texts of the installed packages the bundles
+      # inline (scripts/third-party-notices.ts, from the list in scripts/inlined-packages.json); a
+      # dependency that changes its text fails here. A package a bundle inlines that the list
+      # misses fails the MCP build (tsdown's deps.onlyBundle) or tests/inlined-packages.test.ts.
+      - run: pnpm notices:check
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -53,8 +59,8 @@ jobs:
       - uses: ./.github/actions/setup
       - run: scripts/fetch-tursodb.sh
       # Each package's tests run from source. The integration tests (tests/) also check built
-      # artifacts, so turbo builds the writer and the MCP bundles first. Then the CPU-budget and
-      # timing tests, one package at a time (`pnpm test:timing`).
+      # artifacts, so turbo builds the writer, the MCP bundles and the reader first. Then the
+      # CPU-budget and timing tests, one package at a time (`pnpm test:timing`).
       - run: pnpm test
         env:
           TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb
@@ -87,12 +93,15 @@ jobs:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # With the build argument the release images get (release.yml), checked in the image.
+      # With the build argument the release images get (release.yml), checked in the image, as are
+      # the license and third-party notices the image ships (docs/decisions.md D57).
       - name: Build writer image
         run: |
           docker build -f apps/writer/Dockerfile --build-arg "WAYPOINT_BUILD_SHA=$GITHUB_SHA" -t waypoint-writer:ci .
           docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' waypoint-writer:ci \
             | grep -qx "WAYPOINT_BUILD_SHA=$GITHUB_SHA"
+          docker run --rm -i --entrypoint sh waypoint-writer:ci -c \
+            'cmp /app/LICENSE - && test -s /app/THIRD_PARTY_NOTICES.md' < LICENSE
   # The adopter install path, for real: deploy/upgrade.sh installs the writer from the merge base's
   # image, upgrades to this commit (current-checkout), rolls back and forward again against the
   # same data directory, rolls back a broken image and an interrupted deploy, keeps the last

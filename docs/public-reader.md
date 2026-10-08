@@ -1,8 +1,8 @@
 # Public reader
 
-The reader is a Cloudflare Worker on **`waypoint.pingstash.com`** that serves shared collections to people outside the tailnet. It is **read-only forever**. There is no upload, edit, or delete path, and no admin UI.
+The reader is a Cloudflare Worker on the instance's own public domain (for example `share.example.com`) that serves shared collections to people outside the tailnet. It is **read-only forever**. There is no upload, edit, or delete path, and no admin UI.
 
-It is live: `waypoint-reader` serves prod at `waypoint.pingstash.com`, and `waypoint-reader-dev` serves the dev environment at `waypoint-dev.pingstash.com`. Both deploy automatically after the writer ([infrastructure.md](infrastructure.md#cloudflare-workers-p2)).
+It's optional ([self-hosting](self-hosting.md#tier-3-the-public-reader)). An instance has one reader per environment, each its own Worker on its own domain with that environment's read-only credentials (for example `waypoint-reader` on `share.example.com` for prod and `waypoint-reader-dev` on `share-dev.example.com` for dev). `upgrade.sh` deploys each one after the writer, smoke-tests it and rolls it back on failure ([deploy/README.md](../deploy/README.md#public-reader-workers); what each needs: [infrastructure.md](infrastructure.md#cloudflare-workers-public-reader)).
 
 ## Why Workers (not Railway)
 

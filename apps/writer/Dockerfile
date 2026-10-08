@@ -17,7 +17,10 @@ WORKDIR /src
 COPY --from=prune /pruned/json/ ./
 RUN pnpm install --frozen-lockfile
 COPY --from=prune /pruned/full/ ./
-COPY tsconfig.base.json .node-version ./
+# The MCP build puts LICENSE and THIRD_PARTY_NOTICES.md in the server bundle and launcher package,
+# and fails if the server bundle inlines a package scripts/inlined-packages.json doesn't list.
+COPY tsconfig.base.json .node-version LICENSE THIRD_PARTY_NOTICES.md ./
+COPY scripts/inlined-packages.json ./scripts/
 # Turborepo builds the writer, the MCP bundles and their workspace dependencies. The image is
 # always built from source: `--cache=local:,remote:` turns off both the local and the remote
 # cache, whatever TURBO_* variables or config the build environment has. `pnpm deploy` then
@@ -36,6 +39,11 @@ COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/waypoint-mcp.tgz /app
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/launcher.mjs /app/static/launcher.mjs
 COPY --from=build --chown=1000:1000 /src/packages/mcp/dist/waypoint-mcp-server.mjs /app/static/waypoint-mcp-server.mjs
 COPY --chown=1000:1000 skills/waypoint/SKILL.md /app/static/skills/waypoint/SKILL.md
+# Waypoint's license, and the notices (with full license texts) of the third-party code the MCP
+# bundles inline and of the npm dependencies under node_modules/ that ship no license file (the
+# rest carry their own).
+COPY --chown=1000:1000 LICENSE THIRD_PARTY_NOTICES.md /app/
+LABEL org.opencontainers.image.licenses="MIT"
 # The git commit the image is built from, reported on /healthz and /status. Optional: an image
 # built without it reports `"sha": null`. Declared late, so a new commit reuses the build layers.
 ARG WAYPOINT_BUILD_SHA=""

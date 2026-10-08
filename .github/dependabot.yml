@@ -1,0 +1,103 @@
+# Dependabot version updates: weekly, grouped, with few open PRs at a time. Its PRs come from
+# branches of this repository, so they run the full CI (`ci-ok`) and get the PR-title check;
+# commit messages use the `deps` scope so squash merges stay conventional commits.
+#
+# `cooldown` keeps Dependabot from proposing versions younger than a few days, like pnpm's
+# `minimumReleaseAge` (on by default in pnpm 11; pnpm-workspace.yaml lists the exceptions), which
+# would otherwise refuse to install them.
+#
+# Node majors are left alone (the base image's `node` and `@types/node`): moving to one is a
+# deliberate change that also updates .node-version, the `engines` fields and the docs, which say
+# Node 24. Patch and minor updates, and the image's digest, still come through.
+version: 2
+updates:
+  # The pnpm workspace: the root package.json, every workspace package and the catalog in
+  # pnpm-workspace.yaml, with pnpm-lock.yaml.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    cooldown:
+      default-days: 3
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      # Whatever ships is a `dependency`: what the writer image and the reader Worker run, and
+      # what the MCP server bundle inlines (packages/mcp/tsdown.config.ts bundles its
+      # dependencies). Its updates are a `fix`, which makes a release. Tooling updates are
+      # devDependencies and don't.
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps)"
+    # A dependency goes to the first group it matches.
+    groups:
+      # Turso's packages move together, and with the tursodb binary the sync tests run
+      # (scripts/fetch-tursodb.sh); docs/turso-sync-notes.md records what was verified.
+      turso:
+        patterns: ["@tursodatabase/*"]
+      # The markdown renderer's stack shapes rendition output: if a bump changes it, the
+      # golden-hash test fails until RENDERER_VERSION is bumped (AGENTS.md).
+      renderer:
+        patterns: ["@shikijs/*", "unified", "remark-*", "rehype-*"]
+      # Build, lint, test and type tooling.
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+      # What ships: the writer image, the reader Worker and the MCP server bundle.
+      production-dependencies:
+        dependency-type: production
+        update-types: [minor, patch]
+
+  # Workflow actions, pinned by commit SHA with the version in a comment; Dependabot updates both.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The writer image's base (node, pinned by digest).
+  - package-ecosystem: docker
+    directory: /apps/writer
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # The Tailscale sidecar image in deploy/compose.tailscale.yaml (pinned by tag and digest). The
+  # writer image in compose.yaml is a variable that upgrade.sh sets.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      compose:
+        patterns: ["*"]

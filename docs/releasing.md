@@ -7,8 +7,8 @@ what: [trust-model.md](trust-model.md#deploy-pipeline).
 
 > **Until the repository goes public**, the release path can't run end to end: GitHub artifact
 > attestations and environments aren't available to private repositories on this plan. Don't merge
-> a release PR before the cutover; until then, every merge to `main` still deploys the owner's
-> instance through `.github/workflows/deploy.yml` (see [AGENTS.md](../AGENTS.md#how-updates-reach-production)).
+> a release PR before the cutover; until then, every merge to `main` still deploys the maintainer's
+> instance through `.github/workflows/deploy.yml` (see [AGENTS.md](../AGENTS.md#how-changes-ship)).
 > CI's `release-dry-run` job tests everything that can run without publishing.
 
 ## Versions and the release PR
@@ -21,7 +21,11 @@ writer and the reader report on their health endpoints. Workspace packages aren'
 commits on `main` ([release-please-config.json](../release-please-config.json),
 [.release-please-manifest.json](../.release-please-manifest.json)):
 
-1. PRs are squash-merged, so the **PR title** is the commit release-please reads. The PR title check
+1. PRs are squash-merged, so the **PR title** is the commit release-please reads. The squash
+   commit's body is left blank (the repository's default squash message): release-please also
+   parses commit bodies for `BREAKING CHANGE:` and `Release-As:` footers, and a PR description, or
+   the upstream release notes a Dependabot PR quotes, must not change the version or the changelog
+   by accident. The PR title check
    ([.github/workflows/pr-title.yml](../.github/workflows/pr-title.yml)) requires
    `type(scope): subject`, with `!` after the type or scope for a breaking change. Types: `feat`,
    `fix`, `perf`, `refactor`, `revert`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `spike`.
@@ -53,7 +57,8 @@ Versioning before 1.0: a `feat` bumps the minor version, a `fix` the patch versi
 change the minor version (`bump-minor-pre-major`). The first release is **0.1.0**: the manifest
 starts at 0.0.0, no `v0.0.0` tag exists, so release-please treats it as a first release and uses
 `initial-version`, which it ignores once a release exists, so nothing needs removing afterwards. To
-force a version, put `Release-As: X.Y.Z` in a commit body on `main`.
+force a version, add a `Release-As: X.Y.Z` footer to the commit message in the squash-merge
+dialog of the PR you merge.
 
 ## What a release publishes
 
@@ -70,8 +75,8 @@ All from the release commit, in the run that created the release:
 The bundle is one directory, `waypoint-deploy-X.Y.Z/`: `upgrade.sh` and `lib/`, the Compose files,
 `serve.json`, `instance.env.example`, `make-instance-env.sh`, the runbook (`README.md`),
 `docs/self-hosting.md`, `ops/deploy.yml.example`, `reader/index.js` (the prebuilt Worker),
-`reader/wrangler.jsonc` (the config template), `reader/WRANGLER_VERSION`, `VERSION`, `BUILD_SHA`,
-`IMAGE_DIGEST` and `SHA256SUMS`. The tarball is reproducible: the same commit gives the same bytes.
+`reader/wrangler.jsonc` (the config template), `reader/WRANGLER_VERSION`, `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, `VERSION`, `BUILD_SHA`, `IMAGE_DIGEST` and `SHA256SUMS`. The tarball is reproducible: the same commit gives the same bytes.
 
 To check a release by hand (gh 2.102.0 or later; `upgrade.sh` runs the same checks):
 
@@ -116,34 +121,36 @@ GITHUB_TOKEN, and nothing uses the Turborepo remote cache.
 GHCR creates the `waypoint-writer` package as **private** when the first release pushes it, and
 the same run would dispatch the deploy straight away, which then can't pull the image. Package
 visibility can only be changed in the web UI, once the package exists. So the first release goes
-out without the dispatch, and its deploy is started by hand once the package is public:
+out without the dispatch, and its deploy is started by hand once the package is public. With
+`<repo>` for the publishing repository (for example `you/waypoint`), `<image>` for its image
+(`ghcr.io/<owner, lowercased>/waypoint-writer`) and `<ops>` for the ops repository:
 
 1. Make sure `DEPLOY_DISPATCH_REPO` isn't set yet (the `dispatch` job is then skipped):
-   `gh variable list --repo SeanCassiere/waypoint`; if it's there,
-   `gh variable delete DEPLOY_DISPATCH_REPO --repo SeanCassiere/waypoint`.
+   `gh variable list --repo <repo>`; if it's there,
+   `gh variable delete DEPLOY_DISPATCH_REPO --repo <repo>`.
 2. Merge the release PR and wait for the release run to pass:
-   `gh run watch --repo SeanCassiere/waypoint "$(gh run list --repo SeanCassiere/waypoint --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"`.
-3. Make the package public: github.com → your profile → Packages → `waypoint-writer` → Package
-   settings → Danger Zone → Change visibility → Public. Check that it pulls anonymously:
+   `gh run watch --repo <repo> "$(gh run list --repo <repo> --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"`.
+3. Make the package public: github.com → your profile (or organization) → Packages →
+   `waypoint-writer` → Package settings → Danger Zone → Change visibility → Public. Check that it
+   pulls anonymously (`<owner>` lowercased, as in the image name):
 
    ```bash
-   token="$(curl -fsS 'https://ghcr.io/token?scope=repository:seancassiere/waypoint-writer:pull' | jq -r .token)"
+   token="$(curl -fsS 'https://ghcr.io/token?scope=repository:<owner>/waypoint-writer:pull' | jq -r .token)"
    curl -fsS -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
      -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
      -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-     https://ghcr.io/v2/seancassiere/waypoint-writer/manifests/X.Y.Z   # 200; fails while private
+     https://ghcr.io/v2/<owner>/waypoint-writer/manifests/X.Y.Z   # 200; fails while private
    ```
 
 4. Turn the dispatch on for every later release:
-   `gh variable set DEPLOY_DISPATCH_REPO --repo SeanCassiere/waypoint --body SeanCassiere/waypoint-ops`.
+   `gh variable set DEPLOY_DISPATCH_REPO --repo <repo> --body <ops>`.
 5. Start the first deploy by hand (no `version` input: it deploys the latest release) and follow it:
-   `gh workflow run deploy.yml --repo SeanCassiere/waypoint-ops`, then
-   `gh run watch --repo SeanCassiere/waypoint-ops "$(gh run list --repo SeanCassiere/waypoint-ops --workflow deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId')"`.
+   `gh workflow run deploy.yml --repo <ops>`, then
+   `gh run watch --repo <ops> "$(gh run list --repo <ops> --workflow deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId')"`.
 
 Start that deploy by hand rather than by re-running the release run: re-running all its jobs runs
 release-please again, which doesn't report a release that already exists, so `dispatch` would
-still be skipped. Forks do the same with their own names; an instance that deploys by hand just
-runs `upgrade.sh X.Y.Z` after step 3.
+still be skipped. An instance that deploys by hand just runs `upgrade.sh X.Y.Z` after step 3.
 
 ## Forks
 
@@ -156,12 +163,12 @@ Without `DEPLOY_DISPATCH_REPO`, the dispatch job is skipped.
 
 ## Deploy dispatch
 
-The owner's instance deploys every release automatically, through a private ops repository whose
-only workflow is [deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example), run by a
+The maintainer's instance deploys every release automatically, and any instance can do the same,
+through a private ops repository whose only workflow is [deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example), run by a
 self-hosted runner on the instance's host ([self-hosting](self-hosting.md#optional-automatic-deploys-on-release)).
 
 After the image and the bundle are published, the `dispatch` job (environment `release`, so only
-on `main`) mints a token for the GitHub App `waypoint-deploy-dispatch` with
+on `main`) mints a token for the dispatching GitHub App (`DEPLOY_APP_CLIENT_ID`) with
 actions/create-github-app-token, limited to the ops repository and `actions: write`, and calls
 `POST /repos/<DEPLOY_DISPATCH_REPO>/actions/workflows/<workflow>/dispatches` with `ref: main` and
 no inputs, retrying a few times and failing the run if it can't. The ops workflow then resolves
@@ -180,9 +187,9 @@ enabled.
 
 ### Rotating the App key
 
-1. In the App's settings (GitHub → Settings → Developer settings → GitHub Apps →
-   `waypoint-deploy-dispatch`), generate a new private key.
-2. Store it: `gh secret set DEPLOY_APP_PRIVATE_KEY --env release --repo SeanCassiere/waypoint < key.pem`.
+1. In the App's settings (GitHub → Settings → Developer settings → GitHub Apps → the dispatch
+   App), generate a new private key.
+2. Store it: `gh secret set DEPLOY_APP_PRIVATE_KEY --env release --repo <repo> < key.pem`.
 3. Delete the old key in the App's settings, then delete `key.pem`.
 4. Check it with the next release, or by re-running the `dispatch` job of the last release run.
 

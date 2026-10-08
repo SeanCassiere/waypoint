@@ -2,10 +2,11 @@
   "name": "waypoint",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "turbo run format:check lint typecheck && pnpm test",
+    "check": "turbo run format:check lint typecheck && pnpm notices:check && pnpm test",
     "format": "oxfmt --write .",
     "format:check": "turbo run format:check",
     "lint": "turbo run lint",
@@ -17,6 +18,8 @@
     "demo": "tsx --tsconfig apps/writer/tsconfig.json --conditions=@waypoint/source scripts/demo-writer.ts",
     "live-smoke": "tsx --tsconfig apps/writer/tsconfig.json --conditions=@waypoint/source scripts/live-smoke.ts",
     "core:guard": "node scripts/check-core-imports.mjs",
+    "notices": "node scripts/third-party-notices.ts",
+    "notices:check": "node scripts/third-party-notices.ts --check",
     "format:check:root": "oxfmt --check .",
     "lint:root": "oxlint . && pnpm core:guard",
     "typecheck:root": "tsc -p tsconfig.json"

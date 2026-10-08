@@ -1,6 +1,6 @@
 # Configuration reference
 
-Every setting the writer, the MCP server and the public reader read, with defaults. The owner's instance values are in [infrastructure.md](infrastructure.md#writer-configuration) and [provisioning.md](provisioning.md); how the environment marker and local-only mode came about is in [decisions.md](decisions.md) (D54).
+Every setting the writer, the MCP server and the public reader read, with defaults. How to obtain the credentials: [provisioning.md](provisioning.md); deploy-time settings (`instance.env`): [deploy/instance.env.example](../deploy/instance.env.example); how the environment marker and local-only mode came about: [decisions.md](decisions.md) (D54).
 
 Values are plain environment variables (the writer, the MCP server) or Worker bindings, secrets and variables (the reader). Never commit them: they live in mode-600 env files on the host and reach the processes at runtime only.
 

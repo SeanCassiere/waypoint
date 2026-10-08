@@ -8,7 +8,9 @@
 #   3. the release workflow's dispatch target check (scripts/release-dispatch-target.sh), which
 #      accepts owner/repo and a workflow file name only;
 #   4. scripts/build-release-bundle.sh: the layout upgrade.sh unpacks, SHA256SUMS, a reproducible
-#      tarball, and the refusals (another version, a file naming the owner's instance);
+#      tarball, and the refusals (another version, a file naming the owner's instance), and the
+#      owner-string check itself: each form of the owner's instance refused, the published image
+#      and repository allowed;
 #   5. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
 #      release list from a local directory, and a stand-in gh answers `gh attestation
 #      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
@@ -142,7 +144,8 @@ tar -xzf "$tgz" -C "$work/unpacked" --strip-components=1
 u="$work/unpacked"
 for f in upgrade.sh lib/env.sh lib/reader-config.mjs compose.yaml compose.tailscale.yaml serve.json \
   instance.env.example make-instance-env.sh README.md ops/deploy.yml.example docs/self-hosting.md \
-  VERSION BUILD_SHA IMAGE_DIGEST reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION SHA256SUMS; do
+  VERSION BUILD_SHA IMAGE_DIGEST reader/index.js reader/wrangler.jsonc reader/WRANGLER_VERSION SHA256SUMS \
+  LICENSE THIRD_PARTY_NOTICES.md; do
   [[ -s "$u/$f" ]] || fail "the bundle has no $f"
 done
 (cd "$u" && sha256sum --quiet -c SHA256SUMS) || fail "SHA256SUMS doesn't match"
@@ -167,6 +170,28 @@ if bash "$repo/scripts/build-release-bundle.sh" --out "$work/x" --reader "$work/
   fail "built a bundle that names the owner"
 fi
 grep -q "names the owner's instance" "$work/err.log" || { cat "$work/err.log" >&2; fail "the owner-string refusal isn't explained"; }
+
+step "the owner-string check (scripts/check-owner-strings.sh)"
+# Every form of the owner's instance is refused, wherever it is; the published image, the
+# upstream repository and names that merely contain the host's (agent-10) pass. (The account IDs
+# it matches by hash aren't planted: that would name them.)
+probe="$work/owner-probe"
+for planted in "https://$owner.workers.dev" "$owner/waypoint-ops" "Turso org $owner" "share.ping""stash.com" \
+  "waypoint.tail7a""ca06.ts.net" "the agent""-1 host" "agent""-1.example.test" "(agent""-1)" "team.cloudflare""access.com" "$owner/waypoint.github.io"; do
+  rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "$planted" > "$probe/doc.md"
+  if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed: $planted"; fi
+done
+# A file passed directly, with the value before the first colon (grep prints no file name for a
+# lone file unless asked to, which would shift the fields).
+rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "ping""stash.com: the reader" > "$probe/doc.md"
+if bash "$repo/scripts/check-owner-strings.sh" "$probe/doc.md" > /dev/null 2>&1; then fail "the owner-string check passed a value in a file passed directly"; fi
+rm -rf "$probe" && mkdir -p "$probe"
+printf '%s\n' "ghcr.io/$owner/waypoint-writer:1.0.0" "https://github.com/$owner/waypoint/releases" "$owner/waypoint." \
+  "git clone https://github.com/$owner/waypoint.git" "agents agent""-10 and reagent""-1" > "$probe/ok.md"
+bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1 || fail "the owner-string check refused the published image, the repository or another agent name"
+mkdir -p "$probe/agent""-1"
+if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed a directory named for the owner's host"; fi
+if bash "$repo/scripts/check-owner-strings.sh" "$work/no-such-dir" > /dev/null 2>&1; then fail "the owner-string check passed a path that doesn't exist"; fi
 
 step "upgrade.sh release mode against a fake release"
 bin="$work/bin"

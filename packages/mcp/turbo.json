@@ -3,7 +3,16 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": ["$TURBO_EXTENDS$", "esbuild.config.ts", "scripts/bundle.ts"]
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "esbuild.config.ts",
+        "scripts/bundle.ts",
+        // In the server bundle's banner and the launcher package.
+        "$TURBO_ROOT$/LICENSE",
+        "$TURBO_ROOT$/THIRD_PARTY_NOTICES.md",
+        // The packages the server bundle may inline (deps.onlyBundle in tsdown.config.ts).
+        "$TURBO_ROOT$/scripts/inlined-packages.json"
+      ]
     }
   }
 }

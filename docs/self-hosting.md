@@ -214,7 +214,32 @@ safe: [deploy/README.md](../deploy/README.md#automatic-deploys-on-release).
    `.github/workflows/deploy.yml` there.
 2. Register a self-hosted runner for that repository only, on the instance's host, as the user
    that runs `upgrade.sh` (it reads `instance.env` and the env files it names), with the label
-   `waypoint-deploy`. Runners of a private repository never run anything from forks.
+   `waypoint-deploy`. Runners of a private repository never run anything from forks. Run it as a
+   service that survives logouts, for example a systemd user unit with linger enabled
+   (`loginctl enable-linger`), with `KillMode=process` so stopping the runner never kills a deploy
+   in progress, and a low priority (`Nice=10`) so deploys don't starve the host's other work:
+
+   ```ini
+   [Unit]
+   Description=GitHub Actions runner that deploys Waypoint
+   After=network-online.target
+
+   [Service]
+   WorkingDirectory=%h/actions-runner-waypoint
+   ExecStart=%h/actions-runner-waypoint/run.sh
+   Restart=always
+   RestartSec=10
+   KillMode=process
+   KillSignal=SIGTERM
+   TimeoutStopSec=5min
+   Nice=10
+
+   [Install]
+   WantedBy=default.target
+   ```
+
+   Never register that runner to a repository that runs pull-request code, this one included: it
+   can read every secret of the instance ([trust model](trust-model.md#deploy-pipeline)).
 3. Optionally set repository variables there: `WAYPOINT_RELEASE_REPO` (the repository you deploy
    from, default `SeanCassiere/waypoint`; it must be the one `instance.env`'s `RELEASE_REPO` or
    `IMAGE` names), `WAYPOINT_DEPLOY_ADMIN` (the user login that may choose a version; default

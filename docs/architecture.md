@@ -3,10 +3,10 @@
 ## Components
 
 ```
- agent on agent-1 / MacBook Air / future machines
+ agents on your machines (a Linux box, a laptop, CI, …)
         │  MCP (local stdio server: reads files from local disk)  ─or─  HTTP (curl)
         ▼
- ┌──────────────────── tailnet (trusted) ────────────────────┐
+ ┌──────────── private network: tailnet (trusted) ───────────┐
  │  Writer  (Node, Hono)                                      │
  │   • HTTP API + viewer UI                                   │
  │   • blobs/       local content-addressed blob store        │
@@ -23,14 +23,14 @@
              │ read-only S3 API                │ read-only token (HTTP)
    ┌─────────┴──────────────────────────────┴─────────┐
    │  Reader  (Cloudflare Worker, Hono)                │
-   │  waypoint.pingstash.com — share links only        │
+   │  your public domain — share links only            │
    └───────────────────────────▲───────────────────────┘
                                │ public internet
 ```
 
 ### Writer
-- A long-running Node process on a tailnet machine; agent-1 today.
-- Runs in Docker on agent-1 behind its own Tailscale sidecar node, reachable at `https://waypoint.tail7aca06.ts.net`. The host's Tailscale setup is untouched (see [infrastructure.md](infrastructure.md)).
+- A long-running Node process in Docker on one host of your private network.
+- Reachable only on that network: behind its own Tailscale sidecar node at `https://<hostname>.<tailnet>.ts.net` with no host port, or on the host's loopback (`127.0.0.1:7410`) without Tailscale. The host's own Tailscale setup, if any, is untouched (D37; [self-hosting.md](self-hosting.md)).
 - Serves three things:
   - the **HTTP API** for writes and reads
   - the **viewer** (the "Folio" design): Recent (collection list and search), the collection view (file sidebar, document frame, History and Links panels, revision stepping), per-revision Changes and image Gallery views, and the Links, Trash, Status and MCP setup pages. See the viewer routes in [api-and-mcp.md](api-and-mcp.md).
@@ -54,7 +54,7 @@
 
 The Turso engine (`@tursodatabase/database` 0.8.2) leaks native memory for every statement it prepares: about 12.5 KB when the statement is never closed and about 2.5 KB even when it's closed. Preparing a statement per query, as the writer did until October 2026, grew RSS by 1.9 GB per 150,000 reads.
 
-The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keyed by SQL text (256 per connection) and reuses them. Measured on agent-1 with 200,000 reads of one statement: RSS grows about 0.16 KB per query (32 MB in total, flattening as the run goes on), and each query takes about 4 µs instead of about 30 µs. Each distinct SQL string still costs one prepare, so evictions (SQL with variable `IN (…)` lists) leak about 2.5 KB each.
+The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keyed by SQL text (256 per connection) and reuses them. Measured on a Linux x64 host with 200,000 reads of one statement: RSS grows about 0.16 KB per query (32 MB in total, flattening as the run goes on), and each query takes about 4 µs instead of about 30 µs. Each distinct SQL string still costs one prepare, so evictions (SQL with variable `IN (…)` lists) leak about 2.5 KB each.
 
 Running a statement prepared before a schema change aborts the process inside the engine. The cache is cleared after any statement or `exec` containing `CREATE`, `ALTER` or `DROP`, and after every pull that changed the database. A pull runs outside the connection chain, so a statement queued between the end of the pull and the reset could still run against a schema the pull changed. Only this writer's own migrations change the cloud schema, and they run at startup before anything is served, so that window isn't reachable in practice. The deploy runbook covers [memory checks](../deploy/README.md#memory).
 
@@ -64,7 +64,7 @@ Running a statement prepared before a schema change aborts the process inside th
 - Agents without the MCP server can use the HTTP API's multipart endpoint with `curl`.
 
 ### Reader
-- A Cloudflare Worker on `waypoint.pingstash.com` (prod), with a dev twin on `waypoint-dev.pingstash.com`. Both deploy automatically after the writer.
+- A Cloudflare Worker on the instance's own domain, one per environment (for example `share.example.com` for prod and a dev twin on `share-dev.example.com`). `upgrade.sh` deploys each one after the writer ([deploy/README.md](../deploy/README.md#public-reader-workers)).
 - Reads metadata from Turso through `@tursodatabase/serverless` with a **read-only** token, and reads blobs through R2's S3 API with bucket-scoped **Object Read only** credentials (D38).
 - Serves only what a share link permits. See [public-reader.md](public-reader.md).
 
@@ -87,7 +87,7 @@ packages/
   ui/              runtime-agnostic UI shared by the writer viewer and the reader:
                    design tokens, HTML escaping, the public shell, and the frame
                    location listener. Web APIs only, like core.
-  mcp/             stdio MCP server (published for `npx`)
+  mcp/             stdio MCP server, and the launcher tarball the writer serves for `npx`
 apps/
   writer/          Node adapter: Turso Sync, @aws-sdk/client-s3, local blob store,
                    queue.db, committer, viewer UI
@@ -110,7 +110,7 @@ TypeScript only type-checks; bundlers emit everything ([D53](decisions.md)).
 - **MCP**: tsdown builds the server bundle (`dist/waypoint-mcp-server.mjs`, one minified file). The launcher stays on esbuild and changes as little as possible, because npx caches it indefinitely (D53; its only change since is the `WAYPOINT_MCP_ALLOW_HTTP` opt-out, D54).
 - **Reader**: Wrangler bundles it, reading `core` and `ui` from their `dist`.
 - **Source condition.** Each library's `exports` starts with a `@waypoint/source` condition pointing at `src/`. Type checking (`customConditions`), lint and tests (Vitest's resolve conditions) use it, so none of them needs a build; runtime code and bundles use `dist`. Relative imports name the real `.ts` file and the libraries use only erasable syntax, so Node 24 runs the source directly: in tests, the render and diff worker threads start from `src/` with `--conditions=@waypoint/source`.
-- **Tests** live in their package (`packages/*/tests`, `apps/*/tests`). CPU-budget and wall-clock tests are a separate Vitest project and turbo task (`test:timing`) that runs alone after the others. Cross-package tests and checks of built artifacts (the MCP tarball and launcher, the writer process, the bundled renderer, the browser checks) are in `tests/`, whose turbo tasks build the writer and MCP first.
+- **Tests** live in their package (`packages/*/tests`, `apps/*/tests`). CPU-budget and wall-clock tests are a separate Vitest project and turbo task (`test:timing`) that runs alone after the others. Cross-package tests and checks of built artifacts (the MCP tarball and launcher, the writer process, the bundled renderer, the packages the reader bundle inlines, the browser checks) are in `tests/`, whose turbo tasks build the writer and MCP first (and, for `test`, the reader).
 - **Image**: the Dockerfile prunes the workspace to the writer and the MCP package (`turbo prune --docker`), builds them with turbo's caches off, and keeps the writer bundle with its production npm dependencies (`pnpm deploy`).
 
 ## Data flow summary

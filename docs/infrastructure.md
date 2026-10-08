@@ -1,191 +1,145 @@
 # Infrastructure
 
-Two environments, **dev** and **prod**, kept fully separate: different cloud DB, bucket, tokens, and writer data directory. Never share a resource between them; the [environment guard](write-path-and-sync.md#environment-guard) relies on that.
+The checklist of everything a full Waypoint deployment has: the writer behind Tailscale, cloud sync,
+a public reader per environment, automatic deploys and CI. Each tier of
+[self-hosting.md](self-hosting.md) needs only its own part. How to obtain each item, step by step:
+[provisioning.md](provisioning.md). Keep a copy of this list, filled in with your own values, in your
+operator notes (never in the repository): what exists, its name and scope, where its credential
+lives, and when it expires.
 
-## Setup checklist
+Names below are the conventional ones (`waypoint-<env>`, `waypoint-reader`); any names work.
 
-How to obtain each item, step by step: [provisioning.md](provisioning.md).
+## Environments
 
-Items marked **(P1)** are needed for phase 1. Items marked **(P2)** are needed for the public reader.
+Two environments, **dev** and **prod**, kept fully separate: a different cloud DB, bucket, tokens,
+writer data directory and reader. Never share a resource between them; the
+[environment guard](write-path-and-sync.md#environment-guard) and the bucket's environment marker
+rely on that. A dev environment is optional: it lets you test share links and the reader end to end
+without touching prod data, with a writer run locally from a checkout
+([AGENTS.md](../AGENTS.md#developing)).
 
-### Turso
-- [x] **(P1)** A Turso account and organization (`seancassiere`, Free plan). The organization's **TursoDB** setting must be enabled before Sync-capable databases can be created.
-- [x] **(P1)** Cloud DBs `waypoint-dev` and `waypoint-prod`, created as Turso Sync databases in group `waypoint`, location `aws-ap-southeast-2` (Sydney):
-  `turso db create waypoint-<env> --tursodb --location aws-ap-southeast-2 --group waypoint --wait`
-  - Their URLs use the `turso://` scheme. For the HTTP API, swap it for `https://`.
-- [x] **(P1)** A full-access token per DB for the writer(s), created with `turso db tokens create <db> --expiration never`.
-- [x] **(P2)** Read-only tokens for `waypoint-prod` and `waypoint-dev`, used by the readers: `turso db tokens create waypoint-<env> --read-only --expiration never`. Verified: reads succeed, writes are `BLOCKED`.
+## Turso (cloud sync)
 
-### Cloudflare R2
-- [x] **(P1)** R2 enabled on the account. This needs a payment method, even on the free plan.
-- [x] **(P1)** Private buckets `waypoint-dev` and `waypoint-prod`, with location Automatic (resolved to Oceania). Default storage class **Standard**: Infrequent Access has no free tier and a 30-day minimum. No public access, `r2.dev` URL, custom domain, or CORS.
-- [x] **(P1)** An R2 **Account API token** per bucket (`waypoint-writer-dev`, `waypoint-writer-prod`): **Object Read & Write**, scoped to that one bucket, TTL forever. The secret is shown only once. Each token was verified to be denied on the other environment's bucket (403).
-- [x] **(P1)** A billing budget alert at $1, alongside the default $10 alert. Cloudflare has no hard spending cap, and alerts arrive by email about once a day.
+- [ ] A Turso organization, with the **TursoDB** setting enabled (needed before Sync-capable
+  databases can be created).
+- [ ] A cloud DB per environment, created as a Turso Sync database
+  (`turso db create waypoint-<env> --tursodb --location <location> --group <group> --wait`). Its URL
+  uses the `turso://` scheme; for the HTTP API, swap it for `https://`.
+- [ ] A full-access token per DB for the writer (`--expiration never`, or an expiry you track).
+- [ ] With a public reader: a read-only token per DB (`--read-only`). Verified: reads succeed,
+  writes are `BLOCKED`.
 
-### Cloudflare Workers (P2)
-- [x] **(P2)** Read-only R2 tokens `waypoint-reader-prod` and `waypoint-reader-dev` (**Object Read only**, each scoped to its own bucket). Verified: list succeeds, put is denied (403), the other bucket is denied (403).
-- [x] **(P2)** Deploy token `waypoint-reader-deploy` (custom token; permissions in [provisioning.md](provisioning.md#23-cloudflare-deploy-api-token)), scoped to this account and the `pingstash.com` zone only. Verified with a throwaway Worker on a custom domain, which was then deleted.
-- [x] **(P2)** Workers Analytics Engine enabled. Account is on the Workers **Free** plan.
-- [x] **(P2)** `waypoint.pingstash.com`, `waypoint-dev.pingstash.com` and `*.pingstash.com` had no DNS records before the custom domains were attached, and no zone rules match them.
-- [x] **(P2)** Workers `waypoint-reader` (prod, `waypoint.pingstash.com`) and `waypoint-reader-dev` (dev, `waypoint-dev.pingstash.com`): the `prod` and `dev` reader targets of the owner's `instance.env` (below), deployed with configs generated from `apps/reader/wrangler.jsonc`. Both have `workers_dev: false` and `preview_urls: false` (D55; until the first `upgrade.sh` deploy, the prod Worker's `workers.dev` route and previews were on behind Cloudflare Access, D49). Each has:
-  - seven secrets from `~/.config/waypoint/reader-<env>.env`, uploaded with `wrangler secret bulk`: `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID`, `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `RAW_CAP_KEY` (the per-environment HMAC key for raw capabilities). Blobs are read over the S3 API, **not** an R2 binding (decision D38).
-  - an Analytics Engine binding `ACCESS_LOG` (datasets `waypoint_access` and `waypoint_access_dev`)
-  - a Rate Limiting binding `TOKEN_MISS_LIMITER` (30 per 60 s; namespaces `1002` prod and `1001` dev)
-- [x] **(P2)** Custom domains `waypoint.pingstash.com` and `waypoint-dev.pingstash.com`, attached by Wrangler (`custom_domain: true`), which created their DNS records and certificates. Both answer `/healthz` and `/healthz/deep`.
-- [x] **(P2)** Reader deploys: `deploy/upgrade.sh` deploys `dev`, then `prod`, after the writer, from the Deploy workflow. Each uploads secrets, deploys, smoke-tests the live hostname and rolls back to the previous version on failure. Runbook: [deploy/README.md](../deploy/README.md#public-reader-workers).
-- [ ] **PR previews were dropped** (D55, reversing D49). Left to clean up by hand: the Cloudflare Access app `fb19dcb4-9f87-47dc-a038-1b41cef93d0f` (it covered `waypoint-reader.seancassiere.workers.dev` and `*-waypoint-reader.seancassiere.workers.dev`), any preview still listed under Workers & Pages → `waypoint-reader` → Previews, and the `waypoint_access_preview` dataset and rate-limit namespace `1003`, which nothing uses any more.
+## Bucket: Cloudflare R2 or another S3-compatible store (cloud sync)
 
-### Tailscale
-- [x] **(P1)** The tag owner `tag:waypoint` is in the tailnet policy (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`). The policy is otherwise allow-all.
-- [x] **(P1)** A single-use, tagged auth key is stored in `~/.config/waypoint/ts.env` (`TS_AUTHKEY`, expires 2027-01-05). It's only needed for the sidecar's first login; node state lives in a Docker volume after that, and `TS_AUTH_ONCE=true`.
-- [x] **(P1)** The writer is reachable at **`https://waypoint.tail7aca06.ts.net`** through its own Tailscale **sidecar container** (`ts-waypoint`, hostname `waypoint`, userspace networking), which serves HTTPS to the writer on `127.0.0.1:7410` in the shared network namespace. The host's tailscaled and its `tailscale serve` config (T3 Code on `:443`) are never touched. Agents use this URL as `WAYPOINT_URL`. It is **not reachable from the plain LAN**: the writer publishes no host port (decision D37). See [`deploy/README.md`](../deploy/README.md) and [`AGENTS.md`](../AGENTS.md).
+- [ ] R2 enabled on the Cloudflare account (it needs a payment method, even on the free plan), and
+  a billing budget alert: Cloudflare has no hard spending cap.
+- [ ] A private bucket per environment, default storage class **Standard** (Infrequent Access has
+  no free tier and a 30-day minimum). No public access, `r2.dev` URL, custom domain or CORS. The
+  writer marks it with `meta/environment.json` on first use.
+- [ ] A writer key per bucket: **Object Read & Write**, scoped to that one bucket. Verified to be
+  denied on the other environment's bucket (403).
+- [ ] With a public reader: a reader key per bucket, **Object Read only**, scoped to its own
+  bucket. Verified: list succeeds, put is denied (403), the other bucket is denied (403).
 
-### CI
-- [x] **Turborepo remote cache** on Vercel (decision D52), used only by the CI workflow's turbo tasks, with signed artifacts. The team slug is the repository variable `TURBO_TEAM`; the access token and the signing key are the repository secrets `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY`. Fork PRs and the writer image build run without it. How to create or rotate them: [provisioning.md](provisioning.md#part-3-ci-remote-cache).
+Another S3-compatible store works the same way through `WAYPOINT_S3_ENDPOINT` and
+`WAYPOINT_S3_REGION` ([configuration.md](configuration.md#cloud-sync-on)); it must support
+`If-None-Match: *` on `PutObject`.
 
-### Deployment (P1)
-- [x] **Docker** is installed on agent-1, and `agent-1` is in the `docker` group. Deploys use `sg docker` when a session predates the group change, so no logout or reboot is ever needed.
-- [x] **Self-hosted GitHub Actions runner** `agent-1-waypoint` (label `waypoint-deploy`) runs as the systemd user unit `waypoint-gh-runner.service` from `~/actions-runner-waypoint`, with low priority (Nice=10, MemoryHigh=2G).
-- [x] **Deploy workflow:** each successful CI run on `main` runs `deploy/upgrade.sh --instance ~/.config/waypoint/instance.env current-checkout`, which builds the writer image and the reader locally, recreates only the writer, health-checks it (container health check, reported commit, then HTTPS via the tailnet) and rolls back to the previous image on failure, then deploys the readers. Runbook: [deploy/README.md](../deploy/README.md).
-- [ ] **Release-driven deploys** (at the cutover, when the repository goes public; [releasing.md](releasing.md)): the GitHub App `waypoint-deploy-dispatch` (App ID 5231260, client ID `Iv23liTdWHWJqaKZRRQ1`, Actions: write on `SeanCassiere/waypoint-ops` only) dispatches the ops repository's deploy workflow ([deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example)) after each release. Its key goes in the `release` environment (`main` only) as `DEPLOY_APP_PRIVATE_KEY`, with the variables `DEPLOY_APP_CLIENT_ID` and `DEPLOY_DISPATCH_REPO`; the runner moves to the ops repository, and the Deploy workflow goes away. At the cutover:
-  - Branch protection on `main` requires `ci-ok` only. **Not** `conventional-title` (the PR title check): it never runs on the release PR, which GITHUB_TOKEN opens, so requiring it would block every release ([releasing.md](releasing.md#versions-and-the-release-pr)).
-  - **The first release goes out without the dispatch**, following [releasing.md](releasing.md#the-first-release) step by step: leave `DEPLOY_DISPATCH_REPO` unset, merge the release PR, make the `waypoint-writer` package public (GHCR creates it private, and the ops deploy can't pull a private image), check an anonymous pull, then set `DEPLOY_DISPATCH_REPO` and start the first deploy by hand with `gh workflow run deploy.yml --repo SeanCassiere/waypoint-ops`.
-  - **Manual `upgrade.sh <version>` (or `latest`) runs on agent-1 need gh 2.102.0 or later** to verify attestations, and the distro's `/usr/bin/gh` is 2.46.0, so they stop with "release attestations need gh 2.102.0 or later". Either set `VERIFY_ATTESTATIONS=0` in `instance.env` (not recommended: the ops deploys read the same file, so their image check would be off too), or install a current gh for the `agent-1` user only, checked against the checksum GitHub publishes in the release's `gh_<version>_checksums.txt`:
+## Cloudflare Workers (public reader)
 
-    ```bash
-    v=2.102.0 sum=bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386  # gh_2.102.0_linux_amd64.tar.gz
-    d="$(mktemp -d)"
-    curl -fsSL -o "$d/gh.tgz" "https://github.com/cli/cli/releases/download/v$v/gh_${v}_linux_amd64.tar.gz"
-    echo "$sum  $d/gh.tgz" | sha256sum -c - \
-      && tar -xzf "$d/gh.tgz" -C "$d" --strip-components=1 \
-      && install -m 755 "$d/bin/gh" ~/.local/bin/gh
-    rm -rf "$d"
-    ~/.local/bin/gh --version   # gh version 2.102.0
-    ```
+- [ ] A deploy token (custom token; permissions in
+  [provisioning.md](provisioning.md#23-cloudflare-deploy-api-token)) scoped to your account and the
+  reader's zone only, in `cloudflare.env` on the deploying host. Never a GitHub secret.
+- [ ] Workers Analytics Engine enabled.
+- [ ] A zone for the reader's domain. The reader's hostname (for example `share.example.com`, and a
+  separate one for dev) has no DNS record before its first deploy, and no zone rule (redirects, Bot
+  Fight Mode, WAF) matches it.
+- [ ] A reader target per environment in `instance.env` (`READER_TARGETS`, then
+  `READER_<target>_WORKER`, `_DOMAIN`, `_SECRETS_FILE`, `_ANALYTICS_DATASET`,
+  `_RATELIMIT_NAMESPACE`). `upgrade.sh` deploys each Worker with a config generated from the
+  release's Wrangler template, with `workers_dev` and `preview_urls` off (D55), so it's reachable
+  only on its custom domain. Each Worker has:
+  - seven secrets from its secrets file, uploaded by `upgrade.sh` with `wrangler secret bulk`:
+    `TURSO_DATABASE_URL`, `TURSO_READONLY_TOKEN`, `R2_ACCOUNT_ID` (or `WAYPOINT_S3_ENDPOINT`),
+    `R2_READER_ACCESS_KEY_ID`, `R2_READER_SECRET_ACCESS_KEY`, `R2_BUCKET` and `RAW_CAP_KEY` (the
+    per-environment HMAC key for raw capabilities). Blobs are read over the S3 API, **not** an R2
+    binding (D38);
+  - an Analytics Engine binding `ACCESS_LOG`, on its own dataset (for example `waypoint_access` and
+    `waypoint_access_dev`);
+  - a Rate Limiting binding `TOKEN_MISS_LIMITER` (30 per 60 s), on its own namespace ID (any
+    integer unique in the account, for example `1001` and `1002`).
+- [ ] The custom domain, attached by Wrangler on the first deploy (`custom_domain: true`), which
+  creates its DNS record and certificate. It answers `/healthz` and `/healthz/deep`.
 
-    `~/.local/bin` comes before `/usr/bin` in agent-1's `PATH`; where it doesn't (check `command -v gh`), pass `GH_BIN=~/.local/bin/gh` to `upgrade.sh`. It uses the existing `gh auth` login. The ops workflow is unaffected: it installs its own pinned gh in its work directory.
-- **Secrets** stay in `~/.config/waypoint/{prod,ts,cloudflare,reader-dev,reader-prod}.env` (mode 600) and are passed at runtime with `env_file`, or to Wrangler. They never go into the repo, the image, or its layers.
-- **Instance file** `~/.config/waypoint/instance.env` (no secrets; [deploy/instance.env.example](../deploy/instance.env.example)). It was written once with `deploy/make-instance-env.sh`:
+## Tailscale
+
+- [ ] MagicDNS and HTTPS certificates enabled for the tailnet (on by default).
+- [ ] Optionally a tag for the writer's node, for example `tag:waypoint`, with yourself as its owner
+  (`"tagOwners": {"tag:waypoint": ["autogroup:admin"]}`), and, if the policy isn't allow-all, access
+  to it on `tcp:443`.
+- [ ] A single-use auth key (tagged, if you defined the tag) in `ts.env`. It's used only for the
+  sidecar's first login; the node's state then lives in the `<project>_tailscale-state` Docker
+  volume (`TS_AUTH_ONCE=true`).
+- [ ] The writer reachable at `https://<TAILSCALE_HOSTNAME>.<tailnet>.ts.net` through its own
+  sidecar node, with no host port. The host's own Tailscale setup, if any, is untouched (D37).
+
+## Deployment
+
+- [ ] **Docker** Engine and Compose 2.24+ on the host, the deploying user in the `docker` group
+  (`upgrade.sh` uses `sg docker` when the login session predates it).
+- [ ] **Secrets** in `~/.config/waypoint/` (directory mode 700, files mode 600), passed at runtime
+  only (`env_file`, or to Wrangler): never in a repository, an image or its layers.
+
+  | File | Used by | Contents |
+  |---|---|---|
+  | `writer.env` (or `<env>.env`) | the writer container | `WAYPOINT_*` (including the secret `WAYPOINT_SHARE_TOKEN_KEY`), `TURSO_*`, `R2_*` ([configuration.md](configuration.md#writer)) |
+  | `ts.env` | the Tailscale sidecar | `TS_AUTHKEY` |
+  | `cloudflare.env` | reader deploys | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
+  | `reader-<env>.env` | reader deploys | the seven reader secrets above |
+  | `instance.env` | `upgrade.sh` | no secrets: paths, data directory, Tailscale settings, reader targets ([instance.env.example](../deploy/instance.env.example)) |
+
+- [ ] **Instance file** `~/.config/waypoint/instance.env`, copied from
+  [instance.env.example](../deploy/instance.env.example) or written with
+  [make-instance-env.sh](../deploy/make-instance-env.sh), for example:
 
   ```bash
   bash deploy/make-instance-env.sh --output ~/.config/waypoint/instance.env \
-    --data-dir /home/agent-1/.local/share/waypoint/prod --writer-env prod.env \
+    --data-dir /home/<you>/.local/share/waypoint/prod --writer-env prod.env \
     --tailscale --ts-env ts.env --ts-hostname waypoint --ts-tags tag:waypoint \
-    --health-url https://waypoint.tail7aca06.ts.net/healthz --cloudflare-env cloudflare.env \
-    --reader dev,waypoint-reader-dev,waypoint-dev.pingstash.com,reader-dev.env,waypoint_access_dev,1001 \
-    --reader prod,waypoint-reader,waypoint.pingstash.com,reader-prod.env,waypoint_access,1002
+    --health-url https://waypoint.<tailnet>.ts.net/healthz --cloudflare-env cloudflare.env \
+    --reader dev,waypoint-reader-dev,share-dev.example.com,reader-dev.env,waypoint_access_dev,1001 \
+    --reader prod,waypoint-reader,share.example.com,reader-prod.env,waypoint_access,1002
   ```
 
-  `upgrade.sh` keeps its state in `~/.config/waypoint/state/waypoint/`. Local images are `waypoint-writer:waypoint-<sha>`, `waypoint-writer:waypoint-current` and `waypoint-writer:waypoint-previous`; the older `waypoint-writer:<sha>`, `current` and `previous` tags from `deploy.sh` can be removed once a deploy through `upgrade.sh` has succeeded. That first deploy also recreates the sidecar `waypoint-ts-waypoint-1` once, and the writer with it: the sidecar used to mount `serve.json` from the runner's checkout and now mounts the copy in the state directory, which changes its Compose config. The `waypoint_tailscale-state` volume, and with it the node's identity, survives (`TS_AUTH_ONCE`), so no auth key is needed, but the tailnet URL is briefly down.
-- **Re-rendering** after a `RENDERER_VERSION` bump: `bash deploy/upgrade.sh rerender` from a checkout on agent-1. A deploy that starts meanwhile waits for its lock (at most 30 minutes, then it fails without changing anything; re-run it afterwards), so the runner doesn't need stopping.
-- **Resource limits:** writer 1 GB / 1.5 CPU / 512 pids; sidecar 256 MB / 0.5 CPU; Docker logs rotate at 10 MB × 3.
+  Check it with `upgrade.sh validate`. `upgrade.sh` keeps its state in
+  `~/.config/waypoint/state/<project>/`.
+- [ ] **Data directory** owned by the writer's uid and gid (1000 by default), mode 700.
+- [ ] **Resource limits** (from the Compose files; `COMPOSE_OVERRIDE` changes them): writer 1 GB /
+  1.5 CPU / 512 pids; sidecar 256 MB / 0.5 CPU; Docker logs rotate at 10 MB × 3.
+- [ ] Optionally, **automatic deploys on release:** a private ops repository with the workflow
+  [deploy/ops/deploy.yml.example](../deploy/ops/deploy.yml.example) and a self-hosted runner on the
+  host, registered to that repository only, with the label `waypoint-deploy`, running as the user
+  that runs `upgrade.sh` (for example as a systemd user unit with linger enabled)
+  ([self-hosting.md](self-hosting.md#optional-automatic-deploys-on-release)). Verifying releases
+  needs the GitHub CLI 2.102.0 or later on the host for manual `upgrade.sh <version>` runs (the ops
+  workflow installs its own).
 
-### Reinstalling the deploy runner
+## Repository (a fork that publishes its own releases)
 
-These are recovery steps for the already installed runner, not part of a
-normal deployment. Run as `agent-1`; no `sudo` is needed. Obtain a fresh,
-short-lived registration token from the repository's **Settings → Actions →
-Runners → New self-hosted runner** page. If removing an existing runner
-registration, obtain a separate removal token from that page first. Tokens are
-read without echoing them:
-
-```bash
-systemctl --user stop waypoint-gh-runner.service
-cd ~/actions-runner-waypoint
-read -rsp 'Runner removal token: ' REMOVE_TOKEN; echo
-./config.sh remove --token "$REMOVE_TOKEN"
-unset REMOVE_TOKEN
-read -rsp 'Runner registration token: ' RUNNER_TOKEN; echo
-./config.sh --url https://github.com/SeanCassiere/waypoint \
-  --token "$RUNNER_TOKEN" --name agent-1-waypoint \
-  --labels waypoint-deploy --unattended --replace
-unset RUNNER_TOKEN
-```
-
-If the runner files themselves must be replaced, after removing the old
-registration, download and extract the current Linux x64 runner archive, then
-run the registration command above:
-
-```bash
-cd ~/actions-runner-waypoint
-RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
-curl -fsSLo /tmp/waypoint-actions-runner.tar.gz \
-  "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
-# Verify against the SHA-256 published in the release notes before extracting.
-expected=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
-  | grep -o "actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz.\{0,200\}" | grep -oE '[0-9a-f]{64}' | head -1)
-echo "${expected}  /tmp/waypoint-actions-runner.tar.gz" | sha256sum -c -
-tar -xzf /tmp/waypoint-actions-runner.tar.gz
-rm /tmp/waypoint-actions-runner.tar.gz
-unset RUNNER_VERSION
-```
-
-The existing user unit is:
-
-```ini
-[Unit]
-Description=GitHub Actions runner for SeanCassiere/waypoint (deploys Waypoint)
-After=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=%h/actions-runner-waypoint
-ExecStart=%h/actions-runner-waypoint/run.sh
-Restart=always
-RestartSec=10
-KillMode=process
-KillSignal=SIGTERM
-TimeoutStopSec=5min
-Nice=10
-CPUWeight=50
-MemoryHigh=2G
-
-[Install]
-WantedBy=default.target
-```
-
-To restore that unit if missing, save the block above as
-`~/.config/systemd/user/waypoint-gh-runner.service`, then run:
-
-```bash
-loginctl show-user "$USER" -p Linger
-systemctl --user daemon-reload
-systemctl --user enable --now waypoint-gh-runner.service
-systemctl --user status waypoint-gh-runner.service
-```
-
-`Linger=yes` is already configured. If it was removed, run
-`loginctl enable-linger "$USER"` as `agent-1` before starting the unit.
-
-## Writer configuration
-
-The configuration lives in an env file on the writer machine, never committed. Every variable, with its default, is in [configuration.md](configuration.md). On agent-1 the files are `~/.config/waypoint/dev.env` and `~/.config/waypoint/prod.env`, mode 600, in a directory with mode 700:
-
-```bash
-WAYPOINT_ENV=prod                         # dev | prod
-WAYPOINT_DATA_DIR=~/.local/share/waypoint/prod
-WAYPOINT_BASE_URL=https://waypoint.tail7aca06.ts.net
-WAYPOINT_PUBLIC_BASE_URL=https://waypoint.pingstash.com  # optional; sharing needs this and the key below
-WAYPOINT_SHARE_TOKEN_KEY=...             # 32 random bytes, base64url; derives share tokens (D50)
-WAYPOINT_PORT=7410
-WAYPOINT_QUEUE_GIVE_UP_HOURS=72
-WAYPOINT_MAX_BLOB_MB=50
-
-TURSO_DATABASE_URL=...
-TURSO_AUTH_TOKEN=...
-
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=waypoint-prod                   # any name; the bucket's environment marker guards it
-# WAYPOINT_S3_ENDPOINT=...                # optional: any S3-compatible store instead of R2
-# WAYPOINT_S3_REGION=auto
-```
-
-`WAYPOINT_SYNC=off` (local-only mode, no Turso or bucket) is allowed in prod too, with a persistent no-durability warning on `/status`; the owner's instance always syncs.
+- [ ] **Turborepo remote cache** (optional, D52): repository variable `TURBO_TEAM`, secrets
+  `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY`
+  ([provisioning.md](provisioning.md#part-3-ci-remote-cache)). Fork PRs and the writer image build
+  run without it.
+- [ ] **Release settings** ([releasing.md](releasing.md#settings-and-secrets)): Actions may create
+  pull requests, branch protection on `main` requiring `ci-ok` only, the `waypoint-writer` package
+  public.
+- [ ] **Deploy dispatch** (optional, D56): a GitHub App with Actions: write on the ops repository
+  only, its key in the `release` environment, and the `DEPLOY_APP_CLIENT_ID` and
+  `DEPLOY_DISPATCH_REPO` variables ([provisioning.md](provisioning.md#part-4-release-deploy-dispatch)).
 
 ## Free-tier headroom (as of 2026-10-07)
+
+For a single user's instance:
 
 | Service | Free allowance | Expected use |
 |---|---|---|
@@ -194,4 +148,4 @@ R2_BUCKET=waypoint-prod                   # any name; the bucket's environment m
 | Workers | 100k requests/day, 10 ms CPU per request | Well within. The reader does no rendering. |
 | Analytics Engine | 100k data points/day | Well within |
 
-Not enforced for now, by decision: no storage cap.
+Waypoint enforces no storage cap, by decision (D28).
