@@ -86,7 +86,8 @@ packages/
   render/          markdown → HTML renderer (runs on the writer only)
   ui/              runtime-agnostic UI shared by the writer viewer and the reader:
                    design tokens (shared, writer-only, and the frozen reading set),
-                   HTML escaping, the public shell, and the frame location listener.
+                   the SVG icon set, HTML escaping, the public shell, and the frame
+                   location listener.
                    Web APIs only, like core.
   mcp/             stdio MCP server, and the launcher tarball the writer serves for `npx`
 apps/
