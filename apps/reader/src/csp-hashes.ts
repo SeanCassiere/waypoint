@@ -2,4 +2,4 @@
 // SHA-256 of the exact inline <style> and <script> bodies, for the reader's hash-only CSPs.
 export const shellStyleHash = "'sha256-atfHyfL6Yphri7HO9trSc1w6kGL4c/9Q2hGft78dQrk='";
 export const shellScriptHash = "'sha256-G2/ROnHz+hyUcQ5ghjRecvSEmd2G6GthEgEEuAjYbQg='";
-export const staticStyleHash = "'sha256-HGUwqbuEzHrM5mVaZJcMpfMxbvq9i9rqfU+zpok0VuM='";
+export const staticStyleHash = "'sha256-m0zgjnOZWK9jhiR19ccGwxi/G6V58VT3/OAxXt0JDDo='";

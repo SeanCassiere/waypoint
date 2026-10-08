@@ -12,7 +12,7 @@ import {
   type ReaderDb,
   type ReaderEnv,
 } from "../apps/reader/src/app.ts";
-import { deniedPage } from "../apps/reader/src/pages.ts";
+import { deniedPage, frameDeniedPage } from "../apps/reader/src/pages.ts";
 import { waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 const env: ReaderEnv = {
@@ -320,17 +320,25 @@ describe("adversarial reader probes", () => {
       `/s/${tokens.revoked}/c/${A.pub}/`,
       `/s/${tokens.expired}/c/${A.pub}/`,
       `/s/${tokens.tomb}/c/cccccccccccc/`,
-      raw(tokens.follow, A1.pub, "old-secret.html"),
-      raw(tokens.follow, A2.pub, "missing.html"),
-      raw(tokens.follow, A2.pub, "a%2Fb"),
       `/s/`,
       `/index.html`,
       `/assets/1/x.js`,
+    ];
+    // The raw route (`/x/`) has its own fixed denial: the framable card.
+    const rawCases = [
+      raw(tokens.follow, A1.pub, "old-secret.html"),
+      raw(tokens.follow, A2.pub, "missing.html"),
+      raw(tokens.follow, A2.pub, "a%2Fb"),
     ];
     const reference = await snap(await get(cases[0]!));
     expect(reference.status).toBe(404);
     expect(reference.body).toBe(deniedPage);
     for (const path of cases) expect(await snap(await get(path))).toEqual(reference);
+    // The first raw case is its own reference, so the limiter count stays as before.
+    const rawReference = await snap(await get(rawCases[0]!));
+    expect(rawReference.status).toBe(404);
+    expect(rawReference.body).toBe(frameDeniedPage);
+    for (const path of rawCases.slice(1)) expect(await snap(await get(path))).toEqual(rawReference);
     expect(limiterCalls).toBe(9);
     // The bare root is the one non-share page: a 200 that differs from every denial.
     const root = await snap(await get("/"));
@@ -363,6 +371,7 @@ describe("adversarial reader probes", () => {
     const headers = { "cf-connecting-ip": "192.0.2.11" };
     const unknown = `/s/${tokens.unknown}/c/${A.pub}/`;
     const ordinary = await snap(await get(unknown, headers));
+    expect(ordinary.body).toBe(deniedPage);
     for (let i = 1; i < 31; i++) await get(unknown, headers);
     expect(limiterCalls).toBe(31);
     const priorQueries = queries.length;
@@ -370,13 +379,20 @@ describe("adversarial reader probes", () => {
     // An IP can lose access to a valid link for 60 seconds, but only after
     // more than 30 denials. The blocked check runs before the DB and R2.
     const blocked = await snap(await get(raw(tokens.follow, A2.pub, "index.html"), headers));
-    expect(blocked).toEqual(ordinary);
+    expect(blocked.status).toBe(404);
+    expect(blocked.body).toBe(frameDeniedPage);
     expect(queries.length).toBe(priorQueries);
     expect(blobFetches.length).toBe(priorBlobs);
     expect(limiterCalls).toBe(31);
     clock += 60_001;
     expect((await get(raw(tokens.follow, A2.pub, "index.html"), headers)).status).toBe(200);
     expect(limiterCalls).toBe(31);
+    // The blocked raw request got exactly the ordinary raw (`/x/`) denial.
+    expect(blocked).toEqual(
+      await snap(
+        await get(raw(tokens.follow, A2.pub, "missing.html"), { "cf-connecting-ip": "192.0.2.12" }),
+      ),
+    );
   });
   it("renders 2000 files with bounded shell overhead", async () => {
     const insert = db.prepare(
