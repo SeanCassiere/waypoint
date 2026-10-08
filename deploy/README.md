@@ -32,7 +32,15 @@ If your login session predates your `docker` group membership, `upgrade.sh` runs
 
 `upgrade.sh` reads `~/.config/waypoint/instance.env` (or `$XDG_CONFIG_HOME/waypoint/instance.env`,
 `$WAYPOINT_INSTANCE`, or `--instance FILE`, in increasing precedence). Copy [instance.env.example](instance.env.example) and fill it in, or have
-[make-instance-env.sh](make-instance-env.sh) write it:
+[make-instance-env.sh](make-instance-env.sh) write it. `upgrade.sh` refuses an instance file (or
+a `COMPOSE_OVERRIDE` file) that's writable by group or others, which a plain `cp` gives you under
+the usual umask 002, so copy with a mode:
+
+```bash
+install -m 600 deploy/instance.env.example ~/.config/waypoint/instance.env
+```
+
+or:
 
 ```bash
 deploy/make-instance-env.sh --output ~/.config/waypoint/instance.env \
@@ -206,7 +214,7 @@ re-rendered. After such a deploy, run once:
 
 ```bash
 deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
-deploy/upgrade.sh --dry-run rerender     # count only (the writer still stops for the count)
+deploy/upgrade.sh --dry-run rerender     # count only ("N to render"; the writer still stops for the count)
 ```
 
 `rerender` takes the data directory's lock, so the writer must be stopped while a batch runs, and
@@ -215,18 +223,21 @@ agents' writes fail meanwhile. The subcommand:
 1. takes the instance lock, dry runs included (so no deploy recreates the writer meanwhile), and
    refuses to start if a deploy didn't finish or the writer isn't healthy (a restart while it
    waits counts as unhealthy; one from before doesn't);
-2. stops the writer (60 s to finish in-flight uploads) and runs the rerender dry run in a one-off
+2. refuses, before every stop, if the writer doesn't run with the instance's current settings:
+   the batches run in one-off containers built from `instance.env`, the writer env file and the
+   current image, while the running writer, created by the last deploy, uploads what they queue.
+   After a change to any of those (a new `DATA_DIR`, say), or a rollback, deploy first;
+3. stops the writer (60 s to finish in-flight uploads) and runs the rerender dry run in a one-off
    container of the same image, to learn the image's renderer version, which every batch then
    pins with `--version`;
-3. renders a batch of at most `--limit` (default 500) renditions, starts the writer, waits until
+4. renders a batch of at most `--limit` (default 500) renditions, starts the writer, waits until
    it's healthy, then waits until it has uploaded the queued renditions (`rerender_pending` on
    `/api/status` reaches 0, for up to an hour per batch: `RERENDER_UPLOAD_TIMEOUT` seconds);
-4. repeats from the stop while the batch reported `remaining` above 0.
+5. repeats from the check while the batch reported `remaining` above 0.
 
 If anything fails, or the run is interrupted, it starts the writer again before exiting. It
-starts the same container it stopped (`compose start`), never a new one, even if the writer env
-file or `instance.env` changed since the last deploy: applying a changed config is a deploy's job,
-with its health gate and rollback. A deploy
+starts the same container it stopped (`compose start`), never a new one: applying a changed
+config is a deploy's job, with its health gate and rollback. A deploy
 that starts meanwhile waits for the lock for at most 30 minutes (`LOCK_WAIT_SECONDS`) and then
 fails without changing anything; a long rerender can outlast that, so deploy again afterwards. Each
 batch's JSON summary lists `missing` sources (in neither the local blob cache nor the bucket) and
@@ -255,8 +266,11 @@ The sidecar mounts a copy of [serve.json](serve.json) that `upgrade.sh` keeps in
 its path doesn't change from one release directory to the next (a changed mount would recreate
 the sidecar on every upgrade). Enable HTTPS certificates for the tailnet so Serve can use the
 node's certificate. Set
-`WAYPOINT_BASE_URL` in the writer env file to the `https://…ts.net` URL, and
-`WRITER_HEALTH_URL` to its `/healthz`.
+`WAYPOINT_BASE_URL` in the writer env file to the `https://…ts.net` URL. Set `WRITER_HEALTH_URL`
+to its `/healthz` only if the deploying host can reach it, that is, the host is on the tailnet and
+resolves `*.ts.net` through MagicDNS: `upgrade.sh` checks it from the host, and an unreachable URL
+fails every deploy and its rollback. The sidecar is its own node, so the host doesn't have to be
+on the tailnet; leave the URL out then, and the container's health check gates the deploy.
 
 The service and volume names are fixed (`writer`, `ts-waypoint`, `tailscale-state`), so a
 `COMPOSE_PROJECT` keeps the same containers (`<project>-writer-1`, `<project>-ts-waypoint-1`) and

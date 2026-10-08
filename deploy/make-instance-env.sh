@@ -16,12 +16,16 @@
 #   --bind ADDRESS --port N  WRITER_BIND_ADDRESS, WRITER_HOST_PORT
 #   --health-url URL         WRITER_HEALTH_URL (default: <WAYPOINT_BASE_URL>/healthz when the
 #                            writer env file sets an https base URL)
-#   --no-health-url          leave WRITER_HEALTH_URL unset
+#   --no-health-url          leave WRITER_HEALTH_URL unset. Use it when this host can't reach
+#                            the base URL itself, for example a .ts.net URL on a host that isn't
+#                            on the tailnet (the Tailscale sidecar is its own node): upgrade.sh
+#                            fetches the health URL from this host, and an unreachable one fails
+#                            every deploy and its rollback
 #   --tailscale              TAILSCALE=on (the three --ts-* options need it)
 #   --ts-env FILE            TAILSCALE_ENV_FILE
 #   --ts-hostname NAME       TAILSCALE_HOSTNAME
 #   --ts-tags TAGS           TAILSCALE_TAGS
-#   --cloudflare-env FILE    CLOUDFLARE_ENV_FILE
+#   --cloudflare-env FILE    CLOUDFLARE_ENV_FILE (needs a --reader)
 #   --reader NAME,WORKER,DOMAIN,SECRETS_FILE,DATASET,RATELIMIT_NAMESPACE[,WORKERS_DEV]
 #                            a reader target; repeat in deploy order
 #   --force                  overwrite --output
@@ -67,6 +71,8 @@ done
 [[ -n "$output" && -n "$data_dir" && -n "$writer_env" ]] || die "--output, --data-dir and --writer-env are required"
 # Without --tailscale they'd be dropped, and the writer published on the host instead.
 if (( ! tailscale )) && [[ -n "$ts_env$ts_hostname$ts_tags" ]]; then die "--ts-env, --ts-hostname and --ts-tags need --tailscale"; fi
+# Likewise, it's only written with a reader target.
+if ((${#readers[@]} == 0)) && [[ -n "$cloudflare_env" ]]; then die "--cloudflare-env needs a --reader"; fi
 [[ ! -e "$output" ]] || (( force )) || die "$output exists (pass --force to overwrite it)"
 output_dir="$(cd "$(dirname "$output")" && pwd)" || die "no directory for $output"
 output="$output_dir/$(basename "$output")"
@@ -77,7 +83,10 @@ envfile_check_secret_mode "$(resolve "$writer_env")" || exit 1
 if [[ -z "$health_url" ]] && (( ! no_health_url )); then
   # Only WAYPOINT_BASE_URL is read, and it isn't printed.
   base="$(sed -n 's/^WAYPOINT_BASE_URL=\(https:\/\/[^[:space:]]*\)$/\1/p' "$(resolve "$writer_env")" | tail -n1)"
-  if [[ -n "$base" ]]; then health_url="${base%/}/healthz"; fi
+  if [[ -n "$base" ]]; then
+    health_url="${base%/}/healthz"
+    echo "$log_prefix: WRITER_HEALTH_URL defaults to the writer's base URL; upgrade.sh fetches it from this host, so pass --no-health-url if this host can't reach it (say, a .ts.net URL on a host that isn't on the tailnet)" >&2
+  fi
 fi
 (( ! tailscale )) || envfile_check_secret_mode "$(resolve "${ts_env:-ts.env}")" || exit 1
 

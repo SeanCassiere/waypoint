@@ -133,6 +133,11 @@ if bash "$repo/deploy/make-instance-env.sh" --output "$work/made-ts.env" --data-
   fail "make-instance-env.sh dropped Tailscale settings without --tailscale"
 fi
 grep -q 'need --tailscale' err.log || { cat err.log >&2; fail "the missing --tailscale isn't named"; }
+if bash "$repo/deploy/make-instance-env.sh" --output "$work/made-cf.env" --data-dir "$work/data" --writer-env writer.env \
+  --cloudflare-env cloudflare.env 2> err.log; then
+  fail "make-instance-env.sh dropped --cloudflare-env without a reader"
+fi
+grep -q 'needs a --reader' err.log || { cat err.log >&2; fail "the missing --reader isn't named"; }
 
 echo "--- compose --dry-run only prints the command" >&2
 write_instance off

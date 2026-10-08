@@ -2,10 +2,10 @@
 # The adopter install test: drives the real deploy/upgrade.sh against a throwaway instance (local
 # writer, sync off, no readers) and checks install, upgrade, rollback, idempotence, failure
 # rollback, interruption, convergence after a killed run (including one killed in the external
-# health gate), rerender and its lock, a reader deploy killed midway (against a stand-in
-# Wrangler), and idempotence with the writer in a sidecar's network namespace (the Tailscale
-# overlay's layout) and an interruption right after the sidecar is recreated, with the same data
-# directory throughout.
+# health gate), rerender (its count, its lock, and its refusal of changed settings), a reader
+# deploy killed midway (against a stand-in Wrangler), and idempotence with the writer in a
+# sidecar's network namespace (the Tailscale overlay's layout) and an interruption right after
+# the sidecar is recreated, with the same data directory throughout.
 #
 # Needs Docker, and pnpm with the workspace installed (upgrade.sh builds the reader).
 #
@@ -266,9 +266,37 @@ kill -KILL "$holder"
 wait "$holder" 2>/dev/null || true
 holder=""
 
-step "rerender"
+step "rerender refuses a writer that doesn't run with the instance's settings"
+# Its batches would render into the new DATA_DIR, which the running writer never uploads from.
+{ grep -v '^DATA_DIR=' "$work/config/instance.env"; echo "DATA_DIR=$work/data-moved"; } > "$work/config/moved-instance.env"
+chmod 600 "$work/config/moved-instance.env"
+started="$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")"
+if "${upgrade[@]}" --instance "$work/config/moved-instance.env" rerender 2> "$work/moved.log"; then
+  fail "a rerender ran with a DATA_DIR the writer doesn't use"
+fi
+grep -q "doesn't run with the instance's current settings" "$work/moved.log" || { cat "$work/moved.log" >&2; fail "rerender didn't name the changed settings"; }
+[[ "$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")" == "$started" ]] || fail "a refused rerender restarted the writer"
+[[ ! -e "$work/data-moved" ]] || fail "a refused rerender touched the new DATA_DIR"
+
+step "rerender renders a source whose rendition is gone"
+# As after a renderer upgrade: the markdown has no rendition at the image's renderer version.
+# With sync off its revision never commits, so the rendition is a queued one, in queue.db.
+up compose stop writer >/dev/null 2>&1
+# shellcheck disable=SC2016 # JavaScript, not shell
+up compose run --rm --no-deps -T writer node --input-type=module -e '
+  import { connect } from "@tursodatabase/database";
+  const db = await connect("/data/queue.db");
+  const { changes } = await db.prepare("DELETE FROM pending_renditions").run();
+  await db.close();
+  if (changes !== 1) { console.error(`deleted ${changes} renditions, expected 1`); process.exit(1); }
+' || fail "couldn't drop the rendition"
+up compose start writer >/dev/null 2>&1
+up --dry-run rerender 2> "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "rerender dry run failed"; }
+grep -q '1 sources, 0 current, 1 to render' "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "the dry run miscounted"; }
 up rerender > "$work/rerender.log" 2>&1 || { cat "$work/rerender.log" >&2; fail "rerender failed"; }
-grep -q '"sources":1' "$work/rerender.log" || { cat "$work/rerender.log" >&2; fail "rerender didn't see the markdown"; }
+grep -q '"sources":1,"current":0,"queued":1' "$work/rerender.log" || { cat "$work/rerender.log" >&2; fail "rerender didn't render the markdown"; }
+up --dry-run rerender 2> "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "rerender dry run failed"; }
+grep -q '1 sources, 1 current, 0 to render' "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "the rendition wasn't committed"; }
 expect_build "$new_sha" "$new_version"
 expect_data
 

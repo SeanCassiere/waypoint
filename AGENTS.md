@@ -39,7 +39,7 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))
    - `build-writer-image`
-   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender and its lock, a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
+   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender (its count, its lock, its refusal of changed settings), a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
    - `mcp-smoke`
    - `browser`
 

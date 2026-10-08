@@ -41,12 +41,15 @@ directory is the only copy, so back it up.
 
 ```bash
 install -d -m 700 ~/.config/waypoint
+# Created with their modes first: upgrade.sh refuses a writer env file that isn't mode 600, and
+# an instance file that group or others can write (what a plain `cat >` gives under umask 002).
+install -m 600 /dev/null ~/.config/waypoint/writer.env
 cat > ~/.config/waypoint/writer.env <<'EOF'
 WAYPOINT_ENV=prod
 WAYPOINT_SYNC=off
 EOF
-chmod 600 ~/.config/waypoint/writer.env
 
+install -m 600 /dev/null ~/.config/waypoint/instance.env
 cat > ~/.config/waypoint/instance.env <<EOF
 DATA_DIR=$HOME/.local/share/waypoint/prod
 WRITER_ENV_FILE=writer.env
@@ -94,12 +97,18 @@ publishes no port on the host. Every device on your tailnet can reach it; nothin
    ```
    TAILSCALE=on
    TAILSCALE_HOSTNAME=waypoint
-   WRITER_HEALTH_URL=https://waypoint.<tailnet>.ts.net/healthz
    ```
 
    If you defined a tag in step 1, also add `TAILSCALE_TAGS=tag:waypoint`. Leave it out otherwise:
    a node that advertises a tag nobody defined can't log in. Add to `writer.env`:
    `WAYPOINT_BASE_URL=https://waypoint.<tailnet>.ts.net`.
+
+   If this host is on the tailnet itself (it runs Tailscale and resolves `*.ts.net` names through
+   MagicDNS), also add `WRITER_HEALTH_URL=https://waypoint.<tailnet>.ts.net/healthz`, so a deploy
+   counts only once the writer answers there. Otherwise leave it out: the sidecar is its own node,
+   so the host needn't be on the tailnet, but `upgrade.sh` checks that URL from the host, and a
+   URL it can't reach fails every deploy, and the rollback too. The container's health check
+   still gates the deploy.
 
 4. Deploy again. The key is used only for the node's first login; afterwards the node's identity
    lives in the `waypoint_tailscale-state` Docker volume. Keep that volume (never

@@ -309,7 +309,14 @@ install_serve_config() {
   chmod 644 "$WAYPOINT_TS_SERVE_CONFIG"
 }
 
-writer_container() { compose ps -a -q writer 2>/dev/null || true; }
+# A service's container, running or not. Not `compose ps -a`, which also lists the one-off
+# containers a `compose run` without --rm leaves behind.
+# Usage: service_container <service>
+service_container() {
+  docker_run ps -a -q --no-trunc --filter "label=com.docker.compose.project=$project" \
+    --filter "label=com.docker.compose.service=$1" --filter label=com.docker.compose.oneoff=False 2>/dev/null || true
+}
+writer_container() { service_container writer; }
 
 image_id() { docker_run image inspect --format '{{.Id}}' "$1" 2>/dev/null; }
 
@@ -504,7 +511,13 @@ rollback_in_progress() {
   in_progress=""
   case "$component" in
     writer) rollback_writer && ok=1 ;;
-    reader:*) rollback_reader "${component#reader:}" && ok=1 && rollback_record_clear "${component#reader:}" ;;
+    reader:*)
+      if [[ -z "$reader_previous" ]]; then
+        # As in deploy_reader's failure path: the record and the marker stay, so a rerun deploys it.
+        log "reader ${component#reader:}: first deployment, nothing to roll back to; rerun to deploy it"
+        return 0
+      fi
+      rollback_reader "${component#reader:}" && ok=1 && rollback_record_clear "${component#reader:}" ;;
     rerender) rollback_rerender; return ;;
     *) return 0 ;;
   esac
@@ -725,7 +738,7 @@ writer_is_current() {
   [[ "$(state_get writer container)" == "$container" ]] || return 1
   if [[ "$tailscale" == on ]]; then
     # A recreated sidecar leaves the writer in the old one's network namespace.
-    sidecar="$(compose ps -a -q ts-waypoint 2>/dev/null || true)"
+    sidecar="$(service_container ts-waypoint)"
     [[ -n "$sidecar" && "$(container_field "$container" '{{.HostConfig.NetworkMode}}')" == "container:$sidecar" ]] || return 1
   fi
 }
@@ -760,7 +773,7 @@ writer_arm() {
 # sidecar's network namespace, unreachable, until it's recreated.
 sidecar_instance() {
   local sidecar
-  sidecar="$(compose ps -a -q ts-waypoint 2>/dev/null || true)"
+  sidecar="$(service_container ts-waypoint)"
   [[ -n "$sidecar" ]] || return 0
   printf '%s %s' "$sidecar" "$(container_field "$sidecar" '{{.State.StartedAt}}')"
 }
@@ -1205,7 +1218,8 @@ cmd_rerender() {
   summary="$(head -n1 "$scratch/rerender.out")"
   version="$(node -e 'console.log(JSON.parse(process.argv[1]).renderer_version)' "$summary")" || die "unexpected rerender output"
   # shellcheck disable=SC2016 # JavaScript, not shell
-  log "markdown renderer v$version: $(node -e 'const s=JSON.parse(process.argv[1]);console.log(`${s.sources} sources, ${s.current} current, ${s.remaining} to render`)' "$summary")"
+  # Without --limit, the dry run counts every source still to render as queued (and none remaining).
+  log "markdown renderer v$version: $(node -e 'const s=JSON.parse(process.argv[1]);console.log(`${s.sources} sources, ${s.current} current, ${s.queued} to render`)' "$summary")"
   if (( dry_run )); then rerender_start; return 0; fi
   while :; do
     compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer markdown --version "$version" --limit "$rerender_limit" > "$scratch/rerender.out"
@@ -1230,13 +1244,29 @@ cmd_rerender() {
 }
 
 rerender_stop() {
+  rerender_check_config
   in_progress=rerender
   log "stopping the writer"
   compose stop -t 60 writer >&2
 }
 
-# `start`, not `up`: the same container comes back, even if the env file or instance.env changed
-# since the last deploy (a recreate belongs to a deploy, with its health gate and rollback).
+# Each batch runs in a one-off container built from the instance's current settings (image, data
+# directory, env file), while the writer that uploads its renditions is the container the last
+# deploy created. They must be the same: with a changed DATA_DIR, say, the batch would render
+# into a directory the running writer never uploads from, and its upload check would pass.
+# Checked before every stop, so a change between batches is caught too.
+rerender_check_config() {
+  local container hash
+  container="$(writer_container)"
+  hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
+  if [[ -z "$container" || -z "$hash" || "$(state_get writer hash)" != "$hash" || "$(state_get writer container)" != "$container" \
+    || "$(container_field "$container" '{{.Image}}')" != "$(image_id "$local_repo:$project-current")" ]]; then
+    die "the writer doesn't run with the instance's current settings (instance.env, the writer env file or the image changed since the last deploy, or the writer was rolled back): deploy first (upgrade.sh <version>), then re-render"
+  fi
+}
+
+# `start`, not `up`: the same container comes back (a recreate belongs to a deploy, with its
+# health gate and rollback); rerender_check_config made sure it's the one the batches match.
 rerender_start() {
   compose start writer >&2
   in_progress=""
