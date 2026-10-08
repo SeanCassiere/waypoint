@@ -126,8 +126,8 @@ bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$
   --reader prod,example-reader,share.example.com,reader-prod.env,example_access,1002,true
 grep -qx 'READER_TARGETS=dev prod' made.env || fail "make-instance-env.sh lost the target order"
 grep -qx 'READER_prod_WORKERS_DEV=true' made.env || fail "make-instance-env.sh dropped WORKERS_DEV"
-grep -qx 'VERIFY_ATTESTATIONS=1' made.env && grep -qx 'RELEASE_REPO=example/waypoint' made.env \
-  || fail "make-instance-env.sh dropped the release settings"
+grep -qx 'VERIFY_ATTESTATIONS=1' made.env || fail "make-instance-env.sh dropped VERIFY_ATTESTATIONS"
+grep -qx 'RELEASE_REPO=example/waypoint' made.env || fail "make-instance-env.sh dropped RELEASE_REPO"
 if bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" --writer-env writer.env 2> /dev/null; then
   fail "make-instance-env.sh overwrote an instance file"
 fi
