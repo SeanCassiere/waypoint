@@ -12,7 +12,9 @@
 #   5. upgrade.sh's release mode against a fake release: a stand-in curl serves the bundle and the
 #      release list from a local directory, and a stand-in gh answers `gh attestation
 #      verify` (recording the policy it was asked for) and refuses the subjects it's told to.
-#      `latest` must skip newer releases that are drafts, prereleases or have no bundle yet. A
+#      `latest` must read every page of the release list (following the Link headers), pick the
+#      highest version across all of them, skip newer releases that are drafts, prereleases or
+#      have no bundle yet, and cope with a list larger than one command-line argument can hold. A
 #      dry run of `latest` must verify the bundle before unpacking it and the image digest before
 #      the (would-be) pull, and validate each reader target's generated config against the
 #      bundled Worker with the checkout's Wrangler; a refused attestation, a corrupted bundle or a
@@ -174,7 +176,8 @@ real_curl="$(command -v curl)"
 # its bundle. The newer ones are a release still publishing (no asset yet), one whose bundle upload
 # never finished, a prerelease and a draft; `latest` must skip them all, and say why.
 asset() { printf '{"name":"waypoint-deploy-%s.tgz","state":"%s"}' "$1" "${2:-uploaded}"; }
-cat > "$work/releases.json" <<EOF
+mkdir "$work/releases"
+cat > "$work/releases/1.json" <<EOF
 [
   {"tag_name":"v$version","draft":false,"prerelease":false,"assets":[$(asset "$version")]},
   {"tag_name":"v99.0.0","draft":false,"prerelease":false,"assets":[]},
@@ -184,21 +187,43 @@ cat > "$work/releases.json" <<EOF
   {"tag_name":"v95.0.0-rc.1","draft":false,"prerelease":false,"assets":[$(asset 95.0.0-rc.1)]}
 ]
 EOF
+# The release list is served from FAKE_RELEASES (a directory, default $work/releases), one page per
+# <n>.json, with GitHub's Link header pointing at the next page by its repository ID, as GitHub does.
 cat > "$bin/curl" <<EOF
 #!/usr/bin/env bash
-out="" url=""
+out="" hdr="" url=""
 for ((i = 1; i <= \$#; i++)); do
   case "\${!i}" in
     -o) j=\$((i + 1)); out="\${!j}" ;;
+    -D) j=\$((i + 1)); hdr="\${!j}" ;;
     https://*) url="\${!i}" ;;
   esac
 done
+releases_page() {
+  local dir="\${FAKE_RELEASES:-$work/releases}" p="\$1" last
+  [[ "\$p" =~ ^[1-9][0-9]*\$ && -f "\$dir/\$p.json" ]] || { echo "fake curl: no release page \$p" >&2; exit 22; }
+  last="\$(find "\$dir" -name '*.json' | wc -l)"
+  echo "\$p" >> "$work/pages"
+  link() { printf '<https://api.github.com/repositories/4242/releases?per_page=100&page=%s>; rel="%s"' "\$1" "\$2"; }
+  if [[ -n "\$hdr" ]]; then
+    {
+      printf 'HTTP/2 200\r\ncontent-type: application/json; charset=utf-8\r\n'
+      if (( p > 1 && p < last )); then printf 'link: %s, %s, %s\r\n' "\$(link \$((p - 1)) prev)" "\$(link \$((p + 1)) next)" "\$(link "\$last" last)"
+      elif (( p < last )); then printf 'link: %s, %s\r\n' "\$(link \$((p + 1)) next)" "\$(link "\$last" last)"
+      elif (( p > 1 )); then printf 'link: %s, %s\r\n' "\$(link \$((p - 1)) prev)" "\$(link 1 first)"
+      fi
+      printf '\r\n'
+    } > "\$hdr"
+  fi
+  if [[ -n "\$out" ]]; then exec cp "\$dir/\$p.json" "\$out"; fi
+  exec cat "\$dir/\$p.json"
+}
 case "\$url" in
   https://github.com/example/waypoint/releases/download/v$version/$name.tgz)
     echo download >> "$work/downloads"
     exec cp "\${FAKE_BUNDLE:-$tgz}" "\$out" ;;
-  https://api.github.com/repos/example/waypoint/releases\?per_page=100)
-    exec cat "\${FAKE_RELEASES:-$work/releases.json}" ;;
+  https://api.github.com/repos/example/waypoint/releases\?per_page=100) releases_page 1 ;;
+  https://api.github.com/repositories/4242/releases\?per_page=100\&page=*) releases_page "\${url##*&page=}" ;;
   https://github.com/*|https://api.github.com/*)
     echo "fake curl: unexpected \$url" >&2; exit 22 ;;
 esac
@@ -258,7 +283,7 @@ EOF
   chmod 644 instance.env
 }
 state="$work/state/release-dry-run"
-fresh() { rm -rf "$work/state"; : > "$work/gh.log"; : > "$work/wrangler.log"; : > "$work/downloads"; }
+fresh() { rm -rf "$work/state"; : > "$work/gh.log"; : > "$work/wrangler.log"; : > "$work/downloads"; : > "$work/pages"; }
 # The checkout's upgrade.sh, asked for a release, fetches that release's bundle and runs its own.
 # The checkout's Wrangler validates each generated config against the bundled Worker.
 release_run() {
@@ -291,10 +316,62 @@ cmp -s "$u/upgrade.sh" "$state/releases/$version/upgrade.sh" || fail "the bundle
 [[ "$(cat "$state/releases/$version/.provenance")" == "attested example/waypoint" ]] || fail "the cached bundle doesn't record its attestation"
 
 step "latest with no release that has its bundle"
-printf '[{"tag_name":"v%s","draft":false,"prerelease":false,"assets":[]}]' "$version" > "$work/no-bundle.json"
-if FAKE_RELEASES="$work/no-bundle.json" release_run latest; then fail "latest deployed a release without its bundle"; fi
+mkdir "$work/no-bundle"
+printf '[{"tag_name":"v%s","draft":false,"prerelease":false,"assets":[]}]' "$version" > "$work/no-bundle/1.json"
+if FAKE_RELEASES="$work/no-bundle" release_run latest; then fail "latest deployed a release without its bundle"; fi
 grep -q "no release of example/waypoint has its deploy bundle" err.log || { show; fail "the missing bundle isn't explained"; }
 ! grep -q "running upgrade.sh from" err.log || { show; fail "a bundle ran"; }
+
+# Writes a fake release list to the directory $1, one <n>.json per page. Each further argument is a
+# page: comma-separated <kind>x<count>, where kind is draft, prerelease, publishing (no bundle yet)
+# or ours (v$version, with its bundle). Each release gets a higher major than the one before it,
+# so the last page holds the newest, and PAD pads every release's body to that many bytes.
+release_pages() {
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const fs = require("node:fs");
+    const [dir, version, pad, ...pages] = process.argv.slice(1);
+    fs.mkdirSync(dir);
+    let major = 50;
+    pages.forEach((spec, i) => {
+      const list = spec.split(",").flatMap((item) => {
+        const [kind, count] = item.split("x");
+        return Array.from({ length: Number(count) }, () => {
+          const v = kind === "ours" ? version : `${major++}.0.0`;
+          return {
+            tag_name: `v${v}`, draft: kind === "draft", prerelease: kind === "prerelease", body: "x".repeat(Number(pad)),
+            assets: kind === "publishing" ? [] : [{ name: `waypoint-deploy-${v}.tgz`, state: "uploaded" }],
+          };
+        });
+      });
+      fs.writeFileSync(`${dir}/${i + 1}.json`, JSON.stringify(list));
+    });
+  ' "$1" "$version" "${PAD:-0}" "${@:2}"
+}
+latest_passed() {
+  grep -q "latest release with a deploy bundle: $version$" err.log && grep -q "dry run passed: release-$version" err.log
+}
+
+step "latest reads every page of the release list"
+# Page 1 is 100 drafts, page 2 has the deployable release, and page 3 the newest (still publishing):
+# all three are read, and the versions compared across them.
+release_pages "$work/paged" draftx100 prereleasex3,oursx1 publishingx2
+fresh
+FAKE_RELEASES="$work/paged" release_run latest || { show; fail "latest failed on a release list of 3 pages"; }
+latest_passed || { show; fail "latest didn't resolve to $version, on page 2 of 3"; }
+[[ "$(cat pages)" == $'1\n2\n3' ]] || { cat pages >&2; fail "latest didn't read each page once, in order"; }
+for skipped in "154.0.0: no waypoint-deploy-154.0.0.tgz yet" "150.0.0: a prerelease" "50.0.0: a draft"; do
+  grep -q "skipping example/waypoint $skipped" err.log || { show; fail "latest didn't report skipping $skipped"; }
+done
+
+step "latest with a release list larger than one argument can hold"
+# 131 releases with 2 KiB bodies: page 1 alone is past the kernel's 128 KiB limit on one argument.
+PAD=2048 release_pages "$work/large" publishingx100 publishingx30,oursx1
+(( $(stat -c %s "$work/large/1.json") > 131072 )) || fail "the large release list's first page isn't larger than 128 KiB"
+fresh
+FAKE_RELEASES="$work/large" release_run latest || { show; fail "latest failed on a release list larger than 128 KiB"; }
+latest_passed || { show; fail "latest didn't resolve to $version in a release list larger than 128 KiB"; }
+[[ "$(cat pages)" == $'1\n2' ]] || { cat pages >&2; fail "latest didn't read both pages of the large release list"; }
 
 step "a verified cached bundle is reused"
 : > gh.log; : > downloads

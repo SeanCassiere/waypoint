@@ -133,9 +133,10 @@ jobs:
           fi
           if [[ -z "$version" ]]; then
             # The highest X.Y.Z that isn't a draft or prerelease and has its bundle; newer releases
-            # still publishing (or whose publishing failed) are skipped, and named in the log.
+            # still publishing (or whose publishing failed) are skipped, and named in the log. Every
+            # page: GitHub lists releases newest first by date, not by version, 100 at most per page.
             # shellcheck disable=SC2016 # a jq program: $v is jq's variable, not the shell's
-            releases="$("$GH" api "repos/$RELEASE_REPO/releases?per_page=100" --jq '
+            releases="$("$GH" api --paginate "repos/$RELEASE_REPO/releases?per_page=100" --jq '
               .[] | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
               | (.tag_name | ltrimstr("v")) as $v
               | [.tag_name,
@@ -143,7 +144,7 @@ jobs:
                  elif .prerelease then "a prerelease"
                  elif any(.assets[]; .name == "waypoint-deploy-\($v).tgz" and .state == "uploaded") then "ok"
                  else "no waypoint-deploy-\($v).tgz yet (still publishing, or a publishing job failed)" end]
-              | @tsv')"
+              | @tsv')" || { echo "::error::couldn't list the releases of $RELEASE_REPO"; exit 1; }
             while IFS=$'\t' read -r tag state; do
               [[ -n "$tag" ]] || continue
               if [[ "$state" == ok ]]; then version="${tag#v}"; break; fi

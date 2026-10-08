@@ -617,15 +617,32 @@ resolve_release() {
 # publishing job failed), so newer releases without one are skipped, and logged.
 latest_version() {
   [[ -n "$release_repo" ]] || die "set RELEASE_REPO to resolve 'latest'"
-  local releases
-  releases="$(curl -fsSL --max-time 20 -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/$release_repo/releases?per_page=100")" \
-    || die "couldn't list the releases of $release_repo"
+  # Every page (GitHub lists releases newest first by date, not by version, 100 at most per page),
+  # following the Link headers. The pages go to node on stdin, NUL-separated (JSON text never
+  # contains a raw NUL): as one argument, a long release list would exceed the kernel's limit.
+  local i dir="$scratch/releases" url="https://api.github.com/repos/$release_repo/releases?per_page=100" n=0
+  rm -rf "$dir" && mkdir "$dir"
+  while [[ -n "$url" ]]; do
+    n=$((n + 1))
+    (( n <= 100 )) || die "the releases of $release_repo span more than 100 pages"
+    curl -fsSL --max-time 20 -H "Accept: application/vnd.github+json" \
+      -D "$dir/$n.headers" -o "$dir/$n.json" "$url" \
+      || die "couldn't list the releases of $release_repo"
+    # The final response's Link header (-D records each redirect's too), as
+    # Link: <url>; rel="prev", <url>; rel="next", <url>; rel="last"; no rel="next" on the last page.
+    url="$(tr -d '\r' < "$dir/$n.headers" \
+      | awk 'tolower($0) ~ /^http\// { link = "" } tolower($0) ~ /^link:/ { link = $0 } END { print link }' \
+      | sed -n 's/^[^:]*:.*<\([^>]*\)>; *rel="next".*/\1/p')"
+    [[ -z "$url" || "$url" == https://api.github.com/* ]] || die "unexpected next page of the releases of $release_repo: $url"
+  done
   # shellcheck disable=SC2016 # JavaScript, not shell
-  node -e '
-    const [prefix, repo, body] = process.argv.slice(1);
-    const releases = JSON.parse(body);
-    if (!Array.isArray(releases)) throw new Error("not a list of releases");
+  for ((i = 1; i <= n; i++)); do cat "$dir/$i.json"; printf '\0'; done | node -e '
+    const [prefix, repo] = process.argv.slice(1);
+    const releases = require("node:fs").readFileSync(0, "utf8").split("\0").slice(0, -1).flatMap((page) => {
+      const list = JSON.parse(page);
+      if (!Array.isArray(list)) throw new Error("not a list of releases");
+      return list;
+    });
     const parts = (v) => v.split(".").map(Number);
     const newer = (a, b) => { const [x, y] = [parts(a.version), parts(b.version)]; return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; };
     const candidates = releases
@@ -645,7 +662,7 @@ latest_version() {
     }
     console.error(`${prefix}: no release of ${repo} has its deploy bundle`);
     process.exit(1);
-  ' "$log_prefix" "$release_repo" "$releases" \
+  ' "$log_prefix" "$release_repo" \
     || die "couldn't resolve the latest deployable release of $release_repo"
 }
 
