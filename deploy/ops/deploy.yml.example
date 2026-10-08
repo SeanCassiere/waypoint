@@ -1,0 +1,175 @@
+# Automatic deploys on release: the one workflow of a private "ops" repository, which deploys
+# Waypoint releases to the instance on that repository's self-hosted runner. Copy it to
+# .github/workflows/deploy.yml there. The release workflow of the repository you deploy from
+# dispatches it after publishing a release (docs/releasing.md); you can also run it by hand.
+# Setup and the trust model: docs/self-hosting.md ("Optional: automatic deploys on release").
+#
+# What it does, on the runner host:
+#   1. picks the release: the latest one, or the `version` input when WAYPOINT_DEPLOY_ADMIN (by
+#      default the repository owner) started the run;
+#   2. downloads waypoint-deploy-X.Y.Z.tgz and verifies its build provenance (gh attestation
+#      verify: the release workflow, on GitHub-hosted runners, from main) and SHA256SUMS, before
+#      running anything from it;
+#   3. runs that release's own upgrade.sh with the instance file, which verifies the writer image's
+#      attestation, pulls it by digest and deploys the writer and each reader, health-gated, rolling
+#      back what fails.
+#
+# The deploy runs detached from the job (step 3), so cancelling the job, or the job timing out,
+# can't cut a deploy or its rollback short: the runner signals the job's processes and kills
+# them seconds later, mid-rollback. A deploy that's still running when its job ends finishes on its
+# own, holding the instance lock, and the next run waits for it. Its log stays in the run
+# directory, under WAYPOINT_DEPLOY_WORK. (upgrade.sh still converges after a hard kill, but a
+# detached run never leaves the instance half-deployed until the next one.)
+#
+# Repository variables (all optional):
+#   WAYPOINT_RELEASE_REPO   owner/repo whose releases are deployed (default SeanCassiere/waypoint)
+#   WAYPOINT_DEPLOY_ADMIN   the only login whose `version` input is honoured (default: the owner)
+#   WAYPOINT_INSTANCE       the instance file (default ~/.config/waypoint/instance.env)
+#   WAYPOINT_DEPLOY_WORK    bundles, logs and the GitHub CLI (default ~/.local/state/waypoint-deploy)
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release to deploy (X.Y.Z). Honoured only for WAYPOINT_DEPLOY_ADMIN; anyone else deploys the latest release.
+        required: false
+        default: ""
+permissions:
+  contents: read
+# One deploy at a time, and a queued one is never cancelled by the next.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+env:
+  RELEASE_REPO: ${{ vars.WAYPOINT_RELEASE_REPO || 'SeanCassiere/waypoint' }}
+  DEPLOY_ADMIN: ${{ vars.WAYPOINT_DEPLOY_ADMIN || github.repository_owner }}
+  WAYPOINT_INSTANCE: ${{ vars.WAYPOINT_INSTANCE }}
+  WAYPOINT_DEPLOY_WORK: ${{ vars.WAYPOINT_DEPLOY_WORK }}
+  # Reads the public release repository: releases, attestations and its name.
+  GH_TOKEN: ${{ github.token }}
+  # The GitHub CLI that verifies attestations, pinned with its checksums (upgrade.sh needs 2.102.0
+  # or later, which the host's package may not be).
+  GH_CLI_VERSION: 2.102.0
+  GH_CLI_SHA256_AMD64: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+  GH_CLI_SHA256_ARM64: 7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484
+jobs:
+  deploy:
+    runs-on: [self-hosted, waypoint-deploy]
+    # How long the job follows the deploy. A deploy still running then finishes on its own.
+    timeout-minutes: 120
+    steps:
+      - name: Prepare the work directory
+        id: work
+        run: |
+          set -euo pipefail
+          umask 077
+          work="${WAYPOINT_DEPLOY_WORK:-$HOME/.local/state/waypoint-deploy}"
+          mkdir -p "$work/runs" "$work/tools"
+          chmod 700 "$work"
+          # Finished runs older than two weeks.
+          find "$work/runs" -mindepth 2 -maxdepth 2 -name exit -mtime +14 -printf '%h\0' | xargs -0r rm -rf
+          run="$work/runs/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$run"
+          mkdir -p "$run/bundle" "$run/tmp"
+          echo "dir=$work" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Install the GitHub CLI
+        id: gh
+        env:
+          WORK: ${{ steps.work.outputs.dir }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64 sum="$GH_CLI_SHA256_AMD64" ;;
+            aarch64) arch=arm64 sum="$GH_CLI_SHA256_ARM64" ;;
+            *) echo "::error::no pinned GitHub CLI for $(uname -m)"; exit 1 ;;
+          esac
+          dir="$WORK/tools/gh-$GH_CLI_VERSION-$arch"
+          if [[ ! -x "$dir/bin/gh" ]]; then
+            tgz="$WORK/tools/gh.tgz"
+            curl -fsSL --retry 3 -o "$tgz" "https://github.com/cli/cli/releases/download/v$GH_CLI_VERSION/gh_${GH_CLI_VERSION}_linux_$arch.tar.gz"
+            echo "$sum  $tgz" | sha256sum -c --quiet -
+            rm -rf "$dir" && mkdir -p "$dir"
+            tar -xzf "$tgz" -C "$dir" --strip-components=1 --no-same-owner
+            rm -f "$tgz"
+          fi
+          "$dir/bin/gh" --version | head -n1
+          echo "bin=$dir/bin" >> "$GITHUB_OUTPUT"
+
+      - name: Choose the release
+        id: release
+        env:
+          GH: ${{ steps.gh.outputs.bin }}/gh
+          REQUESTED: ${{ inputs.version }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::WAYPOINT_RELEASE_REPO must be owner/repo"; exit 1; }
+          version=""
+          if [[ -n "$REQUESTED" ]]; then
+            # Both the run's actor and whoever started this attempt (a re-run keeps the actor).
+            if [[ "${ACTOR,,}" == "${DEPLOY_ADMIN,,}" && "${TRIGGERING_ACTOR,,}" == "${DEPLOY_ADMIN,,}" ]]; then
+              [[ "$REQUESTED" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version must be X.Y.Z"; exit 1; }
+              version="${REQUESTED#v}"
+            else
+              echo "::warning::the version input is honoured only for $DEPLOY_ADMIN; deploying the latest release"
+            fi
+          fi
+          if [[ -z "$version" ]]; then
+            tag="$("$GH" release view --repo "$RELEASE_REPO" --json tagName --jq .tagName)"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::unexpected latest release tag: $tag"; exit 1; }
+            version="${tag#v}"
+          fi
+          # As GitHub spells it: the attestation's signer workflow is compared case-sensitively.
+          repo="$("$GH" api "repos/$RELEASE_REPO" --jq .full_name)"
+          echo "Deploying $repo $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the release bundle
+        env:
+          GH: ${{ steps.gh.outputs.bin }}/gh
+          RUN_DIR: ${{ steps.work.outputs.run }}
+          VERSION: ${{ steps.release.outputs.version }}
+          REPO: ${{ steps.release.outputs.repo }}
+        run: |
+          set -euo pipefail
+          tgz="$RUN_DIR/waypoint-deploy-$VERSION.tgz"
+          "$GH" release download "v$VERSION" --repo "$REPO" --pattern "waypoint-deploy-$VERSION.tgz" --output "$tgz"
+          # Before anything in it runs: built by the release workflow, on GitHub-hosted runners, from main.
+          "$GH" attestation verify "$tgz" --repo "$REPO" \
+            --signer-workflow "$REPO/.github/workflows/release.yml" --source-ref refs/heads/main \
+            --deny-self-hosted-runners
+          tar -xzf "$tgz" -C "$RUN_DIR/bundle" --strip-components=1 --no-same-owner
+          (cd "$RUN_DIR/bundle" && sha256sum --quiet -c SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < "$RUN_DIR/bundle/VERSION")" == "$VERSION" ]] || { echo "::error::the bundle isn't version $VERSION"; exit 1; }
+
+      - name: Deploy
+        env:
+          GH_BIN_DIR: ${{ steps.gh.outputs.bin }}
+          RUN_DIR: ${{ steps.work.outputs.run }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          instance="${WAYPOINT_INSTANCE:-$HOME/.config/waypoint/instance.env}"
+          : > "$RUN_DIR/log"
+          # setsid -f: its own session, no longer a child of this job, so the runner's signals and
+          # its process-tree kill on cancel don't reach it. Without RUNNER_TRACKING_ID, the runner's
+          # orphan cleanup at the end of the job leaves it alone. Its temporary files (the reader
+          # secrets, briefly) go to the run directory, which outlives the job; upgrade.sh deletes them.
+          # shellcheck disable=SC2016 # the inner script expands its own arguments
+          env -u RUNNER_TRACKING_ID TMPDIR="$RUN_DIR/tmp" PATH="$GH_BIN_DIR:$PATH" \
+            setsid -f bash -c '
+              bash "$1/upgrade.sh" --instance "$2" "$3" >> "$4/log" 2>&1
+              echo "$?" > "$4/exit.tmp" && mv "$4/exit.tmp" "$4/exit"
+            ' upgrade "$RUN_DIR/bundle" "$instance" "$VERSION" "$RUN_DIR" < /dev/null > /dev/null 2>&1
+          tail -n +1 -f "$RUN_DIR/log" &
+          tail_pid=$!
+          until [[ -f "$RUN_DIR/exit" ]]; do sleep 2; done
+          sleep 1
+          kill "$tail_pid" 2> /dev/null || true
+          status="$(cat "$RUN_DIR/exit")"
+          if [[ "$status" != 0 ]]; then echo "::error::upgrade.sh $VERSION failed (exit $status); log: $RUN_DIR/log"; fi
+          exit "$status"
