@@ -12,7 +12,9 @@
 # Matching is case-insensitive. Caught: the owner's handle in any form (so its Cloudflare
 # workers.dev subdomain and its Turso organization too), its public domain, its tailnet name, its
 # host's name (as a whole name), Cloudflare Access team domains, and a few opaque IDs (Cloudflare
-# account, Access app, GitHub App), which are matched by hash so this script doesn't publish them.
+# account, Access app, GitHub App), which are matched by hash so this script doesn't spell them out.
+# The hash hides the long ones; the GitHub App's 7-digit ID can be found from its hash by trying
+# every 7-digit number, which is fine: none of these IDs is a secret (D57).
 #
 # Allowed everywhere, because they name the published project rather than an instance:
 #   - its image, ghcr.io/seancassiere/... (the default IMAGE);
@@ -78,7 +80,8 @@ else
     [[ -e "$path" ]] || { echo "check-owner-strings.sh: no such file or directory: $path" >&2; exit 2; }
   done
   label="${*#"$repo"/}"
-  hits() { grep -r -I -n -i -E "$pattern" "$@" || none; }
+  # -H: a file passed directly still prints its name, so every hit parses as file:line:text.
+  hits() { grep -r -H -I -n -i -E "$pattern" "$@" || none; }
   candidates() { grep -r -I -h -o -i -E "$id_candidates" "$@" || none; }
   # Names below each path, so a path's own location (a home directory, say) doesn't count.
   files() { find "$@" -mindepth 1 -printf '%P\n'; }

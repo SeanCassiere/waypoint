@@ -25,7 +25,7 @@ Before changing anything that affects access, credentials, share links, content 
 ## How changes ship
 
 1. Open a PR. Its title must be a conventional commit (`type(scope): subject`, `!` for a breaking change), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged, and release-please builds the version and changelog from those titles. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
-   - `lint` (format check, lint, core import guard, shellcheck of every script, and `scripts/check-owner-strings.sh`: no tracked file may name a particular instance's hosts, domains, machines or accounts)
+   - `lint` (format check, lint, core import guard, shellcheck of every script, `scripts/check-owner-strings.sh`: no tracked file may name a particular instance's hosts, domains, machines or accounts, and `pnpm notices:check`: `THIRD_PARTY_NOTICES.md` matches the installed packages)
    - `typecheck`
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))

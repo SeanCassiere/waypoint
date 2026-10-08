@@ -181,6 +181,10 @@ for planted in "https://$owner.workers.dev" "$owner/waypoint-ops" "Turso org $ow
   rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "$planted" > "$probe/doc.md"
   if bash "$repo/scripts/check-owner-strings.sh" "$probe" > /dev/null 2>&1; then fail "the owner-string check passed: $planted"; fi
 done
+# A file passed directly, with the value before the first colon (grep prints no file name for a
+# lone file unless asked to, which would shift the fields).
+rm -rf "$probe" && mkdir -p "$probe" && printf '%s\n' "ping""stash.com: the reader" > "$probe/doc.md"
+if bash "$repo/scripts/check-owner-strings.sh" "$probe/doc.md" > /dev/null 2>&1; then fail "the owner-string check passed a value in a file passed directly"; fi
 rm -rf "$probe" && mkdir -p "$probe"
 printf '%s\n' "ghcr.io/$owner/waypoint-writer:1.0.0" "https://github.com/$owner/waypoint/releases" "$owner/waypoint." \
   "git clone https://github.com/$owner/waypoint.git" "agents agent""-10 and reagent""-1" > "$probe/ok.md"
