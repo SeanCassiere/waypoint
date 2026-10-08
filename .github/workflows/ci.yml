@@ -87,9 +87,10 @@ jobs:
         run: docker build -f apps/writer/Dockerfile -t waypoint-writer:ci .
   # The adopter install path, for real: deploy/upgrade.sh installs the writer from the merge base's
   # image, upgrades to this commit (current-checkout), rolls back and forward again against the
-  # same data directory, rolls back a broken image and an interrupted deploy, re-renders, and
-  # rolls back a reader deploy killed midway (against a stand-in Wrangler; upgrade.sh builds the
-  # reader, so the workspace is installed).
+  # same data directory, rolls back a broken image and an interrupted deploy, keeps the last
+  # verified writer as the rollback target after a deploy killed in its external health gate,
+  # re-renders, and rolls back a reader deploy killed midway (against a stand-in Wrangler;
+  # upgrade.sh builds the reader, so the workspace is installed).
   install-test:
     runs-on: ubuntu-latest
     env:

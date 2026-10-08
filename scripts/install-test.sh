@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The adopter install test: drives the real deploy/upgrade.sh against a throwaway instance (local
 # writer, sync off, no readers) and checks install, upgrade, rollback, idempotence, failure
-# rollback, interruption, convergence after a killed run, rerender and its lock, a reader deploy
-# killed midway (against a stand-in Wrangler), and idempotence with the writer in a sidecar's
-# network namespace (the Tailscale overlay's layout), with the same data directory throughout.
+# rollback, interruption, convergence after a killed run (including one killed in the external
+# health gate), rerender and its lock, a reader deploy killed midway (against a stand-in
+# Wrangler), and idempotence with the writer in a sidecar's network namespace (the Tailscale
+# overlay's layout), with the same data directory throughout.
 #
 # Needs Docker, and pnpm with the workspace installed (upgrade.sh builds the reader).
 #
@@ -49,6 +50,7 @@ cleanup() {
   step "cleanup"
   if [[ -n "${pid:-}" ]]; then kill -KILL "$pid" 2>/dev/null || true; fi
   if [[ -n "${holder:-}" ]]; then kill -KILL "$holder" 2>/dev/null || true; fi
+  if [[ -n "${gate:-}" ]]; then kill -KILL "$gate" 2>/dev/null || true; fi
   if [[ -f "$work/wrangler/hung.pid" ]]; then kill -KILL "$(cat "$work/wrangler/hung.pid")" 2>/dev/null || true; fi
   # A throwaway project, so its volumes go too.
   "${upgrade[@]}" --instance "$work/config/instance.env" compose down --remove-orphans --volumes >/dev/null 2>&1 || true
@@ -206,6 +208,50 @@ expect_data
 [[ ! -f "$state/deploying" ]] || fail "the rerun left the deploying marker"
 # The killed run's writer was never healthy, so the last healthy image stays the rollback target.
 [[ "$(docker_ image inspect --format '{{.Id}}' "waypoint-writer:$name-previous")" == "$new_id" ]] || fail "the previous image isn't the last healthy one"
+[[ ! -f "$state/rollback-writer" ]] || fail "the rerun left the writer's rollback record"
+
+step "a deploy killed in the external health gate keeps the last verified writer as the rollback target"
+# A stand-in for WRITER_HEALTH_URL that answers like this commit's writer and logs each request.
+# The old image passes its Docker health check but never this gate (it reports another commit);
+# a rollback, which expects no particular build, passes it.
+gate_port=$((port + 1))
+# shellcheck disable=SC2016 # JavaScript, not shell
+node -e '
+  const [port, sha, log] = process.argv.slice(1);
+  require("node:http").createServer((_, res) => {
+    require("node:fs").appendFileSync(log, "request\n");
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: true, sha }));
+  }).listen(Number(port), "127.0.0.1");
+' "$gate_port" "$new_sha" "$work/gate-requests" &
+gate=$!
+{ cat "$work/config/instance.env"; echo "WRITER_HEALTH_URL=http://127.0.0.1:$gate_port/healthz"; } > "$work/config/gate-instance.env"
+chmod 600 "$work/config/gate-instance.env"
+old_id="$(docker_ image inspect --format '{{.Id}}' "$old_image")"
+TMPDIR="$work" WRITER_URL_TIMEOUT=600 "${upgrade[@]}" --instance "$work/config/gate-instance.env" image "$old_image" &
+pid=$!
+for _ in $(seq 180); do [[ -s "$work/gate-requests" ]] && break; sleep 1; done
+[[ -s "$work/gate-requests" ]] || fail "the deploy never reached the external health gate"
+[[ "$(docker_ inspect --format '{{.Image}} {{.State.Health.Status}}' "$(container)")" == "$old_id healthy" ]] || fail "the gate ran before the old writer was healthy"
+kill -KILL "$pid"
+wait "$pid" || true
+pid=""
+[[ -f "$state/rollback-writer" ]] || fail "the killed deploy left no writer rollback record"
+# The rerun finds the unverified writer Docker-healthy; it must still roll back past it.
+if WRITER_URL_TIMEOUT=5 "${upgrade[@]}" --instance "$work/config/gate-instance.env" image "$old_image" 2> "$work/gate.log"; then
+  fail "a writer that fails the external health gate deployed"
+fi
+grep -q "an earlier writer deploy didn't finish" "$work/gate.log" || { cat "$work/gate.log" >&2; fail "the rerun didn't use the killed run's rollback target"; }
+expect_build "$new_sha" "$new_version"
+expect_data
+[[ "$(docker_ image inspect --format '{{.Id}}' "waypoint-writer:$name-previous")" == "$new_id" ]] || fail "the unverified writer became the rollback target"
+[[ ! -f "$state/rollback-writer" && ! -f "$state/deploying" ]] || { cat "$work/gate.log" >&2; fail "a successful rollback left its records"; }
+kill -KILL "$gate"
+wait "$gate" 2>/dev/null || true
+gate=""
+# A rollback leaves a container the state doesn't record; one deploy brings them together again.
+up current-checkout
+expect_build "$new_sha" "$new_version"
 
 step "rerender waits for the instance lock, dry runs too"
 ( exec 8> "$state/lock"; flock 8; exec sleep 300 ) &

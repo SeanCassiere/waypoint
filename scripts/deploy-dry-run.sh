@@ -2,7 +2,9 @@
 # Checks deploy/upgrade.sh without deploying anything: a scratch instance with two reader targets
 # and fake credentials, then `upgrade.sh --dry-run current-checkout` (the generated Wrangler
 # configs go through `wrangler deploy --dry-run`; the reader steps run against a stand-in
-# Wrangler), a smoke failure that must roll back, and instance files that must be refused.
+# Wrangler), a smoke failure that must roll back, two concurrent dry runs of another release
+# (its bundle must be installed once, under the instance lock), and instance files that must be
+# refused.
 #
 # Needs the reader build (pnpm --filter "@waypoint/reader..." build) and Docker (compose config).
 set -euo pipefail
@@ -106,6 +108,66 @@ grep -qx 'READER_prod_WORKERS_DEV=true' made.env || fail "make-instance-env.sh d
 if bash "$repo/deploy/make-instance-env.sh" --output "$work/made.env" --data-dir "$work/data" --writer-env writer.env 2> /dev/null; then
   fail "make-instance-env.sh overwrote an instance file"
 fi
+if bash "$repo/deploy/make-instance-env.sh" --output "$work/made-ts.env" --data-dir "$work/data" --writer-env writer.env \
+  --ts-env ts.env --ts-tags tag:example 2> err.log; then
+  fail "make-instance-env.sh dropped Tailscale settings without --tailscale"
+fi
+grep -q 'need --tailscale' err.log || { cat err.log >&2; fail "the missing --tailscale isn't named"; }
+
+echo "--- compose --dry-run only prints the command" >&2
+write_instance off
+upgrade --dry-run compose down --volumes 2> err.log || { cat err.log >&2; fail "compose --dry-run failed"; }
+grep -q 'would run: docker compose -p deploy-dry-run .* down --volumes$' err.log || { cat err.log >&2; fail "compose --dry-run didn't print the command"; }
+
+echo "--- concurrent runs of another release install its bundle once, under the instance lock" >&2
+# A minimal bundle for version 9.9.9 (no readers), served by a stand-in curl that's slow and
+# counts downloads; anything else goes to the real curl.
+rel="$work/release"
+bundle="$rel/waypoint-deploy-9.9.9"
+mkdir -p "$bundle/lib" "$rel/bin"
+cp "$repo/deploy/upgrade.sh" "$repo/deploy/compose.yaml" "$repo/deploy/compose.tailscale.yaml" "$repo/deploy/serve.json" "$bundle/"
+cp "$repo/deploy/lib/"* "$bundle/lib/"
+echo 9.9.9 > "$bundle/VERSION"
+git -C "$repo" rev-parse HEAD > "$bundle/BUILD_SHA"
+(cd "$bundle" && find . -type f -printf '%P\n' | sort | xargs sha256sum > "$rel/SHA256SUMS")
+mv "$rel/SHA256SUMS" "$bundle/SHA256SUMS"
+tar -czf "$rel/bundle.tgz" -C "$rel" waypoint-deploy-9.9.9
+cat > "$rel/bin/curl" <<EOF
+#!/usr/bin/env bash
+out="" url=""
+for ((i = 1; i <= \$#; i++)); do
+  case "\${!i}" in
+    -o) j=\$((i + 1)); out="\${!j}" ;;
+    https://*) url="\${!i}" ;;
+  esac
+done
+if [[ "\$url" == https://github.com/example/waypoint/releases/download/v9.9.9/waypoint-deploy-9.9.9.tgz ]]; then
+  echo download >> "$rel/downloads"
+  sleep 2
+  exec cp "$rel/bundle.tgz" "\$out"
+fi
+exec "$(command -v curl)" "\$@"
+EOF
+chmod 700 "$rel/bin/curl"
+cat > release.env <<EOF
+DATA_DIR=$work/data
+WRITER_ENV_FILE=writer.env
+COMPOSE_PROJECT=deploy-dry-run
+RELEASE_REPO=example/waypoint
+EOF
+chmod 644 release.env
+release_run() { PATH="$rel/bin:$PATH" bash "$repo/deploy/upgrade.sh" --instance "$work/release.env" --dry-run 9.9.9 2> "$rel/$1.log"; }
+release_run a & pid_a=$!
+release_run b & pid_b=$!
+release_check() {
+  wait "$2" || { cat "$rel/$1.log" >&2; fail "concurrent run $1 failed"; }
+  grep -q 'dry run passed: release-9.9.9' "$rel/$1.log" || { cat "$rel/$1.log" >&2; fail "run $1 didn't run the 9.9.9 bundle"; }
+}
+release_check a "$pid_a"
+release_check b "$pid_b"
+[[ "$(wc -l < "$rel/downloads")" == 1 ]] || fail "concurrent runs downloaded the bundle $(wc -l < "$rel/downloads") times"
+cmp -s "$repo/deploy/upgrade.sh" "$work/state/deploy-dry-run/releases/9.9.9/upgrade.sh" || fail "the bundle wasn't installed"
+[[ -z "$(find "$work/state/deploy-dry-run/releases" -mindepth 1 -maxdepth 1 -name '.unpack-*')" ]] || fail "an unpack directory was left behind"
 
 echo "--- invalid instance files are refused" >&2
 refuse() {

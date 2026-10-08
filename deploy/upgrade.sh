@@ -16,7 +16,9 @@
 #   --instance FILE   instance file (default: $XDG_CONFIG_HOME/waypoint/instance.env)
 #   --dry-run         change nothing: check everything, show what would be deployed, and run
 #                     the reader steps against a stand-in Wrangler (rerender: count only; the
-#                     count needs the data directory's lock, so the writer still stops briefly)
+#                     count needs the data directory's lock, so the writer still stops briefly;
+#                     another version: its bundle is still downloaded into the state directory,
+#                     under the instance lock; compose: print the command only)
 #   --force           redeploy components that are already at the target
 #   --allow-dirty     current-checkout: deploy uncommitted changes (never idempotent)
 #   --limit N         rerender: renditions per batch (default 500)
@@ -227,12 +229,11 @@ check_instance_files() {
   if ((${#reader_targets[@]})); then
     load_cloudflare
     unset cf_account cf_token
-    local t scratch
-    scratch="$(mktemp -d)"
+    local t
     for t in "${reader_targets[@]}"; do
-      if ! reader_secrets_json "${r_secrets[$t]}" "$scratch/check.json"; then rm -rf "$scratch"; exit 1; fi
+      reader_secrets_json "${r_secrets[$t]}" "$scratch/check.json" || exit 1
+      rm -f "$scratch/check.json"
     done
-    rm -rf "$scratch"
   fi
 }
 
@@ -427,10 +428,27 @@ rollback_record_clear() {
   (( dry_run )) || rm -f "$(rollback_record "$1")"
 }
 
+# The writer's rollback target works the same way: the image ID to go back to (empty for a first
+# deployment), saved before the writer is recreated and kept until the new writer passes every
+# health gate, or is rolled back to that image. A run killed in between, even once the new
+# container is Docker-healthy but before WRITER_HEALTH_URL answered, leaves it, so the next run
+# keeps that image as `<project>-previous` instead of the unverified one running.
+writer_record() { printf '%s/rollback-writer' "$state_dir"; }
+writer_record_save() {
+  (( dry_run )) && return 0
+  printf 'image=%s\nsaved_at=%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(writer_record).tmp"
+  mv "$(writer_record).tmp" "$(writer_record)"
+}
+writer_record_clear() {
+  (( dry_run )) || rm -f "$(writer_record)"
+}
+
 lock_state() {
   mkdir -p "$state_dir"
   chmod 700 "$state_dir"
-  exec 9> "$state_dir/lock"
+  # Run by another version's upgrade.sh (exec_release_bundle), this one inherits that run's lock
+  # on fd 9; reopening the file would release it.
+  if [[ ! /dev/fd/9 -ef "$state_dir/lock" ]]; then exec 9> "$state_dir/lock"; fi
   if ! flock -n 9; then
     log "another upgrade.sh is running for this instance; waiting (up to ${LOCK_WAIT_SECONDS:-1800} s)"
     flock -w "${LOCK_WAIT_SECONDS:-1800}" 9 || die "timed out waiting for the instance lock"
@@ -443,7 +461,9 @@ lock_state() {
 in_progress=""        # writer | reader:<target>
 writer_previous=0     # 1 when $local_repo:$project-previous is the image to go back to
 reader_previous=""    # the Worker version to roll back to
-scratch="$(mktemp -d)"
+# In the runner's per-job temporary directory under GitHub Actions, which the runner empties after
+# every job, so a reader secrets file left by a killed run doesn't outlive it.
+scratch="$(mktemp -d -p "${TMPDIR:-${RUNNER_TEMP:-/tmp}}" upgrade.XXXXXXXX)"
 
 rollback_writer() {
   local container
@@ -457,8 +477,10 @@ rollback_writer() {
     docker_run tag "$local_repo:$project-previous" "$local_repo:$project-current"
     compose up -d --no-deps --force-recreate --pull never writer || { log "rollback: recreate failed"; return 1; }
     if ! verify_writer "" "" 0; then log "rollback: the previous writer isn't healthy either"; return 1; fi
+    writer_record_clear
     log "writer rolled back"
   else
+    # The record stays (no image to go back to), so the next run doesn't take this one for good.
     log "no previous writer image; stopping the failed first deployment"
     compose stop writer || true
   fi
@@ -490,7 +512,11 @@ rollback_in_progress() {
 
 on_exit() {
   local status=$?
-  trap - EXIT INT TERM
+  trap - EXIT
+  # A second Ctrl-C, or SIGTERM after SIGINT, mustn't stop the rollback halfway (say, with the
+  # previous image tagged but the writer not recreated). Ignored signals stay ignored in the
+  # commands it runs, so Compose and Wrangler finish too. Only SIGKILL stops it now.
+  trap '' INT TERM
   if [[ -n "$in_progress" ]]; then
     log "interrupted or failed during $in_progress (exit $status); rolling it back"
     rollback_in_progress || log "ROLLBACK FAILED: check the instance with 'upgrade.sh status'"
@@ -580,10 +606,14 @@ verify_release_image() {
 }
 
 # Runs another release's own upgrade.sh: the one that matches the version being deployed.
+# The bundle is installed and run under the instance lock, dry runs included, and the lock is
+# kept across the exec (the bundle's upgrade.sh inherits it on fd 9), so a concurrent run can't
+# unpack over, replace or prune a bundle another run is using.
 exec_release_bundle() {
-  local version="$1" dir tgz
+  local version="$1" dir tgz unpacked
   [[ -z "${WAYPOINT_UPGRADE_REEXEC:-}" ]] || die "bundle $version doesn't contain version $version"
   [[ -n "$release_repo" ]] || die "set RELEASE_REPO to fetch release bundles"
+  lock_state
   dir="$state_dir/releases/$version"
   tgz="$scratch/waypoint-deploy-$version.tgz"
   if [[ ! -f "$dir/upgrade.sh" ]]; then
@@ -592,13 +622,15 @@ exec_release_bundle() {
       "https://github.com/$release_repo/releases/download/v$version/waypoint-deploy-$version.tgz" \
       || die "couldn't download the $version release bundle"
     verify_release_bundle "$tgz"
-    rm -rf "$dir.tmp"
-    mkdir -p "$dir.tmp"
-    tar -xzf "$tgz" -C "$dir.tmp" --strip-components=1 --no-same-owner
-    (cd "$dir.tmp" && sha256sum --quiet -c SHA256SUMS) || die "the $version release bundle fails its checksums"
-    [[ "$(tr -d '[:space:]' < "$dir.tmp/VERSION")" == "$version" ]] || die "the bundle's VERSION isn't $version"
+    mkdir -p "$state_dir/releases"
+    # Left behind only by a killed run; prune_release_bundles removes it.
+    unpacked="$(mktemp -d "$state_dir/releases/.unpack-$version.XXXXXXXX")"
+    tar -xzf "$tgz" -C "$unpacked" --strip-components=1 --no-same-owner
+    (cd "$unpacked" && sha256sum --quiet -c SHA256SUMS) || die "the $version release bundle fails its checksums"
+    [[ "$(tr -d '[:space:]' < "$unpacked/VERSION")" == "$version" ]] || die "the bundle's VERSION isn't $version"
+    chmod 700 "$unpacked"
     rm -rf "$dir"
-    mv "$dir.tmp" "$dir"
+    mv "$unpacked" "$dir"
   fi
   local args=(--instance "$instance_file")
   (( dry_run )) && args+=(--dry-run)
@@ -609,12 +641,14 @@ exec_release_bundle() {
   WAYPOINT_UPGRADE_REEXEC=1 exec bash "$dir/upgrade.sh" "${args[@]}" "$version"
 }
 
-# Removes downloaded release bundles but the one running and the newest three others.
+# Removes downloaded release bundles but the one running and the newest three others, and what a
+# killed run left unpacking. Runs under the instance lock, so no other run is unpacking now.
 prune_release_bundles() {
   local dir="$state_dir/releases" v kept=0
   [[ -d "$dir" ]] || return 0
   while IFS= read -r v; do
-    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ && "$v" != *.tmp ]] || continue
+    if [[ "$v" == .unpack-* ]]; then rm -rf "${dir:?}/$v"; continue; fi
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || continue
     [[ "$dir/$v" -ef "$script_dir" ]] && continue
     kept=$((kept + 1))
     if (( kept > 3 )); then rm -rf "${dir:?}/$v"; fi
@@ -707,6 +741,8 @@ deploy_writer() {
   if (( ! force )) && writer_is_current "$container" "$current_id" "$expected_hash"; then
     log "writer already runs $target_id; checking its health"
     verify_writer "$target_version" "$target_sha" || die "the writer runs the target but isn't healthy (rerun with --force to recreate it)"
+    # Recorded as deployed, so a leftover record is from a run killed just after that.
+    writer_record_clear
     return 0
   fi
   if (( dry_run )); then
@@ -714,13 +750,28 @@ deploy_writer() {
     return 0
   fi
 
-  # Keep the running image as the rollback target, unless it's a broken one left by an earlier
-  # failed run and a previous image is already recorded.
-  writer_previous=0
-  if [[ -n "$container" ]] && { (( healthy )) || ! image_id "$local_repo:$project-previous" >/dev/null; }; then
-    docker_run tag "$current_id" "$local_repo:$project-previous"
+  # The rollback target: the one an earlier, unfinished run recorded, or else the running image,
+  # unless it's a broken one left by an earlier failed run and a previous image is already tagged.
+  local previous_id=""
+  if [[ -f "$(writer_record)" ]]; then
+    previous_id="$(state_get rollback-writer image)"
+    if [[ -n "$previous_id" ]] && ! image_id "$previous_id" >/dev/null; then
+      die "the writer's rollback target from an earlier run ($previous_id) is gone; delete $(writer_record) to keep the running image as the rollback target instead"
+    fi
+    log "an earlier writer deploy didn't finish; rolling back, if needed, to the image from before it (${previous_id:-none, a first deployment})"
+  elif [[ -n "$container" ]]; then
+    if (( healthy )); then
+      previous_id="$current_id"
+    else
+      previous_id="$(image_id "$local_repo:$project-previous" || printf '%s' "$current_id")"
+    fi
   fi
-  if [[ -n "$container" ]] && image_id "$local_repo:$project-previous" >/dev/null; then writer_previous=1; fi
+  writer_record_save "$previous_id"
+  writer_previous=0
+  if [[ -n "$previous_id" ]]; then
+    docker_run tag "$previous_id" "$local_repo:$project-previous"
+    writer_previous=1
+  fi
 
   in_progress=writer
   marker_set "$target_id"
@@ -728,6 +779,7 @@ deploy_writer() {
   log "recreating the writer"
   compose up -d --no-deps --force-recreate --pull never writer
   if ! verify_writer "$target_version" "$target_sha" 0; then
+    trap '' INT TERM   # the rollback runs to the end, as in on_exit
     in_progress=""
     if rollback_writer; then rm -f "$state_dir/deploying"; fi
     die "writer deploy failed"
@@ -736,6 +788,7 @@ deploy_writer() {
   container="$(writer_container)"
   state_put writer "id=$target_id" "version=$target_version" "sha=$target_sha" "image=$target_image_id" \
     "hash=$expected_hash" "container=$container"
+  writer_record_clear
   log "writer is healthy on $target_id"
   prune_writer_images
 }
@@ -808,9 +861,8 @@ dry_wrangler() {
   esac
 }
 
-# Writes the target's Wrangler config and its secrets JSON into the scratch directory, and prints
-# a fingerprint of what would be deployed (build, config and secrets). Equal fingerprints mean
-# nothing changed.
+# Writes the target's Wrangler config into the scratch directory, and prints a fingerprint of what
+# would be deployed (build, config and secrets). Equal fingerprints mean nothing changed.
 prepare_reader() {
   local t="$1"
   local config="$scratch/reader-$t.json"
@@ -822,6 +874,8 @@ prepare_reader() {
   reader_secrets_json "${r_secrets[$t]}" "$scratch/secrets-$t.json" || exit 1
   { printf '%s\n%s\n%s\n' "$target_id" "$target_version" "$target_sha"; cat "$config" "$scratch/secrets-$t.json"; } \
     | sha256sum | cut -d' ' -f1
+  # Written again right before its upload, so it only exists while one is in progress.
+  rm -f "$scratch/secrets-$t.json"
 }
 
 # Prints the Worker version the target serves now: the one to roll back to. Prints nothing when
@@ -906,6 +960,7 @@ deploy_reader() {
     return 0
   fi
   log "reader $t: deploying ${r_worker[$t]} to ${r_domain[$t]}"
+  reader_secrets_json "${r_secrets[$t]}" "$scratch/secrets-$t.json" || exit 1
   reader_previous="$3"
   rollback_record_save "$t" "$reader_previous"
   in_progress="reader:$t"
@@ -917,6 +972,7 @@ deploy_reader() {
   deploy_args=(deploy --config "$config")
   if [[ -n "$target_sha" ]]; then deploy_args+=(--var "WAYPOINT_BUILD_SHA:$target_sha"); fi
   if ! wrangler_cmd "${deploy_args[@]}" || ! smoke_reader "$t"; then
+    trap '' INT TERM   # the rollback runs to the end, as in on_exit
     in_progress=""
     if [[ -z "$reader_previous" ]]; then
       log "reader $t: first deployment, nothing to roll back to (DNS or certificates may still be provisioning; rerun to retry)"
@@ -963,8 +1019,6 @@ cmd_deploy() {
       # A reader with a leftover rollback record runs whatever a killed run left: deploy it again.
       if (( force )) || [[ -f "$(rollback_record "$t")" || "$(state_get "reader-$t" fingerprint)" != "${fingerprint[$t]}" ]]; then
         readers+=("$t")
-      else
-        rm -f "$scratch/secrets-$t.json"   # not uploaded this run
       fi
     done
     if ((${#readers[@]})) && [[ -n "$repo_root" && "$writer_source" == build ]]; then
@@ -1039,6 +1093,9 @@ cmd_status() {
     fi
   else
     printf 'writer     (Docker unavailable)\n'
+  fi
+  if [[ -f "$(writer_record)" ]]; then
+    printf "WARNING    writer: a deploy didn't finish, or failed with no image to go back to; the next run keeps rollback target %s\n" "$(v="$(state_get rollback-writer image)"; printf '%s' "${v:-none}")"
   fi
   for t in "${reader_targets[@]}"; do
     local h="$scratch/h"
@@ -1141,6 +1198,10 @@ case "$command" in
   compose)
     load_instance
     compose_env
+    if (( dry_run )); then
+      log "would run: docker compose -p $project ${compose_files[*]} ${command_args[*]}"
+      exit 0
+    fi
     install_serve_config
     compose "${command_args[@]}"
     ;;

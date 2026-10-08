@@ -67,7 +67,9 @@ other version, it downloads that release's bundle into the state directory, chec
 pinned to the digest that arrived (the writer runs that digest, never the moving tag), and it must
 report the bundle's commit. Checking that digest against the release's attestation, before the
 pull, comes with the release pipeline. Downloaded bundles live in `<STATE_DIR>/releases/`; the
-running one and the newest three others are kept.
+running one and the newest three others are kept. A run that fetches another version's bundle
+takes the instance lock first (a `--dry-run` too) and its bundle's `upgrade.sh` inherits it, so
+concurrent runs never unpack over, replace or prune a bundle another run is using.
 
 What a deploy does, in order:
 
@@ -77,7 +79,8 @@ What a deploy does, in order:
    version each target to deploy serves now (`wrangler deployments list`), the one a failure
    rolls back to. If that lookup fails for any reason other than the Worker not existing yet,
    the run stops here: deploying without a rollback target isn't safe.
-2. **The writer.** Tag the running image `waypoint-writer:<project>-previous`, point
+2. **The writer.** Record the running image as the rollback target (`rollback-writer`, see
+   below) and tag it `waypoint-writer:<project>-previous`, point
    `waypoint-writer:<project>-current` at the new one, start the Tailscale sidecar if the
    overlay is on (a no-op when it's already running unchanged), and recreate only the writer.
    Wait for the container's health check, for up to 120 s (`WRITER_HEALTH_TIMEOUT`; raise it
@@ -117,7 +120,8 @@ then fails without changing anything), and a `deploying` marker while a deploy i
   the next run leaves the writer alone and deploys the reader again.
 - **Failures and interruptions roll back the component in progress.** A failed step, `Ctrl-C`
   (SIGINT) or SIGTERM rolls back the writer or the reader being deployed, then exits nonzero
-  (130 or 143 for a signal). The `deploying` marker is removed once the rollback succeeds. If the
+  (130 or 143 for a signal). Further `Ctrl-C`s and SIGTERMs are ignored while the rollback runs,
+  so it can't be cut short halfway. The `deploying` marker is removed once the rollback succeeds. If the
   process is killed outright (SIGKILL), the marker stays and the next run reports it and
   converges.
 - **A killed run keeps its rollback targets.** Before uploading anything to a reader,
@@ -125,9 +129,13 @@ then fails without changing anything), and a `deploying` marker while a deploy i
   file only once that deploy passes its smoke test or is rolled back. A run killed in between
   leaves it, so the next run deploys that reader again (even at the same version) and, if the
   smoke test fails, rolls back to the version from before the killed run, not to whatever the
-  killed run left. The writer works the same way: the `<project>-previous` image is only replaced
-  by a writer that was healthy. `status` reports a leftover file. If you fix a reader by hand
-  meanwhile, delete the file.
+  killed run left. The writer works the same way: before recreating it, `upgrade.sh` saves the
+  image it rolls back to in `rollback-writer`, and removes the file once the new writer passes
+  every health gate (including `WRITER_HEALTH_URL`) or the previous one is back. A rerun after a
+  killed run keeps that image as `<project>-previous`, even if the writer the killed run started
+  is Docker-healthy by then. After a failed first install (no image to go back to) the file stays
+  until a deploy succeeds. `status` reports leftover files. If you fix a component by hand
+  meanwhile, delete its file.
 
 ### Rolling back
 
@@ -160,7 +168,8 @@ deploy/upgrade.sh compose restart -t 60 writer    # safe: queued writes survive 
 deploy/upgrade.sh compose stop                    # keeps the data and the Tailscale state
 ```
 
-`compose` runs `docker compose` with this instance's project, files and values. Never use
+`compose` runs `docker compose` with this instance's project, files and values (with
+`--dry-run`, it only prints the command). Never use
 `down --volumes` with the Tailscale overlay: the `<project>_tailscale-state` volume holds the
 node's identity, and losing it means a new auth key. Nothing here touches other Compose projects,
 the Docker daemon, the host's Tailscale daemon or its Serve config.
@@ -262,7 +271,9 @@ rate-limit namespace). Worker Previews are always off, and so is the `workers.de
 `READER_<t>_WORKERS_DEV=true` (decision D55). It uploads the reader build (`dist/index.js` in a
 checkout, `reader/index.js` in a bundle) unchanged. Wrangler attaches the custom domain, so don't
 add DNS records by hand. Credentials reach Wrangler through its environment only, and the
-secrets go through a mode-600 temporary file that's deleted right after upload.
+secrets go through a mode-600 temporary file that's written just before the upload and deleted
+right after it, in `$TMPDIR` or, under GitHub Actions, the runner's per-job `$RUNNER_TEMP`
+(emptied after every job, so even a killed run's file doesn't outlive it).
 
 The first deployment of a Worker has no previous version to roll back to; if its smoke test fails
 because DNS or the certificate is still provisioning, raise `SMOKE_TIMEOUT_SECONDS` and run again.

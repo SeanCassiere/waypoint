@@ -17,7 +17,7 @@
 #   --health-url URL         WRITER_HEALTH_URL (default: <WAYPOINT_BASE_URL>/healthz when the
 #                            writer env file sets an https base URL)
 #   --no-health-url          leave WRITER_HEALTH_URL unset
-#   --tailscale              TAILSCALE=on
+#   --tailscale              TAILSCALE=on (the three --ts-* options need it)
 #   --ts-env FILE            TAILSCALE_ENV_FILE
 #   --ts-hostname NAME       TAILSCALE_HOSTNAME
 #   --ts-tags TAGS           TAILSCALE_TAGS
@@ -65,6 +65,8 @@ while (($#)); do
   esac
 done
 [[ -n "$output" && -n "$data_dir" && -n "$writer_env" ]] || die "--output, --data-dir and --writer-env are required"
+# Without --tailscale they'd be dropped, and the writer published on the host instead.
+if (( ! tailscale )) && [[ -n "$ts_env$ts_hostname$ts_tags" ]]; then die "--ts-env, --ts-hostname and --ts-tags need --tailscale"; fi
 [[ ! -e "$output" ]] || (( force )) || die "$output exists (pass --force to overwrite it)"
 output_dir="$(cd "$(dirname "$output")" && pwd)" || die "no directory for $output"
 output="$output_dir/$(basename "$output")"
