@@ -80,15 +80,16 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
     `scripts/third-party-notices.ts`.
   - **What ships is a `dependency`, tooling a `devDependency`.** A package the writer or the
     reader runs, or the MCP server bundle inlines, goes in `dependencies` (the MCP bundle's
-    `tsdown.config.ts` bundles them all, and its build fails if one is left as an import).
-    Dependabot titles updates to dependencies `fix(deps)`, which makes a release, and updates to
-    devDependencies `chore(deps)`, which doesn't.
+    `tsdown.config.ts` bundles them all, and its build fails if one is left as an import;
+    `tests/inlined-packages.test.ts` fails if a package listed in `scripts/inlined-packages.json`
+    is a devDependency). Dependabot titles updates to dependencies `fix(deps)`, which makes a
+    release, and updates to devDependencies `chore(deps)`, which doesn't.
   - **No blanket lint disables.** Fix the finding, or disable one rule on one line with a reason.
   - **No instance-specific values** (your hostnames, domains, account IDs) anywhere in the
     repository: use `example.com`-style placeholders. CI's `scripts/check-owner-strings.sh` scans
     every tracked file.
   - Shell scripts pass `shellcheck`; workflows pin every action by commit SHA, with the version
-    in a comment.
+    in a comment, and run on GitHub-hosted runners only (`scripts/check-hosted-runners.ts`).
 - Formatting is oxfmt (`pnpm format`), lint is oxlint (`oxlint.config.ts`).
 
 ## Pull requests
@@ -111,5 +112,6 @@ what needs care. The specs are in [docs/](docs/), starting with the [glossary](d
 ## Releases
 
 Maintainers cut releases by merging release-please's release PR; it publishes the writer image,
-the deploy bundle and their build provenance attestations. Contributors don't need to do anything
-beyond a conventional PR title. Details: [docs/releasing.md](docs/releasing.md).
+the deploy bundle and their build provenance attestations. Merging any other PR deploys nothing:
+instances deploy releases. Contributors don't need to do anything beyond a conventional PR title.
+Details: [docs/releasing.md](docs/releasing.md).

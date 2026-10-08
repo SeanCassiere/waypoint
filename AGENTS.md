@@ -25,7 +25,7 @@ Before changing anything that affects access, credentials, share links, content 
 ## How changes ship
 
 1. Open a PR. Its title must be a conventional commit (`type(scope): subject`, `!` for a breaking change), checked by [.github/workflows/pr-title.yml](.github/workflows/pr-title.yml): PRs are squash-merged, and release-please builds the version and changelog from those titles. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
-   - `lint` (format check, lint, core import guard, shellcheck of every script, `scripts/check-owner-strings.sh`: no tracked file may name a particular instance's hosts, domains, machines or accounts, and `pnpm notices:check`: `THIRD_PARTY_NOTICES.md` matches the installed packages)
+   - `lint` (format check, lint, core import guard, shellcheck of every script, `scripts/check-owner-strings.sh`: no tracked file may name a particular instance's hosts, domains, machines or accounts, `scripts/check-hosted-runners.ts`: every workflow job runs on a GitHub-hosted runner, and `pnpm notices:check`: `THIRD_PARTY_NOTICES.md` matches the installed packages)
    - `typecheck`
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))
@@ -37,11 +37,11 @@ Before changing anything that affects access, credentials, share links, content 
 
    `ci-ok` passes only if every one of them succeeds. CI also runs on release-please's branch, started by the release workflow (`workflow_dispatch`). Dependabot ([.github/dependabot.yml](.github/dependabot.yml)) opens grouped weekly update PRs that go through the same CI.
 
-2. Merge to `main`. CI runs again on `main`, and release-please updates its release PR.
-3. Merging the release PR publishes a release ([docs/releasing.md](docs/releasing.md), D56): the attested multi-arch writer image `ghcr.io/seancassiere/waypoint-writer:X.Y.Z` and the attested deploy bundle `waypoint-deploy-X.Y.Z.tgz`, and dispatches the deploy workflow of an ops repository if one is configured.
-4. Each instance deploys releases with the bundle's `upgrade.sh` ([docs/self-hosting.md](docs/self-hosting.md), [deploy/README.md](deploy/README.md)), by hand or from its own ops repository.
+2. Merge to `main`. CI runs again on `main`, and release-please updates its release PR. **A merge deploys nothing**: no instance runs code from `main` until it's released.
+3. Merging the release PR publishes a release ([docs/releasing.md](docs/releasing.md), D56): the attested multi-arch writer image `ghcr.io/seancassiere/waypoint-writer:X.Y.Z` and the attested deploy bundle `waypoint-deploy-X.Y.Z.tgz`, and dispatches the deploy workflow of an ops repository if one is configured. That is how the maintainer's instance deploys: its private ops repository, which holds the deploy runner, verifies and runs the release's `upgrade.sh` (D58).
+4. Each instance deploys releases with the bundle's `upgrade.sh` ([docs/self-hosting.md](docs/self-hosting.md), [deploy/README.md](deploy/README.md)), by hand or from its own ops repository. `upgrade.sh current-checkout` deploys a local checkout instead, by hand, for development or an instance that builds its own.
 
-**Transitional, until the repository goes public:** attestations and environments don't work in a private repository, so release PRs aren't merged yet, and every merge to `main` still deploys the maintainer's instance through [.github/workflows/deploy.yml](.github/workflows/deploy.yml) (`upgrade.sh current-checkout` on a self-hosted runner, after CI on `main` succeeds). Treat a merge as a production deploy until then.
+No workflow in this repository runs on a self-hosted runner, and CI fails if one does (D58, [docs/trust-model.md](docs/trust-model.md#deploy-pipeline)).
 
 ## Things that need care
 
