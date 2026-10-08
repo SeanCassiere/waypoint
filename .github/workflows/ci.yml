@@ -5,9 +5,10 @@ on:
   pull_request:
   push:
     branches: [main]
-  # The release workflow runs CI on release-please's branch this way (a PR that GITHUB_TOKEN opens
-  # or updates triggers no pull_request run), so the release PR gets its `ci-ok` check. The group
-  # below is then the branch's ref.
+  # For running CI by hand on any branch (`gh workflow run ci.yml --ref <branch>`); the group below
+  # is then the branch's ref. Such a run's checks don't count for a PR: GitHub doesn't associate
+  # workflow_dispatch runs with one, so a PR's `ci-ok` must come from its pull_request run. The
+  # release PR's runs await approval, which the release workflow gives (D59).
   workflow_dispatch:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
