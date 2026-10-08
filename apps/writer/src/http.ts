@@ -12,7 +12,6 @@ import {
   rawContentType,
   MCP_LAUNCHER_API,
   WaypointError,
-  withBase,
   newId,
   deriveShareToken,
   hashShareToken,
@@ -64,7 +63,7 @@ import { getStatus } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
 import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
-import { mcpPage } from "./viewer/pages/mcp.tsx";
+import { mcpMarkdown as mcpNotes, mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;
@@ -340,12 +339,10 @@ export function createApp(s: HttpServices): Hono {
   // Deploy health gates read `ok`; version and sha are for operators and upgrade checks.
   const build = s.build ?? buildInfo(undefined);
   app.get("/healthz", (c) => c.json({ ok: true, version: build.version, sha: build.sha }));
-  const mcpMarkdown = () => {
-    const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
-    const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");
-    const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing. Set WAYPOINT_MCP_PIN=embedded for debugging.\n\nClaude Code:\n\n\`\`\`sh\nclaude mcp add waypoint --env WAYPOINT_URL=${s.reads.baseUrl} -- npx --prefer-offline -y ${tarballUrl}\n\`\`\`\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["--prefer-offline","-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["--prefer-offline", "-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n\nInstall the Waypoint skill:\n\n\`\`\`sh\nmkdir -p ~/.codex/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.codex/skills/waypoint/SKILL.md\nmkdir -p ~/.claude/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.claude/skills/waypoint/SKILL.md\n\`\`\`\n`;
-    return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
-  };
+  const mcpMarkdown = () =>
+    new Response(mcpNotes(s.reads.baseUrl), {
+      headers: { "content-type": "text/markdown; charset=utf-8" },
+    });
   app.get("/mcp.md", () => mcpMarkdown());
   // Browsers get the Connect an agent page; agents and curl keep the markdown. The body depends
   // on Accept, so caches must key on it.
