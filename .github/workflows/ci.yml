@@ -12,6 +12,15 @@ concurrency:
 # on any failed, cancelled or skipped one. Any failed job already makes the workflow's
 # conclusion `failure`, so the Deploy workflow (which requires `success`) never runs. `main` has
 # no branch protection; if it gets some, require `ci-ok`.
+#
+# Turborepo runs the tasks (turbo.json). Its remote cache (Vercel, signed artifacts) is shared by
+# every job, so a task that already ran with the same inputs, in this run or an earlier one, is
+# restored instead of rerun. Fork PRs get no secrets: turbo then runs without a remote cache.
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+  TURBO_TELEMETRY_DISABLED: "1"
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,29 +28,33 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: pnpm format:check
-      # Builds the TypeScript projects and the viewer bundle, runs type-aware oxlint, then the
-      # core import guard (`pnpm core:guard`).
+      # Type-aware oxlint, then the core import guard (`pnpm core:guard`), after the build.
       - run: pnpm lint
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
+      # The workspace packages' `tsc -b` builds, then the tests and scripts (`tsconfig.json`).
       - run: pnpm typecheck
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      # Workspace packages export from dist/, so tests need a build. A full build also produces
-      # the MCP tarball, which enables the tarball checks in real-writer.test.ts.
-      - run: pnpm build
       - run: scripts/fetch-tursodb.sh
+      # `test` depends on the full build: workspace packages export from dist/, and the MCP
+      # tarball enables the tarball checks in real-writer.test.ts.
       - run: pnpm test
         env:
           TURSODB_BIN: ${{ github.workspace }}/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb
+  # Builds the reader with plain `pnpm --filter`, without turbo or its cache, like the Deploy and
+  # Preview workflows, so it doesn't get the cache credentials.
   build-reader:
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ""
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -57,8 +70,13 @@ jobs:
       # Preview up/down, and every failure after the upload deleting the preview (fail closed).
       - run: bash deploy/preview-reader-check.sh
   # Catches Dockerfile drift (e.g. a new workspace package) before it reaches the deploy runner.
+  # The image always builds from source and never uses the remote cache: the Dockerfile turns off
+  # turbo's caches, and this job doesn't get the cache credentials.
   build-writer-image:
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ""
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ""
     steps:
       - uses: actions/checkout@v7
       - name: Build writer image
@@ -68,10 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - run: pnpm build
-      - run: pnpm --filter @waypoint/mcp smoke
+      # Builds the MCP package and its dependencies, then runs the launcher smoke test.
+      - run: pnpm turbo run smoke --filter=@waypoint/mcp
   # Real-Chromium checks of the writer viewer and the public reader shell (CSP, sandboxing,
-  # navigation). Needs only a build, not the test suite.
+  # navigation). Each depends on the full build, not on the test suite.
   browser:
     runs-on: ubuntu-latest
     steps:
@@ -79,7 +97,6 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps --only-shell chromium
-      - run: pnpm build
       - run: pnpm test:browser
       - run: pnpm test:browser:reader
   ci-ok:

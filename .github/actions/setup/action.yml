@@ -3,6 +3,7 @@ description: >-
   Installs pnpm and the pinned Node version, restores the pnpm store cache (setup-node keys it on
   pnpm-lock.yaml), and installs the whole workspace from the frozen lockfile. Every job installs
   the full workspace, so whichever job saves the shared cache key first saves a complete store.
+  The pinned `turbo` comes with the workspace; it reads TURBO_* (remote cache) from the job's env.
 runs:
   using: composite
   steps:

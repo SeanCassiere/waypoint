@@ -10,7 +10,7 @@ Step-by-step instructions for obtaining every external resource and credential W
 ## Ground rules
 
 - **Two environments, never shared:** `dev` and `prod` each get their own database, bucket, and tokens. The environment guard depends on this.
-- **Secrets never go into Git, images, or GitHub.** They live on the writer host in `~/.config/waypoint/` (directory mode 700, files mode 600), and the reader's are stored as Cloudflare Worker secrets. Deploys read them from those places.
+- **Secrets never go into Git, images, or GitHub.** They live on the writer host in `~/.config/waypoint/` (directory mode 700, files mode 600), and the reader's are stored as Cloudflare Worker secrets. Deploys read them from those places. The one exception is CI's Turborepo remote cache ([Part 3](#part-3-ci-remote-cache)), whose credentials are GitHub secrets because they reach nothing of Waypoint's.
 - **Least privilege:** writers get read/write access; the reader gets read-only credentials only.
 - **Verify every credential** using the commands below before relying on it. Each check includes a negative test, showing that the credential *can't* do what it shouldn't.
 - Cloudflare shows R2 secret keys **only once**. Record them immediately.
@@ -179,6 +179,20 @@ PR previews are Worker Previews of the prod Worker `waypoint-reader` (decision D
   - Rotating a prod reader credential reaches existing previews on their next push. Closing and reopening a PR also re-uploads.
 
 **Cleanup.** Closing a PR deletes its preview. To find and delete leftovers, see [deploy/README.md](../deploy/README.md#pr-previews). Deleting a preview removes all of its deployments and their secrets.
+
+---
+
+## Part 3: CI remote cache
+
+CI's Turborepo tasks share a remote cache on Vercel, with signed artifacts (D52; trust model: [trust-model.md](trust-model.md#deploy-pipeline)). It's optional: without these values turbo uses only its local cache, which is how fork PRs and local machines run.
+
+1. **Vercel team.** Any Vercel account works; the cache doesn't need a Vercel project. Its slug (Team Settings → General → Team URL) is the GitHub **repository variable** `TURBO_TEAM`: `gh variable set TURBO_TEAM --body <slug>`.
+2. **Access token.** Vercel → Account Settings → Tokens → Create, scoped to that team, with an expiry you'll track. Store it as the **repository secret** `TURBO_TOKEN`: `gh secret set TURBO_TOKEN` (paste at the prompt, so it doesn't land in shell history).
+3. **Signing key.** At least 32 random bytes, for example `openssl rand -base64 48 | gh secret set TURBO_REMOTE_CACHE_SIGNATURE_KEY`. `remoteCache.signature: true` in `turbo.json` makes turbo sign every upload with it (HMAC-SHA256) and ignore any download without a valid signature.
+
+- **Record:** nothing locally. The three values live only in GitHub (Settings → Secrets and variables → Actions). Never put them in `~/.config/waypoint/`, Dockerfiles or the deploy runner's environment: deploys never use the remote cache.
+- **Verify:** on a PR, a CI job's turbo summary prints `Remote caching enabled`, and a rerun of the job shows `cache hit` for its tasks. A fork PR (or `TURBO_TOKEN=` locally) prints `Remote caching disabled` and still passes.
+- **Rotate:** create the new token or key, `gh secret set` it, then delete the old token in Vercel. A new signing key makes every existing artifact fail verification, so the next CI run is a full cache miss that repopulates the cache.
 
 ---
 

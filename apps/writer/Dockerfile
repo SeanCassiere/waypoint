@@ -11,11 +11,15 @@ COPY packages/ui/package.json packages/ui/package.json
 # builds only the writer and the MCP bundle, so reader dependencies are skipped.
 COPY apps/reader/package.json apps/reader/package.json
 RUN pnpm install --frozen-lockfile --filter . --filter "@waypoint/writer..." --filter "@waypoint/mcp..."
-COPY tsconfig*.json ./
+COPY tsconfig*.json turbo.json .node-version ./
 COPY apps/writer apps/writer
 COPY packages packages
 COPY skills/waypoint/SKILL.md skills/waypoint/SKILL.md
-RUN pnpm exec tsc -b apps/writer packages/mcp && pnpm --filter @waypoint/mcp bundle && pnpm viewer:build \
+# Turborepo builds the writer, the MCP bundles and their workspace dependencies. The image is
+# always built from source: `--cache=local:,remote:` turns off both the local and the remote
+# cache, whatever TURBO_* variables or config the build environment has.
+ENV TURBO_TELEMETRY_DISABLED=1
+RUN pnpm exec turbo run build --filter=@waypoint/writer --filter=@waypoint/mcp --cache=local:,remote: \
     && pnpm --filter @waypoint/writer deploy --prod --legacy /out
 
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20

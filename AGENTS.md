@@ -34,7 +34,7 @@ agent-1 runs the user's other agent workloads, including T3 Code on the host's o
 
 **Merging to `main` deploys.** Don't deploy by hand unless the pipeline is broken.
 
-1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs:
+1. Open a PR. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs these as parallel jobs, through Turborepo with a shared remote cache, so a check whose inputs haven't changed is restored rather than rerun:
    - `lint` (format check, lint, core import guard)
    - `typecheck`
    - `test`
@@ -103,7 +103,13 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 ## Developing
 
 - Node 24, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
-- Real-Chromium tests run after `pnpm build`: `pnpm test:browser` (writer viewer) and `pnpm test:browser:reader` (public reader shell). They use Playwright's Chromium (`pnpm exec playwright install --only-shell chromium`), or `CHROME_PATH` if set. CI runs both in its `browser` job.
+- [Turborepo](https://turborepo.dev) (pinned in the root `package.json`, configured in [turbo.json](turbo.json)) runs every task. The root scripts are thin `turbo run` wrappers, and each task builds what it needs first:
+  - `pnpm build` runs each package's `build` script (`tsc -b`; `@waypoint/mcp` also bundles the server and launcher and packs the tarball, `@waypoint/writer` also checks and bundles the viewer).
+  - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check` and the browser tests are repo-wide root tasks (the `*:root` scripts, `//#…:root` in `turbo.json`).
+  - `pnpm check` runs `format:check lint typecheck` in parallel, then `test` on its own, because the CPU-budget and timing tests must not share the machine.
+  - Turbo doesn't forward arguments to them: `pnpm test <file>` fails with "Could not find task". For one test file, run `pnpm build`, then `pnpm test:root <file>` (plain `vitest run`).
+- Turbo caches each task by its declared `inputs`, dependencies and `env`, so an unchanged task is restored instead of rerun (`--force` reruns it). When a task starts reading new files or env vars, declare them in `turbo.json`: in strict mode a task sees only the env vars listed there, plus the few turbo always passes (`HOME`, `PATH`, `SHELL`, `CI`, `GITHUB_ACTIONS` and every `TURBO_*` variable, so CI's cache credentials too), and listing a var under `env` makes it part of the cache key. The local cache is `.turbo/cache` in each checkout (`cacheDir` is set, so git worktrees don't write into the main checkout's). CI also uses a signed Vercel remote cache (`TURBO_TOKEN`, `TURBO_TEAM`, `TURBO_REMOTE_CACHE_SIGNATURE_KEY`); without those, turbo uses only the local cache. The writer image always builds from source with every cache off.
+- Real-Chromium tests: `pnpm test:browser` (writer viewer) and `pnpm test:browser:reader` (public reader shell). They use Playwright's Chromium (`pnpm exec playwright install --only-shell chromium`), or `CHROME_PATH` if set. CI runs both in its `browser` job.
 - Sync tests need a local Turso sync server: `bash scripts/fetch-tursodb.sh`, then set `TURSODB_BIN` to the extracted `tursodb` binary.
 - Local writer without any cloud, after `pnpm build`: `WAYPOINT_ENV=dev WAYPOINT_SYNC=off WAYPOINT_DATA_DIR=$(mktemp -d) WAYPOINT_PORT=7411 node apps/writer/dist/main.js serve` (sync off is refused in prod; always pass a scratch `WAYPOINT_DATA_DIR`, since the default is the real dev writer's `~/.local/share/waypoint/dev`). For UI work, `node scripts/demo-writer.ts [port]` starts one on port 7421 with seeded collections, history, share links and Trash.
 - Local writer against the **dev** cloud: `set -a; . ~/.config/waypoint/dev.env; set +a; node apps/writer/dist/main.js serve`. `scripts/live-smoke.ts` exercises it end to end and refuses prod.

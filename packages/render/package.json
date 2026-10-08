@@ -10,8 +10,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc -b",
-    "build": "tsc"
+    "build": "tsc -b"
   },
   "dependencies": {
     "@shikijs/core": "4.5.0",
