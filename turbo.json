@@ -71,7 +71,7 @@
         "$TURBO_DEFAULT$",
         "!*.md",
         "!docs/**",
-        "!deploy/**",
+        "!deploy/*.md",
         "!.github/**",
         "!skills/**",
         "!**/Dockerfile",
@@ -82,7 +82,14 @@
     // Root scripts and the packages' build and test configs (tsconfig.json). The scripts import
     // writer source, so this follows every package's source like typecheck does.
     "//#typecheck:root": {
-      "inputs": ["$TURBO_DEFAULT$", "!*.md", "!docs/**", "!deploy/**", "!.github/**", "!skills/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!deploy/*.md",
+        "!.github/**",
+        "!skills/**"
+      ],
       "outputs": []
     }
   }

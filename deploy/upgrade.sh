@@ -1,0 +1,993 @@
+#!/usr/bin/env bash
+# Installs, upgrades and rolls back a Waypoint instance: the writer container, then each public
+# reader Worker. Every value comes from instance.env (deploy/instance.env.example); runbook in
+# deploy/README.md, adopter guide in docs/self-hosting.md.
+#
+#   upgrade.sh [options] <X.Y.Z | latest>   deploy a release: its GHCR image and release bundle
+#   upgrade.sh [options] current-checkout   deploy this git checkout: build the writer image and
+#                                           the reader locally
+#   upgrade.sh [options] image <ref>        deploy the writer from an image you built (no readers)
+#   upgrade.sh [options] status             what's deployed, and whether it's healthy
+#   upgrade.sh [options] validate           check instance.env and every file it names
+#   upgrade.sh [options] rerender           re-render markdown after a renderer upgrade
+#   upgrade.sh [options] compose <args...>  run docker compose on this instance's project
+#
+# Options:
+#   --instance FILE   instance file (default: $XDG_CONFIG_HOME/waypoint/instance.env)
+#   --dry-run         change nothing: check everything, show what would be deployed, and run
+#                     the reader steps against a stand-in Wrangler (rerender: count only,
+#                     though the writer still stops briefly)
+#   --force           redeploy components that are already at the target
+#   --allow-dirty     current-checkout: deploy uncommitted changes (never idempotent)
+#   --limit N         rerender: renditions per batch (default 500)
+#   --collection ID   rerender: one collection only
+#
+# Rolling back is deploying the older version. Each component (the writer, each reader) records
+# what it runs in the state directory, so a rerun after a partial upgrade finishes the rest, and a
+# rerun at the same version only repeats the health checks. A component that fails its checks is
+# rolled back on the spot, and so is the one in progress when the script is interrupted.
+#
+# A release bundle (waypoint-deploy-X.Y.Z.tgz) holds this script and lib/, the compose files,
+# serve.json, VERSION, BUILD_SHA, reader/index.js (the built Worker), reader/wrangler.jsonc (the
+# config template), reader/WRANGLER_VERSION and SHA256SUMS. Asked for another version, the script
+# fetches that version's bundle and runs its own copy of upgrade.sh.
+set -euo pipefail
+umask 077
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+log_prefix=upgrade
+# shellcheck source=deploy/lib/env.sh
+source "$script_dir/lib/env.sh"
+
+readonly local_repo=waypoint-writer
+readonly default_image=ghcr.io/seancassiere/waypoint-writer
+
+log() { printf '%s: %s\n' "$log_prefix" "$*" >&2; }
+die() { log "$*"; exit 1; }
+
+usage() {
+  sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Arguments
+
+instance_file="${WAYPOINT_INSTANCE:-${XDG_CONFIG_HOME:-$HOME/.config}/waypoint/instance.env}"
+dry_run=0
+force=0
+allow_dirty=0
+rerender_limit=500
+rerender_collection=""
+command=""
+command_args=()
+while (($#)); do
+  case "$1" in
+    --instance) [[ $# -ge 2 ]] || die "--instance needs a file"; instance_file="$2"; shift 2 ;;
+    --instance=*) instance_file="${1#*=}"; shift ;;
+    --dry-run) dry_run=1; shift ;;
+    --force) force=1; shift ;;
+    --allow-dirty) allow_dirty=1; shift ;;
+    --limit) [[ "${2:-}" =~ ^[1-9][0-9]{0,6}$ ]] || die "--limit needs a positive number"; rerender_limit="$2"; shift 2 ;;
+    --collection) [[ "${2:-}" =~ ^[A-Za-z0-9_]{1,64}$ ]] || die "--collection needs an ID"; rerender_collection="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "unknown option $1 (see --help)" ;;
+    *)
+      if [[ -z "$command" ]]; then
+        command="$1"; shift
+        if [[ "$command" == compose ]]; then command_args=("$@"); break; fi
+      else
+        command_args+=("$1"); shift
+      fi
+      ;;
+  esac
+done
+[[ -n "$command" ]] || { usage >&2; exit 2; }
+case "$command" in
+  status|validate|rerender|current-checkout|latest|compose) ;;
+  image) [[ ${#command_args[@]} -eq 1 ]] || die "usage: upgrade.sh image <ref>" ;;
+  *)
+    [[ "$command" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "unknown command or version: $command (see --help)"
+    command="${command#v}"
+    ;;
+esac
+if [[ "$command" != image && "$command" != compose && ${#command_args[@]} -gt 0 ]]; then
+  die "unexpected argument: ${command_args[0]}"
+fi
+
+# ---------------------------------------------------------------------------------------------
+# Instance file
+
+instance_key() {
+  case "$1" in
+    CONFIG_DIR|DATA_DIR|STATE_DIR|WRITER_ENV_FILE|IMAGE|RELEASE_REPO|COMPOSE_PROJECT|COMPOSE_OVERRIDE) return 0 ;;
+    WRITER_UID|WRITER_GID|WRITER_BIND_ADDRESS|WRITER_HOST_PORT|WRITER_HEALTH_URL) return 0 ;;
+    TAILSCALE|TAILSCALE_ENV_FILE|TAILSCALE_HOSTNAME|TAILSCALE_TAGS) return 0 ;;
+    CLOUDFLARE_ENV_FILE|READER_TARGETS) return 0 ;;
+  esac
+  [[ "$1" =~ ^READER_[a-z0-9]+_(WORKER|DOMAIN|SECRETS_FILE|ANALYTICS_DATASET|RATELIMIT_NAMESPACE|WORKERS_DEV)$ ]]
+}
+
+# Relative paths in instance.env are relative to CONFIG_DIR.
+instance_path() {
+  local value="$1"
+  [[ -n "$value" ]] || { printf ''; return; }
+  [[ "$value" != "~"* ]] || die "paths in instance.env can't start with ~ (use an absolute path)"
+  if [[ "$value" == /* ]]; then printf '%s' "$value"; else printf '%s/%s' "$config_dir" "$value"; fi
+}
+
+load_instance() {
+  [[ -f "$instance_file" ]] || die "no instance file at $instance_file (see deploy/instance.env.example, or pass --instance)"
+  instance_file="$(cd "$(dirname "$instance_file")" && pwd)/$(basename "$instance_file")"
+  envfile_check_config_mode "$instance_file" || exit 1
+  envfile_read "$instance_file" i_ instance_key || exit 1
+
+  config_dir="${i_CONFIG_DIR:-$(dirname "$instance_file")}"
+  [[ "$config_dir" == /* ]] || die "CONFIG_DIR must be an absolute path"
+  data_dir="${i_DATA_DIR:-}"
+  [[ "$data_dir" == /* ]] || die "DATA_DIR must be set to an absolute path"
+  project="${i_COMPOSE_PROJECT:-waypoint}"
+  [[ "$project" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || die "COMPOSE_PROJECT must be lowercase letters, digits, - and _"
+  state_dir="$(instance_path "${i_STATE_DIR:-state/$project}")"
+  writer_env_file="$(instance_path "${i_WRITER_ENV_FILE:-}")"
+  [[ -n "$writer_env_file" ]] || die "WRITER_ENV_FILE must be set"
+  image_repo="${i_IMAGE:-$default_image}"
+  [[ "$image_repo" =~ ^[a-z0-9][a-z0-9._/:-]*[a-z0-9]$ && "$image_repo" != *@* ]] || die "IMAGE must be an image name without a tag or digest"
+  release_repo="${i_RELEASE_REPO:-}"
+  if [[ -z "$release_repo" && "$image_repo" =~ ^ghcr\.io/([a-z0-9-]+)/waypoint-writer$ ]]; then
+    release_repo="${BASH_REMATCH[1]}/waypoint"
+  fi
+  [[ -z "$release_repo" || "$release_repo" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || die "RELEASE_REPO must be owner/repo"
+  compose_override="$(instance_path "${i_COMPOSE_OVERRIDE:-}")"
+
+  writer_uid="${i_WRITER_UID:-1000}"
+  writer_gid="${i_WRITER_GID:-1000}"
+  [[ "$writer_uid" =~ ^[0-9]{1,10}$ && "$writer_gid" =~ ^[0-9]{1,10}$ ]] || die "WRITER_UID and WRITER_GID must be numbers"
+  bind_address="${i_WRITER_BIND_ADDRESS:-127.0.0.1}"
+  [[ "$bind_address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "WRITER_BIND_ADDRESS must be an IPv4 address"
+  host_port="${i_WRITER_HOST_PORT:-7410}"
+  if [[ ! "$host_port" =~ ^[1-9][0-9]{0,4}$ ]] || (( host_port > 65535 )); then die "WRITER_HOST_PORT must be a port number"; fi
+  health_url="${i_WRITER_HEALTH_URL:-}"
+  [[ -z "$health_url" || "$health_url" =~ ^https?://[^[:space:]]+$ ]] || die "WRITER_HEALTH_URL must be an http(s) URL"
+
+  tailscale="${i_TAILSCALE:-off}"
+  [[ "$tailscale" == on || "$tailscale" == off ]] || die "TAILSCALE must be on or off"
+  ts_env_file="$(instance_path "${i_TAILSCALE_ENV_FILE:-ts.env}")"
+  ts_hostname="${i_TAILSCALE_HOSTNAME:-waypoint}"
+  [[ "$ts_hostname" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "TAILSCALE_HOSTNAME must be a hostname label"
+  ts_tags="${i_TAILSCALE_TAGS:-}"
+  [[ -z "$ts_tags" || "$ts_tags" =~ ^tag:[A-Za-z0-9-]+(,tag:[A-Za-z0-9-]+)*$ ]] || die "TAILSCALE_TAGS must look like tag:a,tag:b"
+
+  cloudflare_env_file="$(instance_path "${i_CLOUDFLARE_ENV_FILE:-cloudflare.env}")"
+  read -r -a reader_targets <<< "${i_READER_TARGETS:-}"
+  local t key var seen_names=" " seen_domains=" "
+  declare -gA r_worker=() r_domain=() r_secrets=() r_dataset=() r_namespace=() r_workers_dev=()
+  for t in "${reader_targets[@]}"; do
+    [[ "$t" =~ ^[a-z0-9]{1,32}$ ]] || die "READER_TARGETS: target names are lowercase letters and digits ($t)"
+    [[ -z "${r_worker[$t]:-}" ]] || die "READER_TARGETS lists $t twice"
+    for key in WORKER DOMAIN SECRETS_FILE ANALYTICS_DATASET RATELIMIT_NAMESPACE; do
+      var="i_READER_${t}_$key"
+      [[ -n "${!var:-}" ]] || die "reader target $t needs READER_${t}_$key"
+    done
+    var="i_READER_${t}_WORKER"; r_worker[$t]="${!var}"
+    var="i_READER_${t}_DOMAIN"; r_domain[$t]="${!var}"
+    var="i_READER_${t}_SECRETS_FILE"; r_secrets[$t]="$(instance_path "${!var}")"
+    var="i_READER_${t}_ANALYTICS_DATASET"; r_dataset[$t]="${!var}"
+    var="i_READER_${t}_RATELIMIT_NAMESPACE"; r_namespace[$t]="${!var}"
+    var="i_READER_${t}_WORKERS_DEV"; r_workers_dev[$t]="${!var:-false}"
+    [[ "${r_worker[$t]}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "READER_${t}_WORKER isn't a Worker name"
+    [[ "${r_domain[$t]}" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$ ]] || die "READER_${t}_DOMAIN isn't a lowercase hostname"
+    [[ "${r_dataset[$t]}" =~ ^[A-Za-z0-9_]{1,64}$ ]] || die "READER_${t}_ANALYTICS_DATASET must be letters, digits and _"
+    [[ "${r_namespace[$t]}" =~ ^[0-9]{1,10}$ ]] || die "READER_${t}_RATELIMIT_NAMESPACE must be a number"
+    [[ "${r_workers_dev[$t]}" == true || "${r_workers_dev[$t]}" == false ]] || die "READER_${t}_WORKERS_DEV must be true or false"
+    [[ "$seen_names" != *" ${r_worker[$t]} "* ]] || die "two reader targets deploy the Worker ${r_worker[$t]}"
+    [[ "$seen_domains" != *" ${r_domain[$t]} "* ]] || die "two reader targets use ${r_domain[$t]}"
+    seen_names+="${r_worker[$t]} "
+    seen_domains+="${r_domain[$t]} "
+  done
+  # A READER_<t>_* key for a target that isn't listed is a typo, not a disabled target.
+  for var in $(compgen -v i_READER_); do
+    [[ "$var" == i_READER_TARGETS ]] && continue
+    t="${var#i_READER_}"; t="${t%%_*}"
+    [[ -n "${r_worker[$t]:-}" ]] || die "${var#i_} is set, but $t isn't in READER_TARGETS"
+  done
+}
+
+# Checks every file the instance names, without printing any value.
+check_instance_files() {
+  envfile_check_secret_mode "$writer_env_file" || exit 1
+  grep -Eq '^WAYPOINT_ENV=(dev|prod)$' "$writer_env_file" || die "$writer_env_file must set WAYPOINT_ENV=dev or WAYPOINT_ENV=prod"
+  if [[ "$tailscale" == on ]]; then
+    envfile_check_secret_mode "$ts_env_file" || exit 1
+  fi
+  if [[ -n "$compose_override" ]]; then
+    envfile_check_config_mode "$compose_override" || exit 1
+  fi
+  if ((${#reader_targets[@]})); then
+    load_cloudflare
+    unset cf_account cf_token
+    local t scratch
+    scratch="$(mktemp -d)"
+    for t in "${reader_targets[@]}"; do
+      if ! reader_secrets_json "${r_secrets[$t]}" "$scratch/check.json"; then rm -rf "$scratch"; exit 1; fi
+    done
+    rm -rf "$scratch"
+  fi
+}
+
+load_cloudflare() {
+  envfile_check_secret_mode "$cloudflare_env_file" || exit 1
+  unset c_CLOUDFLARE_ACCOUNT_ID c_CLOUDFLARE_API_TOKEN
+  envfile_read "$cloudflare_env_file" c_ envfile_cloudflare_key || exit 1
+  [[ -n "${c_CLOUDFLARE_ACCOUNT_ID:-}" && -n "${c_CLOUDFLARE_API_TOKEN:-}" ]] || die "$cloudflare_env_file needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN"
+  cf_account="$c_CLOUDFLARE_ACCOUNT_ID"
+  cf_token="$c_CLOUDFLARE_API_TOKEN"
+  unset c_CLOUDFLARE_ACCOUNT_ID c_CLOUDFLARE_API_TOKEN
+}
+
+# ---------------------------------------------------------------------------------------------
+# Docker and Compose
+
+docker_direct=""
+docker_run() {
+  if [[ -z "$docker_direct" ]]; then
+    if docker info >/dev/null 2>&1; then
+      docker_direct=1
+    elif command -v sg >/dev/null && sg docker -c 'docker info' >/dev/null 2>&1; then
+      # A login session that predates docker-group membership; no daemon change needed.
+      docker_direct=0
+    else
+      die "Docker is unavailable"
+    fi
+  fi
+  if (( docker_direct )); then
+    docker "$@"
+  else
+    local quoted='' arg
+    for arg in "$@"; do printf -v quoted '%s%q ' "$quoted" "$arg"; done
+    sg docker -c "docker $quoted"
+  fi
+}
+
+docker_available() {
+  [[ -n "$docker_direct" ]] && return 0
+  if docker info >/dev/null 2>&1; then docker_direct=1; return 0; fi
+  if command -v sg >/dev/null && sg docker -c 'docker info' >/dev/null 2>&1; then docker_direct=0; return 0; fi
+  return 1
+}
+
+compose_env() {
+  export WAYPOINT_IMAGE="$local_repo:$project-current"
+  export WAYPOINT_WRITER_ENV_FILE="$writer_env_file"
+  export WAYPOINT_DATA_HOST_DIR="$data_dir"
+  export WAYPOINT_UID="$writer_uid" WAYPOINT_GID="$writer_gid"
+  export WAYPOINT_BIND_ADDRESS="$bind_address" WAYPOINT_HOST_PORT="$host_port"
+  export WAYPOINT_TS_ENV_FILE="$ts_env_file" WAYPOINT_TS_HOSTNAME="$ts_hostname"
+  if [[ -n "$ts_tags" ]]; then export WAYPOINT_TS_EXTRA_ARGS="--advertise-tags=$ts_tags"; else export WAYPOINT_TS_EXTRA_ARGS=""; fi
+  compose_files=(-f "$script_dir/compose.yaml")
+  if [[ "$tailscale" == on ]]; then compose_files+=(-f "$script_dir/compose.tailscale.yaml"); fi
+  if [[ -n "$compose_override" ]]; then compose_files+=(-f "$compose_override"); fi
+}
+
+compose() { docker_run compose -p "$project" "${compose_files[@]}" "$@"; }
+
+writer_container() { compose ps -a -q writer 2>/dev/null || true; }
+
+image_id() { docker_run image inspect --format '{{.Id}}' "$1" 2>/dev/null; }
+
+container_field() { docker_run inspect --format "$2" "$1" 2>/dev/null || true; }
+
+# GET /healthz inside the writer container (works whatever is published), printing the body.
+writer_healthz() {
+  docker_run exec "$1" node -e '
+    fetch("http://127.0.0.1:7410/healthz").then(async (r) => {
+      const body = await r.text();
+      process.stdout.write(body);
+      process.exit(r.ok ? 0 : 1);
+    }).catch(() => process.exit(1));
+  ' 2>/dev/null
+}
+
+# Checks a /healthz body: ok, plus the expected version and commit when given.
+# Usage: healthz_matches <body> <version or ""> <sha or "">
+healthz_matches() {
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const [body, version, sha] = process.argv.slice(1);
+    let h;
+    try { h = JSON.parse(body); } catch { process.exit(1); }
+    if (h?.ok !== true) process.exit(1);
+    if (version && h.version !== version) { console.error(`version ${h.version}, expected ${version}`); process.exit(1); }
+    if (sha && h.sha !== sha) { console.error(`commit ${h.sha}, expected ${sha}`); process.exit(1); }
+  ' "$1" "$2" "$3"
+}
+
+# Waits for the writer container's Docker health check. Fails fast on a crash loop.
+wait_writer_healthy() {
+  local container status state restarts deadline
+  container="$(writer_container)"
+  [[ -n "$container" ]] || { log "no writer container"; return 1; }
+  deadline=$((SECONDS + ${WRITER_HEALTH_TIMEOUT:-120}))
+  while (( SECONDS < deadline )); do
+    state="$(container_field "$container" '{{.State.Status}}')"
+    restarts="$(container_field "$container" '{{.RestartCount}}')"
+    status="$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')"
+    if [[ "$state" == exited || "$state" == dead || "${restarts:-0}" != 0 ]]; then
+      log "writer container stopped ($state, $restarts restarts)"
+      return 1
+    fi
+    [[ "$status" == healthy ]] && return 0
+    [[ "$status" == unhealthy ]] && { log "writer container is unhealthy"; return 1; }
+    sleep 2
+  done
+  log "writer container didn't become healthy in time"
+  return 1
+}
+
+# The external health gate: WRITER_HEALTH_URL, when set, must answer with the expected build.
+check_writer_url() {
+  local version="$1" sha="$2" body deadline
+  [[ -n "$health_url" ]] || return 0
+  deadline=$((SECONDS + ${WRITER_URL_TIMEOUT:-90}))
+  while (( SECONDS < deadline )); do
+    if body="$(curl -fsS --max-time 5 "$health_url" 2>/dev/null)" && healthz_matches "$body" "$version" "$sha" 2>/dev/null; then
+      return 0
+    fi
+    sleep 5
+  done
+  log "$health_url didn't answer healthy${sha:+ with commit $sha}"
+  return 1
+}
+
+# Container health, then the build it reports, then the external URL.
+verify_writer() {
+  local version="$1" sha="$2" container body
+  wait_writer_healthy || return 1
+  container="$(writer_container)"
+  body="$(writer_healthz "$container")" || { log "writer /healthz failed"; return 1; }
+  healthz_matches "$body" "$version" "$sha" || { log "writer reports a different build"; return 1; }
+  check_writer_url "$version" "$sha"
+}
+
+# ---------------------------------------------------------------------------------------------
+# State: what each component runs, and the marker of a run in progress
+
+state_key() { [[ "$1" =~ ^[a-z_]+$ ]]; }
+
+state_get() {
+  local file="$state_dir/$1" field="$2"
+  [[ -f "$file" ]] || return 0
+  ( unset "s_$field"; envfile_read "$file" s_ state_key >/dev/null 2>&1 || exit 0; local v="s_$field"; printf '%s' "${!v:-}" )
+}
+
+state_put() {
+  local file="$state_dir/$1"; shift
+  (( dry_run )) && return 0
+  printf '%s\n' "$@" "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$file.tmp"
+  mv "$file.tmp" "$file"
+}
+
+marker_set() {
+  (( dry_run )) && return 0
+  printf 'target=%s\nstarted_at=%s\npid=%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" > "$state_dir/deploying"
+}
+
+lock_state() {
+  mkdir -p "$state_dir"
+  chmod 700 "$state_dir"
+  exec 9> "$state_dir/lock"
+  if ! flock -n 9; then
+    log "another upgrade.sh is running for this instance; waiting (up to ${LOCK_WAIT_SECONDS:-1800} s)"
+    flock -w "${LOCK_WAIT_SECONDS:-1800}" 9 || die "timed out waiting for the instance lock"
+  fi
+}
+
+# ---------------------------------------------------------------------------------------------
+# Rollback on failure or interruption
+
+in_progress=""        # writer | reader:<target>
+writer_previous=0     # 1 when $local_repo:$project-previous is the image to go back to
+reader_previous=""    # the Worker version to roll back to
+scratch="$(mktemp -d)"
+
+rollback_writer() {
+  local container
+  container="$(writer_container)"
+  if [[ -n "$container" ]]; then
+    log "failed writer logs:"
+    docker_run logs --tail 100 "$container" >&2 || true
+  fi
+  if (( writer_previous )); then
+    log "rolling the writer back to the previous image"
+    docker_run tag "$local_repo:$project-previous" "$local_repo:$project-current"
+    compose up -d --no-deps --force-recreate --pull never writer || { log "rollback: recreate failed"; return 1; }
+    if ! verify_writer "" ""; then log "rollback: the previous writer isn't healthy either"; return 1; fi
+    log "writer rolled back"
+  else
+    log "no previous writer image; stopping the failed first deployment"
+    compose stop writer || true
+  fi
+}
+
+rollback_reader() {
+  local t="$1"
+  if [[ -z "$reader_previous" ]]; then
+    log "reader $t: no previous Worker version to roll back to"
+    return 1
+  fi
+  log "reader $t: rolling back to Worker version $reader_previous"
+  wrangler_cmd rollback "$reader_previous" --config "$scratch/reader-$t.json" --message "upgrade.sh rollback" --yes || { log "reader $t: rollback failed"; return 1; }
+}
+
+# Rolls back the component in progress. The deploying marker stays only if that fails.
+rollback_in_progress() {
+  local component="$in_progress" ok=0
+  in_progress=""
+  case "$component" in
+    writer) rollback_writer && ok=1 ;;
+    reader:*) rollback_reader "${component#reader:}" && ok=1 ;;
+    rerender) rollback_rerender; return ;;
+    *) return 0 ;;
+  esac
+  if (( ok )) && (( ! dry_run )); then rm -f "$state_dir/deploying"; fi
+  (( ok ))
+}
+
+on_exit() {
+  local status=$?
+  trap - EXIT INT TERM
+  if [[ -n "$in_progress" ]]; then
+    log "interrupted or failed during $in_progress (exit $status); rolling it back"
+    rollback_in_progress || log "ROLLBACK FAILED: check the instance with 'upgrade.sh status'"
+    status=$(( status == 0 ? 1 : status ))
+  fi
+  rm -rf "$scratch"
+  exit "$status"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# ---------------------------------------------------------------------------------------------
+# What to deploy
+
+# Sets: target_id, target_version, target_sha, writer_source (build|pull|image), writer_ref,
+# reader_main, reader_template, readers_deployable.
+repo_root=""
+if [[ -f "$script_dir/../apps/writer/Dockerfile" ]] && git -C "$script_dir/.." rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(cd "$script_dir/.." && pwd)"
+fi
+bundle_version=""
+if [[ -f "$script_dir/VERSION" ]]; then bundle_version="$(tr -d '[:space:]' < "$script_dir/VERSION")"; fi
+
+resolve_checkout() {
+  [[ -n "$repo_root" ]] || die "current-checkout needs to run from a git checkout of Waypoint"
+  target_sha="$(git -C "$repo_root" rev-parse --verify HEAD)"
+  target_version="$(node -p 'require(process.argv[1]).version' "$repo_root/package.json")"
+  local dirty=""
+  if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; then
+    (( allow_dirty )) || die "the checkout has uncommitted changes (commit them, or pass --allow-dirty)"
+    dirty="-dirty"
+  fi
+  target_id="checkout-$target_sha$dirty"
+  writer_source=build
+  writer_ref="$local_repo:$project-$target_sha$dirty"
+  reader_main="$repo_root/apps/reader/dist/index.js"
+  reader_template="$repo_root/apps/reader/wrangler.jsonc"
+  readers_deployable=1
+  if [[ -n "$dirty" ]]; then force=1; fi
+}
+
+resolve_image() {
+  writer_ref="${command_args[0]}"
+  [[ "$writer_ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || die "invalid image reference"
+  writer_source=image
+  readers_deployable=0
+  target_version=""
+  target_sha=""
+  target_id=""
+}
+
+resolve_release() {
+  local version="$1"
+  [[ "$bundle_version" == "$version" ]] || return 1
+  target_version="$version"
+  target_sha="$(tr -d '[:space:]' < "$script_dir/BUILD_SHA")"
+  [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || die "the bundle's BUILD_SHA is invalid"
+  target_id="release-$version"
+  writer_source=pull
+  writer_ref="$image_repo:$version"
+  reader_main="$script_dir/reader/index.js"
+  reader_template="$script_dir/reader/wrangler.jsonc"
+  readers_deployable=1
+}
+
+latest_version() {
+  [[ -n "$release_repo" ]] || die "set RELEASE_REPO to resolve 'latest'"
+  curl -fsSL --max-time 20 "https://api.github.com/repos/$release_repo/releases/latest" \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).tag_name??"";if(!/^v\d+\.\d+\.\d+$/.test(t))process.exit(1);console.log(t.slice(1))})' \
+    || die "couldn't resolve the latest release of $release_repo"
+}
+
+# Release integrity. SHA256SUMS inside the bundle guards against a truncated or corrupted
+# download; provenance is the attestation check, which plugs in here (gh attestation verify on
+# the bundle and the image digest) once releases are attested.
+verify_release_bundle() {
+  local tgz="$1"
+  [[ -s "$tgz" ]] || die "empty release bundle"
+  log "release attestation verification isn't enabled yet; relying on SHA256SUMS"
+}
+verify_release_image() {
+  local ref="$1"
+  [[ "$ref" == *@sha256:* ]] || die "the release image must be pinned by digest"
+}
+
+# Runs another release's own upgrade.sh: the one that matches the version being deployed.
+exec_release_bundle() {
+  local version="$1" dir tgz
+  [[ -z "${WAYPOINT_UPGRADE_REEXEC:-}" ]] || die "bundle $version doesn't contain version $version"
+  [[ -n "$release_repo" ]] || die "set RELEASE_REPO to fetch release bundles"
+  dir="$state_dir/releases/$version"
+  tgz="$scratch/waypoint-deploy-$version.tgz"
+  if [[ ! -f "$dir/upgrade.sh" ]]; then
+    log "fetching the $version release bundle from $release_repo"
+    curl -fsSL --max-time 300 -o "$tgz" \
+      "https://github.com/$release_repo/releases/download/v$version/waypoint-deploy-$version.tgz" \
+      || die "couldn't download the $version release bundle"
+    verify_release_bundle "$tgz"
+    rm -rf "$dir.tmp"
+    mkdir -p "$dir.tmp"
+    tar -xzf "$tgz" -C "$dir.tmp" --strip-components=1 --no-same-owner
+    (cd "$dir.tmp" && sha256sum --quiet -c SHA256SUMS) || die "the $version release bundle fails its checksums"
+    [[ "$(tr -d '[:space:]' < "$dir.tmp/VERSION")" == "$version" ]] || die "the bundle's VERSION isn't $version"
+    rm -rf "$dir"
+    mv "$dir.tmp" "$dir"
+  fi
+  local args=(--instance "$instance_file")
+  (( dry_run )) && args+=(--dry-run)
+  (( force )) && args+=(--force)
+  log "running upgrade.sh from the $version bundle"
+  rm -rf "$scratch"
+  trap - EXIT
+  WAYPOINT_UPGRADE_REEXEC=1 exec bash "$dir/upgrade.sh" "${args[@]}" "$version"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Writer
+
+# Builds or pulls the target image, before anything running changes. Sets target_image_id.
+fetch_writer() {
+  case "$writer_source" in
+    build)
+      if (( force )) || ! image_id "$writer_ref" >/dev/null; then
+        if (( dry_run )); then log "would build $writer_ref"; target_image_id="(not built)"; return 0; fi
+        log "building $writer_ref"
+        docker_run build -f "$repo_root/apps/writer/Dockerfile" --build-arg "WAYPOINT_BUILD_SHA=$target_sha" -t "$writer_ref" "$repo_root"
+      fi
+      ;;
+    pull)
+      if (( dry_run )); then log "would pull $writer_ref"; target_image_id="(not pulled)"; return 0; fi
+      log "pulling $writer_ref"
+      docker_run pull "$writer_ref" >/dev/null
+      local digest
+      digest="$(docker_run image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$writer_ref" | grep -m1 "^$image_repo@sha256:" || true)"
+      [[ -n "$digest" ]] || die "no registry digest for $writer_ref"
+      verify_release_image "$digest"
+      writer_ref="$digest"
+      local built
+      built="$(docker_run image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$writer_ref" | sed -n 's/^WAYPOINT_BUILD_SHA=//p')"
+      [[ "$built" == "$target_sha" ]] || die "the image was built from ${built:-an unknown commit}, not $target_sha"
+      ;;
+    image)
+      if ! image_id "$writer_ref" >/dev/null; then
+        (( dry_run )) && { log "would pull $writer_ref"; target_image_id="(not pulled)"; return 0; }
+        docker_run pull "$writer_ref" >/dev/null || die "no image $writer_ref"
+      fi
+      ;;
+  esac
+  target_image_id="$(image_id "$writer_ref")" || die "no image $writer_ref"
+  if [[ "$writer_source" == image ]]; then
+    target_id="image-$target_image_id"
+    target_sha="$(docker_run image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$writer_ref" | sed -n 's/^WAYPOINT_BUILD_SHA=//p')"
+  fi
+}
+
+check_data_dir() {
+  if [[ ! -d "$data_dir" ]]; then
+    (( dry_run )) && { log "would create $data_dir"; return 0; }
+    mkdir -p "$data_dir"
+    chmod 700 "$data_dir"
+  fi
+  local owner
+  owner="$(stat -c %u:%g "$data_dir")"
+  [[ "$owner" == "$writer_uid:$writer_gid" ]] || die "$data_dir must be owned by $writer_uid:$writer_gid (it's $owner): sudo chown $writer_uid:$writer_gid $data_dir"
+}
+
+deploy_writer() {
+  local container current_id healthy=0 expected_hash
+  container="$(writer_container)"
+  if [[ -n "$container" ]]; then
+    current_id="$(container_field "$container" '{{.Image}}')"
+    [[ "$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" == healthy ]] && healthy=1
+  fi
+  expected_hash="$(compose config --hash writer 2>/dev/null | awk '{print $2}')"
+  if (( ! force )) && [[ -n "$container" && "$current_id" == "$target_image_id" && "$(state_get writer id)" == "$target_id" ]] \
+    && [[ "$(container_field "$container" '{{index .Config.Labels "com.docker.compose.config-hash"}}')" == "$expected_hash" ]]; then
+    log "writer already runs $target_id; checking its health"
+    if [[ "$tailscale" == on ]] && (( ! dry_run )); then compose up -d ts-waypoint; fi
+    verify_writer "$target_version" "$target_sha" || die "the writer runs the target but isn't healthy (rerun with --force to recreate it)"
+    return 0
+  fi
+  if (( dry_run )); then
+    log "would deploy the writer: $writer_ref (${target_version:-unversioned} ${target_sha:-no commit})${container:+, replacing $current_id}"
+    return 0
+  fi
+
+  # Keep the running image as the rollback target, unless it's a broken one left by an earlier
+  # failed run and a previous image is already recorded.
+  writer_previous=0
+  if [[ -n "$container" ]] && { (( healthy )) || ! image_id "$local_repo:$project-previous" >/dev/null; }; then
+    docker_run tag "$current_id" "$local_repo:$project-previous"
+  fi
+  if [[ -n "$container" ]] && image_id "$local_repo:$project-previous" >/dev/null; then writer_previous=1; fi
+
+  in_progress=writer
+  marker_set "$target_id"
+  docker_run tag "$target_image_id" "$local_repo:$project-current"
+  if [[ "$tailscale" == on ]]; then compose up -d ts-waypoint; fi
+  log "recreating the writer"
+  compose up -d --no-deps --force-recreate --pull never writer
+  if ! verify_writer "$target_version" "$target_sha"; then
+    in_progress=""
+    if rollback_writer; then rm -f "$state_dir/deploying"; fi
+    die "writer deploy failed"
+  fi
+  in_progress=""
+  state_put writer "id=$target_id" "version=$target_version" "sha=$target_sha" "image=$target_image_id"
+  log "writer is healthy on $target_id"
+  prune_writer_images
+}
+
+# Drops old local builds and pulled releases of this instance, keeping the newest three of each.
+# The current and previous images keep their own tags, so they're never removed.
+prune_writer_images() {
+  local kept=0 tag
+  while IFS= read -r tag; do
+    [[ "$tag" =~ ^$project-[0-9a-f]{40}(-dirty)?$ ]] || continue
+    kept=$((kept + 1))
+    if (( kept > 3 )); then docker_run image rm "$local_repo:$tag" >/dev/null || true; fi
+  done < <(docker_run image ls "$local_repo" --format '{{.Tag}}')
+  kept=0
+  while IFS= read -r tag; do
+    [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || continue
+    kept=$((kept + 1))
+    if (( kept > 3 )); then docker_run image rm "$image_repo:$tag" >/dev/null || true; fi
+  done < <(docker_run image ls "$image_repo" --format '{{.Tag}}')
+}
+
+# ---------------------------------------------------------------------------------------------
+# Readers
+
+wrangler_bin=()
+resolve_wrangler() {
+  if [[ -n "${WRANGLER:-}" ]]; then
+    wrangler_bin=("$WRANGLER")
+  elif [[ -n "$repo_root" && -x "$repo_root/apps/reader/node_modules/.bin/wrangler" ]]; then
+    wrangler_bin=("$repo_root/apps/reader/node_modules/.bin/wrangler")
+  elif [[ -f "$script_dir/reader/WRANGLER_VERSION" ]]; then
+    wrangler_bin=(npx --yes "wrangler@$(tr -d '[:space:]' < "$script_dir/reader/WRANGLER_VERSION")")
+  else
+    die "no Wrangler found (set WRANGLER, or run pnpm install in the checkout)"
+  fi
+}
+
+# Runs Wrangler with the Cloudflare credentials in its environment only. In a dry run, a stand-in
+# records the call and answers like Wrangler would.
+wrangler_cmd() {
+  if (( dry_run )); then
+    dry_wrangler "$@"
+    return
+  fi
+  CLOUDFLARE_ACCOUNT_ID="$cf_account" CLOUDFLARE_API_TOKEN="$cf_token" WRANGLER_SEND_METRICS=false \
+    "${wrangler_bin[@]}" "$@"
+}
+
+dry_wrangler() {
+  if [[ -n "${DRY_RUN_LOG:-}" ]]; then printf 'wrangler %s\n' "$*" >> "$DRY_RUN_LOG"; fi
+  case "$1 ${2:-}" in
+    'deployments list') printf '[{"versions":[{"version_id":"dry-run-previous"}]}]\n' ;;
+    'secret bulk')
+      node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));if(fs.statSync(p).mode&0o077||!d.TURSO_DATABASE_URL||!d.RAW_CAP_KEY)process.exit(1)' "$3"
+      ;;
+    deploy*|rollback*) : ;;
+    *) return 2 ;;
+  esac
+}
+
+# Writes the target's Wrangler config and its secrets JSON into the scratch directory, and prints
+# a fingerprint of what would be deployed (build, config and secrets). Equal fingerprints mean
+# nothing changed.
+prepare_reader() {
+  local t="$1"
+  local config="$scratch/reader-$t.json"
+  node "$script_dir/lib/reader-config.mjs" --template "$reader_template" --main "$reader_main" \
+    --name "${r_worker[$t]}" --domain "${r_domain[$t]}" --dataset "${r_dataset[$t]}" \
+    --ratelimit-namespace "${r_namespace[$t]}" --workers-dev "${r_workers_dev[$t]}" > "$config"
+  reader_secrets_json "${r_secrets[$t]}" "$scratch/secrets-$t.json" || exit 1
+  { printf '%s\n%s\n%s\n' "$target_id" "$target_version" "$target_sha"; cat "$config" "$scratch/secrets-$t.json"; } \
+    | sha256sum | cut -d' ' -f1
+}
+
+# Smoke test against the live custom domain, retried while DNS and certificates settle.
+smoke_reader() {
+  local t="$1"
+  local host="${r_domain[$t]}" deadline
+  if (( dry_run )); then
+    [[ "${DRY_RUN_FAIL_SMOKE:-}" != "$t" ]] || { log "reader $t: simulated smoke failure"; return 1; }
+    log "reader $t: smoke test skipped (dry run)"
+    return 0
+  fi
+  deadline=$((SECONDS + ${SMOKE_TIMEOUT_SECONDS:-120}))
+  while (( SECONDS < deadline )); do
+    if smoke_once "$host"; then return 0; fi
+    sleep 6
+  done
+  log "reader $t: smoke test failed on https://$host ($smoke_error)"
+  return 1
+}
+
+smoke_error=""
+header_value() { sed -n "s/^$2: *//Ip" "$1" | tr -d '\r' | tail -n1; }
+smoke_once() {
+  local host="$1" code miss_token d="$scratch/smoke"
+  mkdir -p "$d"
+  code="$(curl -sS -m 8 -D "$d/h" -o "$d/b" -w '%{http_code}' "https://$host/healthz" 2>/dev/null || true)"
+  [[ "$code" == 200 && "$(cat "$d/b")" == ok ]] || { smoke_error="/healthz $code"; return 1; }
+  if [[ -n "$target_version" && "$(header_value "$d/h" x-waypoint-version)" != "$target_version" ]]; then
+    smoke_error="X-Waypoint-Version $(header_value "$d/h" x-waypoint-version), expected $target_version"; return 1
+  fi
+  if [[ -n "$target_sha" && "$(header_value "$d/h" x-waypoint-sha)" != "$target_sha" ]]; then
+    smoke_error="X-Waypoint-Sha $(header_value "$d/h" x-waypoint-sha), expected $target_sha"; return 1
+  fi
+  code="$(curl -sS -m 15 -o "$d/b" -w '%{http_code}' "https://$host/healthz/deep" 2>/dev/null || true)"
+  [[ "$code" == 200 && "$(cat "$d/b")" == ok* ]] || { smoke_error="/healthz/deep $code"; return 1; }
+  miss_token="wps_$(head -c 32 /dev/urandom | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+  code="$(curl -sS -m 8 -D "$d/h" -o /dev/null -w '%{http_code}' "https://$host/s/$miss_token/c/000000000000/" 2>/dev/null || true)"
+  [[ "$code" == 404 ]] || { smoke_error="unknown share link answered $code"; return 1; }
+  [[ "$(header_value "$d/h" x-robots-tag)" == "noindex, nofollow" ]] || { smoke_error="share 404 without X-Robots-Tag"; return 1; }
+  [[ "$(header_value "$d/h" referrer-policy)" == no-referrer ]] || { smoke_error="share 404 without Referrer-Policy"; return 1; }
+  code="$(curl -sS -m 8 -o /dev/null -w '%{http_code}' "https://$host/" 2>/dev/null || true)"
+  [[ "$code" == 200 ]] || { smoke_error="/ $code"; return 1; }
+  code="$(curl -sS -m 8 -o "$d/b" -w '%{http_code}' "https://$host/robots.txt" 2>/dev/null || true)"
+  if [[ "$code" != 200 ]] || ! grep -q 'Disallow: /' "$d/b"; then smoke_error="/robots.txt $code"; return 1; fi
+}
+
+deploy_reader() {
+  local t="$1" fingerprint="$2"
+  local config="$scratch/reader-$t.json" deploy_args
+  if (( ! force )) && [[ "$(state_get "reader-$t" fingerprint)" == "$fingerprint" ]]; then
+    log "reader $t already runs $target_id; smoke testing"
+    smoke_reader "$t" || die "reader $t runs the target but fails its smoke test (rerun with --force to redeploy it)"
+    return 0
+  fi
+  log "reader $t: deploying ${r_worker[$t]} to ${r_domain[$t]}"
+  reader_previous=""
+  if wrangler_cmd deployments list --json --config "$config" > "$scratch/deployments.json" 2>/dev/null; then
+    reader_previous="$(node -e 'const d=require(process.argv[1]);const items=Array.isArray(d)?d:d.deployments??[];const x=items.at(-1);console.log(x?.versions?.[0]?.version_id??x?.version_id??"")' "$scratch/deployments.json" 2>/dev/null || true)"
+  fi
+  in_progress="reader:$t"
+  marker_set "$target_id"
+  wrangler_cmd secret bulk "$scratch/secrets-$t.json" --config "$config" > "$scratch/secret-bulk.log"
+  rm -f "$scratch/secrets-$t.json"
+  # The commit rides along as a Worker variable, part of the version, so a rollback restores the
+  # old one; the reader reports it in X-Waypoint-Sha.
+  deploy_args=(deploy --config "$config")
+  if [[ -n "$target_sha" ]]; then deploy_args+=(--var "WAYPOINT_BUILD_SHA:$target_sha"); fi
+  if ! wrangler_cmd "${deploy_args[@]}" || ! smoke_reader "$t"; then
+    in_progress=""
+    if [[ -z "$reader_previous" ]]; then
+      log "reader $t: first deployment, nothing to roll back to (DNS or certificates may still be provisioning; rerun to retry)"
+    elif rollback_reader "$t"; then
+      rm -f "$state_dir/deploying"
+    fi
+    die "reader $t deploy failed"
+  fi
+  in_progress=""
+  state_put "reader-$t" "id=$target_id" "version=$target_version" "sha=$target_sha" "fingerprint=$fingerprint"
+  if (( dry_run )); then log "reader $t: dry run passed"; else log "reader $t deployed and smoke tested"; fi
+}
+
+# ---------------------------------------------------------------------------------------------
+# Commands
+
+cmd_deploy() {
+  case "$command" in
+    current-checkout) resolve_checkout ;;
+    image) resolve_image ;;
+    latest)
+      local v; v="$(latest_version)"; log "latest release: $v"
+      resolve_release "$v" || exec_release_bundle "$v"
+      ;;
+    *) resolve_release "$command" || exec_release_bundle "$command" ;;
+  esac
+  check_instance_files
+  compose_env
+  if (( ! dry_run )); then lock_state; fi
+  if [[ -f "$state_dir/deploying" ]]; then
+    log "an earlier run didn't finish ($(state_get deploying target)); converging"
+  fi
+
+  # 1. Fetch and check everything before touching anything running.
+  local t readers=()
+  declare -A fingerprint=()
+  if (( readers_deployable )) && ((${#reader_targets[@]})); then
+    load_cloudflare
+    resolve_wrangler
+    for t in "${reader_targets[@]}"; do
+      fingerprint[$t]="$(prepare_reader "$t")"
+      if (( force )) || [[ "$(state_get "reader-$t" fingerprint)" != "${fingerprint[$t]}" ]]; then
+        readers+=("$t")
+      else
+        rm -f "$scratch/secrets-$t.json"   # not uploaded this run
+      fi
+    done
+    if ((${#readers[@]})) && [[ -n "$repo_root" && "$writer_source" == build ]]; then
+      if (( dry_run )); then
+        [[ -f "$reader_main" ]] || die "no reader build at $reader_main (pnpm --filter '@waypoint/reader...' build)"
+      else
+        log "building the reader"
+        (cd "$repo_root" && pnpm --filter "@waypoint/reader..." build) >&2
+      fi
+    fi
+    [[ -f "$reader_main" ]] || die "no built reader at $reader_main"
+    if (( dry_run )) && [[ "${wrangler_bin[0]}" != npx ]]; then
+      for t in "${reader_targets[@]}"; do
+        WRANGLER_SEND_METRICS=false "${wrangler_bin[@]}" deploy --dry-run --config "$scratch/reader-$t.json" \
+          --outdir "$scratch/out-$t" > "$scratch/wrangler-dry-run.log" 2>&1 \
+          || { cat "$scratch/wrangler-dry-run.log" >&2; die "reader $t: the generated Wrangler config doesn't validate"; }
+      done
+      log "reader configs validate with wrangler deploy --dry-run"
+    fi
+  fi
+  docker_available || die "Docker is unavailable"
+  compose config -q || die "the compose files don't validate"
+  check_data_dir
+  fetch_writer
+
+  # 2. The writer, then each reader in order.
+  deploy_writer
+  if (( readers_deployable )); then
+    for t in "${reader_targets[@]}"; do deploy_reader "$t" "${fingerprint[$t]}"; done
+  elif ((${#reader_targets[@]})); then
+    log "readers aren't deployed from a bare image; deploy a release or the checkout to update them"
+  fi
+
+  if (( dry_run )); then
+    log "dry run passed: $target_id"
+  else
+    printf 'id=%s\nversion=%s\nsha=%s\ncompleted_at=%s\n' "$target_id" "$target_version" "$target_sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$state_dir/release"
+    rm -f "$state_dir/deploying"
+    log "deployed $target_id"
+  fi
+}
+
+cmd_status() {
+  compose_env
+  printf 'instance   %s (project %s, tailscale %s)\n' "$instance_file" "$project" "$tailscale"
+  printf 'state      %s\n' "$state_dir"
+  if [[ -f "$state_dir/deploying" ]]; then printf 'WARNING    a run is in progress or was interrupted: %s\n' "$(state_get deploying target)"; fi
+  printf 'release    %s\n' "$(state_get release id)"
+  local container body t
+  if docker_available; then
+    container="$(writer_container)"
+    if [[ -n "$container" ]]; then
+      printf 'writer     %s, %s, recorded %s\n' "$(container_field "$container" '{{.State.Status}}')" \
+        "$(container_field "$container" '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" "$(state_get writer id)"
+      body="$(writer_healthz "$container" || true)"
+      printf 'healthz    %s\n' "${body:-unreachable}"
+    else
+      printf 'writer     not created\n'
+    fi
+  else
+    printf 'writer     (Docker unavailable)\n'
+  fi
+  for t in "${reader_targets[@]}"; do
+    local h="$scratch/h"
+    rm -f "$h"
+    curl -sS -m 8 -D "$h" -o /dev/null "https://${r_domain[$t]}/healthz" 2>/dev/null || true
+    printf 'reader %-4s %s: recorded %s, serving %s %s\n' "$t" "${r_domain[$t]}" "$(state_get "reader-$t" id)" \
+      "$(header_value "$h" x-waypoint-version 2>/dev/null)" "$(header_value "$h" x-waypoint-sha 2>/dev/null)"
+  done
+}
+
+cmd_validate() {
+  check_instance_files
+  compose_env
+  if docker_available; then compose config -q || die "the compose files don't validate"; fi
+  if ((${#reader_targets[@]})); then
+    local t template="${repo_root:+$repo_root/apps/reader/wrangler.jsonc}"
+    template="${template:-$script_dir/reader/wrangler.jsonc}"
+    for t in "${reader_targets[@]}"; do
+      node "$script_dir/lib/reader-config.mjs" --template "$template" --main /dev/null \
+        --name "${r_worker[$t]}" --domain "${r_domain[$t]}" --dataset "${r_dataset[$t]}" \
+        --ratelimit-namespace "${r_namespace[$t]}" --workers-dev "${r_workers_dev[$t]}" > /dev/null
+    done
+  fi
+  log "instance is valid: project $project, ${#reader_targets[@]} reader target(s)"
+}
+
+# Re-renders markdown after a renderer upgrade (deploy/README.md). `rerender` takes the data
+# directory's lock, so each batch runs with the writer stopped (agents' writes fail meanwhile);
+# the writer then uploads what was queued, and the next batch starts once it has. The writer is
+# started again after every batch, and on any failure or interruption. Only the writer container
+# is stopped and started; the Tailscale sidecar, Docker and the host are left alone.
+cmd_rerender() {
+  compose_env
+  docker_available || die "Docker is unavailable"
+  if (( ! dry_run )); then lock_state; fi
+  [[ ! -f "$state_dir/deploying" ]] || die "an upgrade didn't finish; rerun it before re-rendering"
+  local args summary remaining version pending deadline
+  [[ -n "$(writer_container)" ]] || die "no writer container"
+  wait_writer_healthy || die "the writer isn't healthy"
+  args=(--all)
+  if [[ -n "$rerender_collection" ]]; then args=(--collection "$rerender_collection"); fi
+
+  # A dry run first: it reports the image's renderer version, which every batch then pins, so an
+  # image change mid-way fails instead of mixing versions.
+  rerender_stop
+  compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer markdown --dry-run > "$scratch/rerender.out"
+  summary="$(head -n1 "$scratch/rerender.out")"
+  version="$(node -e 'console.log(JSON.parse(process.argv[1]).renderer_version)' "$summary")" || die "unexpected rerender output"
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  log "markdown renderer v$version: $(node -e 'const s=JSON.parse(process.argv[1]);console.log(`${s.sources} sources, ${s.current} current, ${s.remaining} to render`)' "$summary")"
+  if (( dry_run )); then rerender_start; return 0; fi
+  while :; do
+    compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer markdown --version "$version" --limit "$rerender_limit" > "$scratch/rerender.out"
+    cat "$scratch/rerender.out" >&2
+    remaining="$(sed -n 's/^remaining: \([0-9]*\).*/\1/p' "$scratch/rerender.out" | tail -n1)"
+    [[ "$remaining" =~ ^[0-9]+$ ]] || die "unexpected rerender output"
+    rerender_start
+    log "waiting for the writer to upload the queued renditions"
+    deadline=$((SECONDS + ${RERENDER_UPLOAD_TIMEOUT:-3600}))
+    pending=""
+    while (( SECONDS < deadline )); do
+      pending="$(docker_run exec "$(writer_container)" node -e 'fetch("http://127.0.0.1:7410/api/status").then(r=>r.json()).then(s=>console.log(s.queue.rerender_pending)).catch(()=>process.exit(1))' 2>/dev/null || true)"
+      [[ "$pending" == 0 ]] && break
+      sleep 10
+    done
+    [[ "$pending" == 0 ]] || die "renditions are still queued after the upload timeout; the writer keeps uploading them, rerun later"
+    (( remaining > 0 )) || break
+    log "$remaining sources left; next batch"
+    rerender_stop
+  done
+  log "rerender done. Sources reported as missing or failed keep their previous rendition; see the JSON summaries above."
+}
+
+rerender_stop() {
+  in_progress=rerender
+  log "stopping the writer"
+  compose stop -t 60 writer >&2
+}
+
+rerender_start() {
+  compose up -d --no-deps --pull never writer >&2
+  in_progress=""
+  wait_writer_healthy || die "the writer didn't come back healthy"
+}
+
+# Interrupted or failed mid-batch: start the writer again.
+rollback_rerender() {
+  log "starting the writer again"
+  compose up -d --no-deps --pull never writer >&2 && wait_writer_healthy
+}
+
+case "$command" in
+  compose)
+    load_instance
+    compose_env
+    compose "${command_args[@]}"
+    ;;
+  status) load_instance; cmd_status ;;
+  validate) load_instance; cmd_validate ;;
+  rerender) load_instance; cmd_rerender ;;
+  *) load_instance; cmd_deploy ;;
+esac
