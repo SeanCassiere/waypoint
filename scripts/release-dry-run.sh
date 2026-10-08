@@ -234,7 +234,7 @@ approve_case
 approve_run env PR="$pr_output" APPROVE_WAIT=2 APPROVE_SETTLE=0 || { approve_show; fail "finding no runs failed the job"; }
 [[ ! -e "$ap/case/approved" ]] || { approve_show; fail "approved a run that wasn't listed"; }
 (( $(wc -l < "$ap/case/listings") >= 2 )) || { approve_show; fail "didn't keep looking for the runs"; }
-grep -q "^::warning title=Release PR checks not found::No workflow run awaiting approval appeared on the release PR #7 (head ${head_sha::7}) within 2s\..*https://github.com/example/waypoint/pull/7.*gh run list --repo example/waypoint --commit $head_sha --status action_required" "$ap/out" \
+grep -q "^::warning title=Release PR checks not found::No workflow run awaiting approval appeared on the release PR #7 (head ${head_sha::7}) within 2s\..*https://github.com/example/waypoint/pull/7.*gh run list --repo example/waypoint --commit $head_sha --branch [^ ]* --status action_required" "$ap/out" \
   || { approve_show; fail "no runs found isn't explained"; }
 ! grep -q '^::error' "$ap/out" || { approve_show; fail "finding no runs reported an error"; }
 
@@ -249,8 +249,9 @@ grep -q "^::warning title=Release PR checks need approval::Couldn't read the rel
 # A closed PR: nothing to approve.
 approve_case closed
 approve_run env PR="$pr_output" || { approve_show; fail "a closed release PR failed the job"; }
-grep -q '^::notice title=Release PR checks::The release PR #7 is closed' "$ap/out" && [[ ! -e "$ap/case/listings" ]] \
-  || { approve_show; fail "a closed release PR wasn't skipped"; }
+if ! grep -q '^::notice title=Release PR checks::The release PR #7 is closed' "$ap/out" || [[ -e "$ap/case/listings" ]]; then
+  approve_show; fail "a closed release PR wasn't skipped"
+fi
 
 # Refused before anything is approved: release-please's output naming another branch or no PR,
 # and a PR whose head isn't this repository's release branch.
