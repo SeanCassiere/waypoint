@@ -4,8 +4,9 @@
   "tasks": {
     // Cross-package tests from source, plus checks of built artifacts: the MCP bundles and
     // tarball (real-writer), the writer process (writer-process), the bundled renderer and the
-    // packages the reader bundle inlines (inlined-packages).
-    // deploy-config.test.ts also reads the deploy tooling and the reader's Wrangler template.
+    // packages the reader bundle inlines and their dependency types (inlined-packages).
+    // deploy-config.test.ts also reads the deploy tooling and the reader's Wrangler template, and
+    // check-hosted-runners.test.ts runs that check on samples and on the repository's workflows.
     "test": {
       "dependsOn": [
         "$TURBO_EXTENDS$",
@@ -16,6 +17,10 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/inlined-packages.json",
+        "$TURBO_ROOT$/scripts/check-hosted-runners.sh",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/apps/*/package.json",
+        "$TURBO_ROOT$/packages/*/package.json",
         "$TURBO_ROOT$/deploy/lib/**",
         "$TURBO_ROOT$/apps/reader/wrangler.jsonc"
       ]
