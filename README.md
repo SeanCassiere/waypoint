@@ -22,7 +22,7 @@ Waypoint stores and serves the artifacts that AI-agent-driven development produc
 | `scripts/` | Dev helpers: `fetch-tursodb.sh`, `demo-writer.ts` (seeded local writer for UI work), `live-smoke.ts` (dev-cloud smoke test), `check-core-imports.mjs` |
 | `tests/` | Cross-package tests, including the real-Chromium browser checks |
 
-Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and `pnpm build`. Sync tests also need a local `tursodb`: run `scripts/fetch-tursodb.sh` (Linux x64), then `export TURSODB_BIN=$PWD/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb`. After a build, `pnpm test:browser` and `pnpm test:browser:reader` run the writer viewer and the public reader shell in Chromium. To run a writer locally, see [AGENTS.md](AGENTS.md#developing).
+Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format, lint, typecheck, tests), and `pnpm build`. [Turborepo](https://turborepo.dev) runs these tasks (`turbo.json`): it builds what a task needs first and skips anything whose inputs haven't changed, so a second run is a cache hit. CI also shares a signed remote cache; without its credentials (fork PRs, local machines) turbo just uses the local cache. Sync tests also need a local `tursodb`: run `scripts/fetch-tursodb.sh` (Linux x64), then `export TURSODB_BIN=$PWD/.tools/turso_cli-x86_64-unknown-linux-gnu/tursodb`. `pnpm test:browser` and `pnpm test:browser:reader` run the writer viewer and the public reader shell in Chromium. To run a writer locally, see [AGENTS.md](AGENTS.md#developing).
 
 ## Docs
 

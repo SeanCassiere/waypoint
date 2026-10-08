@@ -84,7 +84,9 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 
 ## Deploy pipeline
 
-- CI on pull requests runs on GitHub-hosted runners and receives no secrets.
+- CI runs on GitHub-hosted runners. Its only credentials are for the Turborepo remote cache on Vercel (D52): the secrets `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY`, plus the repository variable `TURBO_TEAM`. They can read and write that cache and nothing of Waypoint's. Fork PRs get no secrets and run without the remote cache.
+  - **Nothing deployed comes from the remote cache.** The writer image builds from source with turbo's caches off (the Dockerfile passes `--cache=local:,remote:`, and the image job gets no cache credentials). The Deploy and Preview workflows build the reader with plain `pnpm --filter @waypoint/reader build`, without turbo.
+  - **The cache can only change CI's verdict.** turbo replays a cached result instead of running a check, so whoever holds both the token and the signing key could plant a passing result for a future task hash, and CI would skip that check. turbo rejects artifacts without a valid signature, so the token alone isn't enough. Same-repo PR runs get both, which is accepted because only the owner can push branches (see the accepted risks below).
 - Deploys run only on the **self-hosted runner on agent-1**, triggered by successful CI on `main`. The runner runs as the `agent-1` user, so it can read `~/.config/waypoint/`. Merging to `main` is therefore equivalent to running code with production credentials.
   - The repository is private, and only the owner can merge.
   - Never add a workflow that runs untrusted code (for example from forks) on the `waypoint-deploy` runner.
@@ -112,6 +114,7 @@ The MCP launcher fetches `/mcp/server.mjs` from the writer and **executes it** (
 | Malicious agent HTML in the tailnet viewer can call the writer API | D23. The agents are the owner's own. |
 | Turso or Cloudflare can read stored content | Accepted provider trust. There's no client-side encryption. |
 | A pushed branch can run any code on the deploy runner before review | The Preview workflow runs the PR branch's own workflow file there (D49). It's accepted only because only the owner can push, and that "owner" includes every agent, token and tool that pushes as `SeanCassiere`. Such code can reach far more than the reader credentials. The runner runs as `agent-1`, which is in the `docker`, `lxd` and `sudo` groups, so it is effectively root on agent-1. That includes every secret in `~/.config/waypoint/` (writer, Turso, R2 and Cloudflare), T3 Code and the other agent workloads, and the host's `gh` and git credentials. The runner is persistent: a job could leave behind files, Docker images or tool caches that a later deploy picks up. |
+| Whoever holds the CI cache credentials can make a CI check pass without running it | D52. Same-repo PR runs get `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY`, so code pushed to a branch can plant signed cache entries that a later run on `main` replays instead of running that check. Deploys never use the cache, so this can hide a failing check but can't put cached code into production. Accepted because only the owner can push branches and fork PRs get no secrets. Rotate both secrets if either leaks. |
 | Losing the R2 bucket loses content | The bucket is the durability floor; see [write-path-and-sync.md](write-path-and-sync.md#restore--disaster-recovery). |
 
 ## Related decisions
