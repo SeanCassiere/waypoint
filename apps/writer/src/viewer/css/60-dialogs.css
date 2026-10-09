@@ -243,6 +243,10 @@ legend {
 .sees summary + .row {
   border-top: 0;
 }
+#share .sees .row > :first-child {
+  display: flex;
+  padding-top: 1px;
+}
 .sees .yes {
   color: var(--add);
   font-weight: 700;
@@ -251,7 +255,8 @@ legend {
   color: var(--faint);
   font-weight: 700;
 }
-.sees .bang {
+.sees .bang,
+.sees .next .later {
   color: var(--pending);
   font-weight: 700;
 }
@@ -259,6 +264,17 @@ legend {
   font: 12px var(--mono);
   color: var(--ink-2);
   overflow-wrap: anywhere;
+}
+.sees .add {
+  color: var(--add);
+  font-weight: 600;
+}
+.sees .rm {
+  color: var(--del);
+  text-decoration: line-through;
+}
+.sees .row.next {
+  background: color-mix(in srgb, var(--pending-bg) 40%, transparent);
 }
 details.sees > summary {
   list-style: none;
@@ -276,27 +292,95 @@ details.sees > summary h3 {
   border: 0;
   background: none;
 }
+/* Per-target alternatives share one grid cell; the unchosen one is visibility:hidden (below),
+   so it keeps its size and switching targets never moves anything. */
+.alt {
+  display: grid;
+}
+.alt > * {
+  grid-area: 1 / 1;
+}
+.ft a.alt {
+  display: inline-grid;
+}
 .sum-sm {
   display: none;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   font-size: 12.5px;
   color: var(--ink-2);
 }
-.warn {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 8px;
-  border: 1px solid var(--pending-line);
-  background: var(--pending-bg);
-  border-radius: 10px;
+/* Phones only (hidden elsewhere). The shown sentence wraps rather than clip; the hidden one stays
+   on one line, so it never adds a blank line. A long Latest sentence may grow the dialog by that
+   one line on phones (orchestrator decision d-1, amending OW-03 §2d); no transition. */
+.sum-sm > * {
+  min-width: 0;
+}
+#share:not(:has(input[name="target"][value="latest"]:checked)) .sum-sm > .when-latest,
+#share:has(input[name="target"][value="latest"]:checked) .sum-sm > .when-only {
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* The "Public sees" track: what a target shows now, and what comes next. */
+.track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
   padding: 10px 12px;
-  font-size: 13px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--sunken);
 }
-.warn > span:first-child {
+.track .lab {
+  font-weight: 650;
+  color: var(--muted);
+  margin-right: 4px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.track .sc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  white-space: nowrap;
+  font-weight: 600;
+}
+.track .sc.ok {
+  color: var(--ok);
+}
+.track .sc.f {
+  color: var(--failed);
+  background: var(--failed-bg);
+  border-color: var(--failed-line);
+}
+.track .sc.f s {
+  text-decoration-thickness: 1px;
+}
+.track .sc.p {
   color: var(--pending);
-  font-weight: 700;
+  background: var(--pending-bg);
+  border-color: var(--pending-line);
 }
-.warn b {
-  display: block;
+.track .sc.w {
+  color: var(--muted);
+  border-style: dashed;
+}
+.track .to {
+  display: inline-flex;
+  color: var(--faint);
+}
+.track .tnote {
+  flex-basis: 100%;
+  margin: 2px 0 0;
 }
 .tok {
   display: flex;
@@ -474,11 +558,12 @@ details.sees > summary h3 {
   align-items: center;
   gap: 5px;
 }
-/* share dialog: the live checklist and warnings follow the form with :has(), no script */
+/* share dialog: the tracks, checklist and preview link follow the form with :has(), no script.
+   Hidden, not removed: each keeps its size, so the dialog never changes height (OW-03). */
 #share:not(:has(input[name="target"][value="latest"]:checked)) .when-latest,
 #share:has(input[name="target"][value="latest"]:checked) .when-only,
 #share:not(:has(input[name="expires"][value="never"]:checked)) .when-never {
-  display: none;
+  visibility: hidden;
 }
 #share .band .globe,
 .ph h1 .globe {
