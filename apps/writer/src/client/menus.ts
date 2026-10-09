@@ -106,8 +106,12 @@ export function bindMenus(): void {
       if (
         opener &&
         (popover.getAttribute("role") === "menu" || popover.classList.contains("rmenu"))
-      )
-        ($("[aria-current] a", popover) ?? items(popover)[0])?.focus();
+      ) {
+        const item = $("[aria-current] a", popover) ?? items(popover)[0];
+        item?.focus();
+        // A list menu scrolls inside its body; keep the focused item in view there.
+        item?.scrollIntoView({ block: "nearest" });
+      }
     });
     popover.addEventListener("keydown", (event) => {
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -123,6 +127,7 @@ export function bindMenus(): void {
             ? list.length - 1
             : (index + (event.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
       list[next]?.focus();
+      list[next]?.scrollIntoView({ block: "nearest" });
     });
   }
   for (const frame of $$("iframe", HTMLIFrameElement)) watchFrame(frame);

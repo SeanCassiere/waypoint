@@ -7,6 +7,9 @@
   overflow: auto;
   flex: 1;
   align-content: start;
+  /* The grid has a definite height and its tiles clip (overflow: hidden), so auto rows would
+     have a zero minimum and share the height; size each row to its content instead. */
+  grid-auto-rows: max-content;
 }
 .galhead {
   grid-column: 1/-1;
@@ -32,10 +35,11 @@
   padding: 0;
   text-align: left;
   color: var(--ink);
+  min-height: max-content;
 }
 .shot .img {
   aspect-ratio: 16/10;
-  background: var(--sunken);
+  background: var(--stage);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -83,6 +87,16 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
+}
+@media (max-width: 599.98px) {
+  .gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    padding: 16px 16px 60px;
+  }
+  .shot .cap {
+    min-height: var(--tap);
+  }
 }
 dialog.lbx {
   width: calc(100vw - 48px);
