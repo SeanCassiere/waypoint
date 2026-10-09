@@ -5,6 +5,7 @@ import type { HttpServices } from "../http.ts";
 import { linksEnabled } from "../shares.ts";
 import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.ts";
 import { getChrome } from "./chrome.ts";
+import { compareRoute } from "./pages/collection/compare-route.ts";
 import { collectionPage, notFound } from "./pages/collection/index.tsx";
 import { recentPage } from "./pages/recent/index.tsx";
 import { linksPage } from "./pages/share.tsx";
@@ -42,6 +43,7 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
   app.get("/links", (c) => linksPage(s, c));
   app.get("/status", (c) => statusPage(s, c, extras));
   app.get("/c/:pub", (c) => collectionPage(s, c, extras));
+  app.get("/c/:pub/compare", (c) => compareRoute(s, c, extras));
   app.get("/c/:pub/*", (c) => collectionPage(s, c, extras));
   app.get("*", async (c) => notFound(c, await getChrome(s), new URL(c.req.raw.url).pathname));
   return app;

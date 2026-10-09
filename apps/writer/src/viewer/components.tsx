@@ -379,10 +379,19 @@ export function Timeline(props: {
   labelledBy: string;
   /** Row ids are `{p}-<pub>` (link), `{p}m-<pub>` (message) and `{p}b-<pub>` (branch line). */
   idPrefix?: string;
+  /** History's compare mode (NAV-10): a tick column and a note slot per row. Keyed by public ID;
+   *  `on` renders the ticks checked, the notes filled and the row links inert. */
+  compare?: {
+    on: boolean;
+    picked: ReadonlySet<string>;
+    notes: ReadonlyMap<string, string>;
+    inRange: ReadonlySet<string>;
+  };
 }) {
   const search = [props.path ? "fallback=head" : "", props.query ?? ""].filter(Boolean).join("&");
   const p = props.idPrefix ?? "rv";
   const gutter = gutterFor(props.lineage, props.rows);
+  const cmp = props.compare;
   return (
     <ol class={`tl w${gutter.width}`} aria-labelledby={props.labelledBy}>
       {props.rows.map((row) => {
@@ -392,6 +401,7 @@ export function Timeline(props: {
         const href = `${shellPath(props.pub, row.public_id, props.path, true)}${search ? `?${search}` : ""}`;
         const state = row.sync_state;
         const link = `${p}-${row.public_id}`;
+        const note = cmp?.on ? cmp.notes.get(row.public_id) : undefined;
         // The current revision gets "Changes from #K" whatever its state (spec §4.10).
         const changes =
           !props.compact && current && parent && props.changesHref ? (
@@ -401,7 +411,7 @@ export function Timeline(props: {
           ) : null;
         return (
           <li
-            class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}`}
+            class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}${cmp?.on && cmp.inRange.has(row.public_id) ? " inr" : ""}`}
             aria-current={current ? "true" : undefined}
             data-rev={row.public_id}
             data-n={String(row.display_number)}
@@ -421,6 +431,7 @@ export function Timeline(props: {
                   id={link}
                   href={href}
                   aria-describedby={`${p}m-${row.public_id}${onLine ? "" : ` ${p}b-${row.public_id}`}`}
+                  inert={cmp?.on ? true : undefined}
                 >
                   <b>#{row.display_number}</b>
                 </a>
@@ -456,6 +467,11 @@ export function Timeline(props: {
                 {row.host ? <span class="host">{row.host}</span> : null}
                 <Chg changes={row.changes} />
               </span>
+              {cmp ? (
+                <span class="cmpnote" data-cmp-note hidden={!note}>
+                  {note ?? ""}
+                </span>
+              ) : null}
               {!props.compact && state === "failed" && row.last_error ? (
                 <span class="err">{row.last_error}</span>
               ) : null}
@@ -509,6 +525,17 @@ export function Timeline(props: {
                 <span class="acts">{changes}</span>
               ) : null}
             </span>
+            {cmp ? (
+              <label class="pick">
+                <input
+                  type="checkbox"
+                  name="r"
+                  value={row.public_id}
+                  aria-labelledby={`${link} ${p}m-${row.public_id}`}
+                  checked={cmp.on && cmp.picked.has(row.public_id)}
+                />
+              </label>
+            ) : null}
           </li>
         );
       })}

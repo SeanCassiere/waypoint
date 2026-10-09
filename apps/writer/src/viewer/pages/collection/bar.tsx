@@ -23,6 +23,8 @@ export function CollectionBar(props: {
   ctx: CollectionContext;
   mode?: "document" | "changes" | "gallery";
   pill?: string | undefined;
+  /** Replaces the revision pill's visible content (no #N, no state word): "#2 → #7 changes". */
+  crumb?: string | undefined;
   doneHref?: string | undefined;
 }) {
   const { ctx } = props;
@@ -71,10 +73,18 @@ export function CollectionBar(props: {
         popovertarget="rev-menu"
         aria-haspopup="dialog"
         title="Revisions  [ ]"
-        aria-label={`Revision ${revision.display_number ?? "?"}, ${props.pill ?? label.text}. Open revisions`}
+        aria-label={
+          props.crumb
+            ? `${props.crumb}. Open revisions`
+            : `Revision ${revision.display_number ?? "?"}, ${props.pill ?? label.text}. Open revisions`
+        }
       >
-        #{revision.display_number ?? "?"}
-        <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>
+        {props.crumb ?? (
+          <>
+            #{revision.display_number ?? "?"}
+            <span class={`l ${label.tone}`}>{props.pill ?? label.text}</span>
+          </>
+        )}
         <span class="caret" aria-hidden="true">
           ▾
         </span>

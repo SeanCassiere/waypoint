@@ -43,12 +43,15 @@ const scenario: ViewerScenario = {
     assert.equal(await page.evaluate('document.activeElement?.hasAttribute("data-change")'), true);
     await page.locator("body").press("Escape");
     await page.waitForURL((url) => url.pathname === secondPinned);
-    // Compare… opens natively (commandfor/command) and navigates to the chosen pair.
-    await page.getByRole("button", { name: /^Revision 2/ }).click();
-    await page.getByRole("button", { name: /Compare…/ }).click();
-    await page.locator("#compare").waitFor({ state: "visible" });
-    await page.getByRole("button", { name: "Compare", exact: true }).click();
-    await page.waitForURL(/\/changes\?base=/);
+    // Compare… is a mode of the History list (NAV-10): the parent and the revision come
+    // pre-ticked, and the form's Compare button opens that pair's Changes page.
+    await page.locator("#tab-history").click();
+    await page.locator("#tp-history").getByRole("link", { name: "Compare…" }).click();
+    const ticked = page.locator("#tp-history input[name=r]:checked");
+    await ticked.first().waitFor({ state: "visible" });
+    assert.equal(await ticked.count(), 2);
+    await page.locator("#tp-history").getByRole("button", { name: "Compare #1 → #2" }).click();
+    await page.waitForURL((url) => url.pathname === `${secondPinned}changes`);
     // Keyboard shortcuts dialog and the disable toggle.
     await page.locator("body").press("?");
     await page.locator("#keys").waitFor({ state: "visible" });

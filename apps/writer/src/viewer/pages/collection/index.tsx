@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { isPublicId, validatePath } from "@waypoint/core";
+import { validatePath } from "@waypoint/core";
 import type { Context } from "hono";
 
 import type { HttpServices } from "../../../http.ts";
@@ -8,7 +8,7 @@ import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { isEmbeddable } from "../../components.tsx";
 import { Layout } from "../../layout.tsx";
 import { noStore } from "../../respond.ts";
-import { changesPage, CompareDialog } from "../changes/index.tsx";
+import { changesPage } from "../changes/index.tsx";
 import { galleryPage } from "../gallery.tsx";
 import { publicPreview } from "../public-preview.tsx";
 import { LinksPanel, previewHref, publicSegment, ShareDialog } from "../share.tsx";
@@ -45,16 +45,6 @@ export async function collectionPage(
   const pub = (c.req.param("pub") ?? "").toLowerCase();
   const now = Date.now();
   const url = new URL(c.req.raw.url);
-  // The Compare… picker submits ?base=&head= here when JavaScript is off.
-  const pickHead = url.searchParams.get("head");
-  const pickBase = url.searchParams.get("base");
-  if (pickHead && pickBase && isPublicId(pub) && isPublicId(pickHead) && isPublicId(pickBase))
-    return noStore(
-      c.redirect(
-        `/c/${pub}/r/${pickHead.toLowerCase()}/changes?base=${pickBase.toLowerCase()}`,
-        302,
-      ),
-    );
   const after = url.pathname.slice(`/c/${pub}/`.length);
   const match = /^r\/([^/]+)(?:\/(.*))?$/.exec(after);
   const rpub = match?.[1]?.toLowerCase();
@@ -184,7 +174,6 @@ export async function collectionPage(
         <CopyMenu ctx={ctx} path={path} />
         <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
         <CollectionDialogs ctx={ctx} />
-        <CompareDialog ctx={ctx} basePub={null} />
         {ctx.sharing ? (
           <ShareDialog ctx={ctx} links={ctx.links} previewHref={previewHref(ctx, path)} />
         ) : null}
