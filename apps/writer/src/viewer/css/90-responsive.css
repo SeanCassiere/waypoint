@@ -55,6 +55,38 @@
     padding: 20px 16px 80px;
     gap: 24px;
   }
+  /* Needs attention cards: one column, Retry and Details as two 44 px buttons under the cause. */
+  .attn .ag {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ag .acts {
+    grid-row: auto;
+    grid-column: 1;
+    order: 5;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .ag .acts .btn {
+    min-height: var(--tap);
+    justify-content: center;
+  }
+  .ag .acts > :only-child {
+    grid-column: 1 / -1;
+  }
+  .lin2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Status rows: one column, the actions after the raw error (as .r below). */
+  .srow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .srow .acts,
+  .srows[data-status-progress] .srow .acts {
+    grid-row: auto;
+    grid-column: 1;
+    order: 99;
+    justify-content: flex-start;
+  }
   .side .card {
     margin-bottom: 0;
   }
@@ -195,8 +227,9 @@
   .lbx .pair {
     grid-template-columns: 1fr;
   }
+  /* Status stat cards stack (OW-06b). */
   .grid3 {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .wrap {
     padding: 20px 16px 80px;

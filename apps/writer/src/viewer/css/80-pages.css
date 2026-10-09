@@ -53,6 +53,11 @@
 .hero.off .dot {
   background: var(--faint);
 }
+/* The text column shrinks and long unbroken titles wrap (OW-06b names the collection here). */
+.hero > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .hero b {
   font-size: 16px;
   display: block;
@@ -144,6 +149,146 @@
 }
 .stat.bad .n {
   color: var(--failed);
+}
+.stat .d {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+/* Status: one group per collection that needs you, rows that explain each revision (OW-06b). */
+.sgrp {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.sgrp > header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.sgrp h3 {
+  margin: 0;
+  font-size: 15px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sgrp h3 a {
+  color: var(--ink);
+}
+.sgrp .proj {
+  color: var(--muted);
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sgrp .imp {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.sgrp .lin2 {
+  border-width: 0 0 1px;
+  border-color: var(--rule);
+  border-radius: 0;
+}
+.srows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.srows[data-status-progress] {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.srows[data-status-progress]:empty {
+  display: none;
+}
+.srow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 16px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--rule);
+}
+.srow:first-child {
+  border-top: 0;
+}
+.srow .h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.srow .ct {
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.srow .msg {
+  color: var(--ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.srow .acts {
+  grid-row: 1/span 4;
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 6px;
+}
+/* In progress rows have only .h and .raw: span those two, not four. */
+.srows[data-status-progress] .srow .acts {
+  grid-row: 1 / span 2;
+}
+.srow .x,
+.srow .nx,
+.srow .raw {
+  grid-column: 1;
+  margin: 0;
+  min-width: 0;
+}
+.srow .x {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.srow .nx {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.srow .raw {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font: 11.5px/1.5 var(--mono);
+  color: var(--muted);
+}
+.srow .raw > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.srow .raw .e {
+  font: inherit;
+  color: var(--failed);
+  background: var(--failed-bg);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.srow .raw .e.none {
+  color: inherit;
+  background: none;
+  padding: 0;
 }
 h2.sec {
   font: 650 13px/1 var(--sans);

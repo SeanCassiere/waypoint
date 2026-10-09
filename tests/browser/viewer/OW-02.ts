@@ -34,9 +34,12 @@ const scenario: ViewerScenario = {
   async run(ctx) {
     const writer = await startDemoWriter();
     const { base } = writer;
-    /** The Needs attention row for Postgres #6, on Recent. */
+    /** The Needs attention card for Postgres (#6 failed), on Recent. */
     const attention = (page: Page) =>
-      page.locator(".ar", { hasText: POSTGRES }).filter({ hasText: "#6" });
+      page.locator(".ag", { hasText: POSTGRES }).filter({ hasText: "#6" });
+    /** Status's row for Postgres #6, in its collection's group. */
+    const failedRow = (page: Page) =>
+      page.locator(".sgrp", { hasText: POSTGRES }).locator(".srow", { hasText: "#6 failed" });
     /** A collection's page, through its Recent link. */
     const open = async (page: Page, title: string) => {
       await page.goto(`${base}/`);
@@ -89,12 +92,12 @@ const scenario: ViewerScenario = {
       // A sticky error follows a modal opened after it (outside the modal it would be inert),
       // and leaves it again when the modal closes.
       await page.goto(`${base}/status`);
-      const failed = page.locator(".r", { hasText: POSTGRES }).filter({ hasText: "#6" }).first();
+      const failed = failedRow(page);
       await failed.getByRole("button", { name: "Retry" }).click();
       await toast.waitFor({ state: "visible" });
       const confirm = page.locator("dialog#confirm");
       const drop = async () => {
-        await failed.getByRole("button", { name: "Drop…" }).first().click();
+        await failed.getByRole("button", { name: "Drop #6…" }).first().click();
         await confirm.waitFor({ state: "visible" });
         await page.locator("dialog#confirm[open] [data-toast]").waitFor({ state: "attached" });
       };
@@ -167,10 +170,10 @@ const scenario: ViewerScenario = {
       assert.ok(status && status.height >= 44, `Status is ${status?.height}px tall`);
       // In a bottom-sheet dialog the toast moves to the top: the sheet's actions stay tappable.
       await page.goto(`${base}/status`);
-      const failed = page.locator(".r", { hasText: POSTGRES }).filter({ hasText: "#6" }).first();
+      const failed = failedRow(page);
       await failed.getByRole("button", { name: "Retry" }).tap();
       await toast.waitFor({ state: "visible" });
-      await failed.getByRole("button", { name: "Drop…" }).first().tap();
+      await failed.getByRole("button", { name: "Drop #6…" }).first().tap();
       const confirm = page.locator("dialog#confirm");
       await confirm.waitFor({ state: "visible" });
       await page.locator("dialog#confirm[open] [data-toast]").waitFor({ state: "attached" });
@@ -240,12 +243,7 @@ const scenario: ViewerScenario = {
 
     // Drop's confirmation names the revision and the collection (Cancel: nothing changes).
     await page.goto(`${base}/status`);
-    await page
-      .locator(".r", { hasText: POSTGRES })
-      .filter({ hasText: "#6" })
-      .getByRole("button", { name: "Drop…" })
-      .first()
-      .click();
+    await failedRow(page).getByRole("button", { name: "Drop #6…" }).click();
     const confirm = page.locator("dialog#confirm");
     await confirm.waitFor({ state: "visible" });
     assert.equal(

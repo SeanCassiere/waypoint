@@ -1,15 +1,23 @@
 /** @jsxImportSource hono/jsx */
 import { MCP_LAUNCHER_API } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import type { CompareFile, FileDiff } from "../../compare.ts";
-import type { HealthItem } from "../../health.ts";
+import {
+  STALLED_AFTER_MS,
+  type CollectionHealth,
+  type Health,
+  type HealthItem,
+} from "../../health.ts";
 import type { HttpServices } from "../../http.ts";
 import { getStatus, LOCAL_ONLY_DETAIL, LOCAL_ONLY_TITLE } from "../../status-data.ts";
 import { getChrome } from "../chrome.ts";
-import { revisionHref, Time } from "../components.tsx";
+import { LineStrip, revisionHref, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
+import { chipText, explainItem, itemWord, stripModel, type ItemWord } from "../health-words.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
 import { formatTime } from "../timefmt.ts";
@@ -51,6 +59,20 @@ function listWindow(c: Context, key: string, items: readonly HealthItem[]) {
   const from = Number.isSafeInteger(asked) && asked > 0 && asked < items.length ? asked : 0;
   return { from, shown: items.slice(from, from + STATUS_LIST), total: items.length };
 }
+/**
+ * Where Home's Details lands: the collection's Needs attention group on Status. The groups follow
+ * the `?failed=` window, so a group whose first item is past the first page links to that page.
+ */
+export function attentionHref(health: Health, pub: string): string {
+  let before = 0;
+  for (const group of health.collections) {
+    if (!group.attention) continue;
+    if (group.collection_public_id === pub) break;
+    before += group.items.length;
+  }
+  const from = Math.floor(before / STATUS_LIST) * STATUS_LIST;
+  return `/status${from > 0 ? `?failed=${from}` : ""}#attn-${pub}`;
+}
 function ListMore(props: { param: string; from: number; shown: number; total: number }) {
   const { from, shown, total } = props;
   const after = total - from - shown;
@@ -70,12 +92,267 @@ function ListMore(props: { param: string; from: number; shown: number; total: nu
   );
 }
 
-function revisionLink(item: HealthItem) {
+const STALLED_MINUTES = STALLED_AFTER_MS / 60_000;
+const WORD_ORDER: Record<ItemWord, number> = { failed: 0, stalled: 1, uploading: 2, waiting: 3 };
+const WORD_CLASS: Record<ItemWord, string> = {
+  failed: "f",
+  stalled: "p",
+  uploading: "p",
+  waiting: "w",
+};
+/** "a", "a and b", "a, b and c". */
+function joinAnd(parts: string[]): string {
+  return parts.length < 2
+    ? (parts[0] ?? "")
+    : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1) ?? ""}`;
+}
+
+/** A Status row's state chip: "#6 failed", "#9 waiting for #8". */
+function RowState(props: { item: HealthItem; word: ItemWord; waitingFor: number | null }) {
+  const { item, word } = props;
   return (
-    <>
-      <a href={revisionHref(item)}>{item.collection_title ?? "Untitled collection"}</a>{" "}
-      <span class="mono muted">#{item.display_number ?? "?"}</span>
-    </>
+    <span class={`sc ${WORD_CLASS[word]}`}>
+      {raw(icon(word === "failed" ? "alert" : "clock", "sm"))}
+      {chipText(item.display_number, word, props.waitingFor)}
+    </span>
+  );
+}
+function DropButton(props: { item: HealthItem; describedBy?: string }) {
+  const { item } = props;
+  return (
+    <button
+      type="button"
+      class="btn sm danger"
+      data-action="drop"
+      data-id={item.id}
+      data-n={item.display_number ?? undefined}
+      data-title={item.collection_title ?? undefined}
+      aria-describedby={props.describedBy}
+    >
+      Drop #{item.display_number ?? "?"}…
+    </button>
+  );
+}
+
+/** One revision that needs you, with what happened, what to do, and the raw error. */
+function AttentionRow(props: { item: HealthItem; parentN: number | null; now: number }) {
+  const { item, now } = props;
+  const word = itemWord(item);
+  const explain = explainItem(item, word, now, props.parentN);
+  return (
+    <li class="srow" id={item.id}>
+      <div class="h">
+        <RowState item={item} word={word} waitingFor={word === "waiting" ? props.parentN : null} />{" "}
+        {item.message ? <span class="msg">“{item.message}”</span> : null}
+      </div>
+      <span class="acts">
+        {word === "failed" ? (
+          <button
+            type="button"
+            class="btn sm"
+            data-action="retry"
+            data-ids={item.id}
+            data-n={item.display_number ?? undefined}
+            data-title={item.collection_title ?? undefined}
+            aria-describedby={`sh-${item.id}`}
+          >
+            Retry #{item.display_number ?? "?"}
+          </button>
+        ) : null}
+        <DropButton item={item} />
+      </span>
+      <p class="x" id={`sh-${item.id}`}>
+        {explain.what}
+      </p>
+      <p class="nx">{explain.next}</p>
+      <p class="raw">
+        <code class={item.last_error === null ? "e none" : "e"}>
+          {item.last_error ?? "No error detail"}
+        </code>{" "}
+        <span>{item.error_kind ?? "unknown kind"}</span>{" "}
+        {item.source_host ? (
+          <>
+            <span class="mono">{item.source_host}</span>{" "}
+          </>
+        ) : null}
+        <span>
+          written <Time at={item.created_at} now={now} />
+        </span>{" "}
+        <span class="mono" title={item.id}>
+          {shortId(item.id, 12)}
+        </span>
+      </p>
+    </li>
+  );
+}
+
+/** One collection's group under Needs attention: its lines, then its windowed rows. */
+function AttentionGroup(props: { group: CollectionHealth; items: HealthItem[]; now: number }) {
+  const { group, now } = props;
+  const pub = group.collection_public_id;
+  const numbers = new Map(group.rows.map((row) => [row.id, row.display_number]));
+  const heading = pub ? `sg-${pub}` : `sg-${group.collection_id}`;
+  return (
+    <section class="sgrp" id={`attn-${pub ?? group.collection_id}`} aria-labelledby={heading}>
+      <header>
+        <h3 id={heading}>
+          {pub ? (
+            <a href={`/c/${pub}/`}>{group.collection_title ?? "Untitled collection"}</a>
+          ) : (
+            (group.collection_title ?? "Untitled collection")
+          )}
+        </h3>{" "}
+        {group.project ? <span class="proj">{group.project}</span> : null}
+        <span class="imp">
+          {group.liveLinks
+            ? plural(group.liveLinks, "live link")
+            : "No public links · nothing public is affected"}
+        </span>
+      </header>
+      <LineStrip model={stripModel(group)} />
+      <ul class="srows">
+        {props.items.map((item) => (
+          <AttentionRow
+            item={item}
+            parentN={
+              item.parent_revision_id ? (numbers.get(item.parent_revision_id) ?? null) : null
+            }
+            now={now}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** The Status hero when collections need you (OW-06b), or null. */
+function attentionHero(health: Health, groups: CollectionHealth[], also: boolean): Child {
+  if (!groups.length) return null;
+  const tone = groups.some((group) => group.worst === "failed") ? "bad" : "warn";
+  const prefix = also ? "Also: " : "";
+  const [only] = groups;
+  if (groups.length === 1 && only) {
+    const failed = only.items.filter((item) => item.sync === "failed");
+    const stalled = only.items.filter((item) => item.sync === "stalled");
+    const parts = [
+      ...failed.map((item) => `#${item.display_number ?? "?"} failed to sync`),
+      ...stalled.map((item) => `#${item.display_number ?? "?"} has stalled`),
+    ];
+    const sees = stripModel(only).seesN;
+    return (
+      <Hero
+        tone={tone}
+        title={`${prefix}${only.collection_title ?? "Untitled collection"} needs you.`}
+        body={`${joinAnd(parts)}. ${
+          sees === null
+            ? "Nothing in it has synced yet."
+            : `Other machines and public links still see #${sees}.`
+        }${health.collections.length === 1 ? " Everything else is synced." : ""}`}
+      />
+    );
+  }
+  const f = health.failed.length;
+  const s = health.stalled.length;
+  const counts = f
+    ? `${plural(f, "revision")} failed${s ? ` and ${s} stalled` : ""}.`
+    : `${plural(s, "revision")} stalled.`;
+  return (
+    <Hero
+      tone={tone}
+      title={`${prefix}${groups.length} collections need you.`}
+      body={`${counts} Each collection is listed under Needs attention.`}
+    />
+  );
+}
+
+/**
+ * Parent numbers of the In progress rows, noted by `statusPage` from every revision of their
+ * collections: a waiting row's parent may sit on another `?pending=` page, and a HealthItem
+ * doesn't carry its parent's number. Keyed by the per-request item, so `InProgressSection` keeps
+ * its agreed props; without an entry it looks among its own items.
+ */
+const progressParents = new WeakMap<HealthItem, number>();
+
+/**
+ * Status's In progress section (OW-06b): queued revisions of collections that don't need you,
+ * then `extra` (OW-14's purge rows, each an <li>, not windowed), the `?pending=` pager and `after`.
+ */
+export function InProgressSection(props: {
+  items: HealthItem[];
+  extra?: Child[];
+  extraCount?: number;
+  after?: Child;
+  now: number;
+  syncEnabled: boolean;
+  window: { from: number; total: number };
+}) {
+  const { items, now } = props;
+  const extraCount = props.extraCount ?? 0;
+  const numbers = new Map(items.map((item) => [item.id, item.display_number]));
+  return (
+    <section aria-labelledby="sec-progress" data-status-section="progress">
+      <h2 class="sec" id="sec-progress">
+        In progress{" "}
+        <span class="n" data-progress-count>
+          {props.window.total + extraCount}
+        </span>
+      </h2>
+      <ul class="srows" data-status-progress>
+        {items.map((item) => {
+          const word = itemWord(item);
+          const parent =
+            progressParents.get(item) ??
+            (item.parent_revision_id ? numbers.get(item.parent_revision_id) : null);
+          return (
+            <li class="srow" id={item.id}>
+              <div class="h">
+                <a class="ct" id={`pt-${item.id}`} href={revisionHref(item)}>
+                  {item.collection_title ?? "Untitled collection"}
+                </a>{" "}
+                <RowState
+                  item={item}
+                  word={word}
+                  waitingFor={word === "waiting" ? (parent ?? null) : null}
+                />{" "}
+                {item.message ? <span class="msg">“{item.message}”</span> : null}
+              </div>
+              <span class="acts">
+                <DropButton item={item} describedBy={`pt-${item.id}`} />
+              </span>
+              <p class="raw">
+                {item.source_host ? (
+                  <>
+                    <span class="mono">{item.source_host}</span>{" "}
+                  </>
+                ) : null}
+                <span>
+                  started <Time at={item.created_at} now={now} />
+                </span>
+                {props.syncEnabled ? null : (
+                  <>
+                    {" "}
+                    <span>waits here while sync is off</span>
+                  </>
+                )}
+              </p>
+            </li>
+          );
+        })}
+        {props.extra}
+      </ul>
+      {!items.length && !extraCount ? (
+        <div class="rows">
+          <div class="empty">Nothing is uploading.</div>
+        </div>
+      ) : null}
+      <ListMore
+        param="pending"
+        from={props.window.from}
+        shown={items.length}
+        total={props.window.total}
+      />
+      {props.after}
+    </section>
   );
 }
 
@@ -91,8 +368,26 @@ export async function statusPage(
     extras.serverBundle(),
   ]);
   const health = chrome.health;
-  const failedList = listWindow(c, "failed", health.failed);
-  const pendingList = listWindow(c, "pending", health.pending);
+  const attention = health.collections.filter((group) => group.attention);
+  const attentionIds = new Set(attention.map((group) => group.collection_id));
+  // Grouped by collection in group order; within one, failed, stalled, uploading, waiting.
+  const attentionItems = attention.flatMap((group) =>
+    group.items.toSorted((a, b) => WORD_ORDER[itemWord(a)] - WORD_ORDER[itemWord(b)]),
+  );
+  const progress = health.pending.filter((item) => !attentionIds.has(item.collection_id));
+  const attentionList = listWindow(c, "failed", attentionItems);
+  const progressList = listWindow(c, "pending", progress);
+  const rowNumbers = new Map(
+    health.collections.flatMap((group) => group.rows.map((row) => [row.id, row.display_number])),
+  );
+  for (const item of progressList.shown) {
+    const parent = item.parent_revision_id ? rowNumbers.get(item.parent_revision_id) : undefined;
+    if (parent !== undefined) progressParents.set(item, parent);
+  }
+  const shownGroups = attention.flatMap((group) => {
+    const items = attentionList.shown.filter((item) => item.collection_id === group.collection_id);
+    return items.length ? [{ group, items }] : [];
+  });
   const heroes: Child[] = [];
   // Persistent, whatever else is wrong: local-only mode keeps nothing anywhere but here.
   if (!health.syncEnabled)
@@ -153,23 +448,7 @@ export async function statusPage(
         }
       />,
     );
-  if (health.failed.length)
-    heroes.push(
-      <Hero
-        tone="bad"
-        title={`${heroes.length ? "Also: " : ""}${plural(health.failed.length, "revision")} failed to sync.`}
-        body={
-          <>
-            {health.failed.length === 1 ? "It's" : "They're"} still readable on this writer, but
-            other machines and public links can't see {health.failed.length === 1 ? "it" : "them"}{" "}
-            until {health.failed.length === 1 ? "it's" : "they're"} retried.
-            {health.pending.length
-              ? ` ${plural(health.pending.length, "other revision")} ${health.pending.length === 1 ? "is" : "are"} uploading normally.`
-              : ""}
-          </>
-        }
-      />,
-    );
+  if (attention.length) heroes.push(attentionHero(health, attention, heroes.length > 0));
   if (!heroes.length) {
     if (health.pending.length)
       heroes.push(
@@ -246,19 +525,23 @@ export async function statusPage(
             <div class={`stat ${health.failed.length ? "bad" : "zero"}`}>
               <div class="n">{health.failed.length}</div>
               <div class="l">failed {health.failed.length === 1 ? "revision" : "revisions"}</div>
+              <div class="d">stopped trying; needs Retry or Drop</div>
             </div>
-            <div class={`stat ${health.pending.length ? "" : "zero"}`}>
-              <div class="n">{health.pending.length}</div>
-              <div class="l">
-                {health.pending.length === 1 ? "revision" : "revisions"} uploading
-                {health.oldestPendingAt !== null ? (
-                  <>
-                    {" · oldest "}
-                    <Time at={health.oldestPendingAt} fmt="ago" now={now} />
-                  </>
-                ) : null}
+            {health.syncEnabled ? (
+              <div class={`stat ${health.stalled.length ? "" : "zero"}`}>
+                <div class="n">{health.stalled.length}</div>
+                <div class="l">
+                  stalled · {health.pending.length - health.stalled.length} uploading normally
+                </div>
+                <div class="d">stalled = no upload progress for {STALLED_MINUTES} min</div>
               </div>
-            </div>
+            ) : (
+              <div class={`stat ${health.pending.length ? "" : "zero"}`}>
+                <div class="n">{health.pending.length}</div>
+                <div class="l">waiting here</div>
+                <div class="d">sync is off, so nothing uploads</div>
+              </div>
+            )}
             <div class={`stat ${health.cloudLastOkAt === null ? "zero" : ""}`}>
               <div class="n">
                 {!health.syncEnabled ? (
@@ -270,7 +553,7 @@ export async function statusPage(
                 )}
               </div>
               <div class="l">
-                last cloud sync (push {pushAgo} · pull {pullAgo})
+                last cloud sync
                 {status.last_push_at !== null ? (
                   <span class="sr">
                     Last push{" "}
@@ -280,99 +563,40 @@ export async function statusPage(
                   </span>
                 ) : null}
               </div>
+              <div class="d">
+                push {pushAgo} · pull {pullAgo}
+              </div>
             </div>
           </div>
-          <h2 class="sec">
-            Failed revisions <span class="n">{health.failed.length}</span>
-          </h2>
-          <div class="rows">
-            {health.failed.length ? (
-              failedList.shown.map((item) => (
-                <div class="r" id={item.id}>
-                  <span class="t">{revisionLink(item)}</span>
-                  <span class="acts">
-                    <button
-                      type="button"
-                      class="btn sm"
-                      data-action="retry"
-                      data-ids={item.id}
-                      data-n={item.display_number ?? undefined}
-                      data-title={item.collection_title ?? undefined}
-                    >
-                      Retry
-                    </button>
-                    <button
-                      type="button"
-                      class="btn sm danger"
-                      data-action="drop"
-                      data-id={item.id}
-                      data-n={item.display_number ?? undefined}
-                      data-title={item.collection_title ?? undefined}
-                    >
-                      Drop…
-                    </button>
-                  </span>
-                  <span class="s">
-                    {item.message ? <span>“{item.message}”</span> : null}
-                    {item.source_host ? <span class="mono">{item.source_host}</span> : null}
-                    <Time at={item.created_at} now={now} />
-                    <span class="mono" title={item.id}>
-                      {shortId(item.id, 12)}
-                    </span>
-                    <span>error: {item.error_kind ?? "unknown kind"}</span>
-                  </span>
-                  <span class="e">{item.last_error ?? "No error detail"}</span>
-                </div>
+          <section aria-labelledby="sec-attn" data-status-section="attention">
+            <h2 class="sec" id="sec-attn">
+              Needs attention <span class="n">{plural(attention.length, "collection")}</span>
+            </h2>
+            {shownGroups.length ? (
+              shownGroups.map(({ group, items }) => (
+                <AttentionGroup group={group} items={items} now={now} />
               ))
             ) : (
-              <div class="empty">No failed revisions.</div>
+              <div class="rows">
+                <div class="empty">Nothing needs attention.</div>
+              </div>
             )}
-          </div>
-          <ListMore
-            param="failed"
-            from={failedList.from}
-            shown={failedList.shown.length}
-            total={failedList.total}
-          />
-          <h2 class="sec">
-            Uploading <span class="n">{plural(health.pending.length, "revision")}</span>
-          </h2>
-          <div class="rows">
-            {health.pending.length ? (
-              pendingList.shown.map((item) => (
-                <div class="r" id={item.id}>
-                  <span class="t">{revisionLink(item)}</span>
-                  <span class="acts">
-                    <button
-                      type="button"
-                      class="btn sm danger"
-                      data-action="drop"
-                      data-id={item.id}
-                      data-n={item.display_number ?? undefined}
-                      data-title={item.collection_title ?? undefined}
-                    >
-                      Drop…
-                    </button>
-                  </span>
-                  <span class="s">
-                    {item.message ? <span>“{item.message}”</span> : null}
-                    {item.source_host ? <span class="mono">{item.source_host}</span> : null}
-                    <span>
-                      started <Time at={item.created_at} now={now} />
-                    </span>
-                    {!health.syncEnabled ? <span>waits here while sync is off</span> : null}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div class="empty">Nothing is uploading.</div>
-            )}
-          </div>
-          <ListMore
-            param="pending"
-            from={pendingList.from}
-            shown={pendingList.shown.length}
-            total={pendingList.total}
+            <ListMore
+              param="failed"
+              from={attentionList.from}
+              shown={attentionList.shown.length}
+              total={attentionList.total}
+            />
+            <p class="legend">
+              Home, the health pill and this page use the same rule: a revision is <b>stalled</b>{" "}
+              after {STALLED_MINUTES} minutes without upload progress.
+            </p>
+          </section>
+          <InProgressSection
+            items={progressList.shown}
+            now={now}
+            syncEnabled={health.syncEnabled}
+            window={{ from: progressList.from, total: progressList.total }}
           />
           {extras.watchers ? (
             <>

@@ -3,9 +3,11 @@ import type { CollectionSearchResult } from "@waypoint/core";
 import type { Child } from "hono/jsx";
 import type { JSX } from "hono/jsx/jsx-runtime";
 
+import type { Health } from "../../../health.ts";
 import { Chg, Globe, Time } from "../../components.tsx";
 import { plural, projectAndTags } from "../../format.ts";
 import { dayLabel, trashDayLabel } from "../../timefmt.ts";
+import { RowSyncChips } from "./attention.tsx";
 
 /** Splits `text` around case-insensitive matches of `query` and wraps them in <mark>. */
 export function highlight(text: string, query: string): Child {
@@ -55,6 +57,8 @@ export interface ListRowProps {
   query?: string | undefined;
   /** Recent: the latest revision's public ID, for the "N new since you read" link (OW-08). */
   latestPub?: string | undefined;
+  /** The writer's sync health, for the row's sync chips (OW-06b). */
+  health?: Health | undefined;
 }
 export interface TrashRowProps {
   variant: "trash";
@@ -140,12 +144,7 @@ export function RecentRow(props: ListRowProps | TrashRowProps): JSX.Element {
         {latest?.source_host ? <span class="host">{latest.source_host}</span> : null}
         <Chg changes={latest?.changes} />
         {labels.length ? <span>{labels.join(" · ")}</span> : null}
-        {item.queue?.failed ? (
-          <span class="chip xs failed">
-            <span aria-hidden="true">!</span> {item.queue.failed} failed
-          </span>
-        ) : null}
-        {item.queue?.pending ? <span class="chip xs pending">uploading</span> : null}
+        <RowSyncChips collectionId={item.id} health={props.health} />
         {item.share?.active ? (
           <span class="chip xs public">
             <Globe />
