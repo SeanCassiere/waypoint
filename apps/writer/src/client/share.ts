@@ -38,13 +38,19 @@ function setRevokeNote(holder: HTMLElement, pushed: boolean | null): void {
 function bump(node: HTMLElement | null, by: number): void {
   if (node) node.textContent = String(Math.max(0, Number(node.textContent ?? "0") + by));
 }
-/** One fewer active link: the Links tab count, /links segment counts and Revoke all. */
-function countRevoked(): void {
-  bump($("#tab-links .n"), -1);
-  bump($('[data-count-of="active"]'), -1);
+/**
+ * One fewer link of this status (the holder's data-link-status before the revoke): the Links
+ * tab count (live links only), the /links segment counts and Revoke all (on /links, only for
+ * a live link).
+ */
+function countRevoked(status: string): void {
+  if (status === "active") bump($("#tab-links .n"), -1);
+  if (status) bump($(`[data-count-of="${status}"]`), -1);
   bump($('[data-count-of="revoked"]'), 1);
   const all = $("[data-action=revoke-all]");
-  if (!all) return;
+  // The /links button (no collection: global revoke-all) counts live links only; the Links
+  // tab's counts every open card, as its per-collection revoke-all revokes them all.
+  if (!all || (!all.dataset.collectionId && status !== "active")) return;
   const left = Number(all.dataset.count ?? "0") - 1;
   if (left < 2) {
     (all.closest(".lnk-foot") ?? all).remove();
@@ -73,7 +79,9 @@ function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
   // Expiry no longer applies (/links rows).
   for (const node of $$("[data-live]", holder)) node.remove();
   setRevokeNote(holder, pushed);
-  countRevoked();
+  const status = holder.dataset.linkStatus ?? "";
+  holder.dataset.linkStatus = "revoked";
+  countRevoked(status);
   holder.tabIndex = -1;
   holder.focus();
   const started = Date.now();

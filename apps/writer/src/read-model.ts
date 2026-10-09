@@ -25,6 +25,7 @@ import {
 import { z } from "zod";
 
 import type { Db } from "./db.ts";
+import { liveLinkWhere, pausedLinkWhere, trashedPendingIds } from "./shares.ts";
 function parseManifest(json: string): Manifest {
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== "object" || !("headPath" in parsed) || !("files" in parsed))
@@ -216,6 +217,21 @@ export interface Facets {
   tags: { value: string; count: number }[];
   hosts: { value: string; count: number; last_written_at: number }[];
 }
+/** collectionsById's entry: display fields plus the live rule's two Trash facts (OW-05). */
+export interface CollectionFacts {
+  id: string;
+  public_id: string;
+  title: string;
+  deleted: boolean;
+  tombstoned: boolean;
+  pendingTrashed: boolean;
+}
+/** A collection's public links (B4, OW-05): `active` live links, `paused` links in Trash. */
+export interface ShareSummary {
+  active: number;
+  follows_latest: boolean;
+  paused: number;
+}
 /** About 150 bytes each: a few MB at most. */
 export const CHANGE_CACHE_SIZE = 20_000;
 export class ReadModel {
@@ -322,14 +338,14 @@ export class ReadModel {
     }
     return index;
   }
-  /** Title, public ID and Trash state for many collections in two queries. */
-  async collectionsById(
-    collectionIds: string[],
-  ): Promise<Map<string, { id: string; public_id: string; title: string; deleted: boolean }>> {
-    const found = new Map<
-      string,
-      { id: string; public_id: string; title: string; deleted: boolean }
-    >();
+  /**
+   * Title, public ID and Trash state for many collections in two queries. `deleted` is the
+   * displayed state (a pending row wins over the committed one); `tombstoned` and
+   * `pendingTrashed` are the live rule's two Trash facts, kept apart (OW-05): a tombstone still
+   * hides the collection from the reader while a pending row says it's restored.
+   */
+  async collectionsById(collectionIds: string[]): Promise<Map<string, CollectionFacts>> {
+    const found = new Map<string, CollectionFacts>();
     if (!collectionIds.length) return found;
     const marks = placeholders(collectionIds);
     const [committed, pending] = await Promise.all([
@@ -347,12 +363,23 @@ export class ReadModel {
         collectionIds,
       ),
     ]);
-    for (const row of [...committed, ...pending])
+    for (const row of committed)
       found.set(row.id, {
         id: row.id,
         public_id: row.public_id,
         title: row.title,
         deleted: row.deleted_at != null,
+        tombstoned: row.deleted_at != null,
+        pendingTrashed: false,
+      });
+    for (const row of pending)
+      found.set(row.id, {
+        id: row.id,
+        public_id: row.public_id,
+        title: row.title,
+        deleted: row.deleted_at != null,
+        tombstoned: found.get(row.id)?.tombstoned ?? false,
+        pendingTrashed: row.deleted_at != null,
       });
     return found;
   }
@@ -413,20 +440,39 @@ export class ReadModel {
     this.facetCache = { at: now, value: result };
     return result;
   }
-  /** Active (unrevoked, unexpired) link counts per collection (B4); one query. */
+  /**
+   * Live and paused link counts per collection (B4, OW-05), under the reader's rule: one query,
+   * plus the pending-trashed query when `trashedPending` isn't passed. Entries only where a
+   * count is above 0; `follows_latest` when a live Latest link exists.
+   */
   async shareSummary(
     collectionIds?: string[],
-  ): Promise<Map<string, { active: number; follows_latest: boolean }>> {
-    const summary = new Map<string, { active: number; follows_latest: boolean }>();
+    options: { now?: number; trashedPending?: readonly string[] | undefined } = {},
+  ): Promise<Map<string, ShareSummary>> {
+    const summary = new Map<string, ShareSummary>();
     if (collectionIds && !collectionIds.length) return summary;
-    const rows = await this.waypoint.all<{ collection_id: string; revision_id: string | null }>(
-      `SELECT collection_id,revision_id FROM share_links WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)${collectionIds ? ` AND collection_id IN (${placeholders(collectionIds)})` : ""}`,
-      [Date.now(), ...(collectionIds ?? [])],
+    const now = options.now ?? Date.now();
+    const pending = options.trashedPending ?? (await trashedPendingIds({ queue: this.queue }));
+    const live = liveLinkWhere(now, pending);
+    const paused = pausedLinkWhere(now, pending);
+    const rows = await this.waypoint.all<{
+      collection_id: string;
+      revision_id: string | null;
+      live: number;
+    }>(
+      `SELECT s.collection_id,s.revision_id,CASE WHEN ${live.sql} THEN 1 ELSE 0 END AS live FROM share_links s WHERE ((${live.sql}) OR (${paused.sql}))${collectionIds ? ` AND s.collection_id IN (${placeholders(collectionIds)})` : ""}`,
+      [...live.args, ...live.args, ...paused.args, ...(collectionIds ?? [])],
     );
     for (const row of rows) {
-      const current = summary.get(row.collection_id) ?? { active: 0, follows_latest: false };
-      current.active++;
-      if (row.revision_id === null) current.follows_latest = true;
+      const current = summary.get(row.collection_id) ?? {
+        active: 0,
+        follows_latest: false,
+        paused: 0,
+      };
+      if (row.live) {
+        current.active++;
+        if (row.revision_id === null) current.follows_latest = true;
+      } else current.paused++;
       summary.set(row.collection_id, current);
     }
     return summary;
@@ -832,7 +878,11 @@ export class ReadModel {
           ...row,
           sync_state: pendingIds.has(row.id) || unpushedIds.has(row.id) ? "committed" : "synced",
         });
-    const shared = options.shared ? new Set((await this.shareSummary()).keys()) : null;
+    const shared = options.shared
+      ? new Set(
+          [...(await this.shareSummary())].flatMap(([id, share]) => (share.active > 0 ? [id] : [])),
+        )
+      : null;
     const grouped = new Map<string, RevisionRow[]>();
     for (const row of revisions.values()) {
       const group = grouped.get(row.collection_id) ?? [];

@@ -113,14 +113,15 @@ export function EmptyHome() {
   );
 }
 
-/** "Public now": collections with live links, most links first (three queries). */
+/** "Public now": collections with live links, most links first (four queries). */
 export async function loadPublicNow(s: HttpServices): Promise<PublicNow[]> {
   const summary = await s.reads.shareSummary();
   const collections = await s.reads.collectionsById([...summary.keys()]);
+  // The summary also carries paused-only collections; live links already exclude Trash.
   return [...summary]
     .flatMap(([id, share]) => {
       const collection = collections.get(id);
-      return collection && !collection.deleted
+      return collection && share.active > 0
         ? [{ public_id: collection.public_id, title: collection.title, links: share.active }]
         : [];
     })

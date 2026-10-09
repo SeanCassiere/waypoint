@@ -3,6 +3,7 @@ import { isPublicId, validatePath } from "@waypoint/core";
 import type { Context } from "hono";
 
 import type { HttpServices } from "../../../http.ts";
+import { isLive } from "../../../shares.ts";
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { isEmbeddable } from "../../components.tsx";
 import { Layout } from "../../layout.tsx";
@@ -10,7 +11,7 @@ import { noStore } from "../../respond.ts";
 import { changesPage, CompareDialog } from "../changes/index.tsx";
 import { galleryPage } from "../gallery.tsx";
 import { publicPreview } from "../public-preview.tsx";
-import { isLive, LinksPanel, previewHref, publicSegment, ShareDialog } from "../share.tsx";
+import { LinksPanel, previewHref, publicSegment, ShareDialog } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
 import { CollectionBar, TabBar } from "./bar.tsx";
 import { CollectionDialogs } from "./dialogs.tsx";

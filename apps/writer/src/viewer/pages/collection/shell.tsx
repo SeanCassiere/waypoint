@@ -5,14 +5,19 @@ import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../../http.ts";
 import { sourceHost, type CollectionRow, type RevisionRow } from "../../../read-model.ts";
-import { collectionLinks, linksEnabled, sharingEnabled, type ShareView } from "../../../shares.ts";
+import {
+  collectionLinks,
+  isLive,
+  linksEnabled,
+  sharingEnabled,
+  type ShareView,
+} from "../../../shares.ts";
 import { shellPath } from "../../../viewer-paths.ts";
 import { getChrome } from "../../chrome.ts";
 import type { Glyph, TimelineRow } from "../../components.tsx";
 import { bytes, ext } from "../../format.ts";
 import { HomeBar, Layout, NotFoundBody, type Chrome } from "../../layout.tsx";
 import { noStore } from "../../respond.ts";
-import { isLive } from "../share.tsx";
 
 export const HISTORY_PAGE = 50;
 

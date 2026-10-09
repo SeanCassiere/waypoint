@@ -11,6 +11,14 @@ export interface Chrome {
   health: Health;
   now: number;
   host: string;
+  /** Links the public reader serves now (COUNT over liveLinkWhere). */
+  liveLinkCount: number;
+  /** Unrevoked, unexpired links on collections in Trash (COUNT over pausedLinkWhere). */
+  pausedLinkCount: number;
+  /** Collections in Trash: tombstoned, pending-trashed or being purged, each once. */
+  trashCount: number;
+  /** Collections trashed while still pending (trashedPendingIds), cached for the request. */
+  trashedPending: readonly string[];
 }
 
 export function Layout(props: {
