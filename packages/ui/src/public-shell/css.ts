@@ -135,14 +135,24 @@ export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-d
 .dl .ic{width:56px;height:56px;border-radius:14px;background:var(--sunken);display:grid;place-items:center;margin:0 auto 12px;font:700 13px var(--mono);color:var(--muted)}
 .dl h2{margin:0 0 4px;font:650 18px var(--mono);overflow-wrap:anywhere}
 .dl p{margin:0 0 16px;color:var(--muted)}
-.btn{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-weight:500;box-shadow:var(--sh-1)}
 @media(max-width:600px){.dl{padding:20px;margin-top:6dvh}}
 @media print{.pframe{height:100vh}}
 `;
 /** RX-04's image stage (R2). Empty until RX-04. */
 export const stageCss: string = "";
-/** VS-05b's shared .btn family (R2). Empty until VS-05b moves .btn here. */
-export const buttonCss: string = "";
+/** The shell's one control family: default, primary and ghost; md 32 / sm 28 px; at least 44 px
+ *  tall on touch screens. Last in the cascade, so later controls add only placement rules. The
+ *  forced-colours border lists the variants' selectors so their equal-or-higher specificity
+ *  doesn't win over it. */
+export const buttonCss: string = `.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--ctl-md);padding:0 12px;border-radius:8px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink);font-weight:500;text-decoration:none;white-space:nowrap;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary,.btn.primary:hover{border-color:var(--ink);background:var(--ink);color:var(--paper);box-shadow:var(--sh-1)}
+.btn.ghost{border-color:transparent;background:none}
+.btn.ghost:hover{background:var(--hover)}
+.btn.sm{height:var(--ctl-sm);padding:0 10px;font-size:12.5px;border-radius:7px}
+@media(pointer:coarse){.btn{min-height:var(--tap)}}
+@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.primary,.btn.primary:hover{border-color:ButtonText}}
+`;
 
 /** The shell rules, in cascade order. Lanes fill their own segment; the order is fixed here. */
 export const shellCss: string =

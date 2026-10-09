@@ -461,7 +461,7 @@ describe("public reader", () => {
       "2.0 KB · application/octet-stream · can&#39;t be previewed in the browser",
     );
     expect(binary).toMatch(
-      /<a id="doc" class="btn" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,
+      /<a id="doc" class="btn primary" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,
     );
     expect(binary).not.toContain(`${token}/data`);
     files = Array.from({ length: 9 }, (_, i) => ({
