@@ -49,8 +49,12 @@ export interface PublicShellOptions {
   frameBase: string;
   /** Latest links: when the served revision was created ("Updated …"). */
   updatedAt: number | null;
-  /** Single-revision links: when the snapshot was created ("Snapshot from …"). Wins over updatedAt. */
+  /** Single-revision links: when the snapshot was created ("Taken …"). Wins over updatedAt. */
   snapshotAt: number | null;
+  /** The link's own expiry in ms; null = no end date; undefined (omitted) = unknown, e.g. the writer's preview. */
+  expiresAt?: number | null;
+  /** "Now" for the expiry thresholds (ms). Defaults to Date.now(); the reader passes its clock. */
+  now?: number;
   /** Show a download card instead of the iframe (content that can't be previewed). */
   download?: { mime: string; size: number | null } | null;
   /** Serve CSS and script as external files instead of inline elements. */

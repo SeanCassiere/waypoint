@@ -99,13 +99,14 @@ async function seed(): Promise<void> {
     const id = "shl_" + String(++n).padStart(26, "0");
     if (token === pinned) linkId = id;
     ins(
-      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,1)",
+      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,label,created_at) VALUES (?,?,?,?,?,?,?,1)",
       id,
       await hashShareToken(token),
       A.id,
       rev,
       null,
       revokedAt,
+      "PRIVATE-LABEL",
     );
   }
 }
@@ -320,6 +321,26 @@ describe("shell markup under hostile titles and paths", () => {
       expect(frame).not.toContain(pinned);
     });
   }
+  it("never shows a link's label", async () => {
+    // seed() gives the latest revision (A2) an out-of-range timestamp and no files, so the
+    // following link would deny. Make A2 servable here so both requests render a shell.
+    db.prepare("UPDATE revisions SET created_at = 2 WHERE id = ?").run(A2.id);
+    db.prepare(
+      "INSERT INTO revision_files (revision_id,path,blob_hash,mime,size) VALUES (?,?,?,?,1)",
+    ).run(A2.id, "index.html", h("1"), "text/html");
+    const paths = [`/s/${follow}/c/${A.pub}/`, `/s/${pinned}/c/${A.pub}/r/${A1.pub}/`];
+    const responses = await Promise.all(
+      paths.map(async (path) => {
+        const res = await req(path);
+        return { path, status: res.status, body: await res.text() };
+      }),
+    );
+    for (const { path, status, body } of responses) {
+      expect({ path, status }).toEqual({ path, status: 200 });
+      expect(body).toContain('popovertarget="about"');
+      expect(body).not.toContain("PRIVATE-LABEL");
+    }
+  });
   it("latest link with an out-of-range timestamp denies instead of 500", async () => {
     const res = await req(`/s/${follow}/c/${A.pub}/`);
     expect(res.status).toBe(404);
