@@ -5,6 +5,7 @@
 // provides the viewer assets).
 // Set WAYPOINT_PUBLIC_BASE_URL (e.g. http://127.0.0.1:7422) so share URLs point at a demo reader
 // (`pnpm demo:reader`).
+// Set WAYPOINT_DEMO_READER_FIXTURE=1 to add the reader lane's "Field kit: reader fixture" link.
 // It never touches Turso, R2, or ~/.config/waypoint.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -549,6 +550,57 @@ await link(onboarding.id, { label: "Leadership preview" });
 await link(leaked.id, { revision_id: leaked.revision, label: "Vendor debug" });
 await syncLoop.push();
 
+let readerFixtureUrl: string | undefined;
+if (process.env.WAYPOINT_DEMO_READER_FIXTURE === "1") {
+  // Subfolders, CSV, TSV, a large binary and more than 8 files, for the reader's spot checks.
+  const fixture = await create(
+    "Field kit: reader fixture",
+    { project: "demo", tags: ["fixture"] },
+    "devbox",
+    "Reader fixture",
+    [
+      await put(
+        "index.md",
+        "# Field kit\n\nStart with the [day 1 notes](notes/day-1.md). The raw numbers are in [the sample table](data/sample.csv).\n\n## Contents\n\n- [Day 1](notes/day-1.md)\n- [Day 2](notes/day-2.md)\n\n## Open questions\n\nWhich region goes first?\n",
+      ),
+      await put("README.md", "# README\n\nFixture for reader checks.\n"),
+      await put(
+        "notes/day-1.md",
+        "# Day 1\n\nContinue with [day 2](day-2.md) or go [back to the index](../index.md).\n",
+      ),
+      await put("notes/day-2.md", "# Day 2\n\nSee [day 3](day-3.md).\n"),
+      await put("notes/day-3.md", "# Day 3\n"),
+      await put("notes/day-4.md", "# Day 4\n"),
+      await put(
+        "data/sample.csv",
+        "region,requests,errors\neu-west,1200,3\nus-east,3400,11\nap-south,800,0\n",
+        "text/csv",
+      ),
+      await put(
+        "data/sample.tsv",
+        "region\trequests\nwest\t12\neast\t34\n",
+        "text/tab-separated-values",
+      ),
+      await put("data/events.json", '{"events":[{"id":1,"kind":"deploy"}]}\n', "application/json"),
+      await put("scripts/run.sh", "#!/bin/sh\necho ok\n", "text/x-shellscript"),
+      await put("images/diagram.png", screen([214, 226, 236], [31, 95, 209], 3), "image/png"),
+      await put(
+        "archive/build-output.tar.gz",
+        Uint8Array.from({ length: 4_300_000 }, (_, i) => (i * 31) % 251),
+        "application/gzip",
+      ),
+    ],
+    "index.md",
+  );
+  await settle();
+  const fixtureLink = await call(
+    `/api/collections/${fixture.id}/share-links`,
+    json("POST", { label: "Reader fixture" }),
+  );
+  readerFixtureUrl = String(fixtureLink.url);
+  await syncLoop.push();
+}
+
 // Trash.
 await call(`/api/collections/${scratch.id}`, { method: "DELETE" });
 await call(`/api/collections/${leaked.id}`, { method: "DELETE" });
@@ -627,3 +679,5 @@ await queue.run("UPDATE pending_revisions SET created_at=? WHERE id<>?", [
 
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
 console.log(`Demo writer on ${base} (data ${dir})`);
+if (process.env.WAYPOINT_DEMO_READER_FIXTURE === "1")
+  console.log(`Reader fixture link: ${readerFixtureUrl}`);
