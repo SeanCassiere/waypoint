@@ -624,7 +624,12 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
   const sharing = sharingEnabled(s);
   return noStore(
     c.html(
-      <Layout title="Public links" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="links">
+      <Layout
+        title="Public links"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current="links" />}
+        page="links"
+      >
         <main class="wrap" id="main">
           <div class="ph">
             <div>

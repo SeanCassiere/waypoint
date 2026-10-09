@@ -30,7 +30,12 @@ export async function trashPage(
   ]);
   return noStore(
     c.html(
-      <Layout title="Trash" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="trash">
+      <Layout
+        title="Trash"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current="trash" />}
+        page="trash"
+      >
         <main class="wrap narrow" id="main">
           <div class="ph">
             <div>

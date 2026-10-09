@@ -116,7 +116,8 @@
   .menu {
     inset: calc(var(--bar-h) + 6px) 12px auto auto;
   }
-  .rmenu {
+  .rmenu,
+  .navsheet {
     inset: calc(var(--bar-h) + 6px) auto auto 12px;
   }
 }
@@ -198,6 +199,59 @@
   text-transform: uppercase;
   color: var(--faint);
   padding: 8px 10px 4px;
+}
+/* The ⋯ menu and the Go to sheet have no leading glyphs: label left, keycap or count right. */
+#home-more .mi,
+.navsheet .mi {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+/* Go to (NAV-01): the phone sheet of the global bar's destinations. From 600 px it hangs from
+   the switcher at the bar's left edge. */
+.navsheet {
+  position-area: bottom span-right;
+  position-try-fallbacks: --above-right, --below-left, --above-left;
+  width: min(280px, calc(100vw - 24px));
+}
+.navsheet > .mbox {
+  transform-origin: var(--origin, top left);
+}
+.navsheet .lbl {
+  padding: 10px 12px 6px;
+}
+.navsheet hr {
+  margin: 6px 0;
+}
+.navsheet .n {
+  font: 600 11px/1 var(--sans);
+  color: var(--muted);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 99px;
+  padding: 3px 6px;
+}
+.navsheet .mi[aria-current="page"] {
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--sel-bar);
+}
+/* The current item's bar replaces the shared focus shadow, so focus gets its own outline, which
+   forced colours keep. */
+.navsheet .mi:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+/* Forced colours drop the bar: an underline keeps the current item apart, as on the tabs. */
+@media (forced-colors: active) {
+  .navsheet .mi[aria-current="page"] {
+    text-decoration: underline 2px;
+    text-underline-offset: 4px;
+  }
+}
+/* Touch screens have no keyboard to use the keycaps with. */
+@media (hover: none) and (pointer: coarse) {
+  .menu kbd,
+  .search kbd {
+    display: none;
+  }
 }
 .handoff {
   overflow-wrap: anywhere;

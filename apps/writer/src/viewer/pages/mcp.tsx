@@ -336,7 +336,12 @@ export async function mcpPage(
   const [chrome, facets] = await Promise.all([getChrome(s, now), s.reads.facets(now)]);
   return noStore(
     c.html(
-      <Layout title="Connect an agent" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="mcp">
+      <Layout
+        title="Connect an agent"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current="mcp" />}
+        page="mcp"
+      >
         <McpBody
           baseUrl={s.reads.baseUrl}
           client={mcpClient(c.req.query("client"))}

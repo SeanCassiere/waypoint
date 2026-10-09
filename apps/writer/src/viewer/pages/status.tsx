@@ -215,7 +215,12 @@ export async function statusPage(
     status.last_pull_at === null ? "never" : formatTime(status.last_pull_at, "ago", now, true);
   return noStore(
     c.html(
-      <Layout title="Status" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="status">
+      <Layout
+        title="Status"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current="status" />}
+        page="status"
+      >
         <main class="wrap" id="main">
           <div class="ph">
             <div>

@@ -126,7 +126,9 @@ mark {
   color: var(--muted);
   min-width: 280px;
   flex: 0 1 420px;
-  margin: 0 auto;
+  /* 0, not auto: the field follows the tabs; 0 also drops the bottom margin forms get when the
+     page renders without a doctype, which would lift the field off the bar's centre line */
+  margin: 0;
   position: relative;
   height: 34px;
 }
@@ -189,6 +191,71 @@ mark {
 .suggest li[aria-selected="true"],
 .suggest li:hover {
   background: var(--hover);
+}
+/* The global bar's destinations (NAV-01). The search field follows the tabs, so it starts at the
+   same x on every page that shares the bar. */
+.gnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.gnav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 550;
+  white-space: nowrap;
+}
+.gnav a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.gnav a[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--sel-bg);
+  box-shadow: inset 0 0 0 1px var(--sel-ring);
+}
+.gnav .n {
+  font: 600 11px/1 var(--sans);
+  color: var(--muted);
+  background: var(--sunken);
+  /* the hairline keeps the pill visible in dark, where --sunken is close to the bar's --paper */
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 99px;
+  padding: 3px 6px;
+}
+/* Forced colours drop the background and ring; an underline keeps the current tab apart and
+   leaves the outline to the focus ring. */
+@media (forced-colors: active) {
+  .gnav a[aria-current="page"] {
+    text-decoration: underline 2px;
+    text-underline-offset: 4px;
+  }
+}
+/* Phones: the current page's name opens the Go to sheet (.show-sm sets display: grid). */
+.where {
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 6px;
+  border-radius: 8px;
+  font-weight: 650;
+  font-size: 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--ink);
+  flex: none;
+}
+.where .ic {
+  color: var(--muted);
 }
 .grow {
   flex: 1;

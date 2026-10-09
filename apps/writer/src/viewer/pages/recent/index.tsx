@@ -43,7 +43,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
         <Layout
           title={`Search: ${q}`}
           chrome={chrome}
-          bar={<HomeBar chrome={chrome} q={q} />}
+          bar={<HomeBar chrome={chrome} current="recent" q={q} />}
           page="search"
         >
           <SearchBody
@@ -58,7 +58,12 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
     );
   return noStore(
     c.html(
-      <Layout title="Recent" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="recent">
+      <Layout
+        title="Recent"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current="recent" />}
+        page="recent"
+      >
         {items.length || cursor ? (
           <RecentBody
             chrome={chrome}
