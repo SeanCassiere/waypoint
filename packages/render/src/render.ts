@@ -130,7 +130,7 @@ function element(
  * `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]` (any case) and that has content after it.
  * Runs before rehype-raw, so blockquotes written as raw HTML are left alone.
  */
-function alertVisit(parent: Root | Element): void {
+export function alertVisit(parent: Root | Element): void {
   for (let index = 0; index < parent.children.length; index++) {
     const node = parent.children[index];
     if (node?.type !== "element") continue;

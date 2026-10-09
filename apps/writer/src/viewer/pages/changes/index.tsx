@@ -188,7 +188,7 @@ export async function changesPage(
         focused,
         foldsOpen,
         href,
-        render: (sources) => extras.renderFragments(sources),
+        render: (sources, links) => extras.renderFragments(sources, links),
       }),
     );
   }

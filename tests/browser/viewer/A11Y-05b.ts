@@ -222,7 +222,7 @@ const scenario: ViewerScenario = {
         .string()
         .parse(
           await page.evaluate(
-            '(() => { const node = document.activeElement; return node?.matches("div.blk.src[data-change]") ? node.querySelector(".srcnote")?.textContent ?? "" : ""; })()',
+            '(() => { const node = document.activeElement; return node?.matches("div.blk[data-change]") ? node.querySelector(".srcnote")?.textContent ?? "" : ""; })()',
           ),
         );
       if (note.startsWith("Code")) visited.add("code");

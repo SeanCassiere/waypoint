@@ -107,7 +107,10 @@ export const markdownRenderer: Renderer = {
 export {
   markWords,
   MAX_FRAGMENT_SOURCE,
+  relativeLinkResolver,
   renderFragment,
   renderFragments,
   SENTINELS,
+  type FragmentLinkResolver,
+  type FragmentLinks,
 } from "./fragment.ts";
