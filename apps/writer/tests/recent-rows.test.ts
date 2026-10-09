@@ -84,8 +84,29 @@ describe("RecentRow, recent and search variants", () => {
     expect(openTag(row, "li")).toContain('data-n="3"');
     expect(row).not.toContain("data-updated");
     expect(row).toContain('<p class="msg">Add implementation checklist</p>');
-    expect(row).toContain('<span class="more-new" data-new="true" hidden=""></span>');
     expect(rowTitleId(PUB)).toBe(`it-${PUB}`);
+  });
+  it("ends the meta line with the hidden, href-less unread link slot (OW-08)", async () => {
+    const row = await html(RecentRow({ variant: "recent", item: result(), now: NOW }));
+    const slot = `<a class="rv-link" id="new-${PUB}" data-new="true" hidden=""></a>`;
+    expect(row).toContain(`${slot}</p></li>`);
+    expect(openTag(row, "a", "rv-link")).not.toContain("href");
+    expect(row).not.toContain("more-new");
+    const search = await html(
+      RecentRow({ variant: "search", item: result(), now: NOW, query: "idempotency" }),
+    );
+    expect(search).not.toContain("rv-link");
+    expect(search).not.toContain("more-new");
+  });
+  it("carries the latest revision's IDs only when its public ID is given (OW-08)", async () => {
+    const withPub = await html(
+      RecentRow({ variant: "recent", item: result(), now: NOW, latestPub: "r7kq2m9x4b1c" }),
+    );
+    expect(openTag(withPub, "li")).toContain('data-latest-id="rev_01jabcdefghjkmnpqrstvwxyz0"');
+    expect(openTag(withPub, "li")).toContain('data-latest-pub="r7kq2m9x4b1c"');
+    const without = await html(RecentRow({ variant: "recent", item: result(), now: NOW }));
+    expect(openTag(without, "li")).not.toContain("data-latest-id");
+    expect(openTag(without, "li")).not.toContain("data-latest-pub");
   });
   it("omits data-n when there is no revision yet", async () => {
     const row = await html(

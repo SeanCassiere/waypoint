@@ -1,4 +1,5 @@
 /** @jsxImportSource hono/jsx */
+import { parseId, publicIdFor } from "@waypoint/core";
 import type { Context } from "hono";
 
 import type { HttpServices } from "../../../http.ts";
@@ -57,6 +58,15 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
         </Layout>,
       ),
     );
+  // Revision public IDs are derived, not stored on the search result: the unread link needs the
+  // latest one's (OW-08).
+  const latestPubs = new Map(
+    await Promise.all(
+      items.flatMap(({ id, latest_revision: latest }) =>
+        latest ? [publicIdFor(parseId(latest.id, "rev")).then((pub) => [id, pub] as const)] : [],
+      ),
+    ),
+  );
   return noStore(
     c.html(
       <Layout
@@ -72,6 +82,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
             nextCursor={search.next_cursor}
             projects={(search.projects ?? []).slice(0, 12)}
             publicNow={publicNow}
+            latestPubs={latestPubs}
           />
         ) : (
           <EmptyHome />
