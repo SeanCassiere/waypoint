@@ -11,8 +11,8 @@ import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
 
 export interface TrashLinks {
-  /** Active links (not revoked, not expired) that would work again after a restore. */
-  active: { id: string; label: string | null; revision_display_number: number | null }[];
+  /** Paused links (not revoked, not expired) that would work again after a restore. */
+  paused: { id: string; label: string | null; revision_display_number: number | null }[];
   total: number;
 }
 
@@ -46,10 +46,10 @@ export async function trashPage(
               items.map((item) => {
                 const detail = details.get(item.id);
                 const link = links.get(item.id);
-                const linkChip: Child = link?.active.length ? (
+                const linkChip: Child = link?.paused.length ? (
                   <a class="chip xs" href="/links" title="Revoke them from Public links">
                     <Globe />
-                    {plural(link.active.length, "link")}, inactive while in Trash
+                    {plural(link.paused.length, "link")}, inactive while in Trash
                   </a>
                 ) : null;
                 return (
@@ -64,7 +64,7 @@ export async function trashPage(
                         data-title={item.title}
                         data-revisions={String(detail?.revisions ?? 0)}
                         data-files={String(detail?.files ?? 0)}
-                        data-links={JSON.stringify(link?.active ?? [])}
+                        data-links={JSON.stringify(link?.paused ?? [])}
                       >
                         Restore
                       </button>
@@ -109,7 +109,7 @@ export async function trashPage(
   );
 }
 
-/** Live links per trashed collection: they work again after a restore (spec §5.9). */
+/** Paused links per trashed collection: they work again after a restore (spec §5.9). */
 export async function trashLinks(s: HttpServices, ids: string[]): Promise<Map<string, TrashLinks>> {
   const result = new Map<string, TrashLinks>();
   if (!ids.length) return result;
@@ -118,10 +118,10 @@ export async function trashLinks(s: HttpServices, ids: string[]): Promise<Map<st
     ids,
   );
   for (const view of await shareViews(s, rows, { urls: false })) {
-    const entry = result.get(view.collection_id) ?? { active: [], total: 0 };
+    const entry = result.get(view.collection_id) ?? { paused: [], total: 0 };
     entry.total++;
-    if (view.status === "active")
-      entry.active.push({
+    if (view.status === "paused")
+      entry.paused.push({
         id: view.id,
         label: view.label,
         revision_display_number: view.revision_display_number,

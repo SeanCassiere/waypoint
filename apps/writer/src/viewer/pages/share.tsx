@@ -4,6 +4,8 @@ import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.ts";
 import {
+  isLive,
+  isOpen,
   linkPage,
   LINKS_PAGE,
   sharingEnabled,
@@ -20,10 +22,22 @@ import { noStore } from "../respond.ts";
 import type { CollectionContext } from "./collection/index.tsx";
 
 const DAY = 86_400_000;
-export const isLive = (link: ShareView) => link.state === "active" || link.state === "activating";
 
 export function StateChip(props: { link: ShareView }) {
-  const { state } = props.link;
+  const { state, status } = props.link;
+  // Status first: a paused or waiting link isn't served, whatever its push lifecycle (OW-05).
+  if (status === "paused")
+    return (
+      <span class="chip" data-link-state="paused">
+        Paused
+      </span>
+    );
+  if (status === "waiting")
+    return (
+      <span class="chip pending" data-link-state="waiting">
+        Waiting
+      </span>
+    );
   if (state === "active")
     return (
       <span class="chip public" data-link-state="active">
@@ -50,7 +64,7 @@ export function StateChip(props: { link: ShareView }) {
 /** "Only #3", "Latest · now #3", or "Latest · public sees #3 until #4 syncs". */
 export function showsText(link: ShareView, newest: number | null): string {
   if (link.revision_id) return `Only #${link.revision_display_number ?? "?"}`;
-  if (!isLive(link)) return "Latest";
+  if (link.status !== "active" && link.status !== "waiting") return "Latest";
   const sees = link.public_sees?.display_number ?? null;
   if (sees === null) return "Latest · nothing synced yet";
   if (newest !== null && newest !== sees)
@@ -123,10 +137,11 @@ function LinkCard(props: {
   sharing: boolean;
 }) {
   const { link, now } = props;
-  const live = isLive(link);
+  // Live, waiting and paused cards keep their actions (and a paused one its Trash note).
+  const live = isOpen(link);
   const soon = live && link.expires_at !== null && link.expires_at - now < DAY;
   return (
-    <div class={`lnk${live ? "" : " dead"}`} data-link={link.id}>
+    <div class={`lnk${live ? "" : " dead"}`} data-link={link.id} data-link-status={link.status}>
       <div class="h">
         <b>{link.label || "(no label)"}</b>
         <StateChip link={link} />
@@ -250,8 +265,9 @@ export function LinksPanel(props: {
   previewHref: string;
 }) {
   const { ctx, links } = props;
-  const live = links.filter(isLive);
-  const dead = links.filter((link) => !isLive(link));
+  // Cards for every open link (live, waiting, paused); Revoke all counts them all.
+  const live = links.filter(isOpen);
+  const dead = links.filter((link) => !isOpen(link));
   const newest = ctx.latest?.display_number ?? null;
   return (
     <>
@@ -589,12 +605,21 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
   const now = Date.now();
   const raw = c.req.query("state");
   const filter: LinkFilter =
-    raw === "expired" || raw === "revoked" || raw === "inactive" ? raw : "active";
+    raw === "paused" ||
+    raw === "waiting" ||
+    raw === "expired" ||
+    raw === "revoked" ||
+    raw === "inactive"
+      ? raw
+      : "active";
   // One page at a time, counted in SQL: prod-sized link lists made this page megabytes.
-  const [{ views: shown, counts, remaining, next }, chrome] = await Promise.all([
-    linkPage(s, filter, c.req.query("after"), now),
-    getChrome(s, now),
-  ]);
+  const chrome = await getChrome(s, now);
+  const {
+    views: shown,
+    counts,
+    remaining,
+    next,
+  } = await linkPage(s, filter, c.req.query("after"), now, chrome.trashedPending);
   const inactive = counts.expired + counts.revoked;
   const sharing = sharingEnabled(s);
   return noStore(
@@ -615,10 +640,16 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
           </div>
           <div class="filters">
             <nav class="seg" aria-label="Filter links">
-              {(["active", "expired", "revoked"] as const).map((key) => (
+              {(
+                [
+                  ["active", "Active"],
+                  ["paused", "Paused in Trash"],
+                  ["expired", "Expired"],
+                  ["revoked", "Revoked"],
+                ] as const
+              ).map(([key, label]) => (
                 <a href={`/links?state=${key}`} aria-current={key === filter ? "page" : undefined}>
-                  {key[0]?.toUpperCase()}
-                  {key.slice(1)} <span data-count-of={key}>{counts[key]}</span>
+                  {label} <span data-count-of={key}>{counts[key]}</span>
                 </a>
               ))}
             </nav>
@@ -626,7 +657,11 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
           <div class="rows">
             {shown.length ? (
               shown.map((link) => (
-                <div class={`r${isLive(link) ? "" : " dead"}`} data-link={link.id}>
+                <div
+                  class={`r${isOpen(link) ? "" : " dead"}`}
+                  data-link={link.id}
+                  data-link-status={link.status}
+                >
                   <span class="t">
                     {link.collection.public_id && !link.collection.deleted ? (
                       <a href={`/c/${link.collection.public_id}/?panel=links`}>
@@ -637,7 +672,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     )}{" "}
                     · {link.label || "(no label)"}
                   </span>
-                  {isLive(link) ? (
+                  {isOpen(link) ? (
                     <div class="acts">
                       <LinkUrlActions link={link} sharing={sharing} />
                       <button
@@ -659,7 +694,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
                     </span>
                     <RevokeNote link={link} inline />
                     {link.collection.deleted ? <span>inactive while in Trash</span> : null}
-                    {isLive(link) ? (
+                    {isOpen(link) ? (
                       link.expires_at === null ? (
                         <span class="soon" data-live>
                           never expires

@@ -994,7 +994,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     await create({ label: "Design review — Sam" });
     await create({ revision_id: revisionId });
     const search = await reads.searchCollections({});
-    expect(search.collections[0]?.share).toEqual({ active: 2, follows_latest: true });
+    expect(search.collections[0]?.share).toEqual({ active: 2, follows_latest: true, paused: 0 });
     const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
     expect(html).toContain('class="chip public hide-sm"');
     expect(html).toContain("follows latest");

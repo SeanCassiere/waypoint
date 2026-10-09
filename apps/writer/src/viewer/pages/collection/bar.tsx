@@ -1,8 +1,8 @@
 /** @jsxImportSource hono/jsx */
+import { isLive } from "../../../shares.ts";
 import { Globe, LogoMark, HealthPill } from "../../components.tsx";
 import { projectAndTags } from "../../format.ts";
 import type { Chrome } from "../../layout.tsx";
-import { isLive } from "../share.tsx";
 import type { CollectionContext } from "./shell.tsx";
 
 function revisionLabel(ctx: Pick<CollectionContext, "revision" | "latest">): {

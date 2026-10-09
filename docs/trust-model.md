@@ -50,6 +50,7 @@ On the instance's host, all secrets are in `~/.config/waypoint/` (directory mode
 - **Scope:** one collection. A link either **follows the latest** revision or is **pinned** to one revision (D20). Viewers of a following link never see older revisions, since an older revision may contain something later removed.
 - **Lifecycle:** created and revoked only on the tailnet. They can carry an expiry. Revocation takes effect within about 5 s of the writer's push, which starts immediately after the revoke (the reader caches live links for at most 5 s per isolate and never caches denials).
 - **Tombstones win:** deleting a collection makes every link to it return 404. Undeleting reactivates links that were not revoked or expired; accepting a purge immediately revokes all its links.
+- **Counts match the reader:** the writer's counts and filters use the reader's own liveness rule (revoked, expired, Trash, and the target revision having synced), written once in `shares.ts` in SQL and JS and tested against the reader.
 - **Properties of a capability URL**, which the owner should understand:
   - Anyone holding the URL can view the content until it's revoked or expires.
   - URLs can end up in browser history, chat logs, and screenshots. Mitigations:

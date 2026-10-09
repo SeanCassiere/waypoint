@@ -5,6 +5,7 @@ import type { Child } from "hono/jsx";
 
 import { compareManifests, type FileDiff } from "../../../compare.ts";
 import type { HttpServices } from "../../../http.ts";
+import { isLive } from "../../../shares.ts";
 import { shellPath } from "../../../viewer-paths.ts";
 import { Time } from "../../components.tsx";
 import { plural } from "../../format.ts";
@@ -22,7 +23,7 @@ import {
   CollectionDialogs,
   type CollectionContext,
 } from "../collection/index.tsx";
-import { isLive, LinksPanel, previewHref, ShareDialog } from "../share.tsx";
+import { LinksPanel, previewHref, ShareDialog } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
 import { CompareDialog } from "./compare-dialog.tsx";
 import {

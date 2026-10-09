@@ -43,20 +43,22 @@ import { checkoutPath } from "./layout.ts";
 import { parseMultipart } from "./multipart.ts";
 import { ReadModel } from "./read-model.ts";
 import {
-  allLinks,
   API_LINKS_DEFAULT,
   API_LINKS_MAX,
   collectionLinks,
   extendLink,
-  inFilter,
   listLinks,
+  liveLinkWhere,
   requireLinks,
   requireSharing,
   URL_UNAVAILABLE,
   revokeAll,
+  revokeLinks,
   SHARE_COLUMNS,
   shareViews,
+  trashedPendingIds,
   withoutCollection,
+  type LinkFilter,
   type ShareRow,
 } from "./shares.ts";
 import { getStatus } from "./status-data.ts";
@@ -842,12 +844,14 @@ export function createApp(s: HttpServices): Hono {
       throw new WaypointError("collection_not_found", "Collection not found");
     return c.json({ share_links: (await collectionLinks(s, id)).map(withoutCollection) });
   });
-  // B3: links across collections, newest first, a page at a time, optionally one filter
-  // (active includes activating). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
+  // B3: links across collections, newest first, a page at a time, optionally one status
+  // (active is live only, OW-05). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
   app.get("/api/share-links", async (c) => {
     requireLinks(s);
-    const state = c.req.query("state");
-    if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
+    const raw = c.req.query("state");
+    const states: readonly LinkFilter[] = ["active", "paused", "waiting", "expired", "revoked"];
+    const state = states.find((value) => value === raw);
+    if (raw !== undefined && !state)
       throw new WaypointError("validation_failed", "Invalid state filter");
     const limitText = c.req.query("limit");
     const limit = limitText === undefined ? API_LINKS_DEFAULT : Number(limitText);
@@ -887,10 +891,21 @@ export function createApp(s: HttpServices): Hono {
     await parseJson(c);
     if ((c.req.query("state") ?? "active") !== "active")
       throw new WaypointError("validation_failed", "Only state=active can be revoked in bulk");
-    const active = (await allLinks(s)).filter((view) => inFilter(view, "active"));
+    // Live links only (OW-05): expired, paused and waiting links are left as they are.
+    const live = liveLinkWhere(Date.now(), await trashedPendingIds(s));
+    const rows = await s.waypoint.all<{ id: string; collection_id: string }>(
+      `SELECT s.id,s.collection_id FROM share_links s WHERE ${live.sql} ORDER BY s.collection_id,s.id`,
+      live.args,
+    );
+    const byCollection = new Map<string, string[]>();
+    for (const row of rows) {
+      const ids = byCollection.get(row.collection_id) ?? [];
+      ids.push(row.id);
+      byCollection.set(row.collection_id, ids);
+    }
     let revoked = 0;
-    await inSeries([...new Set(active.map((view) => view.collection_id))], async (id) => {
-      revoked += await revokeAll(s, id);
+    await inSeries(byCollection, async ([id, ids]) => {
+      revoked += await revokeLinks(s, id, ids);
     });
     return c.json({ revoked });
   });

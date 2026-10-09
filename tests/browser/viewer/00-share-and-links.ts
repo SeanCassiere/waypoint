@@ -36,7 +36,8 @@ const scenario: ViewerScenario = {
     await page.waitForURL(/panel=links/);
     const card = page.locator(".lnk", { hasText: "Browser review" });
     await card.waitFor();
-    assert.equal(await page.locator("header .chip.public").count(), 1, "Public chip shows");
+    // local-only writer: links are waiting (FC1)
+    assert.equal(await page.locator("header .chip.public").count(), 0, "Public chip shows");
     // Copy URL on an existing link copies the same URL the dialog showed; Open points at it,
     // and the button keeps its width while it says Copied.
     await page.evaluate("navigator.clipboard.writeText('')");
@@ -79,11 +80,13 @@ const scenario: ViewerScenario = {
     );
     assert.equal(await revokeAll.textContent(), "Revoke all 2 links…");
     assert.equal(await revokeAll.getAttribute("data-count"), "2");
-    assert.equal(await page.locator("#tab-links .n").textContent(), "2");
+    // local-only writer: links are waiting (FC1)
+    assert.equal(await page.locator("#tab-links .n").textContent(), "0");
     // /links: a row revoked there gets a Revoked chip and the same note; counts follow, and
     // Revoke all goes once fewer than two active links remain.
     await page.goto(`${base}/links`);
-    assert.equal(await page.locator('[data-count-of="active"]').textContent(), "2");
+    // local-only writer: links are waiting (FC1)
+    assert.equal(await page.locator('[data-count-of="active"]').textContent(), "0");
     const row = page.locator(".r", { hasText: "Second reviewer" });
     await row.getByRole("button", { name: "Revoke…" }).click();
     await page.locator("#confirm [data-confirm-ok]").click();
@@ -93,7 +96,8 @@ const scenario: ViewerScenario = {
       await row.locator("[data-stops]").textContent(),
       "Revoked, not yet pushed. Public access continues until it syncs.",
     );
-    assert.equal(await page.locator('[data-count-of="active"]').textContent(), "1");
+    // local-only writer: links are waiting (FC1)
+    assert.equal(await page.locator('[data-count-of="active"]').textContent(), "0");
     assert.equal(await page.locator('[data-count-of="revoked"]').textContent(), "2");
     assert.equal(await page.locator("[data-action=revoke-all]").count(), 0);
     await page.goto(revokeUrl);

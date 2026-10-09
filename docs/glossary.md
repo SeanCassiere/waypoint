@@ -21,7 +21,7 @@ An instance's Cloudflare Worker on its own public domain (one per environment), 
 The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home, with Needs attention and search), the **collection shell** (top bar, a Files / History / Links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
 
 **Links**
-The viewer's share-link management: the **Links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all) and the global **Public links** page (`/links`, filtered by Active, Expired and Revoked).
+The viewer's share-link management: the **Links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all) and the global **Public links** page (`/links`, filtered by Active, Paused in Trash, Expired and Revoked).
 
 **Public preview**
 The writer showing a collection as a share viewer would see it (`?as=public`): the reader's public shell and the revision the reader would serve (the newest synced one, or the pinned one). It needs no share link and never leaves the tailnet.
@@ -159,6 +159,15 @@ Rebuilding state from durable storage. A new writer bootstraps from the cloud DB
 
 **Share link**
 A database row granting the public reader access to one collection. It either follows the latest revision or pins one revision. It can be revoked and can expire. Share links are created only from the tailnet. They are the first and simplest kind of grant.
+
+**Live link**
+A link the public reader serves right now.
+
+**Paused link**
+Unrevoked and unexpired, on a collection in Trash; Restore asks whether to turn it back on.
+
+**Waiting link**
+Unrevoked and unexpired, but its target hasn't synced: Only #N while #N uploads, or Latest with nothing synced; it opens once the revision syncs.
 
 **Share token**
 The secret inside a share link's URL: `wps_` plus 32 bytes in base64url, derived from the link's ID with the writer's share token key (D50), as in `https://share.example.com/s/<token>/c/<public id>/`. Only its hash is stored.
