@@ -153,6 +153,13 @@ export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-d
 .dl p{margin:0 0 16px;color:var(--muted)}
 @media(max-width:600px){.dl{padding:20px;margin-top:6dvh}}
 @media print{.pframe{height:100vh}}
+.docwrap{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
+.docwrap>.pframe{position:relative;z-index:1}
+.docwrap:not([data-loaded])>.pframe{background:transparent}
+.loading{position:absolute;inset:0;z-index:0;display:flex;justify-content:center;padding:40px 32px 0;pointer-events:none}
+.loading p{margin:0;width:min(660px,100%);font-size:14px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.docwrap[data-loaded]>.loading{display:none}
+@media(max-width:${PHONE_MAX}px){.loading{padding:24px 18px 0}}
 `;
 /** RX-04's image stage (R2): a sunken scroller that fits images to its width, never grows them,
  *  starts tall ones at the top, and a caption bar under it. The writer's image pages use it too.

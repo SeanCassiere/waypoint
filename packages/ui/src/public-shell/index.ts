@@ -95,7 +95,7 @@ function documentArea(options: PublicShellOptions): string {
       errorHref: options.fileHref(options.current),
     })}</main>`;
   }
-  return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
+  return `<main id="main"><div class="docwrap"><div class="loading"><p id="loading" role="status"></p></div><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></div></main>`;
 }
 
 /** Renders the complete public shell document. Cost is linear in the number of files. */

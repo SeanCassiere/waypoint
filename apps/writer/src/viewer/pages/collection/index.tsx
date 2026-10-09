@@ -179,7 +179,12 @@ export async function collectionPage(
                 glyph={glyphs.get(path)}
               />
             ) : isEmbeddable(file.mime) ? (
-              <iframe class="frame" title={path} data-frame src={raw} />
+              <div class="docwrap" data-docwrap>
+                <div class="loading">
+                  <p role="status" data-loading />
+                </div>
+                <iframe class="frame" title={path} data-frame src={raw} />
+              </div>
             ) : (
               <DownloadCard path={path} size={file.size} mime={file.mime} raw={raw} />
             )}
