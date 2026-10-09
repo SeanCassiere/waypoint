@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ICON_NAMES,
+  icon,
   encodeLinkPath,
   encodePathSegments,
   PUBLIC_SHELL_LIST_BUDGET,
@@ -35,9 +37,16 @@ describe("public shell", () => {
     });
     // Only the shell's own elements exist; the payload survives only as escaped text.
     const tags = new Set([...markup(html).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]));
-    const allowed =
-      "a body button details div h1 h2 head header hr html iframe main meta nav p path span summary svg time title";
-    for (const tag of tags) expect(allowed.split(" ")).toContain(tag);
+    const iconTags = ICON_NAMES.flatMap((name) =>
+      [...icon(name).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]),
+    );
+    const allowed = [
+      ..."a b body button details div h1 h2 head header hr html iframe li main meta nav p path rect span summary svg time title ul".split(
+        " ",
+      ),
+      ...iconTags,
+    ];
+    for (const tag of tags) expect(allowed).toContain(tag);
     expect(tags.has("img")).toBe(false);
     // Every tag is well-formed with double-quoted values, and none has a handler or style.
     const open = [...markup(html).matchAll(/<[a-z]/gi)].length;
@@ -119,11 +128,14 @@ describe("public shell", () => {
     expect(formatShellTime(at)).toBe("7 Oct 2026, 22:08 UTC");
     const latest = renderPublicShell(base);
     expect(latest).toContain(
-      `Updated <time datetime="2026-10-07T22:08:00.000Z">7 Oct 2026, 22:08 UTC</time>`,
+      `Updated <time datetime="2026-10-07T22:08:00.000Z" data-t="rel">7 Oct 2026, 22:08 UTC</time>`,
     );
     const snapshot = renderPublicShell({ ...base, updatedAt: null, snapshotAt: at });
-    expect(snapshot).toContain('<svg class="pin"');
-    expect(snapshot).toContain("Snapshot from <time");
+    expect(snapshot).toContain("Snapshot");
+    expect(snapshot).toContain("Taken <time");
+    expect(snapshot).toContain('data-t="date"');
+    expect(snapshot).not.toContain("Snapshot from");
+    expect(snapshot).not.toContain('class="pin"');
     expect(snapshot).not.toContain("Updated");
   });
   it("sandboxes the frame and offers a download card for binaries", () => {
@@ -207,7 +219,8 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 20_000);
+    // The rest of the page (style, script, letterhead and About) is about 23 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 30_000);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },

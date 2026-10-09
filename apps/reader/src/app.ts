@@ -446,6 +446,8 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
         updatedAt: link.revision_id ? null : revision.created_at,
         snapshotAt: link.revision_id ? revision.created_at : null,
+        expiresAt: link.expires_at,
+        now: now(),
         download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
       });
       response = new Response(html, {

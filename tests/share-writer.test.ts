@@ -1006,7 +1006,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(recent).toContain("Public now");
     const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
     const previewHtml = await preview.text();
-    expect(previewHtml).toContain("Read-only · shared with you");
+    expect(previewHtml).toContain('popovertarget="about"');
     expect(previewHtml).toContain("data-preview-banner");
     expect(previewHtml).toContain("Preview: this is what the public sees");
     // The banner's own <style> has a dark variant, and the writer's CSP doesn't block it.
@@ -1038,7 +1038,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const only = await app.request(`/c/${collectionPublicId}/index.txt?as=public`);
     expect(only.status).toBe(200);
     const onlyHtml = await only.text();
-    expect(onlyHtml).toContain("Read-only · shared with you");
+    expect(onlyHtml).toContain('popovertarget="about"');
     expect(onlyHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
     expect(onlyHtml).not.toContain("two.txt");
     // A pinned preview of the unsynced revision explains instead of showing it.
@@ -1058,7 +1058,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(noneHtml).toContain("Nothing is public yet.");
     expect(noneHtml).toContain('data-preview="not-public"');
     expect(noneHtml).not.toContain("/raw/r/");
-    expect(noneHtml).not.toContain("Read-only · shared with you");
+    expect(noneHtml).not.toContain('popovertarget="about"');
   });
   it("keeps query counts constant as links grow on the shell, Recent and /links", async () => {
     await create({ label: "first" });

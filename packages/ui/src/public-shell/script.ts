@@ -1,13 +1,82 @@
-/** Shows `<time datetime>` values in the reader's own time zone, as "8 Oct 2026, 02:05" (R2). */
+/**
+ * Formats `<time datetime>` elements once at load, in the reader's own time zone (R2; RX-01). No
+ * timers: relative times are as of page load. `data-t="rel"` becomes a relative time with a phone
+ * short form ("2 hours ago" / "2 hr. ago"), `data-t="date"` a date ("8 Oct 2026, 02:05", the
+ * year dropped on phones in the current year), both with the full local time and zone as `title`;
+ * `data-t="full"` becomes that full time ("Thu 8 Oct 2026, 02:05 GMT+13"), and any other `<time>`
+ * "8 Oct 2026, 02:05". `[data-ago]` and `[data-in]` (in About) get " (2 hours ago)" and
+ * "That's in 6 days. ". The server text, kept without JavaScript, is UTC.
+ */
 export const timeScript: string = `(() => {
+  const now = Date.now();
+  const year = new Date(now).getFullYear();
   const months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
+  const days = "Sun Mon Tue Wed Thu Fri Sat".split(" ");
   const pad = (n) => String(n).padStart(2, "0");
+  const clock = (d) => pad(d.getHours()) + ":" + pad(d.getMinutes());
+  const day = (d) => d.getDate() + " " + months[d.getMonth()];
+  const date = (d, withYear) => day(d) + (withYear ? " " + d.getFullYear() : "") + ", " + clock(d);
+  const zone = (d) => {
+    try {
+      const parts = new Intl.DateTimeFormat("en", { timeZoneName: "short" }).formatToParts(d);
+      const part = parts.find((p) => p.type === "timeZoneName");
+      return part ? " " + part.value : "";
+    } catch {
+      return "";
+    }
+  };
+  const full = (d) => days[d.getDay()] + " " + date(d, true) + zone(d);
+  const long = new Intl.RelativeTimeFormat("en", { numeric: "always" });
+  const short = new Intl.RelativeTimeFormat("en", { numeric: "always", style: "short" });
+  const units = [["day", 86400000], ["hour", 3600000], ["minute", 60000]];
+  const rel = (d, format) => {
+    const ms = d.getTime() - now;
+    const abs = Math.abs(ms);
+    if (ms <= 0 && abs < 60000) return "just now";
+    if (ms <= 0 && abs >= 7 * 86400000) {
+      return "on " + day(d) + (d.getFullYear() === year ? "" : " " + d.getFullYear());
+    }
+    for (const [unit, size] of units) {
+      const value = Math.floor(abs / size);
+      if (value >= 1 || unit === "minute") {
+        return format.format(ms <= 0 ? -value : Math.max(1, value), unit);
+      }
+    }
+    return "";
+  };
+  const span = (className, text) => {
+    const element = document.createElement("span");
+    element.className = className;
+    element.textContent = text;
+    return element;
+  };
+  const valid = (value) => {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  };
   for (const time of document.querySelectorAll("time[datetime]")) {
-    const d = new Date(time.dateTime);
-    if (isNaN(d.getTime())) continue;
-    time.textContent =
-      d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear() + ", " +
-      pad(d.getHours()) + ":" + pad(d.getMinutes());
+    const d = valid(time.dateTime);
+    if (!d) continue;
+    const kind = time.dataset.t;
+    if (kind === "rel" || kind === "date") {
+      const pair = kind === "rel"
+        ? [rel(d, long), rel(d, short)]
+        : [date(d, true), date(d, d.getFullYear() !== year)];
+      time.replaceChildren(span("lgt", pair[0]), span("smt", pair[1]));
+      time.title = full(d);
+    } else if (kind === "full") {
+      time.textContent = full(d);
+    } else {
+      time.textContent = date(d, true);
+    }
+  }
+  for (const element of document.querySelectorAll("[data-ago]")) {
+    const d = valid(element.dataset.ago);
+    if (d) element.textContent = " (" + rel(d, long) + ")";
+  }
+  for (const element of document.querySelectorAll("[data-in]")) {
+    const d = valid(element.dataset.in);
+    if (d) element.textContent = "That's " + rel(d, long) + ". ";
   }
 })();`;
 
@@ -147,7 +216,7 @@ export const filesMenuScript: string = `(() => {
   strip.addEventListener("scroll", more, { passive: true });
   addEventListener("resize", more);
 })();`;
-/** RX-01's About popover and relative times (R2). Empty until RX-01. */
+/** RX-01's About popover (R2). Empty: About is a native popover; timeScript formats its times. */
 export const aboutScript: string = "";
 /** RX-09's section-link hash handling (R2). Empty until RX-09. */
 export const hashScript: string = "";

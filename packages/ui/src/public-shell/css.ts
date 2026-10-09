@@ -3,19 +3,57 @@ import { PHONE_MAX, sharedTokensCss } from "../tokens.ts";
 /** The skip link's print rule; the base rule is in sharedTokensCss. */
 export const skipCss: string = `@media print{.skip{display:none}}
 `;
-/** Page frame and letterhead (R2). */
+/**
+ * Page frame and letterhead (R2): a grid with the title and the meta row on the left and the
+ * actions on the right (row 3 of column 1 is RX-11's syncing note); on phones the meta row spans
+ * the width. `.lgo`/`.smo` and `.lgt`/`.smt` are long and phone short forms (the hidden one is
+ * `display:none`, so it's out of the accessibility tree); `.vh` is visually hidden. Inside the
+ * About button `.vh` and its parent stay inline (an out-of-flow or flex-item span adds a space to
+ * the name, "Read-only , about this link"). About is a `.menu` (menuCss): anchored by its right
+ * edge from 600 px, A11Y-07's bottom sheet below.
+ */
 export const letterheadCss: string = `html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
 .pwrap{flex:none;position:relative;z-index:5;border-bottom:1px solid var(--rule);background:var(--paper)}
-.lh{display:flex;align-items:center;gap:14px;max-width:1120px;margin:0 auto;padding:12px 20px}
-.lh .ttl{min-width:0;flex:1}
-.lh h1{margin:0;font:650 15px/1.3 var(--sans);letter-spacing:-.005em;overflow-wrap:anywhere}
-.lh .note{margin:1px 0 0;font-size:12.5px;color:var(--muted)}
-.snap{display:inline-flex;gap:5px;align-items:center;font-size:12px;padding:1px 8px;border-radius:99px;background:var(--sunken);border:1px solid var(--rule);color:var(--ink-2)}
-.pin{width:12px;height:12px;flex:none}.pin path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.ro{font-size:12px;color:var(--muted);white-space:nowrap}
-.lh h1{unicode-bidi:isolate}
-@media(max-width:600px){.ro{display:none}.lh{padding:10px 14px}}
-@media(forced-colors:active){.snap{border-color:CanvasText}}
+.lh{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 16px;align-items:start;max-width:1120px;margin:0 auto;padding:12px 20px 10px}
+.lh .ttl{display:contents}
+.lh h1{grid-column:1;grid-row:1;margin:0;font:650 15px/1.3 var(--sans);letter-spacing:-.005em;overflow-wrap:anywhere;unicode-bidi:isolate;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.lh .note{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;align-items:center;gap:0 10px;margin:4px 0 0;font-size:12.5px;line-height:20px;color:var(--muted)}
+.lh .acts{grid-column:2;grid-row:1/span 2;align-self:start;display:flex;align-items:center;gap:12px}
+.note .f{white-space:nowrap}
+.mode{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px 0 6px;border-radius:99px;border:1px solid var(--rule-2);background:var(--sunken);color:var(--ink-2);font-size:12px;font-weight:600;line-height:1;white-space:nowrap}
+.note time[title]{text-decoration:underline dotted var(--faint);text-underline-offset:3px;cursor:help}
+.exp.soon{display:inline-flex;align-items:center;gap:4px;color:var(--ink);font-weight:600}
+.ro{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.abt{position:relative;display:inline-flex;align-items:center;height:var(--ctl-md);margin:0;padding:0 10px;border-radius:8px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);font:500 12.5px var(--sans);white-space:nowrap;cursor:pointer}
+.abt:hover{background:var(--hover);color:var(--ink)}
+.smo,.smt{display:none}
+.abt>.lgo{display:inline-flex;align-items:center;gap:6px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.abt .vh{position:static;width:auto;height:auto;overflow:visible;clip:auto;font-size:0}
+.abt>.smo>svg.ic:first-child{margin-right:6px}.abt>.smo>svg.ic:last-child{margin-left:6px}
+.about .full{display:none}
+.about h2{margin:0 0 12px;font:650 14px var(--sans)}
+.about ul{list-style:none;margin:0;padding:0;display:grid;gap:13px}
+.about li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;font-size:13px;line-height:1.45}
+.about li>svg.ic{margin-top:1px;color:var(--muted)}
+.about b{display:block;font-weight:600;color:var(--ink)}
+.about li span{color:var(--muted)}
+.about .foot{display:flex;align-items:center;gap:7px;margin:14px 0 0;padding-top:10px;border-top:1px solid var(--rule);font-size:12px;color:var(--muted)}
+.wmark{width:16px;height:16px;flex:none}.wmark rect{fill:var(--muted)}.wmark path{fill:none;stroke:var(--paper);stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+@media(pointer:coarse){.abt::before{content:"";position:absolute;inset:-7px -3px}}
+@media not all and (max-width:${PHONE_MAX}px){.menu.about{position-area:bottom span-left;width:min(372px,calc(100vw - 24px))}.menu.about>.mbox{padding:14px 16px 12px}}
+@supports not (position-area:bottom){@media not all and (max-width:${PHONE_MAX}px){.menu.about{top:52px;left:auto;right:max(20px,calc(50vw - 540px))}}}
+@media(max-width:${PHONE_MAX}px){.lh{gap:0 10px;padding:10px 14px 8px}
+.lh h1{align-self:center;font-size:14.5px}
+.lh .note{grid-column:1/-1}
+.lh .acts{grid-row:1;align-self:center}
+.acts>.ro{display:none}
+.lgo,.lgt,.abt>.lgo{display:none}.smo,.smt{display:inline}
+.abt>.smo{display:inline}
+.menu.about>.mbox{padding-inline:18px}
+.about .full{display:block;margin:0 0 12px;font:650 15px/1.3 var(--sans);overflow-wrap:anywhere;unicode-bidi:isolate}
+.about h2{margin-bottom:10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}}
+@media(forced-colors:active){.mode,.abt{border-color:CanvasText}}
 @media print{.pwrap{display:none}html,body{height:auto;overflow:visible}}
 `;
 /**

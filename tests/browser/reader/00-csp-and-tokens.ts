@@ -10,11 +10,11 @@ const scenario: ReaderScenario = {
     const frame = findFrame(page);
 
     // CSP: the shell's own script ran, injected markup didn't, nothing was refused.
-    assert.doesNotMatch((await page.textContent("time")) ?? "", /UTC$/);
-    // Localized in the spec's format, "7 Oct 2026, 22:08" (any time zone).
+    assert.doesNotMatch((await page.textContent("time .lgt")) ?? "", /UTC$/);
+    // "Updated" is localized as a relative time (RX-01): "2 days ago", "on 7 Oct" (any clock).
     assert.match(
-      (await page.textContent("time")) ?? "",
-      /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/,
+      (await page.textContent("time .lgt")) ?? "",
+      /^(?:just now|\d+ (?:minute|hour|day)s? ago|in \d+ (?:minute|hour|day)s?|on \d{1,2} [A-Z][a-z]{2}(?: \d{4})?)$/,
     );
     assert.equal(await json(page, `"pwned" in window`), false);
     assert.equal(

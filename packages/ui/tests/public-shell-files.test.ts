@@ -72,13 +72,14 @@ describe("Files popover", () => {
   it("uses tabs in a .prow row for 2–8 files, without popover or autofocus", () => {
     const html = markup(shell(three));
     expect(html).toContain('<div class="prow"><nav class="ptabs2" aria-label="Files">');
-    expect(html).not.toContain("popover");
+    // The letterhead's About popover (RX-01) is not part of the Files row.
+    expect(html.slice(html.indexOf("</header>"))).not.toContain("popover");
     expect(html).not.toContain("autofocus");
   });
   it("has no row for one file", () => {
     const html = markup(shell(["index.md"]));
     expect(html).not.toContain('class="prow"');
-    expect(html).not.toContain("popover=");
+    expect(html.slice(html.indexOf("</header>"))).not.toContain("popover=");
   });
   it("emits the scrim once on every page", () => {
     for (const paths of [["index.md"], three, twelve])

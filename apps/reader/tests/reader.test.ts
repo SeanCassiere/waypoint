@@ -242,9 +242,26 @@ describe("public reader", () => {
     );
     const shell = await app.request(shareShellUrl(base, token, collection, firstPub), {}, bindings);
     const html = await shell.text();
-    expect(html).toContain("Snapshot from <time");
+    expect(html).toContain("Taken <time");
     expect(html).not.toContain("Updated <time");
     expect((await app.request(await rawUrl(secondPub, "index.md"), {}, bindings)).status).toBe(404);
+  });
+  it("passes the link's expiry to the letterhead", async () => {
+    link.expires_at = Date.now() + 6 * 86_400_000;
+    const { app, bindings } = fixture();
+    const expiring = await (
+      await app.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    expect(expiring).toContain('class="f exp"');
+    expect(expiring).toContain("Works until");
+    // A new app: the first one caches the link for a few seconds.
+    link.expires_at = null;
+    const { app: openApp } = fixture();
+    const open = await (
+      await openApp.request(shareShellUrl(base, token, collection), {}, bindings)
+    ).text();
+    expect(open).toContain("No end date");
+    expect(open).not.toContain('class="f exp');
   });
   it("uses identical denials for every reason within each route family", async () => {
     const { app, bindings } = fixture();
@@ -394,7 +411,10 @@ describe("public reader", () => {
       await pinnedApp.request(shareShellUrl(base, token, collection, firstPub), {}, bindings)
     ).text();
     for (const html of [latest, pinned]) {
-      const markup = html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "");
+      // The letterhead's About button (RX-01) is the shell's only button.
+      const markup = html
+        .replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "")
+        .replace(/<button type="button" class="abt" popovertarget="about">[\s\S]*?<\/button>/, "");
       expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
       expect(html).not.toContain("rev_");
     }
