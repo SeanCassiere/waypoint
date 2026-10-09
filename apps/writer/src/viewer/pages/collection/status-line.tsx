@@ -42,6 +42,7 @@ export function statusSegments(ctx: CollectionContext): {
         class="btn sm"
         data-action="retry"
         data-ids={failed.map((row) => row.id).join(",")}
+        data-n={failed.length === 1 ? failed[0]?.display_number : undefined}
       >
         Retry all
       </button>
@@ -64,10 +65,22 @@ export function statusSegments(ctx: CollectionContext): {
     });
     action = (
       <>
-        <button type="button" class="btn sm" data-action="retry" data-ids={revision.id}>
+        <button
+          type="button"
+          class="btn sm"
+          data-action="retry"
+          data-ids={revision.id}
+          data-n={revision.display_number}
+        >
           Retry
         </button>
-        <button type="button" class="btn sm danger" data-action="drop" data-id={revision.id}>
+        <button
+          type="button"
+          class="btn sm danger"
+          data-action="drop"
+          data-id={revision.id}
+          data-n={revision.display_number}
+        >
           Drop…
         </button>
       </>
@@ -81,7 +94,13 @@ export function statusSegments(ctx: CollectionContext): {
       body: <span class="f">! {list} failed to sync</span>,
     });
     action = (
-      <button type="button" class="btn sm" data-action="retry" data-ids={first.id}>
+      <button
+        type="button"
+        class="btn sm"
+        data-action="retry"
+        data-ids={first.id}
+        data-n={first.display_number}
+      >
         Retry #{first.display_number}
       </button>
     );

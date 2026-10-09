@@ -270,21 +270,138 @@
 .rmenu .rv {
   margin: 0;
 }
-/* A manual popover (top layer, above modal dialogs); reset the UA popover box. */
-.toast {
+/* Toasts (OW-02): a manual popover host (top layer, above modal dialogs; the UA popover box
+   reset) holding two live regions, success above error. An empty slot isn't shown. */
+.toasts {
   position: fixed;
   inset: auto auto 24px 50%;
-  margin: 0;
-  border: 0;
-  overflow: visible;
   transform: translateX(-50%);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  z-index: 60;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+}
+.toasts:popover-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  font-size: 13px;
+}
+.toast:empty {
+  display: none;
+}
+.toast > .ic {
+  margin-top: 2px;
+}
+.toast.success {
   background: var(--ink);
   color: var(--paper);
-  padding: 9px 14px;
-  border-radius: 10px;
-  box-shadow: var(--sh-2);
+  /* Transparent until forced colours paint it, so the toast keeps an edge there. */
+  border: 1px solid transparent;
+}
+.toast.error {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--failed-line);
+  box-shadow:
+    inset 4px 0 0 var(--failed),
+    var(--sh-2);
+}
+.toast.error > .ic {
+  color: var(--failed);
+}
+.toast.error .td {
+  color: var(--ink-2);
+}
+.toast .tb {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast .tt {
+  margin: 0;
   font-weight: 600;
-  font-size: 13px;
-  z-index: 60;
-  max-width: calc(100vw - 32px);
+}
+.toast .td {
+  margin: 2px 0 0;
+  font-weight: 400;
+}
+.toast .raw {
+  font: 12px/1.4 var(--mono);
+  color: var(--muted);
+}
+.toast .btn {
+  flex: none;
+}
+.toast .tx {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+}
+/* The global focus ring is --ink, the success toast's own background: draw it in the text colour. */
+.toast.success :focus-visible {
+  outline-color: currentColor;
+}
+@media (pointer: coarse) {
+  .toast .tx,
+  .toast .btn {
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+}
+@media (max-width: 599.98px) {
+  .toasts {
+    inset: auto 16px calc(16px + env(safe-area-inset-bottom)) 16px;
+    transform: none;
+    width: auto;
+    max-width: none;
+  }
+}
+/* Up to 760 px a collection page has its tab bar along the bottom edge (90-responsive), the only
+   way to Files, History and More there: a toast sits just above it, so a sticky error never
+   covers it. */
+@media (max-width: 760px) {
+  body:has(.tabbar) > .toasts {
+    bottom: calc(58px + 8px + env(safe-area-inset-bottom));
+  }
+}
+/* A modal dialog keeps its actions at the bottom (a bottom sheet up to 760 px, 90-responsive; a
+   footer that can reach the viewport's bottom edge above). A toast that followed one in sits at
+   the top instead, at every width, so a sticky error never covers them. */
+dialog[open] > .toasts {
+  top: calc(16px + env(safe-area-inset-top));
+  bottom: auto;
+}
+/* The gallery lightbox has controls along both edges (Done and the view buttons in its header;
+   Previous, Next and Open in its footer): there the toast sits just below the header, over the
+   image. */
+#lightbox[open] > header {
+  anchor-name: --lbx-header;
+}
+#lightbox[open] > .toasts {
+  position-anchor: --lbx-header;
+  top: calc(anchor(bottom) + 8px);
 }

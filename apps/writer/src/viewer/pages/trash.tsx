@@ -58,7 +58,7 @@ export async function trashPage(
                   </a>
                 ) : null;
                 return (
-                  <div class="r" data-trash-row={item.id}>
+                  <div class="r" data-trash-row={item.id} data-flash-target={item.id}>
                     <span class="t">{item.title}</span>
                     <span class="acts">
                       <button

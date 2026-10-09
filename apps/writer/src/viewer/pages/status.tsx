@@ -291,7 +291,14 @@ export async function statusPage(
                 <div class="r" id={item.id}>
                   <span class="t">{revisionLink(item)}</span>
                   <span class="acts">
-                    <button type="button" class="btn sm" data-action="retry" data-ids={item.id}>
+                    <button
+                      type="button"
+                      class="btn sm"
+                      data-action="retry"
+                      data-ids={item.id}
+                      data-n={item.display_number ?? undefined}
+                      data-title={item.collection_title ?? undefined}
+                    >
                       Retry
                     </button>
                     <button
@@ -299,6 +306,8 @@ export async function statusPage(
                       class="btn sm danger"
                       data-action="drop"
                       data-id={item.id}
+                      data-n={item.display_number ?? undefined}
+                      data-title={item.collection_title ?? undefined}
                     >
                       Drop…
                     </button>
@@ -339,6 +348,8 @@ export async function statusPage(
                       class="btn sm danger"
                       data-action="drop"
                       data-id={item.id}
+                      data-n={item.display_number ?? undefined}
+                      data-title={item.collection_title ?? undefined}
                     >
                       Drop…
                     </button>

@@ -204,12 +204,16 @@ describe("NAV-05b History lanes", () => {
     for (const name of ["Retry", "Drop…", "Details"])
       expect(six).toMatch(new RegExp(`aria-describedby="rv-${pub[5]}"[^>]*>\\s*${name}<`));
     // The buttons are edited in place: their action hooks survive next to aria-describedby.
-    // (FD3's data-n/data-title assertion joins these once FD3 lands; it isn't on main yet.)
     const sixId = nth(revs, 6).revision_id;
     expect(six).toContain(
       `data-action="retry" data-ids="${sixId}" aria-describedby="rv-${pub[5]}"`,
     );
     expect(six).toContain(`data-action="drop" data-id="${sixId}" aria-describedby="rv-${pub[5]}"`);
+    // FD3: both name their revision (data-n) for the flash and error toasts.
+    expect(six).toContain('data-n="6"');
+    expect(six.match(new RegExp(`aria-describedby="rv-${pub[5]}" data-n="6"`, "g"))).toHaveLength(
+      2,
+    );
     // The legend (both pinned keys) shows because a row is off the latest line.
     expect(history.replaceAll("&#39;", "'")).toContain(
       "Latest line: the newest revision that hasn't failed, and the revisions it builds on",

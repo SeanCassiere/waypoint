@@ -56,7 +56,16 @@ export function Layout(props: {
         <KeysDialog page={props.page} />
         <ConfirmDialog />
         <div class="pop-scrim" aria-hidden="true" />
-        <div class="toast" role="status" aria-live="polite" data-toast popover="manual" />
+        <div class="toasts" data-toast popover="manual">
+          <div
+            class="toast success"
+            data-toast-slot="success"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          />
+          <div class="toast error" data-toast-slot="error" role="alert" aria-atomic="true" />
+        </div>
         <script src={clientAsset.url} defer />
         {pageScript ? <script src={pagesAsset.url} defer /> : null}
       </body>

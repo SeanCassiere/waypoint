@@ -198,6 +198,16 @@ export function HealthPopover(props: { health: Health; now: number; host: string
               popovertargetaction="hide"
               data-action="retry"
               data-ids={health.failed.map((item) => item.id).join(",")}
+              data-n={
+                health.failed.length === 1
+                  ? (health.failed[0]?.display_number ?? undefined)
+                  : undefined
+              }
+              data-title={
+                health.failed.length === 1
+                  ? (health.failed[0]?.collection_title ?? undefined)
+                  : undefined
+              }
             >
               Retry failed
             </button>
@@ -492,6 +502,7 @@ export function Timeline(props: {
                     data-action="retry"
                     data-ids={row.id}
                     aria-describedby={link}
+                    data-n={row.display_number}
                   >
                     Retry
                   </button>
@@ -501,6 +512,7 @@ export function Timeline(props: {
                     data-action="drop"
                     data-id={row.id}
                     aria-describedby={link}
+                    data-n={row.display_number}
                   >
                     Drop…
                   </button>
@@ -517,6 +529,7 @@ export function Timeline(props: {
                     data-action="drop"
                     data-id={row.id}
                     aria-describedby={link}
+                    data-n={row.display_number}
                   >
                     Drop…
                   </button>
