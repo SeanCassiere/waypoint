@@ -212,6 +212,21 @@ function bindInlineConfirms(): void {
   }
 }
 
+/** Keep in step with PREVIEW_LATEST_TITLE in viewer/pages/share.tsx. */
+const PREVIEW_LATEST_TITLE = "Opens the Latest URL as a stranger sees it today";
+
+/**
+ * Whether a warning track shows. The unchosen target's track is visibility:hidden (it keeps
+ * its height), so it still has an offsetParent.
+ */
+function warned(dialog: HTMLElement): boolean {
+  return $$("[data-warn]", dialog).some((warn) =>
+    "checkVisibility" in Element.prototype
+      ? warn.checkVisibility({ visibilityProperty: true })
+      : getComputedStyle(warn).visibility !== "hidden" && warn.offsetParent !== null,
+  );
+}
+
 function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   const form = $("[data-share-form]", HTMLFormElement, dialog);
   const create = $('[data-share-step="create"]', dialog);
@@ -220,23 +235,58 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   const copyButton = $("[data-share-copy]", HTMLButtonElement, dialog);
   const open = $("[data-share-open]", HTMLAnchorElement, dialog);
   if (!form || !create || !created || !copyButton) return;
-  onCommand("share", () => {
-    if (!dialog.open) dialog.showModal();
-  });
-  // Phones start with the checklist folded, unless a warning applies (spec §4.15).
   const sees = $("[data-sees]", HTMLDetailsElement, dialog);
-  if (
-    sees &&
-    window.matchMedia("(max-width: 760px)").matches &&
-    !$$("[data-warn]", dialog).some((warn) => warn.offsetParent !== null)
-  )
-    sees.open = false;
+  const preview = $("[data-preview-for=target]", HTMLAnchorElement, dialog);
+  // The preview link opens what the checked target publishes (D46: CSS swaps its text).
+  const followTarget = () => {
+    if (!preview) return;
+    const latest = $('input[name="target"][value="latest"]', HTMLInputElement, form)?.checked;
+    preview.href = (latest ? preview.dataset.latest : preview.dataset.pinned) ?? preview.href;
+    if (latest) preview.title = PREVIEW_LATEST_TITLE;
+    else preview.removeAttribute("title");
+  };
+  for (const radio of $$('input[name="target"]', HTMLInputElement, form))
+    radio.addEventListener("change", followTarget);
+  // D43: every open starts from Only #N (Latest when #N failed), 7 days, no label.
+  const reset = () => {
+    form.reset();
+    const only = $('input[name="target"][value="only"]', HTMLInputElement, form);
+    const target =
+      only && !only.disabled
+        ? only
+        : $('input[name="target"][value="latest"]', HTMLInputElement, form);
+    if (target) target.checked = true;
+    const week = $('input[name="expires"][value="7"]', HTMLInputElement, form);
+    if (week) week.checked = true;
+    if (error) error.textContent = "";
+    followTarget();
+  };
+  reset();
+  // Per open, never on a target change: phones fold the checklist unless a warning shows.
+  const fold = () => {
+    if (sees) sees.open = !window.matchMedia("(max-width: 760px)").matches || warned(dialog);
+  };
+  const focusTarget = () => $('input[name="target"]:checked', HTMLInputElement, form)?.focus();
+  // Every way in (Share, s, New public link, the ⋯ menu) ends here once the dialog is open.
+  dialog.addEventListener("toggle", () => {
+    if (!dialog.open) return;
+    fold();
+    focusTarget();
+  });
+  onCommand("share", () => {
+    if (dialog.open) return;
+    dialog.showModal();
+    focusTarget();
+  });
   let url = "";
   let poll: ReturnType<typeof setTimeout> | undefined;
   // Once a link exists, closing the dialog (Done, Esc) shows it in the Links tab, where its
-  // URL can be copied again.
+  // URL can be copied again. Without one, the form goes back to its defaults.
   dialog.addEventListener("close", () => {
-    if (!url) return;
+    if (!url) {
+      reset();
+      return;
+    }
     if (poll) clearTimeout(poll);
     const target = new URL(location.href);
     target.searchParams.set("panel", "links");

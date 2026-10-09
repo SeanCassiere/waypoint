@@ -27,7 +27,7 @@ import {
   type CollectionContext,
   type Segment,
 } from "../collection/index.tsx";
-import { LinksPanel, previewHref, publicSegment, ShareDialog } from "../share.tsx";
+import { LinksPanel, previewHref, publicSegment, ShareDialog, shareDisclosure } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
 import {
   ADDED_PREVIEW,
@@ -315,6 +315,7 @@ export async function changesPage(
     );
   if (compare.counts.unchanged)
     chips.push(<span class="chip">{compare.counts.unchanged} unchanged</span>);
+  const disclosure = ctx.sharing ? await shareDisclosure(ctx, revision.head_path) : null;
   return noStore(
     c.html(
       <Layout
@@ -516,13 +517,7 @@ export async function changesPage(
         <CopyMenu ctx={ctx} path={revision.head_path} />
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
-        {ctx.sharing ? (
-          <ShareDialog
-            ctx={ctx}
-            links={ctx.links}
-            previewHref={previewHref(ctx, revision.head_path)}
-          />
-        ) : null}
+        {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
       </Layout>,
       error === "missing" ? 404 : error === "same" ? 400 : 200,
     ),
