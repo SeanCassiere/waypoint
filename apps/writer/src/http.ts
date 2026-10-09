@@ -1306,6 +1306,7 @@ export function createApp(s: HttpServices): Hono {
           );
           if (result.changes) retried.push(revision);
         });
+        await s.ingest.committer.refreshSyncing?.(root.collection_id);
         s.ingest.committer.wake();
         return { retried };
       }),
@@ -1359,6 +1360,7 @@ export function createApp(s: HttpServices): Hono {
             await tx.run("DELETE FROM pending_collections WHERE id=?", [root.collection_id]);
           return prunePendingStorage(tx, s.waypoint);
         });
+        await s.ingest.committer.refreshSyncing?.(root.collection_id);
         await s.ingest.withGcExclusive(() => deleteUnusedBlobs(s, unused));
         s.ingest.committer.wake();
         return { dropped: descendants };

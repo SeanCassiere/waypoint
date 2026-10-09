@@ -150,3 +150,60 @@ describe("letterhead CSS and script", () => {
     expect(timeScript).toContain("timeZoneName");
   });
 });
+
+const count = (html: string, needle: string): number => html.split(needle).length - 1;
+
+describe("syncing note", () => {
+  const SENTENCE = "A newer version is being synced. It will appear here once it has uploaded.";
+  const clock = icon("clock", "sm");
+
+  it("shows the box under the meta row and the phone pill at the end of it", () => {
+    const html = render({ syncing: true });
+    expect(count(html, 'class="sync"')).toBe(1);
+    expect(count(html, 'class="f pend"')).toBe(1);
+    const note = html.slice(html.indexOf('<p class="note">'), html.indexOf("</p>") + 4);
+    expect(note).toMatch(
+      new RegExp(
+        `<span class="f pend">${clock.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}Newer version syncing<span class="vh">\\. It will appear here once it has uploaded\\.</span></span></p>$`,
+      ),
+    );
+    expect(html).toContain(
+      `${note}<p class="sync">${clock}<span>${SENTENCE}</span></p></div><div class="acts">`,
+    );
+  });
+
+  it("never shows on a snapshot", () => {
+    const html = render({ syncing: true, snapshotAt: now - DAY, updatedAt: null });
+    expect(html).not.toContain('class="sync"');
+    expect(html).not.toContain("pend");
+    expect(html).not.toContain("Newer version syncing");
+  });
+
+  it("is absent unless syncing is true", () => {
+    for (const html of [render(), render({ syncing: false })]) {
+      expect(html).not.toContain('class="sync"');
+      expect(html).not.toContain("pend");
+    }
+  });
+
+  it("uses the pending tint and line only in its own rules, without motion", () => {
+    const tinted = rules(letterheadCss).filter(([, body]) => /--pending-(?:bg|line)/.test(body));
+    expect(tinted.length).toBeGreaterThan(0);
+    for (const [selector] of tinted)
+      expect(selector.split(",").every((part) => /\.(?:sync|pend)\b/.test(part))).toBe(true);
+    const sync = rules(letterheadCss).find(([selector]) => selector === ".sync")?.[1] ?? "";
+    expect(sync).toContain("background:var(--pending-bg)");
+    expect(sync).toContain("border:1px solid var(--pending-line)");
+    expect(sync).toContain("color:var(--pending)");
+    const pend = rules(letterheadCss).find(([selector]) => selector === ".pend")?.[1] ?? "";
+    expect(pend).toContain("display:none");
+    expect(pend).toContain("var(--pending-bg)");
+    expect(letterheadCss).toMatch(
+      /@media\(max-width:599\.98px\)\{[^@]*\.sync\{display:none\}\.pend\{display:inline-block\}/,
+    );
+    expect(letterheadCss).toMatch(
+      /@media\(forced-colors:active\)\{[^}]*\.sync,\.pend\{border-color:CanvasText\}/,
+    );
+    for (const banned of ["animation", "transition"]) expect(letterheadCss).not.toContain(banned);
+  });
+});

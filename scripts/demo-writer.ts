@@ -676,6 +676,9 @@ await queue.run("UPDATE pending_revisions SET created_at=? WHERE id<>?", [
   now - 0.05 * 3_600_000,
   forked,
 ]);
+// The direct SQL above bypasses the queue's call sites; this makes Postgres's syncing row (RX-11)
+// match its queue: #7 is pending, so Latest links show #5 with the note.
+await ingest.withCollectionLock(pg.id, () => committer.refreshSyncing(pg.id));
 
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
 console.log(`Demo writer on ${base} (data ${dir})`);

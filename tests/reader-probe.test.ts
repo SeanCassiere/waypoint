@@ -276,6 +276,26 @@ describe("adversarial reader probes", () => {
     ).run("shl_" + "9".repeat(26), await hashShareToken(late), A.id, null, null, null);
     expect((await get(shell)).status).toBe(200);
   });
+  it("shows the syncing note from the real table and survives its absence", async () => {
+    const shell = `/s/${tokens.follow}/c/${A.pub}/`;
+    db.prepare("INSERT INTO collection_syncing (collection_id,since,until) VALUES (?,?,?)").run(
+      A.id,
+      clock - 1_000,
+      clock + 3_600_000,
+    );
+    const noted = await get(shell);
+    expect(noted.status).toBe(200);
+    expect(await noted.text()).toContain('class="sync"');
+    // A pinned link to the same collection never shows it.
+    const pinned = await get(`/s/${tokens.pinned}/c/${A.pub}/r/${A1.pub}/`);
+    expect(pinned.status).toBe(200);
+    expect(await pinned.text()).not.toContain('class="sync"');
+    // An older schema: the lookup fails, the shell is served without the note.
+    db.exec("DROP TABLE collection_syncing");
+    const plain = await get(shell);
+    expect(plain.status).toBe(200);
+    expect(await plain.text()).not.toContain('class="sync"');
+  });
   it("accepts normalized Unicode paths and rejects a tampered capability", async () => {
     const nfd = encodeURIComponent("café.txt".normalize("NFD"));
     expect((await get(raw(tokens.follow, A2.pub, nfd))).status).toBe(200);

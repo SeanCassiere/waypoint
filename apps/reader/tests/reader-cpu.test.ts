@@ -148,11 +148,14 @@ describe("CPU budget worst cases", () => {
                     pinned_created_at: null,
                   },
                 ]
-              : sql.includes("FROM revisions")
-                ? [{ id: "r", public_id: A2.pub, head_path: sorted[0], created_at: 1 }]
-                : sql.includes("AND path=?")
-                  ? [{ path: args[1], blob_hash: h("1"), mime: "text/html", size: 1 }]
-                  : (rows ?? decode(body));
+              : // RX-11's one-row syncing lookup: no row.
+                sql.includes("collection_syncing")
+                ? []
+                : sql.includes("FROM revisions")
+                  ? [{ id: "r", public_id: A2.pub, head_path: sorted[0], created_at: 1 }]
+                  : sql.includes("AND path=?")
+                    ? [{ path: args[1], blob_hash: h("1"), mime: "text/html", size: 1 }]
+                    : (rows ?? decode(body));
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion
             return Promise.resolve(result as T[]);
           },

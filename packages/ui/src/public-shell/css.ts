@@ -5,11 +5,13 @@ export const skipCss: string = `@media print{.skip{display:none}}
 `;
 /**
  * Page frame and letterhead (R2): a grid with the title and the meta row on the left and the
- * actions on the right (row 3 of column 1 is RX-11's syncing note); on phones the meta row spans
- * the width. `.lgo`/`.smo` and `.lgt`/`.smt` are long and phone short forms (the hidden one is
- * `display:none`, so it's out of the accessibility tree); `.vh` is visually hidden. Inside the
- * About button `.vh` and its parent stay inline (an out-of-flow or flex-item span adds a space to
- * the name, "Read-only , about this link"). About is a `.menu` (menuCss): anchored by its right
+ * actions on the right (row 3 of column 1 is RX-11's syncing note, `.sync`; on phones it gives way
+ * to the `.pend` pill in the meta row); on phones the meta row spans the width. `.lgo`/`.smo` and
+ * `.lgt`/`.smt` are long and phone short forms (the hidden one is `display:none`, so it's out of
+ * the accessibility tree); `.vh` is visually hidden. Inside the About button and the `.pend` pill
+ * (an inline block, not a flex box, for this reason) `.vh` and its parent stay inline, `.vh` at
+ * size 0 (an out-of-flow or flex-item span adds a space to the name, "Read-only , about this
+ * link"). About is a `.menu` (menuCss): anchored by its right
  * edge from 600 px, A11Y-07's bottom sheet below.
  */
 export const letterheadCss: string = `html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
@@ -23,6 +25,10 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
 .mode{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px 0 6px;border-radius:99px;border:1px solid var(--rule-2);background:var(--sunken);color:var(--ink-2);font-size:12px;font-weight:600;line-height:1;white-space:nowrap}
 .note time[title]{text-decoration:underline dotted var(--faint);text-underline-offset:3px;cursor:help}
 .exp.soon{display:inline-flex;align-items:center;gap:4px;color:var(--ink);font-weight:600}
+.sync{grid-column:1;grid-row:3;justify-self:start;display:flex;align-items:flex-start;gap:7px;max-width:100%;margin:8px 0 0;padding:4px 11px 4px 8px;border-radius:8px;border:1px solid var(--pending-line);background:var(--pending-bg);color:var(--pending);font-size:12.5px;line-height:18px;font-weight:500}
+.sync>svg.ic{flex:none;margin-top:3px}
+.pend{display:none;height:20px;padding:0 7px 0 5px;border-radius:99px;border:1px solid var(--pending-line);background:var(--pending-bg);color:var(--pending);font-size:12px;font-weight:600;line-height:18px;white-space:nowrap}
+.pend>svg.ic{margin-right:4px;vertical-align:-2px}
 .ro{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .abt{position:relative;display:inline-flex;align-items:center;height:var(--ctl-md);margin:0;padding:0 10px;border-radius:8px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);font:500 12.5px var(--sans);white-space:nowrap;cursor:pointer}
 .abt:hover{background:var(--hover);color:var(--ink)}
@@ -48,12 +54,13 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
 .lh .note{grid-column:1/-1}
 .lh .acts{grid-row:1;align-self:center}
 .acts>.ro{display:none}
+.sync{display:none}.pend{display:inline-block}.pend>.vh{position:static;width:auto;height:auto;overflow:visible;clip:auto;font-size:0}
 .lgo,.lgt,.abt>.lgo{display:none}.smo,.smt{display:inline}
 .abt>.smo{display:inline}
 .menu.about>.mbox{padding-inline:18px}
 .about .full{display:block;margin:0 0 12px;font:650 15px/1.3 var(--sans);overflow-wrap:anywhere;unicode-bidi:isolate}
 .about h2{margin-bottom:10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}}
-@media(forced-colors:active){.mode,.abt{border-color:CanvasText}}
+@media(forced-colors:active){.mode,.abt,.sync,.pend{border-color:CanvasText}}
 @media print{.pwrap{display:none}html,body{height:auto;overflow:visible}}
 `;
 /**

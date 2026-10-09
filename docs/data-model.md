@@ -141,7 +141,7 @@ CREATE TABLE schema_migrations (
 );
 ```
 
-**`collection_syncing`:** The writer keeps a row while a collection's newest revision is still uploading, so the public reader can tell Latest-link recipients that a newer version is on its way; a reader that finds no table, no row, or `until` in the past shows nothing.
+**`collection_syncing`:** RX-11: one row while a collection has a non-failed queued revision newer than its newest committed one; `until = since + queue give-up hours`; written only by the writer's `refreshSyncing` ([commit procedure](write-path-and-sync.md#commit-procedure)). It lets the public reader tell Latest-link recipients that a newer version is on its way; a reader that finds no table, no row, or `until` in the past shows nothing.
 
 ### Derived values (never stored)
 
