@@ -105,6 +105,11 @@
 .blk.mod {
   box-shadow: inset 3px 0 0 var(--changed);
 }
+/* A stepper target spans the card or a line scroller, which clip (.fd's and .lines' overflow), so
+   its focus ring sits inside it: outside, only part of the ring would show. */
+.fd [data-change]:focus-visible {
+  outline-offset: -2px;
+}
 .blk .mk {
   font: 700 13px/1 var(--mono);
   padding-top: 12px;
@@ -163,6 +168,148 @@
 }
 .blk .tx.rd a {
   color: var(--public);
+}
+/* GFM alerts as callouts, every kind in neutral tokens (amber means pending, violet changed). */
+.blk .tx.rd .markdown-alert {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--rule-2);
+  background: var(--sunken);
+  border-radius: 0 6px 6px 0;
+}
+.blk .tx.rd .markdown-alert-title {
+  margin: 0 0 4px;
+  font: 650 11px/1.2 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+/* Rendered tables scroll sideways in their wrapper, which is only as wide as its table.
+   Positioned, so it also clips the word marks' absolutely positioned screen-reader text instead of
+   letting it widen the page. */
+.dtwrap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+/* The right-edge fade while columns are hidden there: a mask over the cells (tinted rows
+   included), so they fade into whatever the block is painted. It follows the scroll position, not
+   time (no motion): a scroll-driven timeline narrows it away over the last 32px of scrolling, and
+   a table that doesn't overflow has no active timeline, so no fade. */
+@supports (animation-timeline: scroll()) {
+  .dtwrap {
+    animation: dtfade linear both;
+    animation-timeline: scroll(self inline);
+    animation-range: calc(100% - 32px) 100%;
+  }
+}
+/* Forced colours: the user's palette, so no alpha mask fading the text and borders. */
+@media (forced-colors: active) {
+  .dtwrap {
+    animation: none;
+  }
+}
+@keyframes dtfade {
+  from {
+    mask: linear-gradient(to left, transparent, #000 32px) left top / 100% 100% no-repeat;
+  }
+  to {
+    mask: linear-gradient(to left, transparent, #000 32px) left top / calc(100% + 32px) 100%
+      no-repeat;
+  }
+}
+/* Columns as wide as their content (10ch to 22ch, see below), so a table wider than its card
+   scrolls rather than squeezing every column to 10ch. */
+.dt {
+  width: max-content;
+  border-collapse: collapse;
+  font: 14px/1.45 var(--sans);
+}
+.dt caption {
+  /* .srcnote's display: block would take the caption out of the table. */
+  display: table-caption;
+  text-align: left;
+  caption-side: top;
+}
+.dt th,
+.dt td {
+  min-width: 10ch;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+/* Browsers ignore max-width on table cells in auto layout, so the cap sits on their content. */
+.dt .dc {
+  display: block;
+  max-width: 22ch;
+}
+.dt thead th {
+  background: var(--sunken);
+  font-weight: 650;
+}
+.dt .g {
+  min-width: 0;
+  width: 2.2em;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+  font: 700 12px/1.45 var(--mono);
+}
+.dt tr.r-mod {
+  background: var(--changed-bg);
+}
+.dt tr.r-mod .g {
+  color: var(--changed);
+}
+.dt tr.r-add {
+  background: var(--add-bg);
+}
+.dt tr.r-add .g {
+  color: var(--add);
+}
+.dt tr.r-del {
+  background: var(--del-bg);
+}
+.dt tr.r-del td {
+  color: var(--ink-2);
+}
+.dt tr.r-del .g {
+  color: var(--del);
+}
+.dt tr.r-ctx td {
+  color: var(--ink-2);
+}
+.dt tr.r-gap td {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+/* A table that can't be rendered shows its source rows as .blk.src lines (below). The block's
+   class can't depend on whether its fragment renders, so the same lines are scoped to the
+   fallback itself. */
+.blk .tx.dtsrc {
+  padding-left: calc(10px + 2ch);
+  font: 12.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+.dtsrc .lnadd {
+  display: block;
+  background: var(--add-word);
+  color: var(--ink);
+}
+.dtsrc .lndel {
+  display: block;
+  background: var(--del-word);
+  text-decoration: line-through;
+  text-decoration-color: var(--del);
+}
+.dtsrc .row0 {
+  display: block;
 }
 .blk.src .tx,
 .blk .tx.code {

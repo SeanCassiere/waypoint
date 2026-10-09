@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { isMarkdown } from "@waypoint/core";
-import { markWords } from "@waypoint/render";
+import { markWords, MAX_FRAGMENT_SOURCE, type FragmentLinks } from "@waypoint/render";
 import { icon } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
@@ -19,6 +19,7 @@ import {
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { bytes, plural } from "../../format.ts";
 import type { CollectionContext } from "../collection/index.tsx";
+import { decorateTable, tableFragment, tableParts } from "./table-diff.ts";
 
 export const ADDED_PREVIEW = 20;
 export const ADDED_LIMIT = 200;
@@ -92,27 +93,34 @@ function Words(props: { words: readonly WordOp[] }) {
 }
 /**
  * Markdown blocks on the page, rendered together off the event loop (Markdown parsing is
- * superlinear on some inputs). Components emit placeholders; `fill` swaps in the HTML, or the
- * block's source when it was too long or the time budget ran out.
+ * superlinear on some inputs). Components emit placeholders; `fill` swaps in the HTML (through
+ * the block's decorator, if any), or the block's source when it was too long, the time budget ran
+ * out or the decorator returned `null`.
  */
 class Fragments {
   private readonly sources: string[] = [];
   private readonly fallbacks: Child[] = [];
+  private readonly decorators: (((html: string) => string | null) | undefined)[] = [];
   /** Whether rendering likely ran out of time (see fill). */
   fellBack = false;
-  add(markdown: string, fallback: Child): number {
+  add(markdown: string, fallback: Child, decorate?: (html: string) => string | null): number {
     this.sources.push(markdown);
     this.fallbacks.push(fallback);
+    this.decorators.push(decorate);
     return this.sources.length - 1;
   }
   async fill(
     html: string,
     render: (sources: string[]) => Promise<(string | null)[]>,
   ): Promise<string> {
-    const rendered = await render(this.sources);
+    const output = await render(this.sources);
     // The worker's time budget runs out at the end of the list, so a missing last fragment
     // means this rendering may be incomplete; a single oversized block shows as source anyway.
-    this.fellBack = rendered.length > 0 && typeof rendered.at(-1) !== "string";
+    this.fellBack = output.length > 0 && typeof output.at(-1) !== "string";
+    const rendered = output.map((fragment, index) => {
+      const decorate = this.decorators[index];
+      return typeof fragment === "string" && decorate ? decorate(fragment) : fragment;
+    });
     const fallbacks = await Promise.all(
       this.fallbacks.map(async (fallback, index) => {
         if (typeof rendered[index] === "string") return "";
@@ -176,46 +184,65 @@ function units(ops: readonly DiffBlock[]): Unit[] {
 const unchanged = (unit: Unit) =>
   "table" in unit ? unit.table.every((op) => op.op === "equal") : unit.block.op === "equal";
 
-function TableUnit(props: { rows: DiffBlock[] }) {
-  const changed = props.rows.filter((row) => row.op === "replace").length;
-  const added = props.rows.filter((row) => row.op === "insert").length;
-  const removed = props.rows.filter((row) => row.op === "delete").length;
-  if (!changed && !added && !removed)
+/**
+ * A table unit, rendered as a table (table-diff.ts): a changed one with a gutter column, row
+ * classes and a caption, an unchanged one plain. A table that can't be rendered shows its source
+ * rows (changed) or a one-line note (unchanged).
+ */
+function TableUnit(props: { rows: DiffBlock[]; frags: Fragments }) {
+  const { rows } = props;
+  const table = tableFragment(rows);
+  const rendered = (fallback: Child) =>
+    table && table.markdown.length <= MAX_FRAGMENT_SOURCE
+      ? raw(
+          `<!--wpfrag:${props.frags.add(table.markdown, fallback, (html) => decorateTable(html, table.meta))}-->`,
+        )
+      : fallback;
+  if (rows.every((row) => row.op === "equal"))
     return (
       <div class="blk ctx">
         <span class="mk" aria-hidden="true" />
-        <div class="tx">
-          <span class="ctxnote">
-            ▦ Table, {plural(Math.max(0, props.rows.length - 2), "row")} (unchanged)
-          </span>
-        </div>
-      </div>
-    );
-  const parts = [
-    changed ? `${plural(changed, "row")} changed` : "",
-    added ? `${added} added` : "",
-    removed ? `${removed} removed` : "",
-  ].filter(Boolean);
-  return (
-    <div class="blk src mod" data-change={`table, ${parts.join(", ")}`} tabindex={-1}>
-      {marker("replace")}
-      <div class="tx">
-        <span class="srcnote">Table · {parts.join(", ")}</span>
-        {props.rows.map((row) =>
-          row.op === "equal" ? (
-            <span class="row0">{row.head_text}</span>
-          ) : row.op === "insert" ? (
-            <span class="lnadd">{row.head_text}</span>
-          ) : row.op === "delete" ? (
-            <span class="lndel">{row.base_text}</span>
-          ) : (
-            <>
-              <span class="lndel">{row.base_text}</span>
-              <span class="lnadd">{row.head_text}</span>
-            </>
-          ),
+        {rendered(
+          <div class="tx">
+            <span class="ctxnote">
+              ▦ Table, {plural(Math.max(0, rows.length - 2), "row")} (unchanged)
+            </span>
+          </div>,
         )}
       </div>
+    );
+  const parts = tableParts(rows).join(", ");
+  // A wholly added or removed table takes the add or remove bar.
+  const op = rows.every((row) => row.op === "insert")
+    ? "insert"
+    : rows.every((row) => row.op === "delete")
+      ? "delete"
+      : "replace";
+  // The source rows, as before tables rendered. The block's class can't depend on whether the
+  // fragment renders, so .dtsrc styles them as .blk.src does.
+  const source = (
+    <div class="tx dtsrc">
+      <span class="srcnote">Table · {parts}</span>
+      {rows.map((row) =>
+        row.op === "equal" ? (
+          <span class="row0">{row.head_text}</span>
+        ) : row.op === "insert" ? (
+          <span class="lnadd">{row.head_text}</span>
+        ) : row.op === "delete" ? (
+          <span class="lndel">{row.base_text}</span>
+        ) : (
+          <>
+            <span class="lndel">{row.base_text}</span>
+            <span class="lnadd">{row.head_text}</span>
+          </>
+        ),
+      )}
+    </div>
+  );
+  return (
+    <div class={`blk ${tone(op)}`} data-change={`table, ${parts}`} tabindex={-1}>
+      {marker(op)}
+      {rendered(source)}
     </div>
   );
 }
@@ -367,7 +394,7 @@ function BlockView(props: { op: DiffBlock; frags: Fragments }) {
 }
 function UnitView(props: { unit: Unit; frags: Fragments }) {
   return "table" in props.unit ? (
-    <TableUnit rows={props.unit.table} />
+    <TableUnit rows={props.unit.table} frags={props.frags} />
   ) : (
     <BlockView op={props.unit.block} frags={props.frags} />
   );
@@ -770,6 +797,17 @@ function WindowNote(props: {
     </div>
   );
 }
+/** Where relative links in a file's fragments resolve: the revision's writer path and the
+ * file's directory in it, URL-encoded. */
+export function fragmentLinks(
+  collectionPublicId: string,
+  revisionPublicId: string,
+  path: string,
+): FragmentLinks {
+  const root = shellPath(collectionPublicId, revisionPublicId, "", true);
+  const file = shellPath(collectionPublicId, revisionPublicId, path, true);
+  return { root, dir: file.slice(root.length, file.lastIndexOf("/") + 1) };
+}
 /**
  * The rendered body of a text diff: a window of its blocks (folded runs load on demand) or
  * lines, cached as HTML.
@@ -783,9 +821,12 @@ export function textBody(options: {
   focused: boolean;
   foldsOpen: boolean;
   href: (params: Record<string, string>) => string;
-  render: (sources: string[]) => Promise<(string | null)[]>;
+  render: (sources: string[], links?: FragmentLinks) => Promise<(string | null)[]>;
 }): Promise<string> {
   const { ctx, file, diff, window, href } = options;
+  // Relative links resolve into this revision (the key below includes the revision).
+  const links = fragmentLinks(ctx.collection.public_id, ctx.revision.public_id, file.path);
+  const render = (sources: string[]) => options.render(sources, links);
   const at = (from: number) => href({ file: file.path, from: String(from) });
   const key = [
     // The page's own links (base and view parameters) are part of the HTML.
@@ -844,7 +885,7 @@ export function textBody(options: {
           />
         </>
       ),
-      options.render,
+      render,
     );
   }
   if (file.status === "added" && diff.ops.length > ADDED_LIMIT) {
@@ -861,7 +902,7 @@ export function textBody(options: {
           </div>
         </>
       ),
-      options.render,
+      render,
     );
   }
   const baseId = options.baseId;
@@ -899,7 +940,7 @@ export function textBody(options: {
         />
       </>
     ),
-    options.render,
+    render,
   );
 }
 

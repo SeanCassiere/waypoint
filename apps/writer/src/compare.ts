@@ -8,6 +8,7 @@
 import { Worker } from "node:worker_threads";
 
 import { isMarkdown, isTextMime, type Manifest } from "@waypoint/core";
+import type { FragmentLinks } from "@waypoint/render";
 import { diffArrays, diffLines, diffWordsWithSpace } from "diff";
 
 import { workerEntry } from "./layout.ts";
@@ -587,7 +588,10 @@ type DiffJob = {
   head: string | null | undefined;
   mode: "blocks" | "lines";
 };
-export type WorkerJob = ({ kind: "diff" } & DiffJob) | { kind: "fragments"; sources: string[] };
+// The fragments job carries link data, not a resolver: a function can't be posted to a worker.
+export type WorkerJob =
+  | ({ kind: "diff" } & DiffJob)
+  | { kind: "fragments"; sources: string[]; links?: FragmentLinks };
 /** Inputs up to this size (both sides, UTF-16 units) are diffed inline; larger go to a worker. */
 export const INLINE_DIFF_MAX = 32 * 1024;
 
@@ -636,10 +640,11 @@ export class DiffWorkers {
         };
   }
 
-  /** Renders Markdown fragments in a worker; `null` entries weren't rendered (show source). */
-  async fragments(sources: string[]): Promise<(string | null)[]> {
+  /** Renders Markdown fragments in a worker; `null` entries weren't rendered (show source).
+   * With `links`, relative links resolve into that revision. */
+  async fragments(sources: string[], links?: FragmentLinks): Promise<(string | null)[]> {
     if (!sources.length) return [];
-    const result = await this.run({ kind: "fragments", sources });
+    const result = await this.run({ kind: "fragments", sources, ...(links ? { links } : {}) });
     return Array.isArray(result) && result.length === sources.length
       ? result.map((item) => (typeof item === "string" ? item : null))
       : sources.map(() => null);

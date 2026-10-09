@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { MCP_LAUNCHER_API } from "@waypoint/core";
+import type { FragmentLinks } from "@waypoint/render";
 import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
 import { raw } from "hono/html";
@@ -29,7 +30,7 @@ export interface ViewerExtras {
   /** Cached per-file diff (B1) for the Changes page. */
   fileDiff(file: CompareFile, mode: "blocks" | "lines"): Promise<FileDiff>;
   /** Renders Changes-page Markdown fragments off the event loop; `null` means show source. */
-  renderFragments(sources: string[]): Promise<(string | null)[]>;
+  renderFragments(sources: string[], links?: FragmentLinks): Promise<(string | null)[]>;
   /** Agents currently long-polling for a new revision (B5). */
   watchers?(): { collection_id: string; after: string; since: number; client: string | null }[];
 }

@@ -164,6 +164,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 - **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
 - **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
+- **Changes-page fragments** (`renderFragment` in `@waypoint/render`, run in `compare-worker.ts`) aren't renditions: they're rendered per request, never stored, so they don't bump `RENDERER_VERSION`; a separate fragment golden test pins their output, including GFM callouts and relative links resolved to the head revision's writer path.
 
 ### The reading template (renderer version 2, "Folio")
 

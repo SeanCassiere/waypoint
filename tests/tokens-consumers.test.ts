@@ -92,6 +92,7 @@ const DIFF_SELECTORS = [
   ".stepper",
   // .ichg: RX-04's writer change chip ("~ Changed in #N"), pre-seeded so RX-04 needn't edit this file
   ".ichg",
+  ".dt tr.r-mod",
 ] as const;
 /** Selectors that the diff half requires to use --changed*. */
 const MUST_BE_CHANGED = [".k.m", ".blk.mod", ".shot.mod", ".chg .m"] as const;

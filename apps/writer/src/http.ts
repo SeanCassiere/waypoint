@@ -67,7 +67,11 @@ import { getStatus } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
 import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
-import { FOLD_LINE_LIMIT, foldLinesFragment } from "./viewer/pages/changes/units.tsx";
+import {
+  FOLD_LINE_LIMIT,
+  foldLinesFragment,
+  fragmentLinks,
+} from "./viewer/pages/changes/units.tsx";
 import { mcpMarkdown as mcpNotes, mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
@@ -1152,7 +1156,7 @@ export function createApp(s: HttpServices): Hono {
       throw new WaypointError("path_invalid", "Invalid file path");
     }
     const mode = c.req.query("mode") === "lines" ? "lines" : "blocks";
-    const { compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    const { head, compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
     const file = compare.files.find((item) => item.path === path);
     if (!file) throw new WaypointError("not_found", "File not in either revision");
     if (c.req.query("format") === "html") {
@@ -1198,12 +1202,17 @@ export function createApp(s: HttpServices): Hono {
         to > unitCount(diff.ops)
       )
         throw new WaypointError("validation_failed", "Invalid block range");
+      // Relative links resolve into the head revision, so the same content in two revisions
+      // renders differently: the cache key includes the root.
+      const collection = await s.reads.collection(head.collection_id);
+      if (!collection) throw new WaypointError("not_found", "Collection not found");
+      const links = fragmentLinks(collection.public_id, head.public_id, file.path);
       const html = await foldFragment(
         diff,
         from,
         to,
-        (sources) => diffWorkers.fragments(sources),
-        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}`,
+        (sources) => diffWorkers.fragments(sources, links),
+        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}|${links.root}`,
       );
       return c.html(html, 200, { "cache-control": "private, max-age=3600" });
     }
@@ -1408,7 +1417,7 @@ export function createApp(s: HttpServices): Hono {
     viewerApp(s, {
       serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
       fileDiff,
-      renderFragments: (sources) => diffWorkers.fragments(sources),
+      renderFragments: (sources, links) => diffWorkers.fragments(sources, links),
       watchers: () => [...watchers.values()],
     }),
   );
