@@ -133,7 +133,8 @@
     max-width: 100%;
     margin: auto 0 0;
     border-radius: 16px 16px 0 0;
-    max-height: 92dvh;
+    max-height: calc(100dvh - var(--kb, 0px) - 8px);
+    bottom: var(--kb, 0px);
   }
   .item .msg {
     white-space: normal;

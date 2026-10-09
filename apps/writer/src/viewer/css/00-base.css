@@ -375,7 +375,7 @@ mark {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 32px;
+  height: var(--ctl-md);
   padding: 0 12px;
   border-radius: 8px;
   border: 1px solid var(--rule-2);
@@ -435,7 +435,7 @@ mark {
   }
 }
 .btn.sm {
-  height: 26px;
+  height: var(--ctl-sm);
   padding: 0 9px;
   font-size: 12.5px;
   border-radius: 7px;
@@ -445,4 +445,19 @@ mark {
 }
 .btn kbd {
   margin-left: 2px;
+}
+/* Touch: 44 px buttons (beating .txtbtn's later min-heights), and fields of at least 16 px, so
+   iOS Safari doesn't zoom the page when one is focused. Mouse density is unchanged. */
+@media (pointer: coarse) {
+  :is(.btn, .txtbtn):is(a, button, summary, label) {
+    min-height: var(--tap);
+  }
+  .iconbtn:is(a, button) {
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+  /* :is() gives every branch the input branch's (0,2,1), so it beats .fl textarea's font. */
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: max(16px, 1em);
+  }
 }
