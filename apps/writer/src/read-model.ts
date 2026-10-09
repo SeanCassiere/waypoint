@@ -107,6 +107,7 @@ export interface SearchOptions {
   shared?: boolean | undefined;
   unsynced?: boolean | undefined;
   pending?: boolean | undefined;
+  failed?: boolean | undefined;
 }
 function containsValue(value: unknown, query: string): boolean {
   if (typeof value === "string") return value.toLowerCase().includes(query);
@@ -937,6 +938,7 @@ export class ReadModel {
         continue;
       if (options.pending && !history.some((revision) => revision.sync_state === "pending"))
         continue;
+      if (options.failed && !history.some((revision) => revision.sync_state === "failed")) continue;
       if (options.updated_after !== undefined && (!latest || updatedAt <= options.updated_after))
         continue;
       const numbers = displayNumbers(history.map((revision) => parseId(revision.id, "rev")));

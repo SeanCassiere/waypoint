@@ -2,6 +2,7 @@
 import { WaypointError, type CollectionSearchResult } from "@waypoint/core";
 
 import type { HttpServices } from "../../../http.ts";
+import { CANONICAL_TOKENS } from "../../../search-query.ts";
 import { shellPath } from "../../../viewer-paths.ts";
 import { Time } from "../../components.tsx";
 import type { Chrome } from "../../layout.tsx";
@@ -39,7 +40,7 @@ export function SearchBody(props: {
       <p class="muted small" data-token-hint>
         Narrow it down: <span class="mono">project:webhooks</span>{" "}
         <span class="mono">tag:research</span> <span class="mono">host:macbook-air</span>{" "}
-        {["is:shared", "is:unsynced", "is:pending", "in:trash"].map((token) => (
+        {CANONICAL_TOKENS.map(({ text: token }) => (
           <>
             <a
               class="mono"
