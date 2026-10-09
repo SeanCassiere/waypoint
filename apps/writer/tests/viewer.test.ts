@@ -346,7 +346,8 @@ describe("viewer routes", () => {
       vi.spyOn(waypoint, "get"),
     ];
     await app.request("/");
-    expect(spies.reduce((total, spy) => total + spy.mock.calls.length, 0)).toBeLessThan(20);
+    // Health reads lineage rows through revisionIndex when something is queued (FC2).
+    expect(spies.reduce((total, spy) => total + spy.mock.calls.length, 0)).toBeLessThan(22);
     spies.forEach((spy) => spy.mockRestore());
     const collectionId = first.collection_id;
     const fileEntries = Object.fromEntries(

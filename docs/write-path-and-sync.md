@@ -132,7 +132,7 @@ These are idempotent and **never give up**:
 - **Transient errors** (network failures, timeouts, 5xx, 429, R2's `RequestTimeout` and `ConditionalRequestConflict`, and local `EMFILE`/`EBUSY` and similar) are retried until 72 hours have passed since the first attempt. The limit is set by `WAYPOINT_QUEUE_GIVE_UP_HOURS`, default 72. After that the revision becomes `failed`.
 - **Permanent errors** mark the revision `failed` immediately. Examples: a blob missing from the local store, a purged collection, a failed parent, a validation error.
 - **Failed revisions** stay in `queue.db`, and their blobs stay on disk. You can still view them on the tailnet, and they appear in the revision picker marked as failed and in `/api/status`.
-  - **Retrying a failed revision** re-queues it along with its failed descendants.
+  - **Retrying a failed revision** re-queues it along with its failed descendants. Retry sets `first_attempt_at` to the retry time, so the give-up clock restarts at Retry.
   - **Dropping a failed revision** removes it and its descendants, and queues deletion of any DR manifests already written.
   - A bulk "retry all failed" operation is planned for later.
 - Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`.

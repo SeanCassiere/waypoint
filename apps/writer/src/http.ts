@@ -1298,10 +1298,11 @@ export function createApp(s: HttpServices): Hono {
           throw new WaypointError("conflict", "Revision is not failed");
         const descendants = await descendantsOf(s.queue, id);
         const retried: string[] = [];
+        const now = Date.now();
         await inSeries(descendants, async (revision) => {
           const result = await s.queue.run(
-            "UPDATE pending_revisions SET state='pending',attempts=0,first_attempt_at=NULL,next_attempt_at=NULL,last_error=NULL,error_kind=NULL WHERE id=? AND state='failed'",
-            [revision],
+            "UPDATE pending_revisions SET state='pending',attempts=0,first_attempt_at=?,next_attempt_at=NULL,last_error=NULL,error_kind=NULL WHERE id=? AND state='failed'",
+            [now, revision],
           );
           if (result.changes) retried.push(revision);
         });
