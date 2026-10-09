@@ -2,6 +2,7 @@ import { frameLocationHref } from "@waypoint/ui";
 
 import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.ts";
 import { $, $$, el, shellRoot } from "./dom.ts";
+import { loadingLine } from "./loading-line.ts";
 import { refreshStatusLine } from "./status-line.ts";
 
 /** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
@@ -34,10 +35,45 @@ function frameNotice(message: string | null, back?: { href: string; label: strin
   refreshStatusLine();
 }
 
+/** An absolute URL without its fragment. */
+function withoutHash(href: string): string {
+  const url = new URL(href, location.href);
+  url.hash = "";
+  return url.href;
+}
+/** Whether pointing the frame at `next` loads a new document: a change only in the fragment
+ *  fires no `load`, so it must not start the loading line (A11Y-08; RX-09 relies on this).
+ *  Only a target with a fragment can be fragment-only; any other assignment loads, even back
+ *  to the document the frame still shows while a slow switch is pending (A -> B -> A). */
+function loadsDocument(frame: HTMLIFrameElement, next: string): boolean {
+  if (!new URL(next, location.href).hash) return true;
+  let current: string;
+  try {
+    current = frame.contentWindow?.location.href ?? frame.src;
+  } catch {
+    return true;
+  }
+  return withoutHash(current) !== withoutHash(next);
+}
+
 export function bindFrameSync(): void {
   const root = shellRoot();
   const frame = $("[data-frame]", HTMLIFrameElement);
   if (!root || root.dataset.mode !== "document") return;
+  const loading = loadingLine();
+  if (frame) {
+    // A frame that loaded before this ran fires no further load. A cross-origin one counts as
+    // loaded: reading its location throws (read first, as its contentDocument is just null).
+    let loaded: boolean;
+    try {
+      const href = frame.contentWindow?.location.href;
+      loaded = frame.contentDocument?.readyState === "complete" && href !== "about:blank";
+    } catch {
+      loaded = true;
+    }
+    if (loaded) loading?.done();
+    else loading?.start(root.dataset.path ?? frame.title);
+  }
   const links = $$("#tp-files a[data-file]", HTMLAnchorElement);
   const collection = root.dataset.collection ?? "";
   const revision = root.dataset.revision ?? "";
@@ -61,8 +97,10 @@ export function bindFrameSync(): void {
       pinnedPreview.textContent = `…${shellPath(collection, revision, path, true)}`;
     if (frame) {
       frame.title = path;
-      if (!fromFrame && frame.contentWindow?.location.href !== new URL(raw, location.href).href)
+      if (!fromFrame && frame.contentWindow?.location.href !== new URL(raw, location.href).href) {
+        if (loadsDocument(frame, raw)) loading?.start(path);
         frame.src = raw;
+      }
     }
     history.replaceState(
       null,
@@ -84,6 +122,7 @@ export function bindFrameSync(): void {
     return true;
   }
   frame?.addEventListener("load", () => {
+    loading?.done();
     try {
       const href = frame.contentWindow?.location.href ?? frame.src;
       if (!fromUrl(href)) throw new Error("left");
@@ -138,6 +177,9 @@ export function bindFrameSync(): void {
         return;
       }
       keyboardOpen = event.detail === 0;
-      frame.src = rawPath(revision, link.dataset.file ?? "");
+      const path = link.dataset.file ?? "";
+      const raw = rawPath(revision, path);
+      if (loadsDocument(frame, raw)) loading?.start(path);
+      frame.src = raw;
     });
 }

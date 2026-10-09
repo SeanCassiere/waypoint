@@ -248,8 +248,35 @@ export const filesMenuScript: string = `(() => {
 export const aboutScript: string = "";
 /** RX-09's section-link hash handling (R2). Empty until RX-09. */
 export const hashScript: string = "";
-/** A11Y-08's loading line (R2). Empty until A11Y-08. */
-export const loadingScript: string = "";
+/**
+ * A11Y-08's loading line (R2). `main` is busy until the document frame loads (busy dropped after
+ * 8 s at the latest); the empty `role=status` line behind the transparent frame gets "Opening
+ * <path>…" only after 300 ms, so a fast load is never announced. No motion: one visibility step.
+ * Download and image pages have no `#loading`, so nothing happens there.
+ */
+export const loadingScript: string = `(() => {
+  const frame = document.getElementById("doc");
+  const line = document.getElementById("loading");
+  const main = document.getElementById("main");
+  const wrap = frame && frame.parentElement;
+  if (!frame || frame.tagName !== "IFRAME" || !line || !main || !wrap) return;
+  const name = frame.title;
+  let done = false;
+  main.setAttribute("aria-busy", "true");
+  const show = setTimeout(() => {
+    if (!done) line.textContent = "Opening " + name + "\\u2026";
+  }, 300);
+  const fallback = setTimeout(() => main.removeAttribute("aria-busy"), 8000);
+  const finish = () => {
+    done = true;
+    clearTimeout(show);
+    clearTimeout(fallback);
+    wrap.setAttribute("data-loaded", "");
+    line.textContent = "";
+    main.removeAttribute("aria-busy");
+  };
+  frame.addEventListener("load", finish, { once: true });
+})();`;
 
 /**
  * RX-04's image stage: when the image fails (a revoked or expired link answers the raw request

@@ -222,8 +222,8 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    // The rest of the page (style, script, letterhead and About) is about 31 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 32_000);
+    // The rest of the page (style, script, letterhead and About) is about 33 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 34_000);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },
