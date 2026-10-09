@@ -4,6 +4,7 @@ import { latestCollectionUrl, pinnedRevisionUrl, rawUrl } from "@waypoint/core";
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { Globe, Timeline } from "../../components.tsx";
 import { projectAndTags } from "../../format.ts";
+import { menuCompareHref } from "./panel.tsx";
 import { type CollectionContext, changesHref } from "./shell.tsx";
 
 const shortUrl = (url: string) => `…${new URL(url).pathname}`;
@@ -54,11 +55,13 @@ export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
           idPrefix="rm"
         />
         <hr />
-        <button type="button" class="mi" commandfor="compare" command="show-modal">
-          <span aria-hidden="true">⇄</span>
-          <span>Compare…</span>
-          <small>Choose any two revisions</small>
-        </button>
+        {ctx.rows.length >= 2 ? (
+          <a class="mi" href={menuCompareHref(ctx)} data-compare-open>
+            <span aria-hidden="true">⇄</span>
+            <span>Compare…</span>
+            <small>Choose any two revisions</small>
+          </a>
+        ) : null}
         <button
           type="button"
           class="mi"

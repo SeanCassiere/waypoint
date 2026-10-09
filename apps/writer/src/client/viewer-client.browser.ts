@@ -1,7 +1,7 @@
 import { bindActions } from "./actions.ts";
 import { bindCollection } from "./collection.ts";
 import { bindCommandFallback } from "./commands.ts";
-import { bindCompare } from "./compare.ts";
+import { bindCompareMode } from "./compare-mode.ts";
 import { bindFocusReturn } from "./dialogs.ts";
 import { bindFrameSync } from "./frame-sync.ts";
 import { bindKeysDialog } from "./keys-dialog.ts";
@@ -24,7 +24,7 @@ bindSearch();
 bindPanel();
 bindRecentMarks();
 bindCollection();
-bindCompare();
+bindCompareMode();
 bindFrameSync();
 bindReadMarks();
 bindShare();

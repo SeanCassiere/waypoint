@@ -262,16 +262,14 @@ describe("compare API and Changes page", () => {
     expect(source).toContain('class="lines"');
     const first1 = new URL(first.url ?? "").pathname;
     expect(await (await app.request(`${first1}changes`)).text()).toContain("first revision");
-    // The no-script Compare… picker redirects to the Changes URL.
-    const picked = await app.request(
-      `/c/${pinned.split("/")[2] ?? ""}/?base=${first1.split("/")[4] ?? ""}&head=${pinned.split("/")[4] ?? ""}`,
-    );
+    // The no-script compare form (NAV-10's /c/<pub>/compare) redirects to the Changes URL.
+    const form = `?from=${pinned}&r=${first1.split("/")[4] ?? ""}&r=${pinned.split("/")[4] ?? ""}`;
+    const picked = await app.request(`/c/${pinned.split("/")[2] ?? ""}/compare${form}`);
     expect(picked.status).toBe(302);
-    expect(picked.headers.get("location")).toMatch(/\/changes\?base=/);
+    expect(picked.headers.get("location")).toBe(`${pinned}changes`);
     // The collection segment is validated too before it goes into the redirect.
-    const query = `?base=${first1.split("/")[4] ?? ""}&head=${pinned.split("/")[4] ?? ""}`;
     for (const pub of ["%2F%2Fevil.example", "not_a_pub!!", "%5Cevil"]) {
-      const bad = await app.request(`/c/${pub}/${query}`);
+      const bad = await app.request(`/c/${pub}/compare${form}`);
       expect({ pub, status: bad.status, location: bad.headers.get("location") }).toEqual({
         pub,
         status: 404,
