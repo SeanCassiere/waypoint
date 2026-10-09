@@ -10,7 +10,7 @@ import { linksEnabled } from "../../../shares.ts";
 import { getChrome } from "../../chrome.ts";
 import { HomeBar, Layout } from "../../layout.tsx";
 import { noStore } from "../../respond.ts";
-import { RecentBody, EmptyHome, loadPublicNow } from "./home.tsx";
+import { AllInTrash, FirstRun, RecentBody, loadPublicNow } from "./home.tsx";
 import { SearchBody, exactTarget } from "./search.tsx";
 
 /**
@@ -144,8 +144,10 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
             publicNow={publicNow}
             latestPubs={latestPubs}
           />
+        ) : chrome.trashCount > 0 ? (
+          <AllInTrash chrome={chrome} />
         ) : (
-          <EmptyHome />
+          <FirstRun chrome={chrome} />
         )}
       </Layout>,
     ),
@@ -154,5 +156,5 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
 
 export { highlight, RecentRow } from "./rows.tsx";
 export { NeedsAttention } from "./attention.tsx";
-export { type Facet, type PublicNow, RecentBody, EmptyHome } from "./home.tsx";
+export { type Facet, type PublicNow, RecentBody, FirstRun, AllInTrash } from "./home.tsx";
 export { SearchBody, exactTarget } from "./search.tsx";
