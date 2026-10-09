@@ -201,13 +201,13 @@ export async function changesPage(
   const host = ctx.timeline.find((row) => row.id === revision.id)?.host;
   const pill = baseN === null ? "first revision" : `changes from #${baseN}`;
   const [low, high] = [baseN ?? 0, headN].toSorted((a, b) => a - b);
-  // VS-03b deleted the branches crumb's compare glyph (no icon for it); NAV-09b owns the wording.
+  // VS-03b deleted the branches crumb's compare glyph (no icon for it); NAV-09b words it.
   const crumb = error
     ? undefined
     : kind === "ancestor"
       ? `#${baseN} → #${headN} changes`
       : kind === "branches" || kind === "unrelated"
-        ? `#${low} #${high} branches`
+        ? `#${low} and #${high} branches`
         : undefined;
   const ownChanges = (row: { public_id: string }) =>
     `${shellPath(collection.public_id, row.public_id, "", true)}changes`;

@@ -80,7 +80,7 @@ function card(tab: string, id: string): string {
   return tab.slice(start, ends.length ? Math.min(...ends) : undefined);
 }
 const tabCount = (page: string) =>
-  /id="tab-links"[^>]*>Links<span class="n">(\d+)</.exec(page)?.[1];
+  /id="tab-links"[^>]*>Public links<span class="n">(\d+)</.exec(page)?.[1];
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "waypoint-ow04-"));
@@ -269,17 +269,15 @@ describe("OW-04 refresh keys and counts", () => {
     expect((await app.request(`/api/share-links/${first.id}/revoke`, json({}))).status).toBe(200);
     ({ page, tab } = await linksTab());
     expect(tab).toContain('<details class="inactive" data-refresh="links-inactive">');
-    expect(tab).toContain("Show 1 inactive");
+    expect(tab).toContain("Show 1 expired or revoked");
     expect(tab).not.toContain('data-refresh="links-foot"');
     expect(tab).not.toContain('data-refresh="links-empty"');
     expect(tabCount(page)).toBe("0");
     // No open card left: the empty note, keyed.
     expect((await app.request(`/api/share-links/${second.id}/revoke`, json({}))).status).toBe(200);
     ({ page, tab } = await linksTab());
-    expect(tab).toContain(
-      '<p class="legend" data-refresh="links-empty">No live links. Create one with Share.</p>',
-    );
-    expect(tab).toContain("Show 2 inactive");
+    expect(tab).toContain('<p class="legend" data-refresh="links-empty">No live public links.</p>');
+    expect(tab).toContain("Show 2 expired or revoked");
     expect(tab).not.toContain('data-refresh="links-foot"');
     expect(tabCount(page)).toBe("0");
   });

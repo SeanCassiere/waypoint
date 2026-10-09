@@ -51,7 +51,7 @@ export function StateChip(props: { link: ShareView }) {
     return (
       <span class="chip public" data-link-state="active">
         {html(icon("globe", "sm"))}
-        Active
+        Live
       </span>
     );
   if (state === "activating")
@@ -336,7 +336,7 @@ export function LinksPanel(props: {
       ))}
       {!live.length ? (
         <p class="legend" data-refresh="links-empty">
-          No live links. Create one with Share.
+          No live public links.
         </p>
       ) : null}
       {live.length >= 2 ? (
@@ -355,7 +355,7 @@ export function LinksPanel(props: {
       ) : null}
       {dead.length ? (
         <details class="inactive" data-refresh="links-inactive">
-          <summary>Show {dead.length} inactive</summary>
+          <summary>Show {dead.length} expired or revoked</summary>
           {dead.map((link) => (
             <LinkCard link={link} now={ctx.chrome.now} newest={newest} sharing={ctx.sharing} />
           ))}
@@ -972,7 +972,8 @@ export function ShareDialog(props: {
           <div>
             <h2 id="share-created-title">Link created</h2>
             <p>
-              Anyone who has it can read this. You can copy it again any time from the Links tab.
+              Anyone who has it can read this. You can copy it again any time from the Public links
+              tab.
             </p>
           </div>
         </div>
@@ -1256,7 +1257,7 @@ function LinkGroup(props: {
           </a>
         ) : (
           <a class="tab" href={`/c/${collection.public_id}/?panel=links`}>
-            Links tab
+            Public links tab
           </a>
         )}
       </header>

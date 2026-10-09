@@ -1,5 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { latestCollectionUrl, pinnedRevisionUrl, rawUrl } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { projectAndTags } from "../../format.ts";
@@ -19,7 +21,7 @@ export function handoffBlock(ctx: CollectionContext): string {
   return [
     `Waypoint collection "${collection.title}"`,
     `collection_id: ${collection.id}`,
-    `revision: #${revision.display_number ?? "?"} ${revision.id} (${revision.id === latest?.id ? "latest" : "not latest"}, ${revision.sync_state ?? "synced"})`,
+    `revision: #${revision.display_number ?? "?"} ${revision.id} (${revision.id === latest?.id ? "latest" : "older"}, ${revision.sync_state ?? "synced"})`,
     `head: ${revision.head_path} · files: ${shown}${paths.length > 8 ? `, … +${paths.length - 8} more` : ""}`,
     `url: ${ctx.pinned ? pinnedRevisionUrl(base, collection.public_id, revision.public_id) : latestCollectionUrl(base, collection.public_id)}`,
     `raw head: ${rawUrl(base, revision.public_id, revision.head_path)}`,
@@ -42,7 +44,10 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
     <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
       <div class="mbox has-list">
         <div class="mbody">
-          <div class="lbl">Links</div>
+          <div class="lbl">
+            <span class="lbl-ic">{raw(icon("lock", "sm"))}Tailnet links</span>
+            <span class="lbl-note"> · open only on your tailnet</span>
+          </div>
           <button
             type="button"
             class="mi"
@@ -121,6 +126,27 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             <span>Revision ID</span>
             <small class="mono">{ctx.revision.id}</small>
           </button>
+          {/* Copy link's URLs open only on the tailnet; Share makes one for anyone (NAV-09). */}
+          {ctx.sharing ? (
+            <div class="mnote">
+              Need a link for someone outside the tailnet? Use{" "}
+              <button
+                type="button"
+                class="linkbtn"
+                role="menuitem"
+                commandfor="share"
+                command="show-modal"
+              >
+                Share
+              </button>
+              .
+            </div>
+          ) : (
+            <div class="mnote">
+              Need a link for someone outside the tailnet? Public links need a share key; see
+              Status.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -130,6 +156,8 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
 export function MoreMenu(props: { ctx: CollectionContext; path: string; previewPublic?: boolean }) {
   const { ctx, path } = props;
   const rawHref = rawPath(ctx.revision.public_id, path);
+  // The current file by name (frame-sync keeps it in step on in-frame navigation).
+  const name = path.split("/").at(-1) ?? path;
   return (
     <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
       <div class="mbox">
@@ -204,11 +232,30 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           <span>Edit details…</span>
         </button>
         <hr />
-        <a class="mi" role="menuitem" href={rawHref} target="_blank" rel="noopener" data-open-raw>
-          <span>Open raw</span>
+        <a
+          class="mi"
+          role="menuitem"
+          href={rawHref}
+          target="_blank"
+          rel="noopener"
+          title={path}
+          data-open-raw
+        >
+          <span>
+            Open <span data-file-name>{name}</span> raw
+          </span>
         </a>
-        <a class="mi" role="menuitem" href={`${rawHref}?download`} download data-download-raw>
-          <span>Download file</span>
+        <a
+          class="mi"
+          role="menuitem"
+          href={`${rawHref}?download`}
+          download
+          title={path}
+          data-download-raw
+        >
+          <span>
+            Download <span data-file-name>{name}</span>
+          </span>
         </a>
         <button
           type="button"

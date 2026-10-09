@@ -24,7 +24,7 @@ export function refreshStatusLine(): void {
   const links = segments.length > 0 && segments.every((segment) => $(".pubseg", segment));
   tap.dataset.tab = links ? "links" : "history";
   tap.setAttribute("href", `?panel=${tap.dataset.tab}`);
-  const tab = links ? "Links" : "History";
+  const tab = links ? "Public links" : "History";
   const spoken = text.replace(/\.?$/, ".");
   tap.textContent = brief;
   tap.setAttribute("aria-label", `${spoken} Open ${tab}.`);

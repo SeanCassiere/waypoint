@@ -105,9 +105,14 @@ export function bindFrameSync(): void {
     frameNotice(matched ? null : "This file isn't in this revision.");
     const raw = rawPath(revision, path) + search + hash;
     for (const link of $$("[data-open-raw],[data-download]", HTMLAnchorElement)) link.href = raw;
-    // "Download file" saves the original bytes (RX-06), never the file's HTML rendition.
+    // "Download runbook.md" saves the original bytes (RX-06), never the file's HTML rendition.
     for (const link of $$("[data-download-raw]", HTMLAnchorElement))
       link.href = rawPath(revision, path) + "?download";
+    // The raw items name the current file (NAV-09): its basename, with the full path as title.
+    for (const name of $$("[data-file-name]")) {
+      name.textContent = path.split("/").at(-1) ?? path;
+      name.closest("[data-open-raw],[data-download-raw]")?.setAttribute("title", path);
+    }
     const latest = $("[data-copy-preview=latest]");
     if (latest) latest.textContent = `…${shellPath(collection, revision, path, false, head)}`;
     const pinnedPreview = $("[data-copy-preview=pinned]");

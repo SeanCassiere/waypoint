@@ -313,7 +313,10 @@ const scenario: ViewerScenario = {
     await share.locator("[data-share-copy]").waitFor({ state: "visible" });
     await share.locator("[data-share-copy]").click();
     await page.locator(success).waitFor({ state: "visible" });
-    assert.equal((await page.locator(`${success} .tt`).textContent())?.trim(), "Copied link");
+    assert.equal(
+      (await page.locator(`${success} .tt`).textContent())?.trim(),
+      "Copied public link",
+    );
     assert.equal(await page.locator("dialog#share[open] [data-toast]").count(), 1);
     // Closing the share dialog after a link exists navigates to the Links tab, so record where
     // the host is when the dialog's close event fires (after the toast has moved out).
