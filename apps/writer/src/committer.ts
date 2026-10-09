@@ -6,9 +6,10 @@ import { z, ZodError } from "zod";
 
 import type { BlobStore } from "./blob-store.ts";
 import { type Bucket, BucketError } from "./bucket.ts";
-import { type Db } from "./db.ts";
+import { type Db, type DbHandle } from "./db.ts";
 import type { Committer, IngestService } from "./ingest.ts";
 import { SyncLoop } from "./sync-loop.ts";
+import { type QueuedRevision, readQueued, refreshSyncing, refreshSyncingFrom } from "./syncing.ts";
 
 type Revision = {
   id: string;
@@ -87,6 +88,9 @@ export type CommitterStep =
 
 export class WriterCommitter implements Committer {
   private running = false;
+  /** RX-11: the collection's queued revisions, read by `attempt()` just before its commit
+   *  transaction; consumed by `refreshSyncing` inside it. */
+  private commitQueued: { collectionId: string; queued: readonly QueuedRevision[] } | undefined;
   private stopping = false;
   private rerun = false;
   private active: Promise<void> | undefined;
@@ -206,6 +210,7 @@ export class WriterCommitter implements Committer {
     this.running = true;
     let passFailed = false;
     try {
+      await this.recoverSyncing();
       do {
         this.rerun = false;
         const rows = await this.queue.all<Revision>(
@@ -285,7 +290,66 @@ export class WriterCommitter implements Committer {
       ],
     );
     if (failed) await this.cascade(row.id);
+    if (failed)
+      await this.lock.withCollectionLock(row.collection_id, () =>
+        this.refreshSyncing(row.collection_id),
+      );
     this.notify();
+  }
+  /** RX-11: recompute the collection's syncing row. The caller holds the collection lock; pass the
+   *  commit's waypoint transaction as `tx` when called inside it. Triggers a push when it changed
+   *  (outside a transaction).
+   *
+   *  Inside the commit transaction, the queue facts come from `commitQueued`, which `attempt()`
+   *  reads before it opens the transaction: the transaction must never wait on the queue
+   *  connection, because a queue transaction (Drop's `prunePendingStorage`) may be waiting on the
+   *  waypoint one. Any other `tx` caller reads the queue inside its transaction and takes on that
+   *  risk. */
+  async refreshSyncing(collectionId: string, tx?: DbHandle): Promise<void> {
+    const preread = tx ? this.commitQueued : undefined;
+    if (tx && preread?.collectionId === collectionId) {
+      this.commitQueued = undefined;
+      await refreshSyncingFrom({
+        waypoint: tx,
+        queued: preread.queued,
+        collectionId,
+        giveUpHours: this.giveUpHours,
+      });
+      return;
+    }
+    const { changed } = await refreshSyncing({
+      waypoint: tx ?? this.waypoint,
+      queue: this.queue,
+      collectionId,
+      giveUpHours: this.giveUpHours,
+    });
+    if (changed && !tx) this.sync.triggerPush();
+  }
+  /**
+   * RX-11 crash recovery: refreshes every collection with queued revisions or a syncing row, so a
+   * write lost between a queue change and its refresh is corrected on the next pass.
+   */
+  private async recoverSyncing(): Promise<void> {
+    const ids = new Set([
+      ...(
+        await this.queue.all<{ collection_id: string }>(
+          "SELECT DISTINCT collection_id FROM pending_revisions",
+        )
+      ).map((row) => row.collection_id),
+      ...(
+        await this.waypoint.all<{ collection_id: string }>(
+          "SELECT collection_id FROM collection_syncing",
+        )
+      ).map((row) => row.collection_id),
+    ]);
+    // One collection's failure must not hold up every commit behind a cosmetic note; the next
+    // pass tries it again.
+    for (const id of ids)
+      await this.lock
+        .withCollectionLock(id, () => this.refreshSyncing(id))
+        .catch((error: unknown) => {
+          console.error(`Syncing row refresh failed for ${id}: ${reason(error)}`);
+        });
   }
   private async cascade(parentId: string): Promise<void> {
     const children = await this.queue.all<{ id: string }>(
@@ -494,6 +558,12 @@ export class WriterCommitter implements Committer {
           this.rerun = true;
           throw new AbortedAttempt("Collection changed during snapshot upload");
         }
+        // RX-11: the queue facts for the syncing row, read before the waypoint transaction opens
+        // (see `refreshSyncing`); the collection lock keeps them current until it commits.
+        this.commitQueued = {
+          collectionId: row.collection_id,
+          queued: await readQueued(this.queue, row.collection_id),
+        };
         await this.waypoint.transaction(async (tx) => {
           if (pendingCollection) {
             await tx.run(
@@ -581,12 +651,14 @@ export class WriterCommitter implements Committer {
             if (file?.blob_hash !== entry.hash)
               throw new CommitValidationError("Revision file INSERT OR IGNORE collision");
           }
+          await this.refreshSyncing(row.collection_id, tx);
         });
         await this.step("commit_after_rows");
         await this.cleanup(row);
         await this.step("commit_after_queue_cleanup");
       });
     } catch (error) {
+      this.commitQueued = undefined;
       if (error instanceof SimulatedCrash) throw error;
       if (
         error instanceof AbortedAttempt ||
@@ -1133,6 +1205,7 @@ export class WriterCommitter implements Committer {
       for (const rev of purged)
         await this.queue.run("DELETE FROM unpushed WHERE revision_id=?", [rev.id]);
       await this.waypoint.transaction(async (tx) => {
+        await tx.run("DELETE FROM collection_syncing WHERE collection_id=?", [id]);
         await tx.run("DELETE FROM share_links WHERE collection_id=?", [id]);
         await tx.run(
           "DELETE FROM revision_files WHERE revision_id IN (SELECT id FROM revisions WHERE collection_id=?)",

@@ -61,6 +61,8 @@ export interface PublicShellOptions {
   expiresAt?: number | null;
   /** "Now" for the expiry thresholds (ms). Defaults to Date.now(); the reader passes its clock. */
   now?: number;
+  /** RX-11: a newer revision of a following link's collection is still syncing; ignored for snapshots. */
+  syncing?: boolean;
   /** Show a download card instead of the iframe (content that can't be previewed). */
   download?: { mime: string; size: number | null } | null;
   /** Serve CSS and script as external files instead of inline elements. */

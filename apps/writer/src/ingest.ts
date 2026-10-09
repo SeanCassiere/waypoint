@@ -29,6 +29,8 @@ export interface Committer {
   /** The collection-commit step must run inside withCollectionLock(collectionId, fn). */
   wake(): void;
   waitForCommit(revisionId: string, timeoutMs: number): Promise<SyncState>;
+  /** RX-11: recompute the collection's syncing row; the caller holds the collection lock. */
+  refreshSyncing?(collectionId: string): Promise<void>;
 }
 export class NoopCommitter implements Committer {
   wake(): void {}
@@ -415,6 +417,7 @@ export class IngestService {
             throw new WaypointError("revision_conflict", "ID already used");
           throw error;
         });
+      await this.committer.refreshSyncing?.(collectionId);
       return { revisionId: id, unchanged: false, wake: true };
     } finally {
       this.releaseHashes(held);

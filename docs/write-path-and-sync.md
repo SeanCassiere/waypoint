@@ -118,6 +118,8 @@ The committer processes pending revisions in ID order (oldest first). For each o
    If the process dies between steps 5 and 6, the next pass finds the revision already in `waypoint.db` and only performs step 6.
 7. **Trigger a push.**
 
+**Syncing row (RX-11).** `refreshSyncing` (`apps/writer/src/syncing.ts`) keeps one `collection_syncing` row per collection while a non-failed queued revision is newer (by ID) than the collection's newest committed revision, with `since` the oldest such revision's `created_at` and `until = since + WAYPOINT_QUEUE_GIVE_UP_HOURS`; otherwise it deletes the row. A collection that was never committed gets no row. It writes only when the stored row differs, always under the collection lock, and runs after ingest queues a revision, inside the commit's step-5 transaction (so the revision and the removed row reach the cloud in the same push), when a revision fails (with its cascaded children), on Retry and Drop, and once at the start of every committer pass for every collection with queued revisions or a row (recovering a refresh lost to a crash; a collection whose refresh fails there is logged and tried again on the next pass, without holding up commits). Purge deletes the row in its rows transaction, before the collection. Outside a transaction, a change triggers a push. The commit reads the collection's queued revisions before it opens the step-5 transaction (the collection lock keeps them current) and never touches `queue.db` inside it: Drop's queue transaction reads `waypoint.db`, so a waypoint transaction waiting on the queue could deadlock both connections.
+
 ### Other queued work
 
 These are idempotent and **never give up**:

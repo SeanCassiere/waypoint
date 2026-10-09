@@ -116,6 +116,7 @@ export const LOOKUP_TTL_MS = 5_000;
 const LOOKUP_CACHE_MAX = 1_000;
 const linkSql =
   "SELECT s.id,s.collection_id,s.revision_id,s.expires_at,s.revoked_at,c.public_id,c.title,t.deleted_at,pr.public_id AS pinned_public_id,pr.head_path AS pinned_head_path,pr.created_at AS pinned_created_at FROM share_links s JOIN collections c ON c.id=s.collection_id LEFT JOIN collection_tombstones t ON t.collection_id=c.id LEFT JOIN revisions pr ON pr.id=s.revision_id AND pr.collection_id=s.collection_id WHERE ";
+const syncingSql = "SELECT until FROM collection_syncing WHERE collection_id=?";
 function decodeRawPath(encoded: string): string {
   if (!encoded || /%(?:2f|5c)/i.test(encoded)) throw new Error("Invalid path");
   const path = encoded.split("/").map(decodeURIComponent).join("/");
@@ -224,6 +225,16 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       lookupCache.set(key, { until: now() + LOOKUP_TTL_MS, link: row });
     }
     return row;
+  }
+  /** RX-11: whether a newer revision of this collection is still syncing. Any error (an older
+   *  schema without the table, a Turso failure) means no note. Never cached. */
+  async function syncing(db: ReaderDb, collectionId: string): Promise<boolean> {
+    try {
+      const row = (await db.all<{ until: number }>(syncingSql, [collectionId]))[0];
+      return typeof row?.until === "number" && now() < row.until;
+    } catch {
+      return false;
+    }
   }
   async function blobResponse(
     env: ReaderEnv,
@@ -422,6 +433,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         "SELECT path,mime,size FROM revision_files WHERE revision_id=? ORDER BY path",
         [revision.id],
       );
+      const newer = link.revision_id ? false : await syncing(db, link.collection_id);
       const base = new URL(c.req.url).origin;
       const prefix = shareShellUrl(
         base,
@@ -448,6 +460,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         snapshotAt: link.revision_id ? revision.created_at : null,
         expiresAt: link.expires_at,
         now: now(),
+        syncing: newer,
         download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
       });
       response = new Response(html, {

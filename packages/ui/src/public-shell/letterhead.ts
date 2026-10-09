@@ -23,7 +23,14 @@ const EXPIRY_SHOWN = 30 * DAY;
 const time = (ms: number, kind: "rel" | "date" | "full"): string =>
   `<time datetime="${new Date(ms).toISOString()}" data-t="${kind}">${formatShellTime(ms)}</time>`;
 
-/** The meta row: the mode pill, then the facts ("Updated …" or "Taken … won't change", the expiry). */
+/** RX-11: a following link whose collection has a newer revision still syncing (never snapshots). */
+const syncingNote = (options: PublicShellOptions): boolean =>
+  options.syncing === true && options.snapshotAt === null;
+
+/**
+ * The meta row: the mode pill, then the facts ("Updated …" or "Taken … won't change", the expiry),
+ * then on phones RX-11's short syncing pill (its full sentence stays in the accessibility tree).
+ */
 function note(options: PublicShellOptions, now: number): string {
   const mode =
     options.snapshotAt === null
@@ -39,6 +46,8 @@ function note(options: PublicShellOptions, now: number): string {
     const soon = expiresAt - now < DAY;
     facts += `<span class="${soon ? "f exp soon" : "f exp"}">${soon ? icon("clock", "sm") : ""}<span class="lgo">Link expires</span><span class="smo">Expires</span> ${time(expiresAt, "rel")}</span>`;
   }
+  if (syncingNote(options))
+    facts += `<span class="f pend">${icon("clock", "sm")}Newer version syncing<span class="vh">. It will appear here once it has uploaded.</span></span>`;
   return `<p class="note">${mode}${facts}</p>`;
 }
 
@@ -102,5 +111,8 @@ export function letterhead(options: PublicShellOptions, actionsLead = ""): strin
   const title = escapeHtml(showBidi(options.title));
   const now = options.now ?? Date.now();
   const button = `<button type="button" class="abt" popovertarget="about"><span class="lgo">${icon("info", "sm")}About this link</span><span class="smo">${icon("lock", "sm")}Read-only<span class="vh">, about this link</span>${icon("info", "sm")}</span></button>`;
-  return `<header class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options, now)}</div><div class="acts">${actionsLead}<span class="ro">${icon("lock", "sm")}Read-only</span>${button}${about(options, title)}</div></header>`;
+  const sync = syncingNote(options)
+    ? `<p class="sync">${icon("clock", "sm")}<span>A newer version is being synced. It will appear here once it has uploaded.</span></p>`
+    : "";
+  return `<header class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options, now)}${sync}</div><div class="acts">${actionsLead}<span class="ro">${icon("lock", "sm")}Read-only</span>${button}${about(options, title)}</div></header>`;
 }
