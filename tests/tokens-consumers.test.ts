@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { publicShellCss, sharedTokensCss, writerTokensCss } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
@@ -21,33 +23,13 @@ const mentions = (css: string, token: string): boolean =>
 const READER = { publicShellCss, staticCss };
 const shared = definedIn(sharedTokensCss);
 const writerOnly = [...definedIn(writerTokensCss)];
-
-// Shared tokens no reader CSS uses yet (or will stop using in a lane). Only shrinks; VS-01b
-// empties it. Lanes don't edit it.
-const NOT_YET_CONSUMED: readonly string[] = [
-  "--stage",
-  "--sel-bg",
-  "--sel-ring",
-  "--sel-bar",
-  "--pending",
-  "--pending-bg",
-  "--pending-line",
-  "--public",
-  "--public-bg",
-  "--public-line",
-  "--img-frame",
-  "--check-a",
-  "--check-b",
-  "--scrim",
-  "--r-sm",
-  "--r-lg",
-  "--tap",
-  "--ctl-sm",
-  "--ctl-md",
-  // Consumed by the shell until A11Y-07 retires the solid-ink row.
-  "--sel",
-  "--on-sel",
-];
+// RX-10's preview band rides on the shell's page in the writer's ?as=public preview, whose only
+// tokens are sharedTokensCss, so a token it uses stays shared. Read as text: the band's CSS isn't
+// exported, and importing the writer's hono/jsx module would make this package depend on it.
+const PREVIEW_BAND_CSS = readFileSync(
+  new URL("../apps/writer/src/viewer/pages/public-preview.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("token consumers", () => {
   it("starts every reader stylesheet with the shared tokens", () => {
@@ -67,15 +49,12 @@ describe("token consumers", () => {
     },
   );
 
-  it("leaves no shared token unused outside the not-yet-consumed list", () => {
-    const used = usedIn(publicShellCss + staticCss);
+  // No dead bytes on 2,000-file shells: a shared token that neither reader CSS nor the writer's
+  // `?as=public` preview band uses moves to the writer set.
+  it("leaves no shared token unused by reader CSS or the preview band", () => {
+    const used = usedIn(publicShellCss + staticCss + PREVIEW_BAND_CSS);
     const unused = [...shared].filter((token) => !used.has(token));
-    expect(unused.filter((token) => !NOT_YET_CONSUMED.includes(token))).toEqual([]);
-  });
-
-  it("lists only shared tokens, each once", () => {
-    expect(NOT_YET_CONSUMED.filter((token) => !shared.has(token))).toEqual([]);
-    expect(new Set(NOT_YET_CONSUMED).size).toBe(NOT_YET_CONSUMED.length);
+    expect(unused).toEqual([]);
   });
 });
 

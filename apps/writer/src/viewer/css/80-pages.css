@@ -1,11 +1,23 @@
-/* status, trash, links, mcp */
+/* status, trash, links, mcp. One page frame (VS-01b): .home and .wrap are --page-max plus a
+   --page-pad gutter each side; .wrap.narrow is a 760 px reading column whose left edge is the
+   frame's content edge. The left margin is measured against 100vw, not centred with auto: a
+   classic scrollbar narrows the body only on long pages, and auto margins would then move the H1
+   7.5 px between pages. 100vw doesn't change, and the frame still fits beside the scrollbar. */
 .wrap {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 32px 32px 80px;
+  max-width: calc(var(--page-max) + 2 * var(--page-pad));
+  margin: 0 auto 0 max(0px, calc((100vw - var(--page-max) - 2 * var(--page-pad)) / 2));
+  padding: 36px var(--page-pad) 80px;
 }
+/* .wrap's margins put the narrow column's left edge at the frame's. */
 .wrap.narrow {
-  max-width: 760px;
+  max-width: calc(760px + 2 * var(--page-pad));
+}
+/* One H1 rule for every page heading; the missing-file page's h2 under the collection bar looks
+   the same. */
+:is(h1.page, .ph h1, .notfound > :is(h1, h2)) {
+  font: 700 26px/1.15 var(--sans);
+  letter-spacing: -0.02em;
+  margin: 0;
 }
 .ph {
   display: flex;
@@ -15,9 +27,6 @@
   flex-wrap: wrap;
 }
 .ph h1 {
-  font: 700 26px/1.15 var(--sans);
-  letter-spacing: -0.02em;
-  margin: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -730,13 +739,6 @@ li.item.purging .meta .mono {
   color: var(--ink);
   font-size: 15px;
   margin-bottom: 4px;
-}
-.notfound {
-  padding-top: 12vh;
-}
-.notfound h1 {
-  font: 700 22px/1.2 var(--sans);
-  margin: 0;
 }
 .btns {
   display: flex;

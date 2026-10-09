@@ -1,16 +1,13 @@
 /* home */
+/* The frame's left margin is measured against 100vw, not centred with auto, so the H1 doesn't
+   move between short and long pages where the browser shows a classic scrollbar (80-pages.css). */
 .home {
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: 36px 32px 64px;
+  max-width: calc(var(--page-max) + 2 * var(--page-pad));
+  margin: 0 auto 0 max(0px, calc((100vw - var(--page-max) - 2 * var(--page-pad)) / 2));
+  padding: 36px var(--page-pad) 80px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 288px;
   gap: 48px;
-}
-.page {
-  font: 700 26px/1.15 var(--sans);
-  letter-spacing: -0.02em;
-  margin: 0;
 }
 .lede {
   color: var(--muted);
