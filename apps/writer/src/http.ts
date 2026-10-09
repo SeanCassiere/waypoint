@@ -34,6 +34,7 @@ import {
   DiffCache,
   DiffWorkers,
   MAX_SIDE_BYTES,
+  splitLines,
   type CompareFile,
   type FileDiff,
 } from "./compare.ts";
@@ -66,6 +67,7 @@ import { getStatus } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
 import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
+import { FOLD_LINE_LIMIT, foldLinesFragment } from "./viewer/pages/changes/units.tsx";
 import { mcpMarkdown as mcpNotes, mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
@@ -1153,6 +1155,34 @@ export function createApp(s: HttpServices): Hono {
     const file = compare.files.find((item) => item.path === path);
     if (!file) throw new WaypointError("not_found", "File not in either revision");
     if (c.req.query("format") === "html") {
+      if (mode === "lines") {
+        // An opened source-view hunk: head lines [from, to), numbered from base line bfrom. The
+        // range is checked before the blob is read.
+        const from = Number(c.req.query("from"));
+        const to = Number(c.req.query("to"));
+        const bfrom = Number(c.req.query("bfrom"));
+        if (
+          !Number.isSafeInteger(from) ||
+          !Number.isSafeInteger(to) ||
+          !Number.isSafeInteger(bfrom) ||
+          from < 1 ||
+          bfrom < 1 ||
+          to <= from ||
+          to - from > FOLD_LINE_LIMIT
+        )
+          throw new WaypointError("validation_failed", "Invalid line range");
+        if (!file.head) throw new WaypointError("not_found", "File not in this revision");
+        const text = await blobText(file.head);
+        if (typeof text !== "string")
+          throw new WaypointError("validation_failed", "This file is too large to show");
+        // Split as diffTextLines does, so the numbers agree with the line diff's.
+        const lines = splitLines(text);
+        if (to - 1 > lines.length)
+          throw new WaypointError("validation_failed", "Invalid line range");
+        return c.html(foldLinesFragment(lines.slice(from - 1, to - 1), bfrom, from), 200, {
+          "cache-control": "private, max-age=3600",
+        });
+      }
       // A folded run of the Changes page, rendered: blocks [from, to) of the block diff.
       const diff = await fileDiff(file, "blocks");
       const from = Number(c.req.query("from"));

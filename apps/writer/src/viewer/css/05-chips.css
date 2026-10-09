@@ -60,7 +60,7 @@ a.chip.public:hover {
   color: var(--add);
 }
 .chg .m {
-  color: var(--pending);
+  color: var(--changed);
 }
 .chg .rm {
   color: var(--del);

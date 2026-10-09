@@ -74,6 +74,7 @@
   padding: 12px 16px;
   font-size: 13px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .blk {
   display: grid;
@@ -102,7 +103,7 @@
   color: var(--ink-2);
 }
 .blk.mod {
-  box-shadow: inset 3px 0 0 var(--pending);
+  box-shadow: inset 3px 0 0 var(--changed);
 }
 .blk .mk {
   font: 700 13px/1 var(--mono);
@@ -116,7 +117,7 @@
   color: var(--del);
 }
 .blk.mod .mk {
-  color: var(--pending);
+  color: var(--changed);
 }
 .blk .ctxnote {
   color: var(--muted);
@@ -169,6 +170,22 @@
   white-space: pre-wrap;
   color: var(--ink-2);
 }
+/* Room for the code lines' +/− signs, which sit in the padding and aren't copied. */
+.blk.src .tx {
+  padding-left: calc(10px + 2ch);
+}
+.blk.src .tx .sg {
+  display: inline-block;
+  width: 2ch;
+  margin-left: -2ch;
+  user-select: none;
+}
+.blk.src .tx .lnadd .sg {
+  color: var(--add);
+}
+.blk.src .tx .lndel .sg {
+  color: var(--del);
+}
 .blk.src .tx .lnadd {
   display: block;
   background: var(--add-word);
@@ -204,10 +221,36 @@ del {
   border-radius: 3px;
   padding: 0 1px;
 }
-.blk.mod .tx ins {
+/* Word diffs: removed words struck in the removal colour, added ones underlined, 2px apart; screen
+   readers hear "removed:" and "added:" before them. */
+.cmp del {
+  color: var(--del);
+  text-decoration-line: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.cmp ins {
   text-decoration: underline;
   text-decoration-color: var(--add);
+  text-decoration-thickness: 2px;
   text-underline-offset: 2px;
+}
+.cmp del + ins {
+  margin-left: 2px;
+}
+.cmp ins::before,
+.cmp del::before {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cmp ins::before {
+  content: "added: ";
+}
+.cmp del::before {
+  content: "removed: ";
 }
 .fold {
   display: block;
@@ -222,12 +265,29 @@ del {
   border-bottom: 1px solid var(--rule);
   cursor: pointer;
   list-style: none;
+  /* Over-limit links name the file; a long path wraps instead of being clipped by .fd. */
+  overflow-wrap: anywhere;
 }
 .fold::-webkit-details-marker {
   display: none;
 }
 details.folded[open] > summary.fold {
   border-bottom-color: var(--rule);
+}
+/* Both labels are in the markup; the open state picks one and flips the chevron. */
+.fold .ic {
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.fold .when-open,
+details.folded[open] > summary.fold .when-closed {
+  display: none;
+}
+details.folded[open] > summary.fold .when-open {
+  display: inline;
+}
+details.folded[open] > summary.fold .ic {
+  transform: rotate(180deg);
 }
 .lines {
   font: 12.5px/1.6 var(--mono);
@@ -265,13 +325,6 @@ details.folded[open] > summary.fold {
 .lines .ln.add ins {
   border-radius: 2px;
 }
-.lines .hunk {
-  background: var(--sunken);
-  color: var(--muted);
-  padding: 3px 10px;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-}
 .imgpair {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -294,4 +347,95 @@ details.folded[open] > summary.fold {
 .imgpair figcaption {
   font-size: 12px;
   color: var(--muted);
+}
+/* A removed image, framed in the removal colour. */
+.rmimg {
+  margin: 0;
+  padding: 14px;
+}
+.rmimg .img {
+  display: block;
+  border: 2px solid var(--del);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--stage);
+  max-width: min(100%, 480px);
+}
+.rmimg img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.rmimg figcaption {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+/* Card header counts in words, and the Files panel's legend of marks. */
+.tally {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.tally .m {
+  color: var(--changed);
+}
+.tally .a {
+  color: var(--add);
+}
+.tally .rm {
+  color: var(--del);
+}
+.diffkey .k {
+  font-family: var(--mono);
+}
+/* Previous · Change 1 of 4 · Next; docked above the tab bar on phones. */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.stepcount {
+  font-size: 13px;
+  min-width: 9ch;
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .stepper {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom));
+    z-index: 20;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--paper);
+    border-top: 1px solid var(--rule);
+  }
+  .stepper .btn {
+    flex: 1;
+    min-height: var(--tap);
+    justify-content: center;
+  }
+  .stepper kbd {
+    display: none;
+  }
+  .stepword {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .stepper kbd {
+    display: none;
+  }
 }

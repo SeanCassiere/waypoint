@@ -39,9 +39,12 @@ import {
   glyph,
   glyphClass,
   unitCount,
-  summary,
   textBody,
+  treeTally,
+  DiffKey,
   FileCard,
+  Stepper,
+  ViewSwitch,
 } from "./units.tsx";
 
 const RENDER_FIRST = 5;
@@ -237,7 +240,7 @@ export async function changesPage(
         {changed.length ? (
           changed.map((file) => {
             const index = compare.files.indexOf(file);
-            const diff = diffs.get(file.path);
+            const tally = treeTally(file, diffs.get(file.path));
             return (
               <a
                 href={rendered.has(file.path) ? `#f-${index}` : href({ file: file.path })}
@@ -247,9 +250,7 @@ export async function changesPage(
                   {glyph(file.status)}
                 </span>
                 <span class="nm">{file.path}</span>
-                {diff && !diff.truncated && diff.kind === "text" ? (
-                  <span class="sz">{summary(diff)}</span>
-                ) : null}
+                {tally ? <span class="sz">{tally}</span> : null}
               </a>
             );
           })
@@ -270,6 +271,9 @@ export async function changesPage(
           </details>
         ) : null}
       </div>
+      <p class="legend">
+        <DiffKey />
+      </p>
       <p class="legend">{legend}</p>
     </>
   );
@@ -475,20 +479,8 @@ export async function changesPage(
                     <div class="sumrow">
                       {chips}
                       <span class="grow" />
-                      <div class="seg" role="group" aria-label="Diff view">
-                        <a
-                          href={href({ view: "" })}
-                          aria-current={view === "rendered" ? "true" : undefined}
-                        >
-                          Rendered
-                        </a>
-                        <a
-                          href={href({ view: "source" })}
-                          aria-current={view === "source" ? "true" : undefined}
-                        >
-                          Source lines
-                        </a>
-                      </div>
+                      <Stepper />
+                      <ViewSwitch view={view} href={href} files={changed} />
                     </div>
                   </div>
                   {baseN === null ? (

@@ -1,9 +1,12 @@
 /** @jsxImportSource hono/jsx */
+import { isMarkdown } from "@waypoint/core";
 import { markWords } from "@waypoint/render";
+import { icon } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import {
+  fileKind,
   MAX_BLOCKS,
   MAX_LINES,
   type CompareFile,
@@ -19,9 +22,8 @@ import type { CollectionContext } from "../collection/index.tsx";
 
 export const ADDED_PREVIEW = 20;
 export const ADDED_LIMIT = 200;
-/** Unchanged runs up to this long are inlined on the no-script `?folds=open` view. */
-const FOLD_RENDER_LIMIT = 30;
-/** Unchanged runs up to this long load on demand when opened; longer ones stay a note. */
+/** Unchanged runs up to this long load on demand when opened; longer ones link to the
+ * no-script `?folds=open` view, which shows every run inline. */
 export const FOLD_LOAD_LIMIT = 200;
 /** Blocks (or source lines) one file card shows at a time, and the whole page's budget. A
  * file past its window links to the next one, so no Changes page is megabytes of HTML. */
@@ -29,6 +31,9 @@ export const FILE_BLOCKS = 300;
 export const PAGE_BLOCKS = 600;
 export const FILE_LINES = 1500;
 export const PAGE_LINES = 3000;
+/** Unchanged source lines up to this many load on demand when a hunk is opened; longer ones
+ * link to the file. */
+export const FOLD_LINE_LIMIT: number = FILE_LINES;
 /** Code blocks diff line by line with an LCS table; past this many cells, lines show as removed
  * then added. */
 const CODE_LCS_CELLS = 250_000;
@@ -37,6 +42,38 @@ export const glyph = (status: CompareFile["status"]) =>
   status === "added" ? "+" : status === "removed" ? "−" : status === "modified" ? "~" : "=";
 export const glyphClass = (status: CompareFile["status"]) =>
   status === "added" ? "k a" : status === "removed" ? "k rm" : status === "modified" ? "k m" : "k";
+/** The spoken word for a glyph ("~" is "changed", as in the legend). */
+const statusWord = (status: CompareFile["status"]) =>
+  status === "modified" ? "changed" : status === "unchanged" ? "unchanged" : status;
+/** `isMarkdown` throws on an unparseable MIME; an odd manifest MIME is just not Markdown. */
+const md = (mime: string): boolean => {
+  try {
+    return isMarkdown(mime);
+  } catch {
+    return false;
+  }
+};
+/** `fileKind`, where an unparseable MIME is binary rather than an error. */
+const kindOf = (mime: string): ReturnType<typeof fileKind> => {
+  try {
+    return fileKind(mime);
+  } catch {
+    return "binary";
+  }
+};
+/** "1,500 unchanged lines": a count with thousands separators and its noun. */
+const counted = (count: number, one: string) =>
+  `${count.toLocaleString("en-US")} ${count === 1 ? one : `${one}s`}`;
+/** A fold's summary: both labels in the markup, swapped by CSS on `details[open]`. */
+function FoldSummary(props: { label: string }) {
+  return (
+    <summary class="fold">
+      {raw(icon("chevronDown"))}
+      <span class="when-closed">Show {props.label}</span>
+      <span class="when-open">Hide {props.label}</span>
+    </summary>
+  );
+}
 
 function Words(props: { words: readonly WordOp[] }) {
   return (
@@ -102,22 +139,26 @@ function Rendered(props: { markdown: string; source: Child; frags: Fragments }) 
   );
   return raw(`<!--wpfrag:${props.frags.add(props.markdown, fallback)}-->`);
 }
+/** A typographic mark with its word for screen readers (a label on a generic span isn't
+ * exposed reliably). */
+const mark = (sign: string, word: string) => (
+  <>
+    <span aria-hidden="true">{sign}</span>
+    <span class="vh">{word}</span>
+  </>
+);
 const marker = (op: DiffBlock["op"]) =>
   op === "insert" ? (
-    <span class="mk" aria-label="added">
-      +
-    </span>
+    <span class="mk">{mark("+", "added")}</span>
   ) : op === "delete" ? (
-    <span class="mk" aria-label="removed">
-      −
-    </span>
+    <span class="mk">{mark("−", "removed")}</span>
   ) : op === "replace" ? (
-    <span class="mk" aria-label="changed">
-      ~
-    </span>
+    <span class="mk">{mark("~", "changed")}</span>
   ) : (
     <span class="mk" aria-hidden="true" />
   );
+const opWord = (op: DiffBlock["op"]) =>
+  op === "insert" ? "added" : op === "delete" ? "removed" : "changed";
 const tone = (op: DiffBlock["op"]) =>
   op === "insert" ? "add" : op === "delete" ? "del" : op === "replace" ? "mod" : "ctx";
 
@@ -156,10 +197,8 @@ function TableUnit(props: { rows: DiffBlock[] }) {
     removed ? `${removed} removed` : "",
   ].filter(Boolean);
   return (
-    <div class="blk src mod" data-change="" tabindex={-1}>
-      <span class="mk" aria-label="changed">
-        ~
-      </span>
+    <div class="blk src mod" data-change={`table, ${parts.join(", ")}`} tabindex={-1}>
+      {marker("replace")}
       <div class="tx">
         <span class="srcnote">Table · {parts.join(", ")}</span>
         {props.rows.map((row) =>
@@ -187,6 +226,24 @@ function codeBody(text: string): string[] {
   const lines = text.split("\n");
   return lines.slice(1, /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(lines.at(-1) ?? "") ? -1 : undefined);
 }
+/** A removed or added code line with its gutter sign (not selected when copying). */
+function CodeLine(props: { op: "insert" | "delete"; text: string }) {
+  return props.op === "insert" ? (
+    <span class="lnadd">
+      <span class="sg" aria-hidden="true">
+        +
+      </span>
+      {props.text}
+    </span>
+  ) : (
+    <span class="lndel">
+      <span class="sg" aria-hidden="true">
+        −
+      </span>
+      {props.text}
+    </span>
+  );
+}
 function CodeBlock(props: { op: DiffBlock }) {
   const { op } = props;
   const text = op.head_text ?? op.base_text ?? "";
@@ -205,7 +262,7 @@ function CodeBlock(props: { op: DiffBlock }) {
     );
   if (op.op !== "replace")
     return (
-      <div class={`blk src ${tone(op.op)}`} data-change="" tabindex={-1}>
+      <div class={`blk src ${tone(op.op)}`} data-change={`code ${opWord(op.op)}`} tabindex={-1}>
         {marker(op.op)}
         <div class="tx">
           <span class="srcnote">
@@ -220,24 +277,25 @@ function CodeBlock(props: { op: DiffBlock }) {
   const rows: Child[] = [];
   let deleted = 0;
   let added = 0;
-  if (before.length * after.length > CODE_LCS_CELLS)
+  if (before.length * after.length > CODE_LCS_CELLS) {
+    const lines = plural(Math.max(before.length, after.length), "line");
     return (
-      <div class="blk src mod" data-change="" tabindex={-1}>
+      <div class="blk src mod" data-change={`code, ${lines} changed`} tabindex={-1}>
         {marker("replace")}
         <div class="tx">
           <span class="srcnote">
-            Code{language ? ` · ${language}` : ""} ·{" "}
-            {plural(Math.max(before.length, after.length), "line")} changed
+            Code{language ? ` · ${language}` : ""} · {lines} changed
           </span>
           {before.map((line) => (
-            <span class="lndel">{line}</span>
+            <CodeLine op="delete" text={line} />
           ))}
           {after.map((line) => (
-            <span class="lnadd">{line}</span>
+            <CodeLine op="insert" text={line} />
           ))}
         </div>
       </div>
     );
+  }
   // A simple line LCS is enough for code blocks inside one Markdown block.
   const table: number[][] = Array.from({ length: before.length + 1 }, () =>
     Array.from({ length: after.length + 1 }, () => 0),
@@ -259,22 +317,22 @@ function CodeBlock(props: { op: DiffBlock }) {
       i < before.length &&
       (j >= after.length || (table[i + 1]![j] ?? 0) >= (table[i]![j + 1] ?? 0))
     ) {
-      rows.push(<span class="lndel">{before[i]}</span>);
+      rows.push(<CodeLine op="delete" text={before[i] ?? ""} />);
       i++;
       deleted++;
     } else {
-      rows.push(<span class="lnadd">{after[j]}</span>);
+      rows.push(<CodeLine op="insert" text={after[j] ?? ""} />);
       j++;
       added++;
     }
   }
+  const lines = plural(Math.max(deleted, added), "line");
   return (
-    <div class="blk src mod" data-change="" tabindex={-1}>
+    <div class="blk src mod" data-change={`code, ${lines} changed`} tabindex={-1}>
       {marker("replace")}
       <div class="tx">
         <span class="srcnote">
-          Code{language ? ` · ${language}` : ""} · {plural(Math.max(deleted, added), "line")}{" "}
-          changed
+          Code{language ? ` · ${language}` : ""} · {lines} changed
         </span>
         {rows}
       </div>
@@ -286,10 +344,16 @@ function BlockView(props: { op: DiffBlock; frags: Fragments }) {
   if (op.kind === "code") return <CodeBlock op={op} />;
   const text = op.op === "delete" ? (op.base_text ?? "") : (op.head_text ?? "");
   const source = op.op === "replace" && op.words ? markWords(op.words) : text;
+  const kind =
+    op.kind === "list-item"
+      ? "list item"
+      : op.kind === "heading" || op.kind === "paragraph"
+        ? op.kind
+        : "block";
   return (
     <div
       class={`blk ${tone(op.op)}`}
-      data-change={op.op === "equal" ? undefined : ""}
+      data-change={op.op === "equal" ? undefined : `${kind} ${opWord(op.op)}`}
       tabindex={op.op === "equal" ? undefined : -1}
     >
       {marker(op.op)}
@@ -311,8 +375,10 @@ function UnitView(props: { unit: Unit; frags: Fragments }) {
 /** Where a file's folded runs load from (the compare API's HTML format) and its no-script view. */
 interface FoldLinks {
   url: (from: number, to: number) => string;
-  /** The no-script view of the file with short runs inlined, at the window holding `start`. */
+  /** The no-script view of the file with every run inlined, at the window holding `start`. */
   openHref: (start: number) => string;
+  /** The file's path, for the link text. */
+  path: string;
 }
 function Fold(props: {
   units: Unit[];
@@ -323,29 +389,37 @@ function Fold(props: {
   open: boolean;
 }) {
   const count = props.units.length;
-  const label = `Show ${plural(count, "unchanged block")}${props.where === "between" ? "" : ` ${props.where}`}`;
-  // The no-script full view inlines short runs, as the page always did.
-  if (props.open && count <= FOLD_RENDER_LIMIT)
+  const label = `${counted(count, "unchanged block")}${props.where === "between" ? "" : ` ${props.where}`}`;
+  // The no-script view (`?folds=open`) inlines every run, whatever its length (the window and
+  // the fragment budget bound it): a lazy fold's fallback link there would be this very page.
+  if (props.open)
     return (
       <details class="folded">
-        <summary class="fold">{label}</summary>
+        <FoldSummary label={label} />
         {props.units.map((unit) => (
           <UnitView unit={unit} frags={props.frags} />
         ))}
       </details>
     );
-  if (!props.fold || props.open || count > FOLD_LOAD_LIMIT)
+  if (!props.fold)
     return (
       <div class="fold" role="note">
-        {plural(count, "unchanged block")} {props.where === "between" ? "" : props.where}
+        {counted(count, "unchanged block")} {props.where === "between" ? "" : props.where}
       </div>
+    );
+  // Too long to load into the page: the no-script view of the file shows it.
+  if (count > FOLD_LOAD_LIMIT)
+    return (
+      <a class="fold" href={props.fold.openHref(props.start)}>
+        Show {label} (opens {props.fold.path} on its own)
+      </a>
     );
   // The text isn't on the page: opening the fold fetches it (client/folds.ts).
   return (
     <details class="folded" data-fold={props.fold.url(props.start, props.start + count)}>
-      <summary class="fold">{label}</summary>
+      <FoldSummary label={label} />
       <div class="note" data-fold-body>
-        <a href={props.fold.openHref(props.start)}>{label}</a>
+        <a href={props.fold.openHref(props.start)}>Show {label}</a>
       </div>
     </details>
   );
@@ -481,28 +555,108 @@ export function foldFragment(
     render,
   );
 }
-function LineDiff(props: { rows: readonly LineDiffRow[] }) {
+/**
+ * Where each hunk (folded unchanged lines) of a full line diff starts on each side, and how many
+ * lines it holds, keyed by row index: a hunk starts one past the last numbered row on each side.
+ */
+export function hunkSpans(
+  rows: readonly LineDiffRow[],
+): Map<number, { base: number; head: number; count: number }> {
+  const spans = new Map<number, { base: number; head: number; count: number }>();
+  let base = 0;
+  let head = 0;
+  rows.forEach((row, index) => {
+    if (row.op === "hunk") {
+      const count = Number(/^(\d+) unchanged/.exec(row.text)?.[1] ?? 0);
+      spans.set(index, { base: base + 1, head: head + 1, count });
+      return;
+    }
+    if (row.base !== undefined) base = row.base;
+    if (row.head !== undefined) head = row.head;
+  });
+  return spans;
+}
+const ENTITIES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+/** Unchanged source lines as the Changes page's line rows, numbered from `baseStart` and
+ * `headStart`: what an opened source-view hunk loads. */
+export function foldLinesFragment(
+  lines: readonly string[],
+  baseStart: number,
+  headStart: number,
+): string {
+  return lines
+    .map(
+      (text, at) =>
+        `<div class="ln"><span class="n">${baseStart + at}</span><span class="n">${headStart + at}</span><span class="s"> </span><span>${text.replace(/[&<>"']/g, (char) => ENTITIES[char] ?? char)}</span></div>`,
+    )
+    .join("");
+}
+/** Where a line diff's hunks load from, and the file they otherwise link to. */
+interface LineFoldLinks {
+  /** The compare API's URL for head lines [from, to) numbered from base line `bfrom`. */
+  url: ((from: number, to: number, bfrom: number) => string) | null;
+  openHead: string;
+  path: string;
+  headN: number;
+}
+function LineDiff(props: {
+  rows: readonly LineDiffRow[];
+  /** Index of the first row in the full diff (spans are keyed by full indices). */
+  offset: number;
+  spans: Map<number, { base: number; head: number; count: number }>;
+  fold: LineFoldLinks;
+}) {
+  const { fold } = props;
+  const hunk = (index: number) => {
+    const span = props.spans.get(props.offset + index);
+    const count = span?.count ?? 0;
+    const label = counted(count, "unchanged line");
+    if (!span || !fold.url || count > FOLD_LINE_LIMIT)
+      return (
+        <a class="fold" href={fold.openHead}>
+          Show {label} (opens {fold.path} in #{fold.headN})
+        </a>
+      );
+    return (
+      <details class="folded lnfold" data-fold={fold.url(span.head, span.head + count, span.base)}>
+        <FoldSummary label={label} />
+        <div class="note" data-fold-body>
+          <a href={fold.openHead}>
+            Open {fold.path} in #{fold.headN}
+          </a>
+        </div>
+      </details>
+    );
+  };
   return (
     <div class="lines">
-      {props.rows.map((row) =>
+      {props.rows.map((row, index) =>
         row.op === "hunk" ? (
-          <div class="hunk">⋯ {row.text}</div>
+          hunk(index)
         ) : (
           <div
             class={`ln${row.op === "insert" ? " add" : row.op === "delete" ? " del" : ""}`}
-            data-change={row.op === "equal" ? undefined : ""}
+            data-change={
+              row.op === "insert" ? "line added" : row.op === "delete" ? "line removed" : undefined
+            }
             tabindex={row.op === "equal" ? undefined : -1}
           >
             <span class="n">{row.base ?? ""}</span>
             <span class="n">{row.head ?? ""}</span>
-            <span
-              class="s"
-              aria-label={
-                row.op === "insert" ? "added" : row.op === "delete" ? "removed" : undefined
-              }
-            >
-              {row.op === "insert" ? "+" : row.op === "delete" ? "−" : " "}
-            </span>
+            {row.op === "equal" ? (
+              <span class="s"> </span>
+            ) : (
+              <span class="s">
+                <span aria-hidden="true">{row.op === "insert" ? "+" : "−"}</span>
+                <span class="vh">{row.op === "insert" ? "added" : "removed"}</span>
+              </span>
+            )}
             <span>{row.words ? <Words words={row.words} /> : row.text}</span>
           </div>
         ),
@@ -526,6 +680,52 @@ export function summary(diff: FileDiff): string {
       .filter(Boolean)
       .join(" ") + " blocks"
   );
+}
+/** The card header's counts in words, unit once: "Blocks: 2 changed · 5 added". */
+export function summaryWords(diff: FileDiff): Child {
+  const count = (op: string) =>
+    diff.lines
+      ? diff.lines.filter((row) => row.op === op).length
+      : diff.ops.filter((block) => block.op === op).length;
+  const parts = [
+    { cls: "m", n: diff.lines ? 0 : count("replace"), word: "changed" },
+    { cls: "a", n: count("insert"), word: "added" },
+    { cls: "rm", n: count("delete"), word: "removed" },
+  ].filter((part) => part.n > 0);
+  if (!parts.length) return null;
+  return (
+    <>
+      {diff.lines ? "Lines: " : "Blocks: "}
+      {parts.map((part, index) => (
+        <>
+          {index ? " · " : ""}
+          <span class={part.cls}>
+            {part.n} {part.word}
+          </span>
+        </>
+      ))}
+    </>
+  );
+}
+/** The unit of a `bytes()` size, with its space: " KB". */
+const sizeUnit = (size: string) => size.slice(size.lastIndexOf(" "));
+/** Sizes of an image or binary file: "2.8 → 2.8 KB" (the unit once when both sides share it),
+ * "new" or "was 2.8 KB". Text files have none (their diffs are counted). */
+export function fileTally(file: CompareFile, diff: FileDiff | null | undefined): string | null {
+  const kind = diff?.kind ?? kindOf(file.mime);
+  if (kind === "text") return null;
+  if (file.status === "added") return "new";
+  if (file.status === "removed") return `was ${bytes(file.base?.size ?? 0)}`;
+  if (file.status !== "modified" || !file.base || !file.head) return null;
+  const before = bytes(file.base.size);
+  const after = bytes(file.head.size);
+  return sizeUnit(before) === sizeUnit(after)
+    ? `${before.slice(0, -sizeUnit(before).length)} → ${after}`
+    : `${before} → ${after}`;
+}
+/** The Files tree's tally: a text diff's compact counts, else the file's sizes. */
+export function treeTally(file: CompareFile, diff: FileDiff | null | undefined): string | null {
+  return diff && !diff.truncated && diff.kind === "text" ? summary(diff) : fileTally(file, diff);
 }
 
 const TRUNCATED: Record<TruncatedReason, string> = {
@@ -601,13 +801,40 @@ export function textBody(options: {
     options.focused ? 1 : 0,
     options.foldsOpen ? 1 : 0,
   ].join("|");
+  const encoded = file.path.split("/").map(encodeURIComponent).join("/");
+  const api = (params: Record<string, string>) =>
+    `/api/revisions/${ctx.revision.id}/compare/${encoded}?${new URLSearchParams(params).toString()}`;
+  const headN = ctx.revision.display_number ?? 0;
+  const openHead = shellPath(ctx.collection.public_id, ctx.revision.public_id, file.path, true);
   if (diff.lines) {
     const rows = diff.lines;
+    const baseId = options.baseId;
+    const lineFold: LineFoldLinks = {
+      url: baseId
+        ? (from, to, bfrom) =>
+            api({
+              base: baseId,
+              mode: "lines",
+              format: "html",
+              from: String(from),
+              to: String(to),
+              bfrom: String(bfrom),
+            })
+        : null,
+      openHead,
+      path: file.path,
+      headN,
+    };
     return cachedHtml(
       key,
       () => (
         <>
-          <LineDiff rows={rows.slice(window.from, window.from + window.limit)} />
+          <LineDiff
+            rows={rows.slice(window.from, window.from + window.limit)}
+            offset={window.from}
+            spans={hunkSpans(rows)}
+            fold={lineFold}
+          />
           <WindowNote
             unit="line"
             total={rows.length}
@@ -621,7 +848,6 @@ export function textBody(options: {
     );
   }
   if (file.status === "added" && diff.ops.length > ADDED_LIMIT) {
-    const openHead = shellPath(ctx.collection.public_id, ctx.revision.public_id, file.path, true);
     return cachedHtml(
       key,
       (frags) => (
@@ -630,7 +856,7 @@ export function textBody(options: {
           <div class="note">
             Showing the first {ADDED_PREVIEW} of {diff.ops.length} blocks.{" "}
             <a href={openHead}>
-              Open #{ctx.revision.display_number ?? 0}/{file.path}
+              Open #{headN}/{file.path}
             </a>
           </div>
         </>
@@ -638,22 +864,18 @@ export function textBody(options: {
       options.render,
     );
   }
-  const encoded = file.path.split("/").map(encodeURIComponent).join("/");
-  const fold: FoldLinks | null = options.baseId
+  const baseId = options.baseId;
+  const fold: FoldLinks | null = baseId
     ? {
         url: (from, to) =>
-          `/api/revisions/${ctx.revision.id}/compare/${encoded}?${new URLSearchParams({
-            base: options.baseId!,
-            format: "html",
-            from: String(from),
-            to: String(to),
-          }).toString()}`,
+          api({ base: baseId, format: "html", from: String(from), to: String(to) }),
         openHref: (start) =>
           href({
             file: file.path,
             folds: "open",
             from: String(start - (start % FILE_BLOCKS)),
           }),
+        path: file.path,
       }
     : null;
   return cachedHtml(
@@ -702,7 +924,32 @@ export function FileCard(props: {
   const rawHead = rawPath(ctx.revision.public_id, file.path);
   const rawBase = props.basePub ? rawPath(props.basePub, file.path) : null;
   let body: Child = null;
-  if (file.status === "removed")
+  // Dimensions fill in after the image loads (client/dims.ts).
+  const dims = (
+    <span data-dim-wrap hidden>
+      {" · "}
+      <span data-dim />
+    </span>
+  );
+  if (file.status === "removed" && kindOf(file.mime) === "image" && rawBase && openBase)
+    body = (
+      <figure class="rmimg" data-dims>
+        <span class="img">
+          <img
+            src={rawBase}
+            alt={`${file.path} in #${props.baseNumber}`}
+            loading="lazy"
+            decoding="async"
+          />
+        </span>
+        <figcaption>
+          Removed in #{headN}
+          {dims} · {bytes(file.base?.size ?? 0)} ·{" "}
+          <a href={openBase}>Open in #{props.baseNumber}</a>
+        </figcaption>
+      </figure>
+    );
+  else if (file.status === "removed")
     body = <div class="note">Removed (was {bytes(file.base?.size ?? 0)}).</div>;
   else if (!diff)
     body = (
@@ -737,7 +984,7 @@ export function FileCard(props: {
     body = (
       <div class="imgpair">
         {rawBase && file.base ? (
-          <figure>
+          <figure data-dims>
             <img
               src={rawBase}
               alt={`${file.path} in #${props.baseNumber}`}
@@ -745,15 +992,17 @@ export function FileCard(props: {
               decoding="async"
             />
             <figcaption>
-              Before · #{props.baseNumber} · {bytes(file.base.size)}
+              Before · #{props.baseNumber}
+              {dims} · {bytes(file.base.size)}
             </figcaption>
           </figure>
         ) : null}
         {file.head ? (
-          <figure>
+          <figure data-dims>
             <img src={rawHead} alt={`${file.path} in #${headN}`} loading="lazy" decoding="async" />
             <figcaption>
-              After · #{headN} · {bytes(file.head.size)}
+              After · #{headN}
+              {dims} · {bytes(file.head.size)}
             </figcaption>
           </figure>
         ) : null}
@@ -777,11 +1026,18 @@ export function FileCard(props: {
       </div>
     );
   else body = raw(props.text ?? "");
+  // Counts in words for text diffs; sizes for a changed image or binary file.
+  const words =
+    diff && !diff.truncated && diff.kind === "text"
+      ? summaryWords(diff)
+      : file.status === "modified"
+        ? fileTally(file, diff)
+        : null;
   return (
     <section class="fd" id={`f-${props.index}`} aria-label={file.path} data-file-diff={file.path}>
       <header>
-        <span class={glyphClass(file.status)} aria-label={file.status}>
-          {glyph(file.status)}
+        <span class={glyphClass(file.status)}>
+          {mark(glyph(file.status), statusWord(file.status))}
         </span>
         <span class="p">{file.path}</span>
         {file.path === ctx.revision.head_path ? <span class="chip xs">head</span> : null}
@@ -789,9 +1045,7 @@ export function FileCard(props: {
           <span class="muted small">new · {bytes(file.head?.size ?? 0)}</span>
         ) : null}
         <span class="grow" />
-        {diff && !diff.truncated && diff.kind === "text" ? (
-          <span class="chg">{summary(diff)}</span>
-        ) : null}
+        {words ? <span class="tally">{words}</span> : null}
         {file.status === "removed" && openBase ? (
           <a class="btn sm ghost" href={openBase}>
             Open in #{props.baseNumber}
@@ -804,5 +1058,69 @@ export function FileCard(props: {
       </header>
       {body}
     </section>
+  );
+}
+
+/** Previous and Next change (client/changes-nav.ts unhides it when the page has a change). One
+ * element serves the summary row and the phone dock, so there is one live output. */
+export function Stepper() {
+  return (
+    <div class="stepper" data-stepper hidden>
+      <button type="button" class="btn sm" data-step="-1" aria-keyshortcuts="k">
+        {raw(icon("chevronLeft"))} Previous <kbd aria-hidden="true">k</kbd>
+      </button>
+      <output class="stepcount" data-step-count aria-live="polite" />
+      <button type="button" class="btn sm" data-step="1" aria-keyshortcuts="j">
+        Next <kbd aria-hidden="true">j</kbd> {raw(icon("chevronRight"))}
+      </button>
+    </div>
+  );
+}
+
+/** The Rendered/Source switch, only when a changed file is Markdown; other pages are line
+ * diffs either way. */
+export function ViewSwitch(props: {
+  view: "rendered" | "source";
+  href: (params: Record<string, string>) => string;
+  files: readonly CompareFile[];
+}) {
+  if (!props.files.some((file) => md(file.mime)))
+    return <span class="muted small viewnote">Line diff</span>;
+  return (
+    <div class="seg" role="group" aria-label="Diff view">
+      <a
+        href={props.href({ view: "" })}
+        aria-current={props.view === "rendered" ? "true" : undefined}
+      >
+        Rendered
+      </a>
+      <a
+        href={props.href({ view: "source" })}
+        aria-current={props.view === "source" ? "true" : undefined}
+      >
+        Source lines
+      </a>
+    </div>
+  );
+}
+
+/** The marks' legend: "+ added · ~ changed · − removed" (the words follow, so the glyphs are
+ * hidden from assistive technology). */
+export function DiffKey() {
+  return (
+    <span class="diffkey">
+      <span class="k a">
+        <span aria-hidden="true">+</span>
+      </span>{" "}
+      added ·{" "}
+      <span class="k m">
+        <span aria-hidden="true">~</span>
+      </span>{" "}
+      changed ·{" "}
+      <span class="k rm">
+        <span aria-hidden="true">−</span>
+      </span>{" "}
+      removed
+    </span>
   );
 }
