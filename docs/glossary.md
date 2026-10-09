@@ -62,7 +62,7 @@ A specific revision addressed explicitly in a URL. It never changes.
 The revision a new revision was built from. In merge mode, the parent's files are the starting point. A collection's first revision has no parent.
 
 **Fork**
-Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and the revision picker shows the branch.
+Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and History draws the branch in its own lane beside the latest line ('Branch off #4 · not in latest').
 
 **Display number (`#N`)**
 The human-friendly position of a revision in its collection (#1, #2, …). It is computed each time it's shown, never stored, and never used in URLs, because it can shift if a fork arrives out of order.

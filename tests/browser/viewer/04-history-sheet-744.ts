@@ -16,7 +16,7 @@ const scenario: ViewerScenario = {
     await miniPage.goto(`${base}${thirdPinned}`);
     await miniPage.locator('.tabbar [data-tab="history"]').tap();
     await miniPage.locator("#tp-history").waitFor({ state: "visible" });
-    await miniPage.locator("#tp-history").getByRole("link", { name: "Second" }).tap();
+    await miniPage.locator("#tp-history").getByRole("link", { name: "#2", exact: true }).tap();
     await miniPage.waitForURL((url) => url.pathname === `${secondPinned}index.md`);
     await miniPage.locator("#tp-history").waitFor({ state: "visible" });
     assert.equal(

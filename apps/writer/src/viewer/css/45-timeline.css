@@ -1,12 +1,22 @@
-/* timeline */
+/* timeline: an <ol> of rows in display order; each row's one link (#n) is stretched over it */
 .tl {
+  list-style: none;
+  margin: 0;
   padding: 4px 4px;
+  --lgw: 30px;
+}
+.tl.w1 {
+  --lgw: 46px;
+}
+.tl.w2 {
+  --lgw: 62px;
+}
+.tl.w3 {
+  --lgw: 78px;
 }
 .rv {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 0 8px;
-  padding: 8px 8px 10px 4px;
+  display: block;
+  padding: 8px 8px 10px var(--lgw);
   border-radius: 9px;
   color: inherit;
   position: relative;
@@ -20,45 +30,106 @@
     0 0 0 1px var(--rule-2),
     var(--sh-1);
 }
-.rv .g {
-  position: relative;
-}
-.rv .g::before {
+.rv a.rvl::after {
   content: "";
   position: absolute;
-  left: 10px;
-  top: -10px;
-  bottom: -12px;
-  border-left: 2px solid var(--rule-2);
+  inset: 0;
+  border-radius: inherit;
 }
-.rv:first-child .g::before {
-  top: 12px;
+.rv a.rvl:focus-visible {
+  outline: none;
 }
-.rv.root .g::before {
-  bottom: calc(100% - 12px);
+.rv:has(a.rvl:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
-.rv:first-child.root .g::before {
-  display: none;
+.rv .acts,
+.rv .err {
+  position: relative;
+  z-index: 1;
 }
-.rv .g i {
+/* The lane gutter: lane 0 centred at x = 14 px, side lane k at 14 + 16k. Borders, not
+   backgrounds, so lines and rings survive forced colours. */
+.lg {
   position: absolute;
-  left: 4px;
-  top: 5px;
-  width: 14px;
-  height: 14px;
+  inset: 0 auto 0 0;
+  width: var(--lgw);
+}
+.lg i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 13px;
+  border-left: 2px solid var(--control);
+}
+.lg .ln {
+  border-left-color: var(--ink-2);
+}
+.lg .ln.top,
+.lg .run {
+  top: 19px;
+}
+.lg .ln.bot {
+  bottom: calc(100% - 19px);
+}
+.lg .run.up {
+  top: 0;
+}
+.lg .p1 {
+  left: 29px;
+}
+.lg .p2 {
+  left: 45px;
+}
+.lg .p3 {
+  left: 61px;
+}
+.lg .jn {
+  left: 13px;
+  bottom: auto;
+  height: 20px;
+  border: 2px solid var(--control);
+  border-top: 0;
+  border-left: 0;
+  border-bottom-right-radius: 12px;
+}
+.lg .jn.p1 {
+  width: 18px;
+}
+.lg .jn.p2 {
+  width: 34px;
+}
+.lg .jn.p3 {
+  width: 50px;
+}
+.lg .nd {
+  top: 13px;
+  bottom: auto;
+  left: 8px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ink-2);
   border-radius: 50%;
   background: var(--paper);
-  border: 2px solid var(--muted);
 }
-.rv[aria-current] .g i {
-  background: var(--ink);
+.lg.l1 .nd {
+  left: 24px;
+}
+.lg.l2 .nd {
+  left: 40px;
+}
+.lg.l3 .nd {
+  left: 56px;
+}
+.lg.cur .nd {
   border-color: var(--ink);
+  background: var(--ink);
 }
-.rv.pending .g i {
-  border-style: dashed;
+.lg.pending .nd {
   border-color: var(--pending);
+  background: var(--pending-bg);
 }
-.rv.failed .g i {
+.lg.failed .nd {
   border-color: var(--failed);
   background: var(--failed-bg);
 }
@@ -83,16 +154,24 @@
   display: block;
   min-width: 0;
 }
+.rv .br {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.rv .br svg {
+  color: var(--muted);
+}
 .rv .msg {
   display: block;
   font: 13.5px/1.38 var(--sans);
   margin: 3px 0 4px;
   color: var(--ink);
-  text-decoration: none;
   overflow-wrap: anywhere;
-}
-.rv a.msg:hover {
-  text-decoration: underline;
 }
 .rv .f {
   display: flex;
@@ -115,7 +194,46 @@
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
-.fork {
-  font-size: 12px;
+.hhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 2px 12px;
+}
+.hhead .hl {
+  margin: 0;
+  font: 700 13px/1.2 var(--sans);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.hhead .hl span {
+  font-variant-caps: normal;
+  font-size: 11.5px;
+  font-weight: 450;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+.lgd {
+  display: grid;
+  gap: 6px;
+}
+.lgk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lgk i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ink-2);
+  border-radius: 50%;
+}
+.lgk .k1 {
+  border-color: var(--control);
+}
+.lgjoin a {
   color: var(--muted);
 }

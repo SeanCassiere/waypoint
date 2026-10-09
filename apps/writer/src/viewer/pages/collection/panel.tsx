@@ -3,6 +3,7 @@ import type { Child } from "hono/jsx";
 
 import { shellPath } from "../../../viewer-paths.ts";
 import { FileTree, Timeline, type Glyph } from "../../components.tsx";
+import { gutterFor } from "../../gutter.ts";
 import { HISTORY_PAGE, type CollectionContext, changesHref } from "./shell.tsx";
 
 export type PanelTab = "files" | "history" | "links";
@@ -75,8 +76,15 @@ export function HistoryPanel(props: { ctx: CollectionContext; path: string; all:
   const { ctx } = props;
   const newest = ctx.timeline.toReversed();
   const shown = props.all ? newest : newest.slice(0, HISTORY_PAGE);
+  // Lanes come from the whole lineage; one "joins at" line per lane running off this page.
+  const { joinsBelow } = gutterFor(ctx.lineage, shown);
   return (
     <>
+      <div class="hhead">
+        <h3 id="hist-h" class="hl">
+          Latest line <span>newest first</span>
+        </h3>
+      </div>
       <Timeline
         rows={shown}
         pub={ctx.collection.public_id}
@@ -87,16 +95,31 @@ export function HistoryPanel(props: { ctx: CollectionContext; path: string; all:
         byId={ctx.byId}
         changesHref={changesHref(ctx)}
         query={props.all ? "panel=history&history=all" : "panel=history"}
+        lineage={ctx.lineage}
+        labelledBy="hist-h"
       />
+      {joinsBelow.map((join) => (
+        <p class="legend lgjoin">
+          <a href="?panel=history&history=all">joins at #{join.at} below ›</a>
+        </p>
+      ))}
       {shown.length < newest.length ? (
         <p class="legend">
           <a href="?panel=history&history=all">Show all {newest.length}</a>
         </p>
       ) : null}
-      <p class="legend">
-        Latest = newest revision that hasn't failed. Numbers are positions and can shift if a fork
-        arrives late.
-      </p>
+      {shown.some((row) => !ctx.lineage.onLine.has(row.id)) ? (
+        <p class="legend lgd">
+          <span class="lgk">
+            <i class="k0" aria-hidden="true" />
+            Latest line: the newest revision that hasn't failed, and the revisions it builds on
+          </span>
+          <span class="lgk">
+            <i class="k1" aria-hidden="true" />
+            Branch: built on an older revision, off the latest line
+          </span>
+        </p>
+      ) : null}
     </>
   );
 }

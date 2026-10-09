@@ -36,7 +36,9 @@ export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
   return (
     <div id="rev-menu" class="menu rmenu" popover="auto" role="dialog" aria-label="Revisions">
       <div class="mbox">
-        <div class="lbl">Revisions · newest first</div>
+        <div class="lbl" id="rm-h">
+          Revisions · newest first
+        </div>
         <Timeline
           rows={recent}
           pub={ctx.collection.public_id}
@@ -47,6 +49,9 @@ export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
           compact
           byId={ctx.byId}
           changesHref={changesHref(ctx)}
+          lineage={ctx.lineage}
+          labelledBy="rm-h"
+          idPrefix="rm"
         />
         <hr />
         <button type="button" class="mi" commandfor="compare" command="show-modal">
