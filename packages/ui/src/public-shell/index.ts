@@ -1,4 +1,5 @@
 import { escapeHtml } from "../html.ts";
+import { iconSprite } from "../icons.ts";
 import { publicShellCss } from "./css.ts";
 import { letterhead } from "./letterhead.ts";
 import { publicShellScript } from "./script.ts";
@@ -14,6 +15,7 @@ export {
   PUBLIC_SHELL_TAB_LIMIT,
   PUBLIC_SHELL_TREE_DEPTH,
 } from "./tree.ts";
+export { shellFileKind, type ShellFileKind } from "./tree.ts";
 
 /**
  * The Folio public shell (spec §9): a quiet letterhead, the file tabs or a "Files (N)" tree,
@@ -29,9 +31,13 @@ export {
  */
 export interface PublicShellFile {
   path: string;
+  /** Stored MIME type: picks the row's type icon (a document when absent). */
+  mime?: string | undefined;
+  /** Bytes, shown as "download · size" on files that can't be previewed. */
+  size?: number | null | undefined;
 }
 export interface PublicShellOptions {
-  /** Collection title; also the document `<title>`. */
+  /** Collection title; the document `<title>` is `<current file's name> · <title>`. */
   title: string;
   /** Every file in the served revision. Order does not matter; the shell sorts by path. */
   files: readonly PublicShellFile[];
@@ -78,12 +84,18 @@ function documentArea(options: PublicShellOptions): string {
 export function renderPublicShell(options: PublicShellOptions): string {
   // The location listener's prefix check relies on a whole-segment prefix.
   if (!options.frameBase.endsWith("/")) throw new Error("frameBase must end with /");
-  const title = escapeHtml(showBidi(options.title));
+  const name = options.current.slice(options.current.lastIndexOf("/") + 1);
+  const title = `${escapeHtml(showBidi(name))} · ${escapeHtml(showBidi(options.title))}`;
+  // One sprite for every row's icon; same-document <use> references resolve forward.
+  const sprite =
+    options.files.length > 1
+      ? iconSprite(["doc", "image", "table", "code", "binary", "folder"])
+      : "";
   const style = options.assets
     ? `<link rel="stylesheet" href="${escapeHtml(options.assets.cssHref)}">`
     : `<style>${publicShellCss}</style>`;
   const script = options.assets
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options)}${files(options)}</div>${documentArea(options)}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options)}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
 }

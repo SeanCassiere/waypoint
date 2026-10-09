@@ -106,7 +106,7 @@ const frameDenied = (): Response =>
  */
 const deniedFor = (path: string): Response => (path.startsWith("/x/") ? frameDenied() : denied());
 /** Content the sandboxed iframe can show; anything else gets the download card. */
-const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
+export const previewable = (mime: string): boolean => isTextMime(mime) || mime.startsWith("image/");
 /**
  * How long an isolate trusts a live link lookup. This bounds revocation latency after the
  * writer's push; each isolate queries Turso at most once per link per window.
@@ -418,8 +418,8 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
     let status = 200;
     let response: Response;
     if (route.kind === "shell") {
-      const files = await db.all<Pick<File, "path">>(
-        "SELECT path FROM revision_files WHERE revision_id=? ORDER BY path",
+      const files = await db.all<Pick<File, "path" | "mime" | "size">>(
+        "SELECT path,mime,size FROM revision_files WHERE revision_id=? ORDER BY path",
         [revision.id],
       );
       const base = new URL(c.req.url).origin;

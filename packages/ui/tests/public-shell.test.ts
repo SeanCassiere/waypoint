@@ -7,6 +7,7 @@ import {
   encodePathSegments,
   PUBLIC_SHELL_LIST_BUDGET,
   formatShellTime,
+  iconUse,
   publicShellCss,
   publicShellScript,
   renderPublicShell,
@@ -41,7 +42,7 @@ describe("public shell", () => {
       [...icon(name).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]),
     );
     const allowed = [
-      ..."a b body button details div h1 h2 head header hr html iframe li main meta nav p path rect span summary svg time title ul".split(
+      ..."a b body button circle defs details div h1 h2 head header hr html iframe li main meta nav p path rect small span summary svg symbol time title ul use".split(
         " ",
       ),
       ...iconTags,
@@ -104,14 +105,16 @@ describe("public shell", () => {
       current: "a/b/y.md",
     });
     expect(tree).toContain(
-      'Files <span class="n">9</span><span class="cur" id="files-cur"><span class="t" dir="auto">a/b/y.md</span></span>',
+      `Files <span class="n">9</span><span class="cur" id="files-cur">${iconUse("doc")}<span class="t" dir="auto">a/b/y.md</span></span>`,
     );
     const menu = tree.slice(tree.indexOf('<div class="mbox tree"'));
     expect(menu.indexOf('data-p="index.md"')).toBeLessThan(menu.indexOf("<details"));
     expect(menu).toContain(
-      '<details open><summary dir="auto">a/</summary><div class="in"><details open><summary dir="auto">b/</summary><div class="in">',
+      `<details open><summary dir="auto">${iconUse("folder")}a/</summary><div class="in"><details open><summary dir="auto">${iconUse("folder")}b/</summary><div class="in">`,
     );
-    expect(menu).toContain('data-p="a/b/y.md" aria-current="page" autofocus>y.md</a>');
+    expect(menu).toContain(
+      `data-p="a/b/y.md" aria-current="page" autofocus>${iconUse("doc")}y.md</a>`,
+    );
     // Balanced folders: the Files popover isn't a <details>.
     expect((menu.match(/<details/g) ?? []).length).toBe((menu.match(/<\/details>/g) ?? []).length);
     expect(renderPublicShell(base)).not.toContain('aria-label="Files"');
@@ -119,9 +122,9 @@ describe("public shell", () => {
   it("collapses folders in large manifests except the current file's", () => {
     const files = Array.from({ length: 300 }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
     const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
-    expect(html).toContain('<details open><summary dir="auto">d1/</summary>');
-    expect(html).toContain('<details><summary dir="auto">d0/</summary>');
-    expect(html).toContain('<details><summary dir="auto">d2/</summary>');
+    expect(html).toContain(`<details open><summary dir="auto">${iconUse("folder")}d1/</summary>`);
+    expect(html).toContain(`<details><summary dir="auto">${iconUse("folder")}d0/</summary>`);
+    expect(html).toContain(`<details><summary dir="auto">${iconUse("folder")}d2/</summary>`);
   });
   it("says Snapshot for single-revision links and Updated for latest", () => {
     const at = Date.UTC(2026, 9, 7, 22, 8);
@@ -180,9 +183,9 @@ describe("tree limits", () => {
       ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
     ];
     const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
-    expect(menu).toContain('<summary dir="auto">a/b/c/d/</summary>');
-    expect(menu).not.toContain('<summary dir="auto">b/');
-    expect(menu).toContain('data-p="solo/only.md">solo/only.md</a>');
+    expect(menu).toContain(`<summary dir="auto">${iconUse("folder")}a/b/c/d/</summary>`);
+    expect(menu).not.toContain(`${iconUse("folder")}b/`);
+    expect(menu).toContain(`data-p="solo/only.md">${iconUse("doc")}solo/only.md</a>`);
     expect(menu).not.toContain("solo/</summary>");
   });
   it("nests at most 6 folders deep and puts deeper folders in the label", () => {
@@ -194,7 +197,7 @@ describe("tree limits", () => {
       ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
     ];
     const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
-    expect(menu).toContain(`<summary dir="auto">${"a/".repeat(6)}</summary>`);
+    expect(menu).toContain(`<summary dir="auto">${iconUse("folder")}${"a/".repeat(6)}</summary>`);
     expect((menu.match(/<details/g) ?? []).length).toBe(1);
     expect(menu).toContain(`data-p="${deep}">`);
     // The label is the rest of the path, shortened in the middle.
@@ -247,7 +250,9 @@ describe("tree limits", () => {
       files: [{ path: "index.md" }, { path: "invoice\u202efdp.exe" }],
     });
     const visible = markup(html);
-    expect(visible).toContain('data-p="invoice\u202efdp.exe">invoice\ufffdfdp.exe</a>');
+    expect(visible).toContain(
+      `data-p="invoice\u202efdp.exe">${iconUse("doc")}invoice\ufffdfdp.exe</a>`,
+    );
     expect(visible).toContain('<h1 dir="auto">Report \ufffdexe.pdf</h1>');
     expect(visible.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
     expect(publicShellCss).toContain(".ptabs2 a{unicode-bidi:plaintext}");

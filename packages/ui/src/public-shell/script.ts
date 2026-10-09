@@ -85,10 +85,11 @@ export const timeScript: string = `(() => {
  * "waypoint:location", href }` only from the frame's own window; `href` is untrusted: it must be
  * under the frame's raw prefix and name a file already linked in the shell. Then it moves
  * `aria-current` (and the Files popover's `autofocus`, so it opens on the new file; a tab is
- * scrolled into view instead), updates the Files button's current path, and replaces the URL
- * with that link's own server-rendered href. Before the first `replaceState` it pins every file
- * link to its absolute URL (RX-02), so links written relative to the original page still point at
- * the right files once the URL is in another folder.
+ * scrolled into view instead), updates the Files button's current path and icon and the page
+ * title ("<file name> · <the h1's text>", RX-03), and replaces the URL with that link's own
+ * server-rendered href. Before the first `replaceState` it pins every file link to its absolute
+ * URL (RX-02), so links written relative to the original page still point at the right files
+ * once the URL is in another folder.
  */
 export const locationScript: string = `(() => {
   const frame = document.getElementById("doc");
@@ -135,8 +136,14 @@ export const locationScript: string = `(() => {
     }
     if (hit.closest(".ptabs2")) hit.scrollIntoView({ inline: "center", block: "nearest" });
     frame.title = path;
+    const shown = path.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
     const current = document.querySelector("#files-cur .t");
-    if (current) current.textContent = path.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
+    if (current) current.textContent = shown;
+    const icon = document.querySelector("#files-cur use");
+    const kind = hit.querySelector("use");
+    if (icon && kind) icon.setAttribute("href", kind.getAttribute("href"));
+    const h1 = document.querySelector("h1");
+    document.title = shown.slice(shown.lastIndexOf("/") + 1) + (h1 ? " · " + h1.textContent : "");
     if (hit.href !== location.href) {
       pinLinks();
       history.replaceState(null, "", hit.href);

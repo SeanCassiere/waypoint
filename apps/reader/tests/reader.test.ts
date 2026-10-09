@@ -1,5 +1,5 @@
 import { hashShareToken, newShareToken, shareShellUrl, WAYPOINT_VERSION } from "@waypoint/core";
-import { publicShellCss, publicShellScript } from "@waypoint/ui";
+import { iconUse, publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
@@ -475,7 +475,9 @@ describe("public reader", () => {
     expect(tree).not.toContain('<nav class="ptabs2"');
     expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
     expect(tree).toContain('Files <span class="n">9</span>');
-    expect(tree).toContain('<details open><summary dir="auto">docs/</summary>');
+    expect(tree).toContain(
+      '<details open><summary dir="auto">' + iconUse("folder") + "docs/</summary>",
+    );
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
