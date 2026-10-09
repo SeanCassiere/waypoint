@@ -144,6 +144,8 @@ Where a revision is in its lifecycle:
 - `synced`: pushed to the cloud DB. Fully durable and visible to other writers and the reader.
 - `failed`: retries ran out or the error is permanent. Stays in the queue and stays viewable on this writer.
 
+The viewer also tells queued revisions apart: **waiting** (its parent is still queued), **stalled** (no progress for 10 minutes: an error is recorded, or the committer hasn't picked it up), and **uploading** (anything else that is pending). A failed revision is **failed**.
+
 ## Lifecycle
 
 **Tombstone**
