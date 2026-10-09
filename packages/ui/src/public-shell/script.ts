@@ -251,6 +251,23 @@ export const hashScript: string = "";
 /** A11Y-08's loading line (R2). Empty until A11Y-08. */
 export const loadingScript: string = "";
 
+/**
+ * RX-04's image stage: when the image fails (a revoked or expired link answers the raw request
+ * with the frame denial, which an <img> can't show), the `#imgerr` template's card replaces it.
+ * Last, and independent of the other segments.
+ */
+export const stageScript: string = `(() => {
+  const img = document.querySelector("#doc.stage img");
+  const template = document.getElementById("imgerr");
+  if (!img || !template || !template.content) return;
+  const swap = () => {
+    const fit = img.closest(".fit");
+    if (fit) fit.replaceChildren(template.content.cloneNode(true));
+  };
+  if (img.complete && !img.naturalWidth) swap();
+  else img.addEventListener("error", swap, { once: true });
+})();`;
+
 /** The shell's only script: the non-empty segments, in this order, one per line group. */
 export const publicShellScript: string = [
   timeScript,
@@ -259,6 +276,7 @@ export const publicShellScript: string = [
   aboutScript,
   hashScript,
   loadingScript,
+  stageScript,
 ]
   .filter((segment) => segment !== "")
   .join("\n");

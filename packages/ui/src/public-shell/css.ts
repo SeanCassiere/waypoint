@@ -154,8 +154,23 @@ export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-d
 @media(max-width:600px){.dl{padding:20px;margin-top:6dvh}}
 @media print{.pframe{height:100vh}}
 `;
-/** RX-04's image stage (R2). Empty until RX-04. */
-export const stageCss: string = "";
+/** RX-04's image stage (R2): a sunken scroller that fits images to its width, never grows them,
+ *  starts tall ones at the top, and a caption bar under it. The writer's image pages use it too.
+ *  `.fit` spans the stage and the image centres in it, so an SVG with only a viewBox (no size of
+ *  its own) fills the width instead of collapsing to nothing. */
+export const stageCss: string = `.imgmain{overflow:hidden}
+.stage{flex:1;min-height:0;margin:0;overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;background:var(--stage)}
+.stage .fit{margin:auto;padding:28px;width:100%}
+.stage img{display:block;margin:0 auto;max-width:100%;height:auto;box-shadow:0 0 0 1px var(--img-frame);background-color:var(--check-b);background-image:conic-gradient(var(--check-a) 25%,transparent 0 50%,var(--check-a) 0 75%,transparent 0);background-size:16px 16px}
+.icap{margin:0;flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;padding:9px 20px;border-top:1px solid var(--rule);background:var(--paper);font-size:12.5px;color:var(--muted)}
+.icap b{font:600 12.5px var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.imgerr{margin:auto;max-width:440px;padding:22px 24px;border:1px solid var(--rule-2);border-radius:14px;background:var(--surface);box-shadow:var(--sh-1)}
+.imgerr h2{display:flex;align-items:center;gap:8px;margin:0 0 6px;font:650 15px var(--sans);color:var(--ink)}
+.imgerr p{margin:0 0 14px;color:var(--ink-2);font-size:13.5px;line-height:1.5}
+@media(max-width:${PHONE_MAX}px){.stage .fit{padding:12px}.icap{padding:8px 14px}.icap .ty{display:none}.imgerr{margin:auto 14px}}
+@media(forced-colors:active){.stage img{box-shadow:none;outline:1px solid CanvasText}}
+@media print{.stage{overflow:visible}}
+`;
 /** The shell's one control family: default, primary and ghost; md 32 / sm 28 px; at least 44 px
  *  tall on touch screens. Last in the cascade, so later controls add only placement rules. The
  *  forced-colours border lists the variants' selectors so their equal-or-higher specificity

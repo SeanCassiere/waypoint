@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { isTextMime, type ManifestFileEntry, type RevisionChanges } from "@waypoint/core";
-import { icon } from "@waypoint/ui";
+import { icon, isStageImage } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
@@ -255,6 +255,21 @@ export interface TreeOptions {
   galleryHref?: ((dir: string) => string) | undefined;
 }
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
+/** RX-04: the folder ("dir/") whose gallery shows this file or folder, with its image count, or
+ *  null (root level, or fewer than 4 gallery images directly in that folder). `path` is a file
+ *  path or a folder prefix ending in "/". Shared by the Files tree and the image stage. */
+export function galleryDirFor(
+  path: string,
+  files: readonly { path: string; mime: string }[],
+): { dir: string; images: number } | null {
+  const dir = path.slice(0, path.lastIndexOf("/") + 1);
+  if (dir === "") return null;
+  let images = 0;
+  for (const file of files)
+    if (file.path.startsWith(dir) && !file.path.includes("/", dir.length) && IMAGE.test(file.mime))
+      images++;
+  return images >= 4 ? { dir, images } : null;
+}
 /** File tree (spec §4.9). Folders are <details>; large manifests start collapsed. */
 export function FileTree(props: TreeOptions) {
   type Node = { folders: Map<string, Node>; files: ManifestFileEntry[] };
@@ -280,7 +295,7 @@ export function FileTree(props: TreeOptions) {
       <a
         data-file={file.path}
         aria-current={file.path === current ? "page" : undefined}
-        data-embed={isEmbeddable(file.mime) ? undefined : "false"}
+        data-embed={isEmbeddable(file.mime) && !isStageImage(file.mime) ? undefined : "false"}
         href={shellPath(props.pub, props.rpub, file.path, props.pinned, props.head)}
         title={file.path}
       >
@@ -293,17 +308,18 @@ export function FileTree(props: TreeOptions) {
     );
   };
   const render = (node: Node, prefix: string): Child => {
-    const images = node.files.filter((file) => IMAGE.test(file.mime)).length;
+    // The folder's own files are exactly the ones galleryDirFor counts, so it scans only those.
+    const gallery = prefix ? galleryDirFor(prefix, node.files) : null;
     // The head file is pinned first, above its siblings' folders (as in every mockup).
     const head = node.files.find((file) => file.path === props.head);
     return (
       <>
-        {props.galleryHref && prefix && images >= 4 ? (
-          <a class="gal" href={props.galleryHref(prefix)}>
+        {props.galleryHref && gallery ? (
+          <a class="gal" href={props.galleryHref(gallery.dir)}>
             <span class="k" aria-hidden="true">
               ▦
             </span>
-            <span class="nm">View as gallery ({images})</span>
+            <span class="nm">View as gallery ({gallery.images})</span>
           </a>
         ) : null}
         {head ? fileRow(head, prefix) : null}

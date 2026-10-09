@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
-import { icon, PHONE_MAX, renderPublicShell } from "@waypoint/ui";
+import { isTextMime } from "@waypoint/core";
+import { icon, isStageImage, PHONE_MAX, renderPublicShell } from "@waypoint/ui";
 import type { Context } from "hono";
 import { raw } from "hono/html";
 
@@ -102,6 +103,9 @@ export async function publicPreview(
     a === manifest.headPath ? -1 : b === manifest.headPath ? 1 : a < b ? -1 : a > b ? 1 : 0,
   );
   const current = manifest.files[path] ? path : manifest.headPath;
+  // RX-04: the reader's document branches (image stage, download card), from the shown file.
+  const entry = manifest.files[current];
+  const shown = entry ? { mime: entry.mime, size: entry.size } : null;
   const href = (file: string) =>
     `${shellPath(ctx.collection.public_id, served.public_id, file, ctx.pinned, manifest.headPath)}?as=public`;
   const shell = renderPublicShell({
@@ -117,6 +121,8 @@ export async function publicPreview(
     frameBase: `/raw/r/${served.public_id}/`,
     updatedAt: ctx.pinned ? null : served.created_at,
     snapshotAt: ctx.pinned ? served.created_at : null,
+    download: !shown || isTextMime(shown.mime) || shown.mime.startsWith("image/") ? null : shown,
+    image: shown && isStageImage(shown.mime) ? shown : null,
   });
   // Owner-only band, injected on the writer right after the skip link; the reader's own output
   // never contains it. Back goes to the revision the owner came from, not the served one.

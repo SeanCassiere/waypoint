@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { validatePath } from "@waypoint/core";
+import { isStageImage } from "@waypoint/ui";
 import type { Context } from "hono";
 
 import type { HttpServices } from "../../../http.ts";
@@ -15,6 +16,7 @@ import { LinksPanel, previewHref, publicSegment, ShareDialog, shareDisclosure } 
 import type { ViewerExtras } from "../status.tsx";
 import { CollectionBar, TabBar } from "./bar.tsx";
 import { CollectionDialogs } from "./dialogs.tsx";
+import { ImageStage } from "./image-stage.tsx";
 import { RevisionMenu, CopyMenu, MoreMenu } from "./menus.tsx";
 import { type PanelTab, Panel, HistoryPanel, FilesPanel } from "./panel.tsx";
 import {
@@ -158,13 +160,16 @@ export async function collectionPage(
               ctx={ctx}
               extra={[publicSegment(ctx.links)].filter((item) => item !== null)}
             />
-            {isEmbeddable(file.mime) ? (
-              <iframe
-                class={`frame${file.mime.startsWith("image/") ? " img" : ""}`}
-                title={path}
-                data-frame
-                src={raw}
+            {isStageImage(file.mime) ? (
+              <ImageStage
+                ctx={ctx}
+                path={path}
+                file={{ path, hash: file.hash, mime: file.mime, size: file.size, url: raw }}
+                raw={raw}
+                glyph={glyphs.get(path)}
               />
+            ) : isEmbeddable(file.mime) ? (
+              <iframe class="frame" title={path} data-frame src={raw} />
             ) : (
               <DownloadCard path={path} size={file.size} mime={file.mime} raw={raw} />
             )}

@@ -4,12 +4,14 @@ import { publicShellCss } from "./css.ts";
 import { downloadLink } from "./download.ts";
 import { letterhead } from "./letterhead.ts";
 import { publicShellScript } from "./script.ts";
+import { imageTypeLabel, stageHtml } from "./stage.ts";
 import { bytes, encodePathSegments, extension, showBidi } from "./text.ts";
 import { files } from "./tree.ts";
 
-export { publicShellCss } from "./css.ts";
+export { publicShellCss, stageCss } from "./css.ts";
 export { formatShellTime } from "./letterhead.ts";
 export { publicShellScript } from "./script.ts";
+export { IMAGE_ERROR_HEADING, imageTypeLabel, isStageImage, stageHtml } from "./stage.ts";
 export { encodeLinkPath, encodePathSegments } from "./text.ts";
 export {
   PUBLIC_SHELL_LIST_BUDGET,
@@ -66,6 +68,8 @@ export interface PublicShellOptions {
   syncing?: boolean;
   /** Show a download card instead of the iframe (content that can't be previewed). */
   download?: { mime: string; size: number | null } | null;
+  /** RX-04: show the image on the stage instead of the iframe. `download` wins over it. */
+  image?: { mime: string; size: number | null } | null;
   /** Serve CSS and script as external files instead of inline elements. */
   assets?: { cssHref: string; scriptHref: string } | null;
 }
@@ -79,6 +83,17 @@ function documentArea(options: PublicShellOptions): string {
     const name = shown.slice(shown.lastIndexOf("/") + 1);
     const meta = `${size === null ? "" : `${bytes(size)} · `}${showBidi(mime)} · can't be previewed in the browser`;
     return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn primary" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
+  }
+  if (options.image) {
+    const shown = showBidi(options.current);
+    return `<main id="main" class="imgmain">${stageHtml({
+      src,
+      alt: shown,
+      name: shown.slice(shown.lastIndexOf("/") + 1),
+      size: options.image.size === null ? null : bytes(options.image.size),
+      type: imageTypeLabel(options.image.mime),
+      errorHref: options.fileHref(options.current),
+    })}</main>`;
   }
   return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
 }

@@ -18,6 +18,7 @@ import {
   loadingScript,
   locationScript,
   publicShellScript,
+  stageScript,
   timeScript,
 } from "../src/public-shell/script.ts";
 import { sharedTokensCss } from "../src/tokens.ts";
@@ -30,6 +31,7 @@ const scriptSegments = [
   aboutScript,
   hashScript,
   loadingScript,
+  stageScript,
 ];
 /** Compiles a script without running it, so a syntax error throws. */
 // oxlint-disable-next-line typescript/no-implied-eval -- Parsing the emitted script is the point.
