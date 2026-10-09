@@ -15,7 +15,9 @@ export const timeScript: string = `(() => {
  * Follows navigation inside the sandboxed frame (spec §8) (R1). Accepts `{ type:
  * "waypoint:location", href }` only from the frame's own window; `href` is untrusted: it must be
  * under the frame's raw prefix and name a file already linked in the shell. Then it moves
- * `aria-current` and replaces the URL with that link's own server-rendered href.
+ * `aria-current` and replaces the URL with that link's own server-rendered href. Before the first
+ * `replaceState` it pins every file link to its absolute URL (RX-02), so links written relative to
+ * the original page still point at the right files once the URL is in another folder.
  */
 export const locationScript: string = `(() => {
   const frame = document.getElementById("doc");
@@ -23,6 +25,12 @@ export const locationScript: string = `(() => {
   const baseUrl = new URL(frame.dataset.base, location.href);
   const base = baseUrl.origin + baseUrl.pathname;
   const links = () => document.querySelectorAll("a[data-p]");
+  let pinned = false;
+  const pinLinks = () => {
+    if (pinned) return;
+    pinned = true;
+    for (const a of links()) a.setAttribute("href", a.href);
+  };
   addEventListener("message", (e) => {
     if (e.source !== frame.contentWindow) return;
     const m = e.data;
@@ -54,7 +62,10 @@ export const locationScript: string = `(() => {
     frame.title = path;
     const current = document.querySelector(".pfiles .cur");
     if (current) current.textContent = path.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
-    if (hit.href !== location.href) history.replaceState(null, "", hit.href);
+    if (hit.href !== location.href) {
+      pinLinks();
+      history.replaceState(null, "", hit.href);
+    }
   });
 })();`;
 
