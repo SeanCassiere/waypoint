@@ -1,10 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { latestCollectionUrl, pinnedRevisionUrl, rawUrl } from "@waypoint/core";
-import { icon } from "@waypoint/ui";
-import { raw } from "hono/html";
 
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
-import { Globe } from "../../components.tsx";
 import { projectAndTags } from "../../format.ts";
 import type { CollectionContext } from "./shell.tsx";
 
@@ -55,7 +52,6 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             data-action="copy-link"
             data-kind="latest"
           >
-            <span aria-hidden="true">⧉</span>
             <span>Link to latest</span>
             <kbd>c</kbd>
             <small class="mono" data-copy-preview="latest">
@@ -71,7 +67,6 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             data-action="copy-link"
             data-kind="pinned"
           >
-            <span aria-hidden="true">⧉</span>
             <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
             <kbd>⇧C</kbd>
             <small class="mono" data-copy-preview="pinned">
@@ -88,7 +83,6 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             popovertargetaction="hide"
             data-action="copy-handoff"
           >
-            <span aria-hidden="true">⧉</span>
             <span>Handoff block</span>
             <kbd>a</kbd>
             <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
@@ -111,7 +105,6 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             data-text={ctx.collection.id}
             data-label="collection ID"
           >
-            <span aria-hidden="true">#</span>
             <span>Collection ID</span>
             <small class="mono">{ctx.collection.id}</small>
           </button>
@@ -125,7 +118,6 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             data-text={ctx.revision.id}
             data-label="revision ID"
           >
-            <span aria-hidden="true">#</span>
             <span>Revision ID</span>
             <small class="mono">{ctx.revision.id}</small>
           </button>
@@ -149,7 +141,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
             commandfor="share"
             command="show-modal"
           >
-            <Globe />
             <span>Share…</span>
             <kbd>s</kbd>
           </button>
@@ -165,7 +156,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           data-action="copy-link"
           data-kind="latest"
         >
-          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
           <span>Link to latest</span>
           <kbd>c</kbd>
         </button>
@@ -178,7 +168,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           data-action="copy-link"
           data-kind="pinned"
         >
-          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
           <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
           <kbd>⇧C</kbd>
         </button>
@@ -190,7 +179,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           popovertargetaction="hide"
           data-action="copy-handoff"
         >
-          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
           <span>Handoff block</span>
           <kbd>a</kbd>
         </button>
@@ -203,7 +191,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           command="show-modal"
           data-focus="title"
         >
-          <span aria-hidden="true">✎</span>
           <span>Rename…</span>
         </button>
         <button
@@ -214,16 +201,13 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           command="show-modal"
           data-focus="project"
         >
-          <span aria-hidden="true">{"{}"}</span>
           <span>Edit details…</span>
         </button>
         <hr />
         <a class="mi" role="menuitem" href={rawHref} target="_blank" rel="noopener" data-open-raw>
-          <span aria-hidden="true">↗</span>
           <span>Open raw</span>
         </a>
         <a class="mi" role="menuitem" href={`${rawHref}?download`} download data-download-raw>
-          <span aria-hidden="true">↓</span>
           <span>Download file</span>
         </a>
         <button
@@ -234,7 +218,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           popovertargetaction="hide"
           data-action="print"
         >
-          <span aria-hidden="true">⎙</span>
           <span>Print</span>
         </button>
         {props.previewPublic ? (
@@ -245,12 +228,10 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
             target="_blank"
             rel="noopener"
           >
-            <Globe />
-            <span>Preview as public ↗</span>
+            <span>Preview as public</span>
           </a>
         ) : null}
         <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-          <span aria-hidden="true">?</span>
           <span>Keyboard shortcuts</span>
           <kbd>?</kbd>
         </button>
@@ -263,7 +244,6 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           popovertargetaction="hide"
           data-action="trash"
         >
-          <span aria-hidden="true">⌫</span>
           <span>Move to Trash…</span>
         </button>
       </div>

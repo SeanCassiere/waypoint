@@ -1,4 +1,6 @@
 /** @jsxImportSource hono/jsx */
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { JSX } from "hono/jsx/jsx-runtime";
 
 import type { CollectionRow, PurgingCollection } from "../../../read-model.ts";
@@ -60,7 +62,7 @@ function TrashBar(props: {
   return (
     <header class="bar cbar">
       <a class="iconbtn back" href="/" aria-label="Back to Recent">
-        ‹
+        {raw(icon("chevronLeft", "lg"))}
       </a>
       <a class="logo" href="/" aria-label="Waypoint, Recent">
         <LogoMark />
@@ -97,7 +99,7 @@ function TrashBar(props: {
         aria-label="More actions"
         title="More actions"
       >
-        ⋯
+        {raw(icon("more", "lg"))}
       </button>
       <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
         <div class="mbox">
@@ -110,16 +112,13 @@ function TrashBar(props: {
               popovertargetaction="hide"
               {...restoreAttrs(collection, props.restore)}
             >
-              <span aria-hidden="true">↺</span>
               <span>Restore…</span>
             </button>
           )}
           <a class="mi" role="menuitem" href="/trash">
-            <span aria-hidden="true">⌫</span>
             <span>Open Trash</span>
           </a>
           <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-            <span aria-hidden="true">?</span>
             <span>Keyboard shortcuts</span>
             <kbd>?</kbd>
           </button>

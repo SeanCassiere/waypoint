@@ -274,7 +274,7 @@ function notPublicYet(
     return page(
       <>
         <div class="hero warn" data-preview="not-public">
-          <span class="dot" aria-hidden="true" />
+          {raw(icon("clock"))}
           <div>
             <b>Nothing is public yet.</b>
             <span>
@@ -346,7 +346,7 @@ function notPublicYet(
     return page(
       <>
         <div class="hero bad" data-preview="failed">
-          <span class="dot" aria-hidden="true" />
+          {raw(icon("alert"))}
           <div>
             <b>{`#${n} failed to upload, so no public link can show it.`}</b>
             <span>
@@ -394,7 +394,7 @@ function notPublicYet(
   return page(
     <>
       <div class="hero warn" data-preview={stalled ? "stalled" : "uploading"}>
-        <span class="dot" aria-hidden="true" />
+        {raw(icon("clock"))}
         <div>
           <b>{`#${n} isn't public yet.`}</b>
           <span>{`${body}${until}`}</span>

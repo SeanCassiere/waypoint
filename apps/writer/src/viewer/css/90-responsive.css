@@ -193,7 +193,7 @@
   .status1 > .grow + * {
     margin-left: auto;
   }
-  /* A list marker (`! #3, #4, … failed to sync`) can be wider than the phone: it wraps too. */
+  /* A list marker (`#3, #4, … failed to sync`) can be wider than the phone: it wraps too. */
   .status1 .seg1 {
     max-width: 100%;
   }
@@ -218,8 +218,8 @@
     row-gap: 0;
     padding-right: 12px;
   }
-  details.sees > summary::after {
-    content: "Details ▾";
+  details.sees .sum-more {
+    display: inline;
     margin-left: auto;
     font-size: 12px;
     color: var(--muted);

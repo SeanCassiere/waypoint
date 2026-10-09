@@ -205,7 +205,8 @@ function TableUnit(props: { rows: DiffBlock[]; frags: Fragments }) {
         {rendered(
           <div class="tx">
             <span class="ctxnote">
-              ▦ Table, {plural(Math.max(0, rows.length - 2), "row")} (unchanged)
+              {raw(icon("table", "sm"))} Table, {plural(Math.max(0, rows.length - 2), "row")}{" "}
+              (unchanged)
             </span>
           </div>,
         )}
@@ -281,8 +282,8 @@ function CodeBlock(props: { op: DiffBlock }) {
         <span class="mk" aria-hidden="true" />
         <div class="tx">
           <span class="ctxnote">
-            ▦ Code block{language ? ` (${language})` : ""}, {plural(codeBody(text).length, "line")}{" "}
-            (unchanged)
+            {raw(icon("code", "sm"))} Code block{language ? ` (${language})` : ""},{" "}
+            {plural(codeBody(text).length, "line")} (unchanged)
           </span>
         </div>
       </div>

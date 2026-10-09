@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { icon } from "@waypoint/ui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { BlobStore } from "../src/blob-store.ts";
@@ -176,8 +177,8 @@ describe("rendered table diffs", () => {
     ]);
     expect(block).toMatch(/<tr class="r-ctx">[\s\S]*?value 4[\s\S]*?<tr class="r-mod">/);
     expect(block).toMatch(/<tr class="r-mod">[\s\S]*?<tr class="r-ctx">[\s\S]*?value 6/);
-    expect(block).toContain('<td colspan="2">⋯ 3 unchanged rows</td>');
-    expect(block).toContain('<td colspan="2">⋯ 4 unchanged rows</td>');
+    expect(block).toContain(`<td colspan="2">${icon("more", "sm")} 3 unchanged rows</td>`);
+    expect(block).toContain(`<td colspan="2">${icon("more", "sm")} 4 unchanged rows</td>`);
     expect(block).not.toContain("value 1<");
     expect(block).not.toContain("value 10<");
   });
@@ -224,7 +225,7 @@ describe("rendered table diffs", () => {
       '<tr class="r-gap">',
     ]);
     expect(block).toContain('<td><span class="dc">1</span></td>');
-    expect(block).toContain("⋯ 2 unchanged rows");
+    expect(block).toContain(`${icon("more", "sm")} 2 unchanged rows`);
   });
 
   it("marks a cell whose formatting alone changed", async () => {

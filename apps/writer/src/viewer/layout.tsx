@@ -138,7 +138,7 @@ function TrashLabel(props: { trash: number; paused: number }) {
 
 /**
  * The bar every page outside a collection shares (NAV-01): Recent, Public links and Trash tabs
- * with their live counts (Chrome's, per request), the inline search, the health pill and ⋯. On
+ * with their live counts (Chrome's, per request), the inline search, the health pill and More. On
  * phones the tabs fold into a "Go to" sheet opened from the current page's name.
  */
 export function HomeBar(props: {
@@ -355,9 +355,7 @@ function ConfirmDialog() {
       aria-describedby="confirm-body"
     >
       <div class="band" data-confirm-band hidden>
-        <span class="bang" aria-hidden="true">
-          !
-        </span>
+        {raw(icon("alert", "xl"))}
         <div>
           <h2 id="confirm-band-title" data-confirm-band-title />
           <p data-confirm-band-body />

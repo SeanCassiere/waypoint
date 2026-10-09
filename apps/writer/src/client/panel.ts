@@ -53,7 +53,7 @@ export function setPanel(open: boolean): void {
     return;
   }
   if (!was) return;
-  // Closing (✕, Esc or the scrim) returns focus to whatever opened the sheet.
+  // Closing (the close button, Esc or the scrim) returns focus to whatever opened the sheet.
   const target = opener?.isConnected && !opener.closest("#panel") ? opener : null;
   opener = null;
   const fallback = $$("[data-action=panel-toggle]").find((toggle) => toggle.offsetParent !== null);
@@ -186,7 +186,8 @@ export function bindPanel(): void {
     }
   });
   if (!wide()) {
-    // Panels on narrow screens start closed; the bar's ☰, the phone tab bar or "." opens them.
+    // Panels on narrow screens start closed; the bar's panel button, the phone tab bar or "."
+    // opens them.
     root.classList.remove("open");
   }
   // Crossing the breakpoint: a docked panel never leaves the page behind it inert.

@@ -1,4 +1,5 @@
 import { markWords, renderFragment } from "@waypoint/render";
+import { icon } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
 import type { DiffBlock } from "../src/compare.ts";
@@ -262,7 +263,7 @@ describe("tableFragment", () => {
     const html = decorateTable(renderFragment(header?.markdown ?? ""), header!.meta) ?? "";
     expect(html).toContain('<tr class="r-ctx"><td class="g"></td>');
     expect(html).toContain("<del>Old</del><ins>New</ins>");
-    expect(html).toContain("⋯ 2 unchanged rows");
+    expect(html).toContain(`${icon("more", "sm")} 2 unchanged rows`);
     const align = tableFragment([
       same("| A | B |"),
       block("replace", "| - | - |", "| - | -: |"),
@@ -430,7 +431,7 @@ describe("decorateTable", () => {
     ]);
     expect(html).toContain('<tr class="r-ctx"><td class="g"></td>');
     expect(html).toContain(
-      '<tr class="r-gap"><td class="g"></td><td colspan="2">⋯ 2 unchanged rows</td></tr>',
+      `<tr class="r-gap"><td class="g"></td><td colspan="2">${icon("more", "sm")} 2 unchanged rows</td></tr>`,
     );
     expect(html).toContain(
       '<tr class="r-mod"><td class="g"><span aria-hidden="true">~</span><span class="vh">changed row</span></td>',

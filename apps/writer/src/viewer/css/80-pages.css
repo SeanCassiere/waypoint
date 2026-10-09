@@ -50,8 +50,18 @@
 .hero.bad .dot {
   background: var(--failed);
 }
-.hero.off .dot {
-  background: var(--faint);
+/* A state hero's icon (VS-03): okcircle synced, clock pending, alert failed, dot sync off. */
+.hero > .ic {
+  color: var(--ok);
+}
+.hero.warn > .ic {
+  color: var(--pending);
+}
+.hero.bad > .ic {
+  color: var(--failed);
+}
+.hero > .ic.off {
+  color: var(--muted);
 }
 /* The text column shrinks and long unbroken titles wrap (OW-06b names the collection here). */
 .hero > div {

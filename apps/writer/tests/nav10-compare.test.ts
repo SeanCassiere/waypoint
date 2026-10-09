@@ -278,7 +278,7 @@ describe("NAV-10 Changes page: ordered pairs", () => {
     expect(page.html).not.toContain("isn't in this collection");
     expect(page.html).not.toContain('class="forkcard"');
     expect(filesPanel(page.html)).toContain("Comparing two unrelated histories.");
-    expect(bar(page.html)).toContain("#2 ⇄ #3 branches");
+    expect(bar(page.html)).toContain("#2 #3 branches");
   });
 });
 
@@ -362,7 +362,7 @@ describe("NAV-10 Changes page: headers", () => {
       ["What #5 changed (vs #4)", `/c/${col}/r/${pub[4]}/changes`],
       ["Swap sides", `/c/${col}/r/${pub[4]}/changes?base=${pub[5]}`],
     ]);
-    expect(bar(page.html)).toContain("#5 ⇄ #6 branches");
+    expect(bar(page.html)).toContain("#5 #6 branches");
     expect(filesPanel(page.html)).toContain("Comparing two branches that split at #4.");
   });
 

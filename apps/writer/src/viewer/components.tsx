@@ -29,19 +29,6 @@ export function LogoMark(props: { size?: number }) {
     </svg>
   );
 }
-export function Globe() {
-  return (
-    <svg class="globe" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
-      <path
-        d="M1.5 8h13M8 1.5c2 2 2.8 4.2 2.8 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.2 5.7 5.2 8S6 12.5 8 14.5"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.3"
-      />
-    </svg>
-  );
-}
 export function Spinner() {
   return <span class="spin" aria-hidden="true" />;
 }
@@ -307,19 +294,20 @@ export function HealthPopover(props: { health: Health; now: number; host: string
     (at, item) => (at === null || item.created_at < at ? item.created_at : at),
     null,
   );
-  const dot =
+  // The state icon, coloured by its tone class (VS-03's pins).
+  const mark =
     health.state === "failed" || health.state === "blocked"
-      ? "failed"
+      ? icon("alert", "failed")
       : health.state === "uploading" || health.state === "stalled" || health.state === "offline"
-        ? "pending"
+        ? icon("clock", "pending")
         : health.state === "off"
-          ? "off"
-          : "";
+          ? icon("dot", "off")
+          : icon("okcircle", "ok");
   return (
     <div id="health-pop" class="pop2" popover="auto" role="dialog" aria-label="Writer status">
       <div class="mbox">
         <div class="big">
-          <span class={`d ${dot}`} aria-hidden="true" />
+          {raw(mark)}
           {healthSummary(health)}
         </div>
         <dl class="kv">
@@ -601,7 +589,7 @@ export function FileTree(props: TreeOptions) {
         {props.galleryHref && gallery ? (
           <a class="gal" href={props.galleryHref(gallery.dir)}>
             <span class="k" aria-hidden="true">
-              ▦
+              {raw(icon("grid", "sm"))}
             </span>
             <span class="nm">View as gallery ({gallery.images})</span>
           </a>
@@ -613,7 +601,10 @@ export function FileTree(props: TreeOptions) {
             const path = `${prefix}${name}/`;
             return (
               <details open={!large || current.startsWith(path)} data-dir={path}>
-                <summary>{name}</summary>
+                <summary>
+                  {raw(icon("chevronDown", "sm"))}
+                  {name}
+                </summary>
                 <div>{render(child, path)}</div>
               </details>
             );

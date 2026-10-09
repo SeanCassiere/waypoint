@@ -1,7 +1,13 @@
+import { icon } from "@waypoint/ui";
+
 import { shellPath } from "../viewer-paths.ts";
 import { $, $$, el, shellRoot, storage } from "./dom.ts";
 import { refreshStatusLine } from "./status-line.ts";
 import { toast } from "./toast.ts";
+
+/** The new-since segment's neutral marker and the Mark-as-read button's icon (VS-03). */
+const DOT = icon("dot");
+const CLOSE = icon("close");
 
 export interface ReadMark {
   id: string;
@@ -154,10 +160,10 @@ export function bindReadMarks(): void {
       const segment = el(
         "span",
         { class: "seg1", attrs: { "data-newsince": "" } },
-        el("span", { text: "●", attrs: { "aria-hidden": "true" } }),
         el("b", { text: `${count} new ${count === 1 ? "revision" : "revisions"}` }),
         el("span", { class: "long", text: `since you last read #${mark.n}` }),
       );
+      segment.insertAdjacentHTML("afterbegin", DOT);
       const changes = el("a", {
         class: "btn sm",
         text: "See changes",
@@ -165,9 +171,9 @@ export function bindReadMarks(): void {
       });
       const dismiss = el("button", {
         class: "btn sm ghost",
-        text: "✕",
         attrs: { type: "button", "aria-label": "Mark as read" },
       });
+      dismiss.insertAdjacentHTML("beforeend", CLOSE);
       dismiss.addEventListener("click", () => {
         markRead();
         segment.remove();

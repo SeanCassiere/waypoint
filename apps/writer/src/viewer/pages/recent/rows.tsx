@@ -1,10 +1,12 @@
 /** @jsxImportSource hono/jsx */
 import type { CollectionSearchResult } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 import type { JSX } from "hono/jsx/jsx-runtime";
 
 import type { Health } from "../../../health.ts";
-import { Chg, Globe, Time } from "../../components.tsx";
+import { Chg, Time } from "../../components.tsx";
 import { plural, projectAndTags } from "../../format.ts";
 import { dayLabel, trashDayLabel } from "../../timefmt.ts";
 import { RowSyncChips } from "./attention.tsx";
@@ -147,7 +149,7 @@ export function RecentRow(props: ListRowProps | TrashRowProps): JSX.Element {
         <RowSyncChips collectionId={item.id} health={props.health} />
         {item.share?.active ? (
           <span class="chip xs public">
-            <Globe />
+            {raw(icon("globe", "sm"))}
             Public
             {item.share.follows_latest
               ? " · follows latest"

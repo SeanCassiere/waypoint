@@ -2,6 +2,7 @@
 // get real inline Markdown and the word marks; the rendered <table> then gets a gutter column, row
 // classes and a caption. Anything unexpected returns null, and the unit shows its source rows.
 import { markWords } from "@waypoint/render";
+import { icon } from "@waypoint/ui";
 import { diffWordsWithSpace } from "diff";
 
 import type { DiffBlock, WordOp } from "../../../compare.ts";
@@ -11,6 +12,8 @@ import { plural } from "../../format.ts";
 const MAX_CELL_WORDS = 1024;
 /** Changed cells per table that get word diffs; the rest show old deleted, new inserted. */
 const MAX_CELL_DIFFS = 200;
+/** The mark before a gap row's "N unchanged rows" (VS-03: `more`, as on hunk headers). */
+const GAP_ICON = icon("more", "sm");
 
 /** One GFM table row's cells: outer pipes dropped, split on unescaped `|`, trimmed. Escaped
  * `\|` stays escaped for the renderer. */
@@ -411,7 +414,7 @@ export function decorateTable(html: string, meta: TableMeta): string | null {
         if (!gutter) return null;
         skipping = true;
         out.push(
-          `<tr class="r-gap"><td class="g"></td><td colspan="${meta.columns}">⋯ ${plural(kind, "unchanged row")}</td></tr>`,
+          `<tr class="r-gap"><td class="g"></td><td colspan="${meta.columns}">${GAP_ICON} ${plural(kind, "unchanged row")}</td></tr>`,
         );
         continue;
       }

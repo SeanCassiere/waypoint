@@ -138,7 +138,7 @@
   border: 2px solid var(--ink);
   padding: 0 9px;
 }
-/* Tablets: ‹ replaces the logo and the ancestors, Copy link moves into ⋯ (.midonly), and the
+/* Tablets: Back replaces the logo and the ancestors, Copy link moves into More (.midonly), and the
    title and the pills stack in a two-line block. The bar is 60 px on the collection, Changes
    and Gallery pages, so the side sheet starts under it. The layout rules are scoped to the
    breadcrumb bar (.cbar:has(> .bc)): the In-Trash page's TrashBar is also a .cbar and keeps
@@ -192,7 +192,7 @@
   .cbar:has(> .bc) {
     --bar-h: 69px;
   }
-  /* As before NAV-04, every collection bar (the In-Trash one too) swaps the logo for ‹. */
+  /* As before NAV-04, every collection bar (the In-Trash one too) swaps the logo for Back. */
   .cbar .logo,
   .cbar .ptog,
   .cbar .share,
@@ -212,7 +212,7 @@
     gap: 0;
     padding: 0 2px;
   }
-  /* Without gaps the health pill's hit extension (OW-10b's) would reach into Find's and ⋯'s
+  /* Without gaps the health pill's hit extension (OW-10b's) would reach into Find's and More's
      44 px boxes; a 3 px margin on each side keeps neighbouring hit areas apart. */
   .cbar .find {
     margin-right: 3px;
@@ -220,7 +220,7 @@
   .cbar .more {
     margin-left: 3px;
   }
-  /* The 404's bar has no ⋯, so the health pill ends it: keep it off the screen edge. */
+  /* The 404's bar has no More, so the health pill ends it: keep it off the screen edge. */
   .bar.cbar:has(> .bc):not(:has(> .more)) {
     padding-right: 10px;
   }
@@ -240,7 +240,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Changes and Gallery keep Done (the up target) and drop ‹, so the title keeps its room. */
+  /* Changes and Gallery keep Done (the up target) and drop Back, so the title keeps its room. */
   body[data-page="changes"] .cbar .back,
   body[data-page="gallery"] .cbar .back {
     display: none;
@@ -312,7 +312,7 @@
   color: var(--ink);
   font-weight: 650;
 }
-/* ⋯ carries Copy link's actions only where the bar has no Copy link (761–1099.98 px). */
+/* More carries Copy link's actions only where the bar has no Copy link (761–1099.98 px). */
 .menu .midonly {
   display: none;
 }
@@ -481,15 +481,9 @@
 .tree summary::-webkit-details-marker {
   display: none;
 }
-.tree summary::before {
-  content: "▸";
-  font-size: 10px;
-  width: 12px;
-  text-align: center;
-  flex: none;
-}
-.tree details[open] > summary::before {
-  content: "▾";
+/* The folder's chevron points right while closed. */
+.tree details:not([open]) > summary > svg.ic {
+  transform: rotate(-90deg);
 }
 .tree details > div {
   padding-left: 14px;
