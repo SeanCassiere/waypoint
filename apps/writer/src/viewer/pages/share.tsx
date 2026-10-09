@@ -283,7 +283,7 @@ function LinkCard(props: {
                   </button>
                   <button
                     type="button"
-                    class="btn sm danger"
+                    class="btn sm danger-solid"
                     data-action="revoke-link"
                     data-id={link.id}
                   >

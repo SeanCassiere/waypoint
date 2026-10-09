@@ -1196,6 +1196,10 @@ describe("owner feedback 1: copyable links, calm Links tab, History state", () =
     // Revoke… is a quiet text action, not a red button.
     expect(tab).toContain('<summary class="txtbtn danger">Revoke…</summary>');
     expect(tab).not.toContain('<summary class="btn sm danger">');
+    // Its popover's confirm does it now: a solid red button (VS-05c).
+    expect(tab).toMatch(
+      /class="btn sm danger-solid"[^>]*data-action="revoke-link"[^>]*>\s*Revoke link/,
+    );
     await create({ label: "two" });
     tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
     expect(tab).toMatch(/class="txtbtn danger"[^>]*data-action="revoke-all"/);

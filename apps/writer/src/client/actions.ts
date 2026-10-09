@@ -172,7 +172,7 @@ async function trash(): Promise<void> {
     title: `Move “${root.dataset.title ?? "this collection"}” to Trash?`,
     body: `Hide this collection everywhere.${linkCount ? ` Its ${plural(linkCount, "public link")} ${linkCount === 1 ? "stops" : "stop"} working until you restore it.` : ""} You can restore it from Trash.`,
     ok: "Move to Trash",
-    okClass: "danger",
+    okClass: "danger-solid",
     run: async () => {
       await api(
         `/api/collections/${encodeURIComponent(root.dataset.collectionId ?? "")}`,

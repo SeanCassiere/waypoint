@@ -387,7 +387,7 @@ function ConfirmDialog() {
         <button class="btn" value="cancel" data-confirm-cancel>
           Cancel
         </button>
-        <button type="button" class="btn danger" data-confirm-ok>
+        <button type="button" class="btn danger-solid" data-confirm-ok>
           OK
         </button>
       </form>
