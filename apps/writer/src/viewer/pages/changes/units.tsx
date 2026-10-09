@@ -156,7 +156,7 @@ function TableUnit(props: { rows: DiffBlock[] }) {
     removed ? `${removed} removed` : "",
   ].filter(Boolean);
   return (
-    <div class="blk src mod">
+    <div class="blk src mod" data-change="" tabindex={-1}>
       <span class="mk" aria-label="changed">
         ~
       </span>
@@ -205,7 +205,7 @@ function CodeBlock(props: { op: DiffBlock }) {
     );
   if (op.op !== "replace")
     return (
-      <div class={`blk src ${tone(op.op)}`}>
+      <div class={`blk src ${tone(op.op)}`} data-change="" tabindex={-1}>
         {marker(op.op)}
         <div class="tx">
           <span class="srcnote">
@@ -222,7 +222,7 @@ function CodeBlock(props: { op: DiffBlock }) {
   let added = 0;
   if (before.length * after.length > CODE_LCS_CELLS)
     return (
-      <div class="blk src mod">
+      <div class="blk src mod" data-change="" tabindex={-1}>
         {marker("replace")}
         <div class="tx">
           <span class="srcnote">
@@ -269,7 +269,7 @@ function CodeBlock(props: { op: DiffBlock }) {
     }
   }
   return (
-    <div class="blk src mod">
+    <div class="blk src mod" data-change="" tabindex={-1}>
       {marker("replace")}
       <div class="tx">
         <span class="srcnote">
