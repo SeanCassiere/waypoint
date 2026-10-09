@@ -24,12 +24,6 @@
 .rv:hover {
   background: var(--hover);
 }
-.rv[aria-current] {
-  background: var(--surface);
-  box-shadow:
-    0 0 0 1px var(--rule-2),
-    var(--sh-1);
-}
 .rv a.rvl::after {
   content: "";
   position: absolute;

@@ -77,8 +77,17 @@
 .shot.del {
   border-style: dashed;
   border-color: var(--del-word);
-  opacity: 0.8;
   cursor: default;
+}
+/* A removed image is told apart by colour, never opacity (VS-04). */
+.shot.del .cap {
+  box-shadow: inset 3px 0 0 var(--rule-2);
+}
+.shot.del .cap .nm {
+  color: var(--ink-2);
+}
+.shot.del .cap .dim {
+  color: var(--muted);
 }
 .galsec {
   grid-column: 1/-1;
