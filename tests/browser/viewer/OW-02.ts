@@ -260,15 +260,16 @@ const scenario: ViewerScenario = {
       .locator("#more-menu")
       .getByRole("menuitem", { name: /^Rename/ })
       .click();
-    const rename = page.locator("dialog#rename");
+    // NAV-11: Rename… opens the Collection details dialog.
+    const rename = page.locator("dialog#details");
     await rename.waitFor({ state: "visible" });
     await rename.locator("input[name=title]").fill("   ");
-    await rename.locator("button:not([formmethod])").click();
+    await rename.locator("[data-details-save]").click();
     await page.waitForFunction(
-      `document.querySelector("dialog#rename [data-form-error]").textContent === "Enter a title"`,
+      `document.querySelector("dialog#details [data-form-error]").textContent === "Enter a title"`,
     );
     assert.equal(await children(page, error), 0);
-    await rename.locator("[formmethod=dialog]").first().click();
+    await rename.locator('[command="close"]').click();
     await rename.waitFor({ state: "hidden" });
 
     // Replacing a toast whose Dismiss has focus moves focus to the new Dismiss, not to <body>.

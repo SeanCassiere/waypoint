@@ -195,13 +195,27 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           <kbd>a</kbd>
         </button>
         <hr class="midonly" />
-        <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          commandfor="details"
+          command="show-modal"
+          data-focus="title"
+        >
           <span aria-hidden="true">✎</span>
           <span>Rename…</span>
         </button>
-        <button type="button" class="mi" role="menuitem" commandfor="metadata" command="show-modal">
+        <button
+          type="button"
+          class="mi"
+          role="menuitem"
+          commandfor="details"
+          command="show-modal"
+          data-focus="project"
+        >
           <span aria-hidden="true">{"{}"}</span>
-          <span>Edit metadata…</span>
+          <span>Edit details…</span>
         </button>
         <hr />
         <a class="mi" role="menuitem" href={rawHref} target="_blank" rel="noopener" data-open-raw>

@@ -1,10 +1,14 @@
 /** @jsxImportSource hono/jsx */
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import { shellPath } from "../../../viewer-paths.ts";
 import { belowText, lineageBelow, pickSummary } from "../../compare-text.ts";
-import { FileTree, Timeline, type Glyph } from "../../components.tsx";
+import { FileTree, Time, Timeline, type Glyph } from "../../components.tsx";
+import { plural, projectAndTags } from "../../format.ts";
 import { gutterFor } from "../../gutter.ts";
+import { writtenOn } from "./dialogs.tsx";
 import { HISTORY_PAGE, type CollectionContext, changesHref } from "./shell.tsx";
 
 export type PanelTab = "files" | "history" | "links";
@@ -283,6 +287,99 @@ export function FilesPanel(props: {
         in #{ctx.revision.display_number ?? "?"}
         {parent ? `, compared with its parent #${parent.display_number}` : " (first revision)"}
       </p>
+      <AboutCard ctx={ctx} />
     </>
+  );
+}
+
+/** Recent's search for one token (`project:webhooks`), as the bar's project crumb links it. */
+const searchHref = (token: string): string => `/?${new URLSearchParams({ q: token }).toString()}`;
+
+/** About this collection (NAV-11): the foot of every Files tab, after the legend. Project, tags
+ *  and host link to Recent's search; Edit opens the Collection details dialog. */
+export function AboutCard(props: { ctx: CollectionContext }) {
+  const { ctx } = props;
+  // A blank project or tag would be an empty token searching for nothing, so it isn't shown.
+  const shown = projectAndTags(ctx.collection.metadataObject);
+  const project = shown.project?.trim() ? shown.project : null;
+  const tags = shown.tags.filter((tag) => tag.trim());
+  const host = writtenOn(ctx.collection.metadataObject);
+  const id = ctx.collection.public_id;
+  return (
+    <section class="about" aria-labelledby="about-h">
+      <div class="ah">
+        <h3 id="about-h">About this collection</h3>
+        <button
+          type="button"
+          class="txtbtn"
+          commandfor="details"
+          command="show-modal"
+          data-focus="project"
+        >
+          Edit
+        </button>
+      </div>
+      <dl>
+        {project ? (
+          <>
+            <dt>Project</dt>
+            <dd>
+              <a class="tok" href={searchHref(`project:${project}`)}>
+                {project}
+              </a>
+            </dd>
+          </>
+        ) : null}
+        {tags.length ? (
+          <>
+            <dt>Tags</dt>
+            <dd>
+              {tags.map((tag) => (
+                <a class="tok" href={searchHref(`tag:${tag}`)}>
+                  {tag}
+                </a>
+              ))}
+            </dd>
+          </>
+        ) : null}
+        {host ? (
+          <>
+            <dt>Written on</dt>
+            <dd>
+              <a class="tok mono" href={searchHref(`host:${host}`)}>
+                {host}
+              </a>
+            </dd>
+          </>
+        ) : null}
+        <dt>Started</dt>
+        <dd>
+          <span>
+            <Time at={ctx.collection.created_at} fmt="date" now={ctx.chrome.now} /> ·{" "}
+            {plural(ctx.timeline.length, "revision")}
+          </span>
+        </dd>
+        <dt>ID</dt>
+        <dd>
+          <code class="idv">{id}</code>
+          <button
+            type="button"
+            class="idcopy"
+            data-action="copy-text"
+            data-text={id}
+            data-label="collection public ID"
+            aria-label="Copy ID"
+            hidden
+            data-needs-js
+          >
+            {raw(icon("copy", "sm"))}
+          </button>
+        </dd>
+      </dl>
+      <p class="ahint">
+        Project, tags and host are what Recent's filters and <code>project:</code> <code>tag:</code>{" "}
+        <code>host:</code> search use.
+      </p>
+    </section>
   );
 }

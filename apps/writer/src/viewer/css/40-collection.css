@@ -707,3 +707,231 @@
   display: inline;
   margin: 0;
 }
+/* About this collection (NAV-11): the foot of every Files tab, after the legend. */
+.about {
+  margin: 14px 4px 4px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.about .ah {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.about h3 {
+  margin: 0;
+  font: 700 11px/1.2 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.about dl {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 7px 10px;
+  margin: 0;
+  font-size: 13px;
+  align-items: center;
+}
+.about dt {
+  color: var(--muted);
+}
+.about dd {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+}
+/* .tok is also the share token box (60-dialogs), so the card restates what that sets. */
+.about .tok {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  overflow: visible;
+}
+.about .tok:hover {
+  border-color: var(--rule-2);
+}
+.about .tok.mono {
+  font: 12px/1.3 var(--mono);
+}
+/* The public ID selects as one unit, without script. */
+.about .idv {
+  font: 12px var(--mono);
+  color: var(--ink-2);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.about .idcopy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.about .idcopy:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.about .ahint {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.about .ahint code {
+  font: 11px var(--mono);
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--sunken);
+}
+/* Touch: each token is a 32 px link, 10 px apart. */
+@media (pointer: coarse) {
+  .about dl,
+  .about dd {
+    gap: 10px;
+  }
+  .about .tok {
+    min-height: 32px;
+    padding: 0 11px;
+  }
+  .about .idcopy {
+    width: 32px;
+    height: 32px;
+  }
+}
+/* Collection details (NAV-11). #details outranks .dlg .bd p's margin (60-dialogs). */
+/* A long project, tag, host or suggestion with no spaces wraps instead of widening the dialog:
+   the grid tracks may shrink below their content, and the values break anywhere. */
+#details .bd,
+#details .fl {
+  grid-template-columns: minmax(0, 1fr);
+}
+#details :is(small, .ro .mono, .tagadd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#details small code {
+  font: 11.5px var(--mono);
+}
+#details .pubnote {
+  margin: -8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--public-line);
+  border-radius: 8px;
+  background: var(--public-bg);
+  color: var(--public);
+  font-size: 13px;
+}
+#details .pubnote .ic {
+  margin-right: 2px;
+}
+#details .tagsugg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+#details .tagadd {
+  max-width: 100%;
+  min-height: 26px;
+  text-align: start;
+  padding: 0 10px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+#details .tagadd:hover {
+  border-color: var(--control);
+  background: var(--hover);
+  color: var(--ink);
+}
+#details .ro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+#details .ro .mono {
+  font: 400 12.5px var(--mono);
+}
+#details .ro small {
+  flex-basis: 100%;
+}
+#details .othermeta summary {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 13px;
+}
+/* (0,1,1): the touch rule's 16 px field font (00-base) still beats this. */
+.othermeta textarea {
+  display: block;
+  width: 100%;
+  min-height: 140px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--control);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 12.5px/1.5 var(--mono);
+  resize: vertical;
+}
+#details .othermeta textarea[aria-invalid="true"] {
+  border-color: var(--failed);
+}
+/* Reserved for two lines, so the dialog doesn't jump when the JSON error appears. */
+#details .jsonerr {
+  min-height: calc(2 * 1.4em);
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--failed);
+}
+#details .ft .nojs {
+  flex: 1 1 200px;
+}
+/* Phones: the bottom sheet's fields and buttons are 44 px tall. */
+@media (max-width: 760px) {
+  #details :is(input, textarea, button),
+  #details .tagadd,
+  #details .othermeta summary {
+    min-height: var(--tap);
+  }
+  #details .othermeta summary {
+    padding-block: 12px;
+  }
+  /* The engine's longer messages take three lines at this width. */
+  #details .jsonerr {
+    min-height: calc(3 * 1.4em);
+  }
+}
