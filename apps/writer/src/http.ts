@@ -9,6 +9,7 @@ import {
   validatePath,
   validateClientId,
   isTextMime,
+  rawContentType,
   MCP_LAUNCHER_API,
   WaypointError,
   withBase,
@@ -1171,6 +1172,7 @@ export function createApp(s: HttpServices): Hono {
     path: string,
     source: boolean,
     ifNoneMatch?: string,
+    mode: "api" | "raw" = "api",
   ): Promise<Response> {
     if (/%(?:2f|5c)/i.test(path))
       throw new WaypointError("path_invalid", "Encoded separator in file path");
@@ -1203,7 +1205,12 @@ export function createApp(s: HttpServices): Hono {
     await ensureBlob(served.hash);
     if (!(await s.blobs.has(served.hash)))
       throw new WaypointError("not_found", "Blob is unavailable locally");
-    const mime = isTextMime(served.mime) ? `${served.mime}; charset=utf-8` : served.mime;
+    const mime =
+      mode === "raw"
+        ? rawContentType(served.mime)
+        : isTextMime(served.mime)
+          ? `${served.mime}; charset=utf-8`
+          : served.mime;
     const changeable = entry.mime === "text/markdown" && !source;
     const headers = new Headers({
       "content-type": mime,
@@ -1255,6 +1262,7 @@ export function createApp(s: HttpServices): Hono {
       pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "",
       new URL(c.req.raw.url).searchParams.has("source"),
       c.req.header("if-none-match"),
+      "raw",
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));
