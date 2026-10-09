@@ -1,6 +1,7 @@
 import { escapeHtml } from "../html.ts";
 import { iconSprite } from "../icons.ts";
 import { publicShellCss } from "./css.ts";
+import { downloadLink } from "./download.ts";
 import { letterhead } from "./letterhead.ts";
 import { publicShellScript } from "./script.ts";
 import { bytes, encodePathSegments, extension, showBidi } from "./text.ts";
@@ -97,5 +98,5 @@ export function renderPublicShell(options: PublicShellOptions): string {
   const script = options.assets
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options)}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options, options.files.length <= 1 ? downloadLink(options, "letterhead") : "")}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
 }

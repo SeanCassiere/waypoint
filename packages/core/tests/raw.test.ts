@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attachmentDisposition,
   inferMime,
   isTextMime,
   PLAIN_TEXT_RAW_TYPES,
@@ -82,5 +83,42 @@ describe("rawContentType", () => {
     expect(inferred.map(rawContentType)).toEqual(
       inferred.map((m) => (isTextMime(m) ? `${m}; charset=utf-8` : m)),
     );
+  });
+});
+
+describe("attachmentDisposition (RX-06)", () => {
+  const safe = /^attachment; filename\*=UTF-8''[A-Za-z0-9%._~!$&+,=@-]*$/;
+  it("names the attachment after the base name, percent-encoded as filename* only", () => {
+    expect(attachmentDisposition("plan.md")).toBe("attachment; filename*=UTF-8''plan.md");
+    expect(attachmentDisposition("docs/a b'(1)*.md")).toBe(
+      "attachment; filename*=UTF-8''a%20b%27%281%29%2A.md",
+    );
+    expect(attachmentDisposition("café.md")).toBe("attachment; filename*=UTF-8''caf%C3%A9.md");
+  });
+  it("shows bidi and control characters as U+FFFD", () => {
+    expect(attachmentDisposition("x/invoice\u202efdp.exe")).toBe(
+      "attachment; filename*=UTF-8''invoice%EF%BF%BDfdp.exe",
+    );
+    expect(attachmentDisposition("a\u2066b\u0000c\u007f.txt")).toBe(
+      "attachment; filename*=UTF-8''a%EF%BF%BDb%EF%BF%BDc%EF%BF%BD.txt",
+    );
+  });
+  it("never lets a quote, semicolon or line break through", () => {
+    const names = [
+      'a"b.md',
+      "a;b.md",
+      "a\r\nSet-Cookie: x=1.md",
+      'x/"; filename=evil.exe',
+      "\ud800lone.md",
+      "",
+      "d/",
+      "~!$&+,=@-._.md",
+    ];
+    for (const name of names) {
+      const header = attachmentDisposition(name);
+      expect(header).toMatch(safe);
+      const value = header.slice(header.indexOf("filename*=") + "filename*=".length);
+      expect(value).not.toMatch(/["; \r\n]/);
+    }
   });
 });

@@ -385,9 +385,12 @@ const scenario: ReaderScenario = {
       // In-frame navigation to a tab out of view scrolls it into view.
       await post(page, S, S.files[5]);
       const shown = await rect(page, "a[aria-current]");
+      // RX-06's 44 px Download control shares the row, so a long tab can be wider than the strip:
+      // then it must fill the strip, otherwise show whole.
+      const seen = Math.min(shown.right, strip.right) - Math.max(shown.left, strip.left);
       assert.ok(
-        shown.left >= strip.left - 1 && shown.right <= strip.right + 1,
-        "followed tab visible",
+        seen >= Math.min(shown.width, strip.width) - 1,
+        `followed tab visible: ${seen} of ${shown.width} in ${strip.width}`,
       );
       assert.deepEqual(await autofocused(page), [], "never autofocus on tabs");
     }
