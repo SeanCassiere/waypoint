@@ -6,7 +6,7 @@ import { copyText, showCopied } from "./copy.ts";
 import { confirmDialog } from "./dialogs.ts";
 import { $, $$, el, run, shellRoot } from "./dom.ts";
 import { onCommand } from "./keys.ts";
-import { toast } from "./toast.ts";
+import { flash, toast } from "./toast.ts";
 
 const DAY = 86_400_000;
 /** Keep in step with STOPS_SOON and NOT_PUSHED in viewer/pages/share.tsx. */
@@ -118,55 +118,74 @@ export function bindShare(): void {
     if (details) details.open = false;
   });
   bindInlineConfirms();
-  registerAction("revoke-link", async (element) => {
-    const id = element.dataset.id ?? "";
-    let pushed = false;
-    const revoke = async () => {
-      const result = await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
-      pushed = field(result, "revocation_pushed") === true;
-    };
-    if (element.dataset.confirm === "true") {
+  registerAction(
+    "revoke-link",
+    async (element) => {
+      const id = element.dataset.id ?? "";
+      let pushed = false;
+      const revoke = async () => {
+        const result = await api(`/api/share-links/${encodeURIComponent(id)}/revoke`, "POST");
+        pushed = field(result, "revocation_pushed") === true;
+      };
+      if (element.dataset.confirm === "true") {
+        const ok = await confirmDialog({
+          title: "Revoke this link?",
+          body: "People using it lose access within seconds. You can't undo this.",
+          ok: "Revoke link",
+          run: revoke,
+        });
+        if (!ok) return;
+      } else await revoke();
+      // The one mutation that updates in place instead of flashing and reloading (OW-02, OW-04).
+      toast("Link revoked");
+      const holder = element.closest<HTMLElement>("[data-link]");
+      if (holder) markRevoked(holder, id, pushed);
+    },
+    () => "revoke the link",
+  );
+  registerAction(
+    "revoke-all",
+    async (element) => {
+      const count = Number(element.dataset.count ?? "0");
+      const collection = element.dataset.collectionId;
+      let revoked = 0;
       const ok = await confirmDialog({
-        title: "Revoke this link?",
-        body: "People using it lose access within seconds. You can't undo this.",
-        ok: "Revoke link",
-        run: revoke,
+        title: collection
+          ? `Revoke all ${plural(count, "link")}?`
+          : `Revoke all ${plural(count, "active link")}?`,
+        body: `Everyone using ${count === 1 ? "it" : "them"} loses access within seconds. You can't undo this.`,
+        ok: count === 1 ? "Revoke link" : "Revoke all",
+        run: async () => {
+          const result = await api(
+            collection
+              ? `/api/collections/${encodeURIComponent(collection)}/share-links/revoke-all`
+              : "/api/share-links/revoke-all?state=active",
+            "POST",
+          );
+          const done = field(result, "revoked");
+          // The writer always reports it; without it, the count the button showed.
+          revoked = typeof done === "number" ? done : count;
+        },
       });
       if (!ok) return;
-    } else await revoke();
-    toast("Link revoked");
-    const holder = element.closest<HTMLElement>("[data-link]");
-    if (holder) markRevoked(holder, id, pushed);
-  });
-  registerAction("revoke-all", async (element) => {
-    const count = Number(element.dataset.count ?? "0");
-    const collection = element.dataset.collectionId;
-    const ok = await confirmDialog({
-      title: collection
-        ? `Revoke all ${plural(count, "link")}?`
-        : `Revoke all ${plural(count, "active link")}?`,
-      body: `Everyone using ${count === 1 ? "it" : "them"} loses access within seconds. You can't undo this.`,
-      ok: count === 1 ? "Revoke link" : "Revoke all",
-      run: async () => {
-        await api(
-          collection
-            ? `/api/collections/${encodeURIComponent(collection)}/share-links/revoke-all`
-            : "/api/share-links/revoke-all?state=active",
-          "POST",
-        );
-      },
-    });
-    if (ok) location.reload();
-  });
-  registerAction("extend-link", async (element) => {
-    const from = Number(element.dataset.from);
-    const days = Number(element.dataset.days);
-    await api(`/api/share-links/${encodeURIComponent(element.dataset.id ?? "")}/extend`, "POST", {
-      expires_at: Math.max(from, Date.now()) + days * DAY,
-    });
-    toast(`Extended by ${days} days`);
-    location.reload();
-  });
+      flash({ text: `Revoked ${plural(revoked, "link")}` });
+      location.reload();
+    },
+    () => "revoke the links",
+  );
+  registerAction(
+    "extend-link",
+    async (element) => {
+      const from = Number(element.dataset.from);
+      const days = Number(element.dataset.days);
+      await api(`/api/share-links/${encodeURIComponent(element.dataset.id ?? "")}/extend`, "POST", {
+        expires_at: Math.max(from, Date.now()) + days * DAY,
+      });
+      flash({ text: `Extended by ${days} days` });
+      location.reload();
+    },
+    () => "extend the link",
+  );
 }
 
 /**
@@ -228,7 +247,7 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
     run(async () => {
       await copyText(url, "link");
       showCopied(copyButton);
-    }, toast),
+    }, "copy the link"),
   );
   const paintState = (state: string) => {
     const chip = $("[data-share-state]", dialog);
@@ -314,8 +333,8 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
           }
         }
       },
-      (message) => {
-        if (error) error.textContent = message;
+      (cause) => {
+        if (error) error.textContent = cause instanceof Error ? cause.message : "Request failed";
       },
     );
   });

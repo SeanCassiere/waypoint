@@ -27,9 +27,9 @@ function goRevision(rpub: string | undefined, end?: string): void {
 export function bindCollection(): void {
   const root = shellRoot();
   if (!root) return;
-  onCommand("copy-latest", () => run(copyLatest, toast));
-  onCommand("copy-pinned", () => run(copyPinned, toast));
-  onCommand("copy-handoff", () => run(copyHandoff, toast));
+  onCommand("copy-latest", () => run(copyLatest, "copy the link to latest"));
+  onCommand("copy-pinned", () => run(copyPinned, "copy the link to this revision"));
+  onCommand("copy-handoff", () => run(copyHandoff, "copy the handoff block"));
   onCommand("older", () => goRevision(root.dataset.older, root.dataset.olderEnd));
   onCommand("newer", () => goRevision(root.dataset.newer, root.dataset.newerEnd));
   onCommand("changes", () => {

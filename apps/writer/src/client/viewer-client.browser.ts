@@ -12,9 +12,11 @@ import { bindPanel } from "./panel.ts";
 import { bindSearch } from "./search.ts";
 import { bindShare } from "./share.ts";
 import { localizeTimes } from "./time.ts";
+import { showFlash } from "./toast.ts";
 
 localizeTimes();
 bindCommandFallback();
+showFlash();
 bindMenus();
 bindFocusReturn();
 bindActions();

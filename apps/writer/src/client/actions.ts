@@ -1,18 +1,40 @@
 import { shellPath } from "../viewer-paths.ts";
 import { plural } from "../viewer/format.ts";
-import { api, field } from "./api.ts";
+import { ApiError, api, field } from "./api.ts";
 import { copyText, showCopied } from "./copy.ts";
 import { bindForm, confirmDialog } from "./dialogs.ts";
 import { $, $$, el, run, shellRoot } from "./dom.ts";
+import {
+  collectionName,
+  dropFlash,
+  restoreFlash,
+  retryFlash,
+  revisionName,
+  revisionsName,
+  trashFlash,
+} from "./feedback.ts";
 import { readMark } from "./lastread.ts";
 import { setPanel, showTab, togglePanel } from "./panel.ts";
-import { toast } from "./toast.ts";
+import { flash } from "./toast.ts";
 
 type Action = (element: HTMLElement) => Promise<void> | void;
-const actions = new Map<string, Action>();
-export function registerAction(name: string, action: Action): void {
-  actions.set(name, action);
+type What = (element: HTMLElement) => string;
+const actions = new Map<string, { action: Action; what: What | undefined }>();
+/** `what` names the action for its error toast ("Couldn't <what>"); default "finish that". */
+export function registerAction(name: string, action: Action, what?: What): void {
+  actions.set(name, { action, what });
 }
+
+/** The revision a Retry or Drop button acts on: data-n, and data-title or the shell's title. */
+function named(element: HTMLElement): { n: number | null; title: string | null } {
+  const n = Number(element.dataset.n ?? "");
+  return {
+    n: element.dataset.n && Number.isInteger(n) ? n : null,
+    title: element.dataset.title ?? shellRoot()?.dataset.title ?? null,
+  };
+}
+const idsOf = (element: HTMLElement): string[] =>
+  (element.dataset.ids ?? "").split(",").filter(Boolean);
 
 function busy(button: HTMLElement, label: string): () => void {
   const original = [...button.childNodes];
@@ -84,7 +106,8 @@ export async function copyHandoff(): Promise<void> {
 }
 
 async function retry(element: HTMLElement): Promise<void> {
-  const ids = (element.dataset.ids ?? "").split(",").filter(Boolean);
+  const ids = idsOf(element);
+  const { n, title } = named(element);
   const done = busy(element, "Retrying…");
   try {
     for (const id of ids)
@@ -92,9 +115,9 @@ async function retry(element: HTMLElement): Promise<void> {
         await api(`/api/queue/${encodeURIComponent(id)}/retry`, "POST");
       } catch (error) {
         // A descendant retried with its root is no longer failed; that's fine.
-        if (!(error instanceof Error && /not failed|not found/i.test(error.message))) throw error;
+        if (!(error instanceof ApiError && /not failed|not found/i.test(error.raw))) throw error;
       }
-    toast(ids.length === 1 ? "Retrying" : `Retrying ${ids.length} revisions`);
+    flash({ text: retryFlash(ids.length, n, title) });
     location.reload();
   } catch (error) {
     done();
@@ -108,12 +131,16 @@ async function drop(element: HTMLElement): Promise<void> {
   const list = Array.isArray(numbers)
     ? numbers.map((n: unknown) => (typeof n === "number" ? `#${n}` : "?"))
     : [];
+  const dropped = Array.isArray(numbers)
+    ? numbers.filter((n: unknown): n is number => typeof n === "number")
+    : [];
+  const { title } = named(element);
   const self = list[0] ?? "this revision";
   const others = list.slice(1);
   const ok = await confirmDialog({
     title: "",
     band: {
-      title: `Drop ${self}${others.length ? ` and its ${plural(others.length, "descendant")} (${others.join(", ")})` : ""}?`,
+      title: `Drop ${self}${others.length ? ` and its ${plural(others.length, "descendant")} (${others.join(", ")})` : ""}${title ? ` from “${title}”` : ""}?`,
       body: `${others.length ? "They're" : "It's"} removed from this writer's queue and never ${others.length ? "reach" : "reaches"} the cloud.`,
     },
     body: "Numbers of later revisions may shift. This can't be undone.",
@@ -123,7 +150,9 @@ async function drop(element: HTMLElement): Promise<void> {
       await api(`/api/queue/${encodeURIComponent(id)}`, "DELETE");
     },
   });
-  if (ok) location.reload();
+  if (!ok) return;
+  flash({ text: dropFlash(dropped, title) });
+  location.reload();
 }
 async function trash(): Promise<void> {
   const root = shellRoot();
@@ -141,11 +170,21 @@ async function trash(): Promise<void> {
       );
     },
   });
-  if (ok) location.assign("/trash");
+  if (!ok) return;
+  flash({
+    ...trashFlash(root.dataset.title ?? "", linkCount),
+    id: root.dataset.collectionId ?? "",
+  });
+  location.assign("/trash");
 }
 async function restore(element: HTMLElement): Promise<void> {
   const id = element.dataset.id ?? "";
-  const after = () => (element.dataset.then === "reload" ? location.reload() : location.reload());
+  const title = element.dataset.title ?? null;
+  let revoked = 0;
+  const after = () => {
+    flash({ text: restoreFlash(title, revoked) });
+    location.reload();
+  };
   let active: { id: string; label: string | null; revision_display_number: number | null }[] = [];
   try {
     const parsed: unknown = JSON.parse(element.dataset.links ?? "[]");
@@ -174,7 +213,6 @@ async function restore(element: HTMLElement): Promise<void> {
     const done = busy(element, "Restoring…");
     try {
       await undelete();
-      toast("Restored");
       after();
     } catch (error) {
       done();
@@ -205,6 +243,7 @@ async function restore(element: HTMLElement): Promise<void> {
       run: async () => {
         await api(`/api/collections/${encodeURIComponent(id)}/share-links/revoke-all`, "POST");
         await undelete();
+        revoked = active.length;
       },
     },
     run: undelete,
@@ -256,14 +295,24 @@ async function purge(element: HTMLElement): Promise<void> {
       await api(`/api/collections/${encodeURIComponent(id)}/purge`, "POST", { confirm: id });
     },
   });
-  if (ok) location.reload();
+  if (!ok) return;
+  flash({ text: `Purge queued for ${collectionName(title)}` });
+  location.reload();
 }
 
-registerAction("retry", retry);
-registerAction("drop", drop);
-registerAction("trash", trash);
-registerAction("restore", restore);
-registerAction("purge", purge);
+const titleOf = (element: HTMLElement): string | null =>
+  element.dataset.title ?? shellRoot()?.dataset.title ?? null;
+registerAction("retry", retry, (element) => {
+  const { n, title } = named(element);
+  return `retry ${revisionsName(idsOf(element).length, n, title)}`;
+});
+registerAction("drop", drop, (element) => {
+  const { n, title } = named(element);
+  return `drop ${revisionName(n, title)}`;
+});
+registerAction("trash", trash, (element) => `move ${collectionName(titleOf(element))} to Trash`);
+registerAction("restore", restore, (element) => `restore ${collectionName(titleOf(element))}`);
+registerAction("purge", purge, (element) => `purge ${collectionName(titleOf(element))}`);
 registerAction("panel-tab", (element) => showTab(element.dataset.tab ?? "files"));
 registerAction("panel-close", () => setPanel(false));
 registerAction("panel-toggle", () => togglePanel());
@@ -279,30 +328,44 @@ registerAction("print", () => {
   }
   window.print();
 });
-registerAction("copy-link", (element) =>
-  element.dataset.kind === "pinned" ? copyPinned() : copyLatest(),
+registerAction(
+  "copy-link",
+  (element) => (element.dataset.kind === "pinned" ? copyPinned() : copyLatest()),
+  () => "copy the link",
 );
-registerAction("copy-handoff", () => copyHandoff());
-registerAction("copy-text", async (element) => {
-  await copyText(element.dataset.text ?? "", element.dataset.label ?? "text");
-  if (element.classList.contains("btn")) showCopied(element);
-});
-registerAction("copy-raw", () => {
-  const raw = $("[data-download]", HTMLAnchorElement)?.href;
-  return raw ? copyText(raw, "raw URL") : undefined;
-});
+registerAction(
+  "copy-handoff",
+  () => copyHandoff(),
+  () => "copy the handoff block",
+);
+registerAction(
+  "copy-text",
+  async (element) => {
+    await copyText(element.dataset.text ?? "", element.dataset.label ?? "text");
+    if (element.classList.contains("btn")) showCopied(element);
+  },
+  (element) => `copy the ${element.dataset.label ?? "text"}`,
+);
+registerAction(
+  "copy-raw",
+  () => {
+    const raw = $("[data-download]", HTMLAnchorElement)?.href;
+    return raw ? copyText(raw, "raw URL") : undefined;
+  },
+  () => "copy the raw URL",
+);
 function bindCollectionForms(): void {
   bindForm("rename", async (form) => {
     const title = new FormData(form).get("title");
     if (typeof title !== "string" || !title.trim()) throw new Error("Enter a title");
-    const root = shellRoot();
-    await api(`/api/collections/${encodeURIComponent(root?.dataset.collectionId ?? "")}`, "PATCH", {
-      title: title.trim(),
-    });
-    for (const node of $$("[data-title-text]")) node.textContent = title.trim();
-    if (root) root.dataset.title = title.trim();
-    document.title = `${title.trim()} · Waypoint`;
-    toast("Renamed");
+    await api(
+      `/api/collections/${encodeURIComponent(shellRoot()?.dataset.collectionId ?? "")}`,
+      "PATCH",
+      { title: title.trim() },
+    );
+    // Every mutation flashes and reloads (OW-02); only revoke updates in place.
+    flash({ text: "Renamed" });
+    location.reload();
   });
   bindForm("metadata", async (form) => {
     const raw = new FormData(form).get("metadata");
@@ -319,7 +382,7 @@ function bindCollectionForms(): void {
       "PATCH",
       { metadata: parsed },
     );
-    toast("Metadata saved");
+    flash({ text: "Metadata saved" });
     location.reload();
   });
 }
@@ -329,15 +392,18 @@ export function bindActions(): void {
   document.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
-    const action = target ? actions.get(target.dataset.action ?? "") : undefined;
-    if (!target || !action) return;
+    const entry = target ? actions.get(target.dataset.action ?? "") : undefined;
+    if (!target || !entry) return;
     // preventDefault also cancels the item's popovertargetaction="hide", so a menu item
     // closes its own menu before acting (focus may move to what the action shows).
     event.preventDefault();
     const menu = target.closest<HTMLElement>("[popover]");
     if (menu?.matches(":popover-open") && menu.popover === "auto") menu.hidePopover();
-    run(async () => {
-      await action(target);
-    }, toast);
+    run(
+      async () => {
+        await entry.action(target);
+      },
+      entry.what?.(target) ?? "finish that",
+    );
   });
 }

@@ -180,6 +180,19 @@ h2.sec .n {
 .r.dead {
   opacity: 0.75;
 }
+/* The row a flash points at (OW-02: the collection just moved to Trash), for this page view only.
+   The selection style (decision f keeps --pending* for sync states); any element, never a tag. */
+[data-flash-target].flashed {
+  background: var(--sel-bg);
+  box-shadow: inset 3px 0 0 var(--sel-bar);
+}
+/* Forced colours drop the shadow and the tint: outline the row instead (no layout change). */
+@media (forced-colors: active) {
+  [data-flash-target].flashed {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+}
 .empty {
   padding: 28px;
   text-align: center;

@@ -49,10 +49,24 @@ function attentionRows(health: Health, now: number): Child[] {
           <span class="mono">#{item.display_number ?? "?"}</span> failed to sync
         </span>
         <span class="acts">
-          <button type="button" class="btn sm" data-action="retry" data-ids={item.id}>
+          <button
+            type="button"
+            class="btn sm"
+            data-action="retry"
+            data-ids={item.id}
+            data-n={item.display_number ?? undefined}
+            data-title={item.collection_title ?? undefined}
+          >
             Retry
           </button>
-          <button type="button" class="btn sm danger" data-action="drop" data-id={item.id}>
+          <button
+            type="button"
+            class="btn sm danger"
+            data-action="drop"
+            data-id={item.id}
+            data-n={item.display_number ?? undefined}
+            data-title={item.collection_title ?? undefined}
+          >
             Drop…
           </button>
         </span>
