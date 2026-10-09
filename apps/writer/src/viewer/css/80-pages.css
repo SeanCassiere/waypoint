@@ -249,20 +249,6 @@ h2.sec .n {
   font-size: 15px;
   margin-bottom: 4px;
 }
-.blank {
-  text-align: center;
-  padding-top: 12vh;
-}
-.blank b {
-  display: block;
-  font-size: 22px;
-  margin-bottom: 8px;
-}
-.blank p {
-  max-width: 440px;
-  margin: 0 auto 18px;
-  color: var(--muted);
-}
 .notfound {
   padding-top: 12vh;
 }

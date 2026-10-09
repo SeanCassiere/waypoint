@@ -2,6 +2,7 @@
 import type { CollectionSearchResult } from "@waypoint/core";
 import type { JSX } from "hono/jsx/jsx-runtime";
 
+import type { Health } from "../../../health.ts";
 import type { HttpServices } from "../../../http.ts";
 import { plural } from "../../format.ts";
 import type { Chrome } from "../../layout.tsx";
@@ -178,17 +179,81 @@ export function BrowseRow(props: {
   );
 }
 
-export function EmptyHome() {
+/** NAV-06: the empty state's own sync-off line, only when nothing is queued. With something
+ *  queued, NeedsAttention's sync-off note (OW-06b) says it instead, so exactly one shows. */
+const showBackupLine = (h: Health) =>
+  !h.syncEnabled && h.failed.length === 0 && h.pending.length === 0;
+function BackupLine(props: { health: Health }): JSX.Element | null {
+  if (!showBackupLine(props.health)) return null;
   return (
-    <main class="wrap narrow blank" id="main">
-      <b>Nothing here yet</b>
-      <p>
-        When an agent publishes a plan, report, or screenshots, it shows up here. Connect your first
-        agent to start.
+    <p class="backup">
+      Sync is off. <a href="/status">Nothing is backed up</a>.
+    </p>
+  );
+}
+
+/** Recent with no collections at all (NAV-06): one sentence, two steps and the shortcut tip
+ *  (hidden on touch). */
+export function FirstRun(props: { chrome: Chrome }): JSX.Element {
+  const { chrome } = props;
+  return (
+    <main class="wrap narrow firstrun" id="main" aria-labelledby="firstrun-title">
+      <h1 class="page" id="firstrun-title">
+        Nothing published yet
+      </h1>
+      <p class="lede">
+        Agents publish collections of files; each publish is a revision. Everything stays on your
+        tailnet until you share it.
       </p>
-      <a class="btn primary" href="/mcp">
-        Connect an agent
-      </a>
+      <NeedsAttention health={chrome.health} now={chrome.now} />
+      <BackupLine health={chrome.health} />
+      {/* role="list": the shared .steps rule sets list-style: none, and Safari/VoiceOver then
+          drops a list's semantics; the step numbers are CSS (empty alt), so the order must
+          come from the list. */}
+      <ol class="steps" role="list">
+        <li>
+          <h2>Connect an agent</h2>
+          <p>Add the Waypoint MCP server to Claude Code or Codex once per machine.</p>
+          <a class="btn primary" href="/mcp">
+            Connect an agent
+          </a>
+        </li>
+        <li>
+          <h2>Ask it to publish</h2>
+          <p>
+            For example: <code>Publish this plan to Waypoint</code>. It appears here within seconds.
+          </p>
+        </li>
+      </ol>
+      <p class="tip">
+        Tip: press <kbd>/</kbd> to search, <kbd>?</kbd> for shortcuts.
+      </p>
+    </main>
+  );
+}
+
+/** Recent when every collection is in Trash (NAV-06): Recent's heading and Needs attention,
+ *  then a card to Trash. N is the bar badge's count (`chrome.trashCount`). */
+export function AllInTrash(props: { chrome: Chrome }): JSX.Element {
+  const { chrome } = props;
+  const n = chrome.trashCount;
+  return (
+    <main class="wrap narrow" id="main" aria-labelledby="recent-title">
+      <h1 class="page" id="recent-title">
+        Recent
+      </h1>
+      <p class="lede">Newest first, by latest revision.</p>
+      <NeedsAttention health={chrome.health} now={chrome.now} />
+      <BackupLine health={chrome.health} />
+      <section class="alltrash" aria-labelledby="alltrash-title">
+        <h2 id="alltrash-title">Everything is in Trash</h2>
+        <p>
+          {`${plural(n, "collection")} ${n === 1 ? "is" : "are"} in Trash, so Recent is empty. Restore ${n === 1 ? "it" : "one"} to bring it back.`}
+        </p>
+        <a class="btn primary" href="/trash">
+          Open Trash ({n})
+        </a>
+      </section>
     </main>
   );
 }

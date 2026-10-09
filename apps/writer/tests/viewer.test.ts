@@ -298,7 +298,9 @@ describe("viewer routes", () => {
     expect((await app.request("/status")).headers.get("cache-control")).toBe("no-store");
     await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" });
     expect(await (await app.request("/trash")).text()).toContain("Purge");
-    expect(await (await app.request("/")).text()).toContain("Nothing here yet");
+    const home = await (await app.request("/")).text();
+    expect(home).toContain("Everything is in Trash");
+    expect(home).toContain("Open Trash (1)");
   });
   it("warns about local-only mode on /status and /api/status, and reports the build", async () => {
     const sha = "0123456789abcdef0123456789abcdef01234567";
