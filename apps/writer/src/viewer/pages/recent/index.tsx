@@ -1,6 +1,8 @@
 /** @jsxImportSource hono/jsx */
 import { parseId, publicIdFor } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
+import { raw } from "hono/html";
 
 import type { HttpServices } from "../../../http.ts";
 import { parseSearch } from "../../../search-query.ts";
@@ -11,10 +13,62 @@ import { noStore } from "../../respond.ts";
 import { RecentBody, EmptyHome, loadPublicNow } from "./home.tsx";
 import { SearchBody, exactTarget } from "./search.tsx";
 
+/**
+ * The empty `/?q=` (NAV-02): a real search page, not Recent. Phones get an in-page field (the
+ * bar's is hidden below 761 px); the client focuses the first visible field on load.
+ */
+function SearchStart() {
+  return (
+    <main class="wrap narrow searchstart" id="main">
+      <h1 class="page">Search</h1>
+      <p class="lede">
+        Find a collection by its title or metadata, or paste a Waypoint URL or ID to jump straight
+        to it.
+      </p>
+      <form class="search-page show-sm" role="search" action="/" method="get" data-search>
+        {raw(icon("search"))}
+        <input
+          type="search"
+          name="q"
+          placeholder="Search, or paste a URL or ID"
+          aria-label="Search, or paste a URL or ID"
+          autocomplete="off"
+          autocapitalize="none"
+          enterkeyhint="search"
+          spellcheck={false}
+          autofocus
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="suggest-page"
+          aria-autocomplete="list"
+        />
+        <div class="suggest" id="suggest-page" role="listbox" aria-label="Suggestions" hidden />
+        <span class="sr" role="status" data-search-status />
+      </form>
+    </main>
+  );
+}
+
 export async function recentPage(s: HttpServices, c: Context): Promise<Response> {
-  const q = (c.req.query("q") ?? "").trim();
+  const given = c.req.query("q");
+  const q = (given ?? "").trim();
   const cursor = c.req.query("cursor");
   const now = Date.now();
+  if (given !== undefined && !q && !cursor) {
+    const chrome = await getChrome(s, now);
+    return noStore(
+      c.html(
+        <Layout
+          title="Search"
+          chrome={chrome}
+          bar={<HomeBar chrome={chrome} current="recent" />}
+          page="search"
+        >
+          <SearchStart />
+        </Layout>,
+      ),
+    );
+  }
   if (q && !cursor) {
     const target = await exactTarget(s, q);
     if (target) return noStore(c.redirect(target, 302));

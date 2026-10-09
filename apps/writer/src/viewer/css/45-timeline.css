@@ -49,8 +49,9 @@
   z-index: 1;
 }
 /* The lane gutter: lane 0 centred at x = 14 px, side lane k at 14 + 16k. Borders, not
-   backgrounds, so lines and rings survive forced colours. */
-.lg {
+   backgrounds, so lines and rings survive forced colours. Scoped to the row, since "lg" is also
+   the large icon size (svg.ic.lg). */
+.rv > .lg {
   position: absolute;
   inset: 0 auto 0 0;
   width: var(--lgw);

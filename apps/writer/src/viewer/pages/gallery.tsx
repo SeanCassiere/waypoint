@@ -65,6 +65,7 @@ export async function galleryPage(
         chrome={ctx.chrome}
         bar={<CollectionBar ctx={ctx} pill={`gallery · ${dir}`} doneHref={done} />}
         page="gallery"
+        findIn={collection.title}
       >
         <ShellRoot ctx={ctx} path={revision.head_path} mode="gallery">
           <Panel

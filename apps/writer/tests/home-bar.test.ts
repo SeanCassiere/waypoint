@@ -193,7 +193,9 @@ describe("HomeBar", () => {
       for (const glyph of ["⌕", "⌫", "◍", "⚯", "◉"]) expect(page).not.toContain(glyph);
     const html = pages[0] ?? "";
     expect(between(html, "<form", "</form>")).toContain('<svg class="ic"');
-    expect(link(html, "/?q=")).toContain('aria-label="Find"');
-    expect(link(html, "/?q=")).toContain('<svg class="ic lg"');
+    // NAV-02: the phone Find control is a button that opens #find.
+    const find = between(html, '<button type="button" class="iconbtn show-sm"', "</button>");
+    expect(find).toContain('aria-label="Find"');
+    expect(find).toContain('<svg class="ic lg"');
   });
 });

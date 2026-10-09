@@ -323,6 +323,7 @@ export async function changesPage(
         chrome={ctx.chrome}
         bar={<CollectionBar ctx={ctx} pill={pill} crumb={crumb} doneHref={done} />}
         page="changes"
+        findIn={collection.title}
       >
         <ShellRoot ctx={ctx} path={revision.head_path} mode="changes">
           <Panel
