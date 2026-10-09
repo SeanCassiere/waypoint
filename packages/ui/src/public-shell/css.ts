@@ -70,6 +70,10 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
  * name and marker; a hidden bold copy of its path (`::after`, a zero-height row under the name)
  * reserves the bold width and tabs never shrink (`flex:none`; the strip scrolls instead), so moving
  * `aria-current` resizes no tab. Under forced colours the icons inherit the text colour.
+ * The Download control (`.dlb`, RX-06) is a `.btn` (buttonCss, later in the cascade, so these
+ * rules use `.btn.dlb`): right-aligned at the row's end, in the letterhead actions with a mono
+ * name for one file (`.one`), and on phones an icon-only 44 px ghost target. A long name wraps
+ * (the button grows, 32 px for one line) rather than being cut, so the file name always shows.
  */
 export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px;max-width:1120px;margin:0 auto;padding:0 16px}
 .ptabs2,.pfiles{min-width:0;flex:1 1 auto}
@@ -91,8 +95,13 @@ export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px
 .fbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fbtn .chev{color:var(--muted)}
 .fbtn .t{unicode-bidi:isolate}.ptabs2 a{unicode-bidi:plaintext}
-@media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.ptabs2 a{min-height:var(--tap)}.fbtn{min-height:var(--tap)}}
-@media(forced-colors:active){.ptabs2 a[aria-current],.fbtn{border-bottom-color:CanvasText}.ptabs2 .ti,.ptabs2 a[aria-current] .ti,.fbtn .ti{color:inherit}}
+.prow>.dlb{margin-left:auto;flex:none;align-self:center}
+.btn.dlb.one .nm{font:12px/16px var(--mono);unicode-bidi:plaintext}
+@media not all and (max-width:${PHONE_MAX}px){.btn.dlb.one{height:auto;padding-block:7px}.btn.dlb.one .nm{max-width:min(44ch,30vw);white-space:normal;overflow-wrap:anywhere}}
+@media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.ptabs2 a{min-height:var(--tap)}.fbtn{min-height:var(--tap)}
+.btn.dlb,.btn.dlb:hover{width:var(--tap);height:var(--tap);padding:0;border-color:transparent;background:none}
+.btn.dlb .lbl{display:none}.btn.dlb svg.ic{width:var(--ic-lg);height:var(--ic-lg)}}
+@media(forced-colors:active){.ptabs2 a[aria-current],.fbtn{border-bottom-color:CanvasText}.ptabs2 .ti,.ptabs2 a[aria-current] .ti,.fbtn .ti{color:inherit}.btn.dlb,.btn.dlb:hover{border-color:ButtonText}}
 `;
 /**
  * Popovers (D51) and the tree rows (R1). Every `[popover]` is an invisible positioning shell

@@ -3,6 +3,7 @@ import { open, readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 
 import {
+  attachmentDisposition,
   buildInfo,
   isContentHash,
   isWaypointError,
@@ -1184,7 +1185,7 @@ export function createApp(s: HttpServices): Hono {
     path: string,
     source: boolean,
     ifNoneMatch?: string,
-    mode: "api" | "raw" = "api",
+    mode: "api" | "raw" | "download" = "api",
   ): Promise<Response> {
     if (/%(?:2f|5c)/i.test(path))
       throw new WaypointError("path_invalid", "Encoded separator in file path");
@@ -1194,9 +1195,12 @@ export function createApp(s: HttpServices): Hono {
     } catch {
       throw new WaypointError("path_invalid", "Malformed file path encoding");
     }
-    const entry = await s.reads.file(id, validatePath(decoded));
+    const filePath = validatePath(decoded);
+    const entry = await s.reads.file(id, filePath);
+    // A download (RX-06) is always the stored file under its original type, never a rendition.
+    const original = source || mode === "download";
     const rendition =
-      entry.mime === "text/markdown" && !source ? await s.reads.rendition(entry.hash) : undefined;
+      entry.mime === "text/markdown" && !original ? await s.reads.rendition(entry.hash) : undefined;
     if (rendition)
       try {
         await ensureBlob(rendition.hash);
@@ -1223,12 +1227,13 @@ export function createApp(s: HttpServices): Hono {
         : isTextMime(served.mime)
           ? `${served.mime}; charset=utf-8`
           : served.mime;
-    const changeable = entry.mime === "text/markdown" && !source;
+    const changeable = entry.mime === "text/markdown" && !original;
     const headers = new Headers({
       "content-type": mime,
       "x-content-type-options": "nosniff",
       "cache-control": changeable ? "no-cache" : "public, max-age=31536000, immutable",
     });
+    if (mode === "download") headers.set("content-disposition", attachmentDisposition(filePath));
     if (changeable) {
       const etag = `"${served.hash}"`;
       headers.set("etag", etag);
@@ -1274,7 +1279,7 @@ export function createApp(s: HttpServices): Hono {
       pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "",
       new URL(c.req.raw.url).searchParams.has("source"),
       c.req.header("if-none-match"),
-      "raw",
+      new URL(c.req.raw.url).searchParams.has("download") ? "download" : "raw",
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));

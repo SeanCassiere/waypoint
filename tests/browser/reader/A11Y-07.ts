@@ -356,7 +356,13 @@ const scenario: ReaderScenario = {
       await open(page, S, last);
       const strip = await rect(page, ".ptabs2");
       const tab = await rect(page, "a[aria-current]");
-      assert.ok(tab.left >= strip.left - 1 && tab.right <= strip.right + 1, "current tab visible");
+      // RX-06's 44 px Download control shares the row, so a long tab can be wider than the strip
+      // (by how much depends on the fonts): then it must fill the strip, otherwise show whole.
+      const visible = (t: Rect) => Math.min(t.right, strip.right) - Math.max(t.left, strip.left);
+      assert.ok(
+        visible(tab) >= Math.min(tab.width, strip.width) - 1,
+        `current tab visible: ${visible(tab)} of ${tab.width} in ${strip.width}`,
+      );
       assert.ok(strip.left >= 0 && strip.right <= 390, "strip inside the viewport");
       assert.ok(
         await page.evaluate(
@@ -386,8 +392,8 @@ const scenario: ReaderScenario = {
       await post(page, S, S.files[5]);
       const shown = await rect(page, "a[aria-current]");
       assert.ok(
-        shown.left >= strip.left - 1 && shown.right <= strip.right + 1,
-        "followed tab visible",
+        visible(shown) >= Math.min(shown.width, strip.width) - 1,
+        `followed tab visible: ${visible(shown)} of ${shown.width} in ${strip.width}`,
       );
       assert.deepEqual(await autofocused(page), [], "never autofocus on tabs");
     }
