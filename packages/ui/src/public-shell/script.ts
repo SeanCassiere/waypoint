@@ -87,7 +87,9 @@ export const timeScript: string = `(() => {
  * `aria-current` (and the Files popover's `autofocus`, so it opens on the new file; a tab is
  * scrolled into view instead), updates the Files button's current path and icon and the page
  * title ("<file name> · <the h1's text>", RX-03), and replaces the URL with that link's own
- * server-rendered href. Before the first `replaceState` it pins every file link to its absolute
+ * server-rendered href, plus the report's section fragment when it matches `^#[\w.~%-]{1,256}$`
+ * (RX-09). A report for the current file changes only the URL, and only when it has a fragment;
+ * a file switch drops it. Before the first `replaceState` it pins every file link to its absolute
  * URL (RX-02), so links written relative to the original page still point at the right files
  * once the URL is in another folder. The row's Download control (RX-06) follows the new file:
  * its `?download` URL, saved name and accessible name come from that link's own `data-p`.
@@ -97,6 +99,7 @@ export const locationScript: string = `(() => {
   if (!frame || !frame.dataset.base) return;
   const baseUrl = new URL(frame.dataset.base, location.href);
   const base = baseUrl.origin + baseUrl.pathname;
+  const sectionHash = /^#[\\w.~%-]{1,256}$/;
   const links = () => document.querySelectorAll("a[data-p]");
   let pinned = false;
   const pinLinks = () => {
@@ -110,8 +113,10 @@ export const locationScript: string = `(() => {
     if (!m || typeof m !== "object" || m.type !== "waypoint:location") return;
     if (typeof m.href !== "string" || m.href.length > 8192) return;
     let path;
+    let hash = "";
     try {
       const url = new URL(m.href, frame.src);
+      hash = sectionHash.test(url.hash) ? url.hash : "";
       const href = url.origin + url.pathname;
       if (!href.startsWith(base)) return;
       const rest = href.slice(base.length);
@@ -127,7 +132,14 @@ export const locationScript: string = `(() => {
         break;
       }
     }
-    if (!hit || hit.hasAttribute("aria-current")) return;
+    if (!hit) return;
+    if (hit.hasAttribute("aria-current")) {
+      if (hash && hit.href + hash !== location.href) {
+        pinLinks();
+        history.replaceState(null, "", hit.href + hash);
+      }
+      return;
+    }
     for (const a of links()) {
       if (a.dataset.p === path) a.setAttribute("aria-current", "page");
       else a.removeAttribute("aria-current");
@@ -159,9 +171,10 @@ export const locationScript: string = `(() => {
       download.setAttribute("download", name.slice(name.lastIndexOf("/") + 1));
       download.setAttribute("aria-label", "Download " + name);
     }
-    if (hit.href !== location.href) {
+    const target = hit.href + hash;
+    if (target !== location.href) {
       pinLinks();
-      history.replaceState(null, "", hit.href);
+      history.replaceState(null, "", target);
     }
   });
 })();`;
@@ -246,8 +259,31 @@ export const filesMenuScript: string = `(() => {
 })();`;
 /** RX-01's About popover (R2). Empty: About is a native popover; timeScript formats its times. */
 export const aboutScript: string = "";
-/** RX-09's section-link hash handling (R2). Empty until RX-09. */
-export const hashScript: string = "";
+/**
+ * RX-09's section links (R2). A shell URL opened with a section fragment (`#open-questions`,
+ * checked against the same pattern as `locationScript`'s) hands it to the document frame once
+ * that has loaded, with `location.replace`: a fragment-only change on a loaded frame is a
+ * same-document navigation, so no second request and no history entry (setting `src` instead, if
+ * that throws). `locationScript` then keeps it in the address bar from the frame's report. Image
+ * stages and download cards have no frame, so they ignore it.
+ */
+export const hashScript: string = `(() => {
+  const frame = document.getElementById("doc");
+  const hash = location.hash;
+  if (!frame || frame.tagName !== "IFRAME" || !/^#[\\w.~%-]{1,256}$/.test(hash)) return;
+  frame.addEventListener(
+    "load",
+    () => {
+      const target = frame.src.split("#")[0] + hash;
+      try {
+        frame.contentWindow.location.replace(target);
+      } catch {
+        frame.src = target;
+      }
+    },
+    { once: true },
+  );
+})();`;
 /**
  * A11Y-08's loading line (R2). `main` is busy until the document frame loads (busy dropped after
  * 8 s at the latest); the empty `role=status` line behind the transparent frame gets "Opening
