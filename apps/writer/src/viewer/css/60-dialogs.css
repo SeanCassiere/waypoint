@@ -85,6 +85,14 @@ dialog.dlg::backdrop {
   bottom: 0;
   z-index: 1;
 }
+/* Phone sheets: the body scrolls and the footer stays reachable at the sheet's bottom edge. */
+@media (max-width: 760px) {
+  .dlg .ft {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+  }
+}
 .dlg .ft .exist {
   color: var(--muted);
 }

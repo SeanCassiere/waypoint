@@ -183,3 +183,69 @@ export function bindFocusReturn(): void {
       }, 0);
     });
 }
+
+/** A text field, select or textarea inside an open dialog. */
+function dialogField(node: unknown): node is HTMLElement {
+  return (
+    node instanceof HTMLElement &&
+    node.matches("input, select, textarea") &&
+    node.closest("dialog[open]") !== null
+  );
+}
+/** Scrolls a dialog's field into view, above the sticky footer that scrollIntoView ignores. */
+function reveal(field: HTMLElement): void {
+  requestAnimationFrame(() => {
+    field.scrollIntoView({ block: "nearest" });
+    const dialog = field.closest("dialog");
+    const footer = dialog && $$(".ft", dialog).find((ft) => ft.checkVisibility());
+    if (!dialog || !footer || footer.contains(field)) return;
+    const hidden = field.getBoundingClientRect().bottom - footer.getBoundingClientRect().top;
+    if (hidden > 0) dialog.scrollBy(0, hidden + 8);
+  });
+}
+
+/**
+ * iOS on-screen keyboard: sets --kb (px) on <html> while any dialog is open; removes it otherwise.
+ * iOS Safari lays the keyboard over the page without resizing it, so a phone sheet (margin-top:
+ * auto, bottom: var(--kb, 0px)) would sit under the keyboard. Android resizes the layout viewport
+ * instead (interactive-widget=resizes-content), so the inset there stays 0 and --kb stays unset.
+ * Touch screens only: a desktop pinch-zoom shrinks the visual viewport too, with no keyboard.
+ */
+export function bindKeyboardInset(): void {
+  const viewport = window.visualViewport;
+  if (!viewport || !matchMedia("(pointer: coarse)").matches) return;
+  const root = document.documentElement;
+  let listening = false;
+  const update = () => {
+    const inset = Math.max(
+      0,
+      Math.round(window.innerHeight - viewport.height - viewport.offsetTop),
+    );
+    const before = root.style.getPropertyValue("--kb");
+    if (inset > 0) root.style.setProperty("--kb", `${inset}px`);
+    else root.style.removeProperty("--kb");
+    // The sheet just moved or shrank: keep the field being typed in on screen.
+    const active = document.activeElement;
+    if (root.style.getPropertyValue("--kb") !== before && dialogField(active)) reveal(active);
+  };
+  const stop = () => {
+    if (document.querySelector("dialog[open]")) return;
+    viewport.removeEventListener("resize", update);
+    viewport.removeEventListener("scroll", update);
+    root.style.removeProperty("--kb");
+    listening = false;
+  };
+  document.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest("dialog[open]")) return;
+    if (!listening) {
+      listening = true;
+      viewport.addEventListener("resize", update);
+      viewport.addEventListener("scroll", update);
+      update();
+    }
+    if (dialogField(target)) reveal(target);
+  });
+  // close doesn't bubble: capture it, so a dialog added after bind time stops the listener too.
+  document.addEventListener("close", stop, true);
+}
