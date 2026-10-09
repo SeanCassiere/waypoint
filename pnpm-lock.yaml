@@ -211,6 +211,9 @@ importers:
       '@waypoint/core':
         specifier: workspace:0.1.0
         version: link:../core
+      '@waypoint/ui':
+        specifier: workspace:0.1.0
+        version: link:../ui
       rehype-raw:
         specifier: 7.0.0
         version: 7.0.0
