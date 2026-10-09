@@ -10,8 +10,9 @@ import { getChrome } from "../chrome.ts";
 import { Time } from "../components.tsx";
 import { plural } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
+import { purgeLinks, PurgeRow } from "../purge.tsx";
 import { noStore } from "../respond.ts";
-import { DayGroups, RecentRow, rowTitleId } from "./recent/rows.tsx";
+import { RecentRow, rowTitleId } from "./recent/rows.tsx";
 
 export interface TrashLinks {
   /** Links that work again after a restore (FC1: status "paused"). */
@@ -30,11 +31,16 @@ export async function trashPage(
   linksFor?: (collectionIds: string[]) => Promise<Map<string, TrashLinks>>,
 ): Promise<Response> {
   const now = Date.now();
-  const [items, chrome] = await Promise.all([s.reads.deletedCollections(), getChrome(s, now)]);
+  const [items, chrome, purges] = await Promise.all([
+    s.reads.deletedCollections(),
+    getChrome(s, now),
+    s.reads.purgingCollections(),
+  ]);
   const ids = items.map((item) => item.id);
-  const [details, links] = await Promise.all([
+  const [details, links, revoked] = await Promise.all([
     s.reads.trashDetails(ids),
     linksFor ? linksFor(ids) : Promise.resolve(new Map<string, TrashLinks>()),
+    purgeLinks(s, purges),
   ]);
   return noStore(
     c.html(
@@ -49,92 +55,116 @@ export async function trashPage(
             <div>
               <h1>Trash</h1>
               <p>
-                Deleted collections are hidden everywhere, and their public links stop working.
-                Restore brings everything back. Purge erases it permanently, everywhere.
+                Collections here are hidden everywhere and their public links are paused. Restore
+                brings one back; Purge erases it for good. Nothing in Trash is purged automatically.
               </p>
             </div>
           </div>
-          {items.length ? (
-            <DayGroups
-              kind="trash"
-              items={items}
-              at={(item) => item.deleted_at ?? 0}
-              now={now}
-              render={(item) => {
-                const detail = details.get(item.id);
-                const link = links.get(item.id);
-                const describedBy = rowTitleId(item.public_id);
-                return (
-                  <RecentRow
-                    variant="trash"
-                    pub={item.public_id}
-                    title={item.title}
-                    at={item.deleted_at ?? 0}
-                    flashTarget={item.id}
+          {purges.length ? (
+            <section aria-labelledby="trash-purging">
+              <h2 class="sec" id="trash-purging">
+                Being purged<span class="vh"> ·</span> <span class="n">{purges.length}</span>
+              </h2>
+              <p class="tlegend">
+                Their public links were revoked when you confirmed. They can't be restored. Each
+                leaves this list when erasing finishes.
+              </p>
+              <ul class="list">
+                {purges.map((row) => (
+                  <PurgeRow
+                    row={row}
+                    page="trash"
                     now={now}
-                    msg={
-                      <>
-                        {item.deleted_at != null ? (
-                          <>
-                            Moved to Trash <Time at={item.deleted_at} fmt="ago" now={now} /> ·{" "}
-                          </>
-                        ) : null}
-                        {plural(detail?.revisions ?? 0, "revision")} ·{" "}
-                        {plural(detail?.files ?? 0, "file")}
-                      </>
-                    }
-                    meta={
-                      <>
-                        <span class="mono">{item.public_id}</span>
-                        {/* The space keeps the ID and the chip apart in the row's text (flex ignores it). */}
-                        {link?.paused.length ? (
-                          <>
-                            {" "}
-                            <span class="chip xs paused">
-                              {raw(icon("globe", "sm"))}
-                              <span class="chip-t">{pausedChipText(link.paused)}</span>
-                            </span>
-                          </>
-                        ) : null}
-                      </>
-                    }
-                    actions={
-                      <>
-                        <button
-                          type="button"
-                          class="btn sm"
-                          aria-describedby={describedBy}
-                          data-action="restore"
-                          data-id={item.id}
-                          data-title={item.title}
-                          data-revisions={String(detail?.revisions ?? 0)}
-                          data-files={String(detail?.files ?? 0)}
-                          data-links={JSON.stringify(link?.paused ?? [])}
-                        >
-                          Restore…
-                        </button>
-                        <button
-                          type="button"
-                          class="btn sm danger"
-                          aria-describedby={describedBy}
-                          data-action="purge"
-                          data-id={item.id}
-                          data-title={item.title}
-                          data-revisions={String(detail?.revisions ?? 0)}
-                          data-files={String(detail?.files ?? 0)}
-                          data-link-count={String(link?.total ?? 0)}
-                        >
-                          Purge…
-                        </button>
-                      </>
-                    }
+                    links={revoked.get(row.collection_id) ?? []}
+                    syncEnabled={chrome.health.syncEnabled}
                   />
-                );
-              }}
-            />
-          ) : (
-            <div class="empty">Trash is empty.</div>
-          )}
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {items.length ? (
+            <section aria-labelledby="trash-in">
+              <h2 class="sec" id="trash-in">
+                In Trash<span class="vh"> ·</span> <span class="n">{items.length}</span>
+              </h2>
+              <ul class="list">
+                {items.map((item) => {
+                  const detail = details.get(item.id);
+                  const link = links.get(item.id);
+                  const describedBy = rowTitleId(item.public_id);
+                  return (
+                    <RecentRow
+                      variant="trash"
+                      pub={item.public_id}
+                      title={item.title}
+                      at={item.deleted_at ?? 0}
+                      flashTarget={item.id}
+                      now={now}
+                      msg={
+                        <>
+                          {item.deleted_at != null ? (
+                            <>
+                              Moved to Trash <Time at={item.deleted_at} fmt="ago" now={now} />{" "}
+                              ·{" "}
+                            </>
+                          ) : null}
+                          {plural(detail?.revisions ?? 0, "revision")} ·{" "}
+                          {plural(detail?.files ?? 0, "file")}
+                        </>
+                      }
+                      meta={
+                        <>
+                          <span class="mono">{item.public_id}</span>
+                          {/* The space keeps the ID and the chip apart in the row's text (flex ignores it). */}
+                          {link?.paused.length ? (
+                            <>
+                              {" "}
+                              <span class="chip xs paused">
+                                {raw(icon("globe", "sm"))}
+                                <span class="chip-t">{pausedChipText(link.paused)}</span>
+                              </span>
+                            </>
+                          ) : null}
+                        </>
+                      }
+                      actions={
+                        <>
+                          <button
+                            type="button"
+                            class="btn sm"
+                            aria-describedby={describedBy}
+                            data-action="restore"
+                            data-id={item.id}
+                            data-title={item.title}
+                            data-revisions={String(detail?.revisions ?? 0)}
+                            data-files={String(detail?.files ?? 0)}
+                            data-links={JSON.stringify(link?.paused ?? [])}
+                          >
+                            Restore…
+                          </button>
+                          <button
+                            type="button"
+                            class="btn sm danger"
+                            aria-describedby={describedBy}
+                            data-action="purge"
+                            data-id={item.id}
+                            data-title={item.title}
+                            data-public-id={item.public_id}
+                            data-revisions={String(detail?.revisions ?? 0)}
+                            data-files={String(detail?.files ?? 0)}
+                            data-links={JSON.stringify(link?.paused ?? [])}
+                          >
+                            Purge…
+                          </button>
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+          {!items.length && !purges.length ? <div class="empty">Trash is empty.</div> : null}
         </main>
       </Layout>,
     ),

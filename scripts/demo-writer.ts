@@ -31,7 +31,7 @@ import { ReadModel } from "../apps/writer/src/read-model.ts";
 import { writerRenderer } from "../apps/writer/src/renderer.ts";
 import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 // @waypoint/core from source: the repository root doesn't depend on the workspace packages.
-import { parseShareTokenKey } from "../packages/core/src/index.ts";
+import { newId, parseId, parseShareTokenKey, publicIdFor } from "../packages/core/src/index.ts";
 
 const port = Number(process.argv[2] ?? 7421);
 const dir = process.argv[3] ?? (await mkdtemp(join(tmpdir(), "waypoint-demo-")));
@@ -679,6 +679,42 @@ await queue.run("UPDATE pending_revisions SET created_at=? WHERE id<>?", [
 // The direct SQL above bypasses the queue's call sites; this makes Postgres's syncing row (RX-11)
 // match its queue: #7 is pending, so Latest links show #5 with the note.
 await ingest.withCollectionLock(pg.id, () => committer.refreshSyncing(pg.id));
+
+// Purges at their real steps (OW-14), opt-in: Scratch retrying its bucket step, and an already
+// erased collection waiting out the blob grace window. The committer is stopped, so they stay.
+if (process.env.WAYPOINT_DEMO_PURGING === "1") {
+  const scratchRow = await waypoint.get<{ public_id: string }>(
+    "SELECT public_id FROM collections WHERE id=?",
+    [scratch.id],
+  );
+  await queue.run(
+    "INSERT INTO pending_purges (collection_id,requested_at,step,next_attempt_at,attempts,last_error,title,public_id) VALUES (?,?,0,?,3,?,?,?)",
+    [
+      scratch.id,
+      now - 6 * 60_000,
+      now + 9 * 60_000,
+      `R2 DELETE manifests/${scratch.revision}.json 503 Service Unavailable`,
+      "Scratch: MCP smoke run 2026-10-05",
+      scratchRow?.public_id ?? null,
+    ],
+  );
+  const erased = newId("col");
+  await queue.run(
+    "INSERT INTO pending_purges (collection_id,requested_at,step,next_attempt_at,attempts,last_error,title,public_id) VALUES (?,?,2,?,0,NULL,?,?)",
+    [
+      erased,
+      now - 3 * 60_000,
+      now + 12 * 60_000,
+      "Incident 4411 raw logs",
+      await publicIdFor(parseId(erased, "col")),
+    ],
+  );
+  for (let i = 1; i <= 4; i++)
+    await queue.run("INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?)", [
+      `blobs/sha256/00/demo-purge-${i}`,
+      now,
+    ]);
+}
 
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
 console.log(`Demo writer on ${base} (data ${dir})`);

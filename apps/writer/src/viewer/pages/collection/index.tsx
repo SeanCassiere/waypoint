@@ -52,14 +52,30 @@ export async function collectionPage(
   const match = /^r\/([^/]+)(?:\/(.*))?$/.exec(after);
   const rpub = match?.[1]?.toLowerCase();
   const loaded = await loadCollection(s, c, { pub, rpub, now });
-  if (loaded.kind === "missing") return notFound(c, loaded.chrome, url.pathname);
+  if (loaded.kind === "missing") {
+    // At step 3 of a purge the rows are gone, but the purge still names the collection (OW-14).
+    const purged = await s.reads.purgingByPublicId(pub);
+    return notFound(
+      c,
+      loaded.chrome,
+      url.pathname,
+      undefined,
+      purged ? (
+        <>
+          <b>“{purged.title}” was purged.</b> Its files are still being erased; until that finishes
+          it's listed in <a href="/trash">Trash</a> under Being purged.
+        </>
+      ) : undefined,
+    );
+  }
   if (loaded.kind === "deleted") {
     const id = loaded.collection.id;
     // Restore… carries the same counts and paused links as the Trash row (OW-07).
-    const [rows, details, links] = await Promise.all([
+    const [rows, details, links, purging] = await Promise.all([
       s.reads.revisions(id),
       s.reads.trashDetails([id]),
       linksEnabled(s) ? trashLinks(s, [id]) : Promise.resolve(undefined),
+      s.reads.purgingCollection(id),
     ]);
     const last = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
     const detail = details.get(id);
@@ -71,6 +87,8 @@ export async function collectionPage(
           n={last?.display_number ?? null}
           detail={{ revisions: detail?.revisions ?? 0, files: detail?.files ?? 0 }}
           paused={links?.get(id)?.paused ?? []}
+          purging={purging}
+          now={now}
         />,
         410,
       ),

@@ -1,3 +1,6 @@
+import { icon } from "@waypoint/ui";
+
+import { copyText, showCopied } from "./copy.ts";
 import { $, $$, el } from "./dom.ts";
 
 export interface ConfirmChoice {
@@ -14,8 +17,29 @@ export interface ConfirmOptions {
   okClass?: "danger" | "danger-solid" | "primary";
   /** Danger band shown above the body (Purge, Drop). */
   band?: { title: string; body: string } | undefined;
-  /** The OK button stays disabled until this exact text is typed. */
-  typed?: { expect: string; label: string; hint: string } | undefined;
+  /** The OK button stays disabled until the typed text matches (Purge, OW-14). */
+  typed?:
+    | {
+        /** What the value matches ("title", "public ID"), or null. */
+        expect: (value: string) => string | null;
+        label: string;
+        /** Hint while the field is empty. */
+        hint: string;
+        /** Hint while the field has text that matches nothing. */
+        mismatch: string;
+        /** Hint once something matched. */
+        matched: (what: string) => string;
+        /** Values listed above the field, each with a Copy button. */
+        values?: readonly {
+          key: string;
+          label: string;
+          value: string;
+          mono?: boolean;
+          copyLabel: string;
+          copyWhat: string;
+        }[];
+      }
+    | undefined;
   note?: string | undefined;
   /** Radio choice with no default; OK stays disabled until one is checked. */
   choice?: ConfirmChoice | undefined;
@@ -45,6 +69,8 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   const body = $("[data-confirm-body]", dialog)!;
   const typed = $("[data-confirm-typed]", dialog)!;
   const input = $("input", HTMLInputElement, typed)!;
+  const values = $("[data-confirm-values]", typed)!;
+  const hint = $("[data-confirm-hint]", typed)!;
   const error = $("[data-confirm-error]", dialog)!;
   const note = $("[data-confirm-note]", dialog)!;
   const ok = $("[data-confirm-ok]", HTMLButtonElement, dialog)!;
@@ -72,20 +98,57 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   cancel.disabled = false;
   typed.hidden = !options.typed;
   input.value = "";
+  // The dialog is reused: every open starts with no values, no match and no "Copied" state.
+  values.replaceChildren();
+  values.hidden = true;
+  const copies: { button: HTMLButtonElement; value: string; what: string }[] = [];
+  if (options.typed) {
+    $("[data-confirm-typed-label]", typed)!.textContent = options.typed.label;
+    for (const item of options.typed.values ?? []) {
+      const button = el("button", {
+        class: "btn sm cpy",
+        attrs: { type: "button", "data-copy": item.key, "aria-label": item.copyLabel },
+      });
+      button.insertAdjacentHTML("afterbegin", icon("copy", "sm"));
+      button.append("Copy");
+      copies.push({ button, value: item.value, what: item.copyWhat });
+      values.append(
+        el(
+          "div",
+          {},
+          el("dt", { text: item.label }),
+          el("dd", { class: item.mono ? "v mono" : "v", text: item.value }),
+          el("dd", { class: "b" }, button),
+        ),
+      );
+    }
+    values.hidden = !copies.length;
+  }
   // While run() is pending nothing re-enables OK: changing the choice can't start a second run.
   let busy = false;
+  // Every open writes the hint once (the dialog is reused), then only on a state change.
+  let hintState = "";
   const sync = () => {
-    const matches = !options.typed || input.value === options.typed.expect;
+    const what = options.typed ? options.typed.expect(input.value) : null;
+    const matches = !options.typed || what !== null;
     const picked = !options.choice || chosen() !== null;
     const blocked = busy || !(matches && picked);
     ok.disabled = blocked;
     ok.setAttribute("aria-disabled", String(blocked));
     note.textContent = picked ? (options.note ?? "") : (options.choice?.prompt ?? "");
+    if (options.typed) {
+      typed.toggleAttribute("data-matched", what !== null);
+      // The hint is a live region: touch it only when its state changes, so typing a long title
+      // doesn't re-announce the same mismatch after every character.
+      const state = what !== null ? `match:${what}` : input.value.trim() ? "mismatch" : "idle";
+      if (state === hintState) return;
+      hintState = state;
+      if (what !== null) {
+        hint.replaceChildren(options.typed.matched(what));
+        hint.insertAdjacentHTML("afterbegin", icon("check", "sm"));
+      } else hint.textContent = input.value.trim() ? options.typed.mismatch : options.typed.hint;
+    }
   };
-  if (options.typed) {
-    $("[data-confirm-typed-label]", typed)!.textContent = options.typed.label;
-    $("[data-confirm-hint]", typed)!.textContent = options.typed.hint;
-  }
   sync();
   return new Promise((resolve) => {
     let done = false;
@@ -128,6 +191,15 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
     };
     const { signal } = controller;
     input.addEventListener("input", sync, { signal });
+    for (const copy of copies)
+      copy.button.addEventListener(
+        "click",
+        () => {
+          showCopied(copy.button);
+          void copyText(copy.value, copy.what);
+        },
+        { signal },
+      );
     for (const radio of radios) radio.addEventListener("change", sync, { signal });
     ok.addEventListener("click", attempt, { signal });
     cancel.addEventListener("click", () => finish(false), { signal });

@@ -514,6 +514,120 @@ details.sees > summary h3 {
   width: 100%;
   font: 13px var(--mono);
 }
+/* purge dialog (OW-14): what happens when, the values to type with a Copy button each, and a
+   hint that turns --ok once the field matches. Colour changes only, no motion. */
+#confirm .sees .no {
+  display: flex;
+  padding-top: 2px;
+}
+dialog.dlg .when {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+dialog.dlg .when h3 {
+  margin: 0 0 6px;
+  font: 650 12px/1 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+dialog.dlg .when ol {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.55;
+}
+dialog.dlg .when li::marker {
+  color: var(--muted);
+  font-weight: 650;
+}
+dialog.dlg .when b {
+  color: var(--ink);
+}
+.fl.typed {
+  gap: 8px;
+}
+.cpv {
+  margin: 0;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--sunken);
+  font-weight: 400;
+}
+.cpv > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 6px 6px 6px 12px;
+}
+.cpv > div + div {
+  border-top: 1px solid var(--rule);
+}
+.cpv dt {
+  font: 600 12px/1.3 var(--sans);
+  color: var(--muted);
+}
+.cpv dd {
+  margin: 0;
+}
+/* A title is user text, maybe one unbroken word: it wraps inside the dialog, never widens it. */
+.cpv dd.v {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cpv dd.v.mono {
+  font: 13px/1.4 var(--mono);
+}
+.btn.cpy {
+  justify-content: center;
+  min-width: 88px;
+  background: var(--surface);
+}
+/* Copied is a colour change only: no pressed scale (95-motion), so the width showCopied() keeps
+   is the button's real width and nothing moves. */
+.btn.cpy:active:not([disabled]) {
+  scale: none;
+}
+.btn.cpy .ic {
+  color: var(--muted);
+}
+.btn.cpy[data-copied] .ic {
+  color: var(--ok);
+}
+[data-confirm-typed][data-matched] .confirm-input {
+  border-color: var(--ok);
+}
+[data-confirm-typed][data-matched] [data-confirm-hint] {
+  color: var(--ok);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+@media (pointer: coarse) {
+  .btn.cpy {
+    min-height: var(--tap);
+  }
+}
+@media (max-width: 760px) {
+  .cpv > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "k b" "v b";
+    row-gap: 2px;
+    padding: 4px 4px 4px 12px;
+  }
+  .cpv dt {
+    grid-area: k;
+  }
+  .cpv dd.v {
+    grid-area: v;
+  }
+  .cpv dd.b {
+    grid-area: b;
+  }
+}
 /* keyboard shortcuts: the page's groups first, two columns from 700 px, a pinned footer */
 #keys.dlg {
   width: min(760px, calc(100vw - 32px));

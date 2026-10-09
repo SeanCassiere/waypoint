@@ -98,8 +98,11 @@ describe("errorText", () => {
     expect(errorText(null, 500, "Request failed (500)")).toEqual(INTERNAL);
     expect(errorText("something_new", 418, "Teapot")).toEqual(FALLBACK);
     expect(errorText("toString", 400, "x")).toEqual(FALLBACK);
-    // OW-14 adds the purge row.
-    expect(Object.hasOwn(ERROR_TEXT, "collection_purged")).toBe(false);
+    // OW-14: a restore that races a purge.
+    expect(errorText("collection_purged", 410, "Collection is being purged")).toEqual({
+      cause: "This collection is being purged and can't be restored.",
+      next: "",
+    });
   });
 });
 

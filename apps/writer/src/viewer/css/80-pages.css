@@ -383,6 +383,146 @@ h2.sec .n {
     outline-offset: -3px;
   }
 }
+/* purge progress (OW-14): Being purged rows on Trash and In progress rows on Status (li.item.purging,
+   never .srow), and the in-Trash page's banner. Every rule is scoped: .raw, .meta, .steps and .why
+   are shared class names elsewhere. */
+.tlegend {
+  margin: -4px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+li.item.purging {
+  gap: 5px 16px;
+}
+li.item.purging .t {
+  flex-wrap: wrap;
+}
+li.item.purging .tt {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+li.item.purging .acts {
+  grid-row: 1 / span 4;
+  align-self: start;
+}
+li.item.purging:where([data-status-progress] > *) {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 0;
+  border-top: 1px solid var(--rule);
+}
+li.item.purging:where([data-status-progress] > *):first-child {
+  border-top: 0;
+}
+li.item.purging:where([data-status-progress] > *) .t {
+  font-size: 14px;
+}
+li.item.purging .steps,
+[data-purge-banner] .steps {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  /* When the track wraps, the separator of the line's first pill would hang in the page gutter:
+     clip it at the track's edge (separators between pills sit inside the 16 px gap). */
+  overflow: clip;
+}
+li.item.purging .steps li,
+[data-purge-banner] .steps li {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px;
+  border: 1px solid var(--rule-2);
+  border-radius: 99px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+/* The separator is generated content with empty alt text: never read, never a list item. */
+li.item.purging .steps li + li::before,
+[data-purge-banner] .steps li + li::before {
+  content: "›";
+  content: "›" / "";
+  position: absolute;
+  left: -12px;
+  color: var(--faint);
+}
+li.item.purging .steps .done,
+[data-purge-banner] .steps .done {
+  color: var(--ok);
+}
+li.item.purging .steps .now,
+[data-purge-banner] .steps .now {
+  color: var(--pending);
+  border-color: var(--pending-line);
+  background: var(--pending-bg);
+  font-weight: 650;
+}
+li.item.purging .steps .now.bad,
+[data-purge-banner] .steps .now.bad {
+  color: var(--failed);
+  border-color: var(--failed-line);
+  background: var(--failed-bg);
+}
+li.item.purging .steps .next,
+[data-purge-banner] .steps .next {
+  color: var(--muted);
+  border-style: dashed;
+}
+li.item.purging .why,
+[data-purge-banner] .why {
+  grid-column: 1;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+li.item.purging .why b {
+  font-weight: 650;
+  color: var(--ink);
+}
+li.item.purging .raw {
+  grid-column: 1;
+  justify-self: start;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font: 11.5px/1.5 var(--mono);
+  color: var(--failed);
+  background: var(--failed-bg);
+  overflow-wrap: anywhere;
+}
+li.item.purging .meta {
+  grid-column: 1;
+  gap: 4px 12px;
+  margin-top: 0;
+}
+li.item.purging .meta .mono {
+  font-size: 11.5px;
+}
+[data-purge-banner] .steps {
+  margin: 8px 0;
+}
+[data-purge-banner] a {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+@media (max-width: 760px) {
+  li.item.purging {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  li.item.purging .acts {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
 .empty {
   padding: 28px;
   text-align: center;
