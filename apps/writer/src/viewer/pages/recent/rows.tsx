@@ -53,6 +53,8 @@ export interface ListRowProps {
   now: number;
   /** Search: highlights the title and adds the match notes. */
   query?: string | undefined;
+  /** Recent: the latest revision's public ID, for the "N new since you read" link (OW-08). */
+  latestPub?: string | undefined;
 }
 export interface TrashRowProps {
   variant: "trash";
@@ -125,6 +127,8 @@ export function RecentRow(props: ListRowProps | TrashRowProps): JSX.Element {
       data-pub={item.public_id}
       data-n={latest ? String(latest.display_number) : undefined}
       data-at={String(item.updated_at)}
+      data-latest-id={latest && props.latestPub ? latest.id : undefined}
+      data-latest-pub={latest && props.latestPub ? props.latestPub : undefined}
     >
       <TitleLink pub={item.public_id} title={highlight(item.title, query)} />
       <span class="when">
@@ -158,7 +162,10 @@ export function RecentRow(props: ListRowProps | TrashRowProps): JSX.Element {
             metadata match: {metaHit[0]} = “{highlight(metaHit[1], query)}”
           </span>
         ) : null}
-        <span class="more-new" data-new hidden />
+        {props.variant === "recent" ? (
+          // client/lastread.ts fills it in and gives it an href when the collection is unread.
+          <a class="rv-link" id={`new-${item.public_id}`} data-new hidden />
+        ) : null}
       </p>
     </li>
   );

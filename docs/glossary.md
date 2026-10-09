@@ -29,6 +29,9 @@ The writer showing a collection as a share viewer would see it (`?as=public`): t
 **Trash view**
 The part of the viewer that lists soft-deleted (tombstoned) collections and lets you undelete or purge them.
 
+**Read mark**
+What this browser remembers about a collection you read: the newest revision you opened (localStorage `wp:read:<public ID>`). Recent marks a collection unread when it has newer revisions, and links to the changes since then. Mark all read sets every mark on the page. Read marks never leave the browser.
+
 **Cloud DB**
 The Turso database that holds every collection's metadata rows. It is the durable source of truth for rows.
 

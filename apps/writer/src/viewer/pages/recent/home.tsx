@@ -22,6 +22,8 @@ export function RecentBody(props: {
   nextCursor: string | null;
   projects: Facet[];
   publicNow: PublicNow[] | null;
+  /** Collection ID → its latest revision's public ID. */
+  latestPubs: ReadonlyMap<string, string>;
 }) {
   const { chrome, items } = props;
   const now = chrome.now;
@@ -40,7 +42,14 @@ export function RecentBody(props: {
           items={items}
           at={(item) => item.updated_at}
           now={now}
-          render={(item) => <RecentRow variant="recent" item={item} now={now} />}
+          render={(item) => (
+            <RecentRow
+              variant="recent"
+              item={item}
+              now={now}
+              latestPub={props.latestPubs.get(item.id)}
+            />
+          )}
         />
         {props.nextCursor ? (
           <p class="pager">
