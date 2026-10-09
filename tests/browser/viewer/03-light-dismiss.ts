@@ -45,8 +45,10 @@ const scenario: ViewerScenario = {
       await view.goto(`${base}${latest}`);
       await view.locator("iframe.frame").waitFor();
       // Below 600 px menus are bottom sheets; up to 760 px the tab bar holds Copy and More.
+      // From 761 to 1099.98 px the bar has no Copy link: its actions are items in ⋯ (NAV-04).
       const phone = width < 600;
       const tabbar = width <= 760;
+      const noCopy = !tabbar && width < 1100;
       const triggers: [string, string][] = [
         [
           "copy-menu",
@@ -56,9 +58,9 @@ const scenario: ViewerScenario = {
           "more-menu",
           tabbar ? '.tabbar [popovertarget="more-menu"]' : 'header [popovertarget="more-menu"]',
         ],
-        ["rev-menu", ".revbtn"],
         ["health-pop", "header .health"],
       ];
+      if (noCopy) triggers.shift();
       const isOpen = async (id: string) => (await view.evaluate(openState(id))) === true;
       const closed = (id: string) =>
         view
@@ -163,14 +165,17 @@ const scenario: ViewerScenario = {
         assert.equal(await isOpen(id), false, `${label}: Esc closes it`);
       }
       // Choosing a menu item closes its menu (the item's action cancels the native hide), and
-      // the toast it shows never holds the touch scrim.
-      const copyTrigger = triggers[0]?.[1] ?? "";
-      await open("copy-menu", copyTrigger);
-      const item = view.locator("#copy-menu").getByRole("menuitem", { name: /Collection ID/ });
+      // the toast it shows never holds the touch scrim. Without a Copy link in the bar, the item
+      // is ⋯'s Link to latest.
+      const [menuId, menuTrigger, itemName] = noCopy
+        ? ["more-menu", triggers[0]?.[1] ?? "", /Link to latest/]
+        : ["copy-menu", triggers[0]?.[1] ?? "", /Collection ID/];
+      await open(menuId, menuTrigger);
+      const item = view.locator(`#${menuId}`).getByRole("menuitem", { name: itemName });
       if (touch) await item.tap();
       else await item.click();
-      await closed("copy-menu");
-      assert.equal(await isOpen("copy-menu"), false, `a menu item closes its menu at ${width}px`);
+      await closed(menuId);
+      assert.equal(await isOpen(menuId), false, `a menu item closes its menu at ${width}px`);
       await view.locator("[data-toast]").waitFor({ state: "visible", timeout: 4000 });
       await view.locator("[data-toast]").waitFor({ state: "hidden", timeout: 4000 });
       assert.equal(
@@ -180,20 +185,6 @@ const scenario: ViewerScenario = {
         true,
         `no scrim is left behind after the toast at ${width}px`,
       );
-      await open("rev-menu", ".revbtn");
-      const historyItem = view
-        .locator("#rev-menu")
-        .getByRole("button", { name: /Open History panel/ });
-      if (touch) await historyItem.tap();
-      else await historyItem.click();
-      await closed("rev-menu");
-      assert.equal(
-        await isOpen("rev-menu"),
-        false,
-        `Open History panel closes the menu at ${width}px`,
-      );
-      assert.equal(await view.locator("#tp-history").isVisible(), true);
-      await view.keyboard.press("Escape");
       // On touch screens a tap that closes a menu doesn't also follow a link in the document.
       if (touch && !phone) {
         // #1's head file links to notes/b.md.

@@ -99,12 +99,6 @@
   .show-sm {
     display: grid !important;
   }
-  .cbar .logo {
-    display: none;
-  }
-  .back {
-    display: grid;
-  }
   .crumbs h1 {
     font-size: 15px;
   }
@@ -150,9 +144,10 @@
     cursor: pointer;
   }
   .tabbar .i {
-    font-size: 18px;
+    display: grid;
+    place-items: center;
+    height: var(--ic-xl);
     color: var(--ink);
-    line-height: 1.2;
   }
   .shell {
     height: calc(100dvh - var(--bar-h) - 58px - env(safe-area-inset-bottom));
@@ -171,36 +166,25 @@
   .cmp {
     padding: 14px 10px 130px;
   }
+  /* The status line wraps (NAV-04): markers first, then what the ≤ 1099 px rule keeps, and the
+     actions at the end, 44 px tall. */
   .status1 {
-    flex-wrap: nowrap;
-    padding: 0 10px 0 0;
-    min-height: 44px;
+    padding: 6px 10px;
   }
-  .status1 > .seg1,
-  .status1 > .sepdot,
-  .status1 > .grow {
-    display: none;
+  .status1 > .grow + * {
+    margin-left: auto;
   }
-  .status1 .stap {
-    display: block;
-    flex: 1;
-    min-width: 0;
-    padding: 0 16px;
-    line-height: 44px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-decoration: none;
-    color: var(--ink-2);
+  /* A list marker (`! #3, #4, … failed to sync`) can be wider than the phone: it wraps too. */
+  .status1 .seg1 {
+    max-width: 100%;
   }
-  .status1.failed .stap {
-    color: var(--failed);
+  .status1 .seg1 > .f,
+  .status1 .seg1 > .p {
+    white-space: normal;
+    flex-shrink: 1;
   }
-  .status1.pending .stap {
-    color: var(--pending);
-  }
-  .status1.public .stap {
-    color: var(--public);
+  .status1 .btn {
+    height: var(--tap);
   }
   details.sees .sum-sm {
     display: inline-grid;
@@ -295,8 +279,7 @@
     border-radius: 16px 16px 0 0;
   }
   .pop2,
-  .menu,
-  .rmenu {
+  .menu {
     position-area: none;
     position-try-fallbacks: none;
     inset: auto 0 0 0;

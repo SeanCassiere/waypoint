@@ -656,7 +656,7 @@ describe("Folio shell", () => {
       expect(html).toContain('id="health-pop"');
     }
     const shell = await (await app.request(new URL(first.latest_url).pathname)).text();
-    expect(shell).toContain('<nav class="crumbs" aria-label="Breadcrumb">');
+    expect(shell).toContain('<nav class="bc" aria-label="Breadcrumb">');
     expect(shell).toContain('<aside class="panel" id="panel" aria-label="Collection panel">');
     expect(shell).toContain('role="tablist"');
     expect(shell).toContain('id="copy-menu"');

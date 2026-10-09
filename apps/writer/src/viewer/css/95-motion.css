@@ -93,6 +93,7 @@
   .btn,
   .iconbtn,
   .revbtn,
+  .bc .pill,
   .health,
   .txtbtn,
   .menu .mi,
@@ -109,8 +110,5 @@
   .iconbtn:active,
   .revbtn:active {
     scale: 0.97;
-  }
-  .revbtn .caret {
-    transition: rotate 120ms ease-out;
   }
 }

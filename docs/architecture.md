@@ -144,11 +144,11 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 | `/assets/<renderer version>/<file>` | Reserved for static, non-secret JS and CSS that renditions may reference. No renderer version uses it yet. |
 | `/s/<token>/c/…`, `/x/<link id>.<cap>/r/…` | (Reader) the share shell behind a share token, and raw content behind a derived per-revision capability. See [public-reader.md](public-reader.md#urls). |
 
-- **The viewer** is a shell: file sidebar, revision picker, and an iframe showing the raw content.
+- **The viewer** is a shell: a bar that spells out collection › revision › file (the revision and file pills open History and Files), a side panel, and an iframe showing the raw content.
 - **Raw URLs are always pinned to a revision.** Relative links inside a document therefore resolve within the same revision even when the viewer is showing "latest".
 - **The shell's URL follows the document.** The shell watches the iframe's navigation, which is possible because both are same-origin, and updates its own URL. Copying the address bar always gives a URL for what you're looking at.
 - **Shared URLs follow the same rule.** A URL copied while viewing "latest" follows latest. A URL copied while viewing a pinned revision stays pinned.
-- **Failed and pending revisions** are viewable on the writer that holds them. The revision picker labels them.
+- **Failed and pending revisions** are viewable on the writer that holds them. History labels them.
 
 ## Renditions
 

@@ -25,10 +25,6 @@
 .pop2 {
   width: min(340px, calc(100vw - 24px));
 }
-.rmenu {
-  position-area: bottom span-right;
-  position-try-fallbacks: --above-right, --below-left, --above-left;
-}
 /* Named placements: "below-left" sits below the trigger and extends to its left (aligned to
    the trigger's right edge), so it grows from its top-right corner. */
 @position-try --below-left {
@@ -83,9 +79,6 @@
   border-top: 1px solid var(--rule);
   box-shadow: 0 -6px 8px -8px rgba(27, 26, 23, 0.18);
 }
-.rmenu > .mbox {
-  transform-origin: var(--origin, top left);
-}
 .pop2 > .mbox {
   border-radius: 14px;
   padding: 14px 16px;
@@ -116,7 +109,6 @@
   .menu {
     inset: calc(var(--bar-h) + 6px) 12px auto auto;
   }
-  .rmenu,
   .navsheet {
     inset: calc(var(--bar-h) + 6px) auto auto 12px;
   }
@@ -263,12 +255,6 @@
   margin: 4px 6px 6px;
   white-space: pre-wrap;
   color: var(--ink-2);
-}
-.rmenu .tl {
-  padding: 0;
-}
-.rmenu .rv {
-  margin: 0;
 }
 /* Toasts (OW-02): a manual popover host (top layer, above modal dialogs; the UA popover box
    reset) holding two live regions, success above error. An empty slot isn't shown. */

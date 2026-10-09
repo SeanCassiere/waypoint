@@ -160,7 +160,7 @@ const scenario: ViewerScenario = {
     await page.locator("body").press("h");
     await page.locator('#tab-history[aria-selected="true"]').waitFor({ state: "attached" });
     const url = page.url();
-    await page.locator(".revbtn").first().focus();
+    await page.locator("a.pill.rev").first().focus();
     await page.keyboard.press("/");
     await page.locator("dialog#find[open]").waitFor();
     assert.equal(await isActive(page, "#find input"), true, "/ focuses Find's input");
@@ -184,7 +184,7 @@ const scenario: ViewerScenario = {
     await page.keyboard.press("Escape");
     await page.locator("dialog#find:not([open])").waitFor({ state: "attached" });
     await page.waitForFunction(
-      `document.activeElement === document.querySelector(".revbtn")`,
+      `document.activeElement === document.querySelector("a.pill.rev")`,
       undefined,
       { timeout: 1000 },
     );

@@ -99,7 +99,7 @@ const changesLink = (html: string) =>
   /<a hidden="" data-changes-link="true" href="([^"]*)"/.exec(html)?.[1];
 const compareOpen = (html: string) =>
   /<a class="btn sm cmpbtn" href="([^"]*)" data-compare-open="true">/.exec(html)?.[1];
-/** The revision menu's Compare… href (until NAV-04 deletes the menu). */
+/** The revision menu's Compare… href (NAV-04 deleted the menu: always undefined now). */
 const menuOpen = (html: string) => /<a class="mi" href="([^"]*)" data-compare-open/.exec(html)?.[1];
 
 beforeEach(async () => {
@@ -323,7 +323,7 @@ describe("NAV-10 Changes page: headers", () => {
     expect(changesLink(page.html)).toBe(url);
     expect(bar(page.html)).toContain("#2 → #7 changes");
     expect(bar(page.html)).toMatch(
-      /<button type="button" class="revbtn"[^>]*>#2 → #7 changes<span class="caret"/,
+      /<a class="pill rev"[^>]*><svg[^>]*>.*?<\/svg>#2 → #7 changes<\/a>/,
     );
     expect(filesPanel(page.html)).toContain(
       "Changes from #2 to #7 across 4 revisions: #3, #4, #5, #7. To change the range, use Compare… in History.",
@@ -395,19 +395,17 @@ describe("NAV-10 History compare mode", () => {
     expect(open).toContain("panel=history&compare=1");
     const doc = await get(`/c/${col}/r/${pub[4]}/index.md`);
     expect(compareOpen(doc.html)).toBe(`?panel=history&compare=1&r=${pub[3]}&r=${pub[4]}`);
-    // The revision menu's Compare… is the same kind of link.
-    expect(doc.html).toContain(
-      `<a class="mi" href="?panel=history&compare=1&r=${pub[3]}&r=${pub[4]}" data-compare-open="true">`,
-    );
+    // NAV-04 deleted the revision menu: History's is the only Compare….
+    expect(menuOpen(doc.html)).toBeUndefined();
   });
 
-  it("gives the revision menu's Compare… the same pre-ticks as History's on Changes", async () => {
+  it("gives History's Compare… on Changes the range's pre-ticks (the menu's are gone)", async () => {
     const revs = await seedFork();
     const pub = revs.map(pubOf);
-    // A range keeps its base and pre-ticks base then head, as History does.
+    // A range keeps its base and pre-ticks base then head.
     const range = await get(changesOf(revs, 7, `?base=${pub[1]}`));
-    expect(menuOpen(range.html)).toBe(compareOpen(range.html));
-    expect(menuOpen(range.html)).toBe(
+    expect(menuOpen(range.html)).toBeUndefined();
+    expect(compareOpen(range.html)).toBe(
       `?base=${pub[1]}&panel=history&compare=1&r=${pub[1]}&r=${pub[6]}`,
     );
     // The 404 and 400 pages drop the bad or same base and pre-tick the parent and the head.
@@ -415,8 +413,8 @@ describe("NAV-10 History compare mode", () => {
     for (const base of [missing, pub[6]]) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- One page at a time.
       const page = await get(changesOf(revs, 7, `?base=${base}`));
-      expect(menuOpen(page.html)).toBe(compareOpen(page.html));
-      expect(menuOpen(page.html)).toBe(`?panel=history&compare=1&r=${pub[4]}&r=${pub[6]}`);
+      expect(menuOpen(page.html)).toBeUndefined();
+      expect(compareOpen(page.html)).toBe(`?panel=history&compare=1&r=${pub[4]}&r=${pub[6]}`);
     }
   });
 

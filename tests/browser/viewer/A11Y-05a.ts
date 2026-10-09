@@ -146,17 +146,18 @@ const scenario: ViewerScenario = {
     await phone.waitForURL((url) => !url.pathname.endsWith("/changes"));
 
     // Tablet: a menu left open when the sheet opens closes first; the sheet waits for the next Esc.
+    // (The tablet bar has no Copy link since NAV-04: More is the menu here.)
     const tablet = (await ctx.newPage(VIEWPORTS.tablet)).page;
     await tablet.goto(`${base}${latest}`);
     await tablet
-      .locator('[popovertarget="copy-menu"][aria-haspopup="menu"]:visible')
+      .locator('[popovertarget="more-menu"][aria-haspopup="menu"]:visible')
       .first()
       .click();
-    await tablet.locator("#copy-menu:popover-open").waitFor();
+    await tablet.locator("#more-menu:popover-open").waitFor();
     await tablet.keyboard.press(".");
     await tablet.locator("#shell.open").waitFor({ state: "attached" });
     await tablet.keyboard.press("Escape");
-    await tablet.locator("#copy-menu:not(:popover-open)").waitFor({ state: "attached" });
+    await tablet.locator("#more-menu:not(:popover-open)").waitFor({ state: "attached" });
     assert.equal(
       await tablet.locator("#shell.open").count(),
       1,
