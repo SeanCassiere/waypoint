@@ -1200,7 +1200,7 @@ describe("owner feedback 1: copyable links, calm Links tab, History state", () =
     tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
     expect(tab).toMatch(/class="txtbtn danger"[^>]*data-action="revoke-all"/);
     expect(tab).toContain("Revoke all 2 links…");
-    expect(await viewerHtml("/links")).toContain("Revoke all 2 active links…");
+    expect(await viewerHtml("/links")).toContain("Revoke all 2 live links…");
     // A revocation reads Revoked at once, with a note while the reader catches up.
     expect((await app.request(`/api/share-links/${one}/revoke`, json({}))).status).toBe(200);
     tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);

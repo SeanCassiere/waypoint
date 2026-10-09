@@ -307,7 +307,14 @@ const view = (
   revision_display_number: pinned,
   public_sees: null,
   url: null,
-  collection: { id: "col", public_id: "pub", title: "Shared", deleted: false },
+  collection: {
+    id: "col",
+    public_id: "pub",
+    title: "Shared",
+    deleted: false,
+    project: null,
+    latest_display_number: null,
+  },
 });
 /** The segment's body as HTML: hono's JSX nodes render through toString() (sync here). */
 function bodyHtml(segment: ReturnType<typeof publicSegment>): string {

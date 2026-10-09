@@ -370,6 +370,185 @@ h2.sec .n {
 .r.dead {
   opacity: 0.75;
 }
+/* /links (OW-05): the header, the state segments, then one group per collection (a section
+   named by its h2) holding its rows. A row is the label, the actions beside it, then a meta
+   line; the waiting chip is the shared .chip.waiting (05-chips). */
+[data-links-page] [data-refresh="links-head"] {
+  color: var(--ink-2);
+}
+[data-links-page] [data-refresh="links-head"] b {
+  color: var(--ink);
+}
+[data-links-page] > .seg {
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+[data-links-page] > .seg .n {
+  margin-left: 2px;
+  font-weight: 500;
+  color: var(--muted);
+}
+[data-links-page] > .seg [aria-current] .n {
+  color: var(--ink-2);
+}
+[data-links-page] > .legend {
+  padding: 0;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-links-page] > .legend a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ink-2);
+}
+.lgrp {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.lgh {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sunken);
+}
+.lgh h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lgh h2 a {
+  color: var(--ink);
+}
+.lgh .p,
+.lgh .tab {
+  font-size: 12.5px;
+}
+.lgh .p {
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.lgh .grow {
+  flex: 1;
+}
+.lgh .tab {
+  color: var(--ink-2);
+}
+.lrows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--rule);
+}
+.lrow:first-child {
+  border-top: 0;
+}
+.lrow.dead {
+  opacity: 0.75;
+}
+.lrow .who {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lrow .who b {
+  font-weight: 600;
+}
+.lrow .who i {
+  color: var(--muted);
+}
+.lrow .acts {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+/* Extend… and the empty slot of a row without it (a link that never expires) share one width, in
+   the buttons' font size and wider than the label, so Revoke… lines up whatever the font. */
+.lrow .acts > details.act > summary,
+.lrow .acts > .slot {
+  min-width: 5.5em;
+  font-size: 12.5px;
+  justify-content: center;
+}
+.lrow details.act[open] {
+  flex-basis: 100%;
+}
+.lrow details.act[open] > summary {
+  display: none;
+}
+.lrow details.act .pop {
+  margin-top: 0;
+  max-width: 340px;
+}
+.lrow .acts details.why[open] {
+  flex-basis: 100%;
+}
+/* An open Extend… or "URL unavailable" holds the actions column at the popover's width: the auto
+   column would otherwise size to every control and the popover side by side, and squeeze the row's
+   label and facts until they overlap it (review r3). */
+.lrow .acts:has(> details:is(.act, .why)[open]) {
+  width: 340px;
+}
+.lrow .s {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.lrow .s > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lrow .s .ic {
+  width: var(--ic-sm);
+  height: var(--ic-sm);
+}
+/* Expires within a day: a clock, ink at 600, never amber (amber means pending). */
+.lrow .soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.lrow .fp {
+  font: 11.5px var(--mono);
+  color: var(--muted);
+}
+.lc-foot {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 0;
+  margin: 4px 0 22px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
 /* The row a flash points at (OW-02: the collection just moved to Trash), for this page view only.
    The selection style (decision f keeps --pending* for sync states); any element, never a tag. */
 [data-flash-target].flashed {

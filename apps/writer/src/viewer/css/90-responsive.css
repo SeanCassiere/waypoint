@@ -253,6 +253,65 @@
   .r .acts .note {
     max-width: none;
   }
+  /* /links rows (OW-05): the actions are a 4-column grid of 44 px controls under the meta
+     line; an open Extend… spans it. */
+  .lrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lrow .acts {
+    grid-column: 1;
+    grid-row: 3;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 6px;
+  }
+  /* A cell is about a quarter of the row: the controls' padding narrows and their labels may wrap
+     ("Copy / URL") rather than cross the border in wider fonts (review r4). */
+  .lrow .acts > :is(.btn, .txtbtn),
+  .lrow .acts > :is(details.act, details.why) > summary {
+    width: 100%;
+    min-height: var(--tap);
+    justify-content: center;
+    height: auto;
+    padding-inline: 4px;
+    gap: 4px;
+    white-space: normal;
+    text-align: center;
+  }
+  .lrow .acts > :is(details.act, details.why) {
+    min-width: 0;
+  }
+  /* "URL unavailable" stands in for Copy URL and Open, so it takes their two cells, and its
+     label wraps rather than overflow in wider fonts. */
+  .lrow .acts > details.why {
+    grid-column: span 2;
+  }
+  .lrow .acts > details.why > summary {
+    height: auto;
+    white-space: normal;
+    text-align: center;
+  }
+  .lrow .acts > details:is(.act, .why)[open] {
+    grid-column: 1 / -1;
+  }
+  .lrow details.act .pop {
+    max-width: none;
+  }
+  .lrow .acts:has(> details:is(.act, .why)[open]) {
+    width: auto;
+  }
+  .lrow .acts > details.act > summary,
+  .lrow .acts > .slot {
+    min-width: 0;
+  }
+  .lc-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lc-foot .txtbtn {
+    min-height: var(--tap);
+    justify-content: center;
+  }
   .txtbtn {
     min-height: 40px;
   }

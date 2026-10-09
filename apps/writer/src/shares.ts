@@ -9,6 +9,7 @@ import {
 import { inSeries } from "./db.ts";
 import type { HttpServices } from "./http.ts";
 import type { RevisionRow } from "./read-model.ts";
+import { projectAndTags } from "./viewer/format.ts";
 
 type SharingServices = Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">;
 /**
@@ -89,6 +90,10 @@ export interface ShareCollection {
   public_id: string;
   title: string;
   deleted: boolean;
+  /** The metadata's project, or null (OW-05b: /links group headers). */
+  project: string | null;
+  /** The newest non-failed revision's number ("now #3"), or null when it has none. */
+  latest_display_number: number | null;
 }
 export type ShareView = ShareLink & { collection: ShareCollection };
 
@@ -170,6 +175,18 @@ export function isPaused(view: Pick<ShareLink, "status">): boolean {
 /** Unrevoked and unexpired (live, waiting or paused): the link keeps its actions. */
 export function isOpen(view: Pick<ShareLink, "status">): boolean {
   return view.status === "active" || view.status === "waiting" || view.status === "paused";
+}
+/** `project` from a collection's metadata JSON, or null. */
+function projectOf(metadata: string | undefined): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? projectAndTags(Object.fromEntries(Object.entries(parsed))).project
+      : null;
+  } catch {
+    return null;
+  }
 }
 /** A revision in waypoint.db (the SQL form's `revisions` table): committed or synced. */
 const inWaypointDb = (row: RevisionRow): boolean =>
@@ -255,8 +272,17 @@ export async function shareViews(
               public_id: collection.public_id,
               title: collection.title,
               deleted: collection.deleted,
+              project: projectOf(collection.metadata),
+              latest_display_number: latest?.display_number ?? null,
             }
-          : { id: row.collection_id, public_id: "", title: "", deleted: false },
+          : {
+              id: row.collection_id,
+              public_id: "",
+              title: "",
+              deleted: false,
+              project: null,
+              latest_display_number: null,
+            },
       };
     }),
   );
@@ -337,6 +363,9 @@ export async function trashedPendingIds(s: Pick<HttpServices, "queue">): Promise
 }
 const EXPIRED_SQL = "s.revoked_at IS NULL AND s.expires_at IS NOT NULL AND s.expires_at <= ?";
 const REVOKED_SQL = "s.revoked_at IS NOT NULL";
+/** Expires within a day of `now` (bound as now + DAY), as the rows' clock shows it. */
+const SOON_SQL = "s.expires_at IS NOT NULL AND s.expires_at < ?";
+const DAY = 86_400_000;
 /** `SUM(CASE WHEN … THEN 1 ELSE 0 END) AS name` for each named condition. */
 function sums(parts: [name: string, where: SqlWhere][]): SqlWhere {
   return {
@@ -382,8 +411,14 @@ function filterWhere(filter: LinkFilter, now: number, trashedPending: readonly s
 export const LINKS_PAGE = 50;
 export interface LinkPage {
   views: ShareView[];
-  /** Every status's count; `active` counts live links only. */
-  counts: Record<"active" | "paused" | "waiting" | "expired" | "revoked", number>;
+  /**
+   * Every status's count; `active` counts live links only. `collections` counts the distinct
+   * collections with a live link, `soon` the live links that expire within a day (OW-05b).
+   */
+  counts: Record<"active" | "paused" | "waiting" | "expired" | "revoked", number> & {
+    collections: number;
+    soon: number;
+  };
   /** Links of this listing after this page, and the cursor that shows them. */
   remaining: number;
   next: string | null;
@@ -419,7 +454,8 @@ function openListing(now: number, trashedPending: readonly string[]): SqlWhere {
   return { sql: `((${live.sql}) OR (${waiting.sql}))`, args: [...live.args, ...waiting.args] };
 }
 /**
- * One page of links in a filter, newest first, with every status's count: up to four queries
+ * One page of links in a filter, newest first, with every status's count (and the live links'
+ * collections and expiring-soon count, OW-05b, in the same query): up to four queries
  * plus shareViews' six for the page, whatever the number of links. The `active` listing shows
  * live and waiting links (a waiting link sits with the live ones until it opens) while
  * `counts.active` counts live links only; `remaining` and `next` follow the listing.
@@ -435,17 +471,21 @@ export async function linkPage(
   const after = cursor ? decodeLinkCursor(cursor) : undefined;
   const where = filter === "active" ? openListing(now, pending) : filterWhere(filter, now, pending);
   const keyset = keysetWhere(after);
+  const live = liveLinkWhere(now, pending);
   const select = sums([
-    ["active", liveLinkWhere(now, pending)],
+    ["active", live],
     ["paused", pausedLinkWhere(now, pending)],
     ["waiting", waitingLinkWhere(now, pending)],
     ["expired", { sql: EXPIRED_SQL, args: [now] }],
     ["revoked", { sql: REVOKED_SQL, args: [] }],
+    ["soon", { sql: `(${live.sql}) AND ${SOON_SQL}`, args: [...live.args, now + DAY] }],
   ]);
+  // In the same query: the collections with a live link.
+  const collections = `COUNT(DISTINCT CASE WHEN (${live.sql}) THEN s.collection_id END) AS collections`;
   const [counts, rows] = await Promise.all([
     s.waypoint.get<Record<keyof LinkPage["counts"], number | null>>(
-      `SELECT ${select.sql} FROM share_links s`,
-      select.args,
+      `SELECT ${select.sql},${collections} FROM share_links s`,
+      [...select.args, ...live.args],
     ),
     s.waypoint.all<ShareRow>(
       `SELECT ${SHARE_COLUMNS} FROM share_links s WHERE ${where.sql}${keyset.sql} ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
@@ -471,6 +511,8 @@ export async function linkPage(
       waiting: counts?.waiting ?? 0,
       expired: counts?.expired ?? 0,
       revoked: counts?.revoked ?? 0,
+      collections: counts?.collections ?? 0,
+      soon: counts?.soon ?? 0,
     },
     remaining,
     next: remaining && last ? encodeLinkCursor(last) : null,

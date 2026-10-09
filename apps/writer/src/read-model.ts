@@ -223,6 +223,8 @@ export interface CollectionFacts {
   id: string;
   public_id: string;
   title: string;
+  /** The collection's metadata JSON (OW-05b: /links shows its project). */
+  metadata: string;
   deleted: boolean;
   tombstoned: boolean;
   pendingTrashed: boolean;
@@ -415,7 +417,7 @@ export class ReadModel {
     return index;
   }
   /**
-   * Title, public ID and Trash state for many collections in two queries. `deleted` is the
+   * Title, public ID, metadata and Trash state for many collections in two queries. `deleted` is the
    * displayed state (a pending row wins over the committed one); `tombstoned` and
    * `pendingTrashed` are the live rule's two Trash facts, kept apart (OW-05): a tombstone still
    * hides the collection from the reader while a pending row says it's restored.
@@ -429,13 +431,20 @@ export class ReadModel {
         id: string;
         public_id: string;
         title: string;
+        metadata: string;
         deleted_at: number | null;
       }>(
-        `SELECT c.id,c.public_id,c.title,t.deleted_at FROM collections c LEFT JOIN collection_tombstones t ON t.collection_id=c.id WHERE c.id IN (${marks})`,
+        `SELECT c.id,c.public_id,c.title,c.metadata,t.deleted_at FROM collections c LEFT JOIN collection_tombstones t ON t.collection_id=c.id WHERE c.id IN (${marks})`,
         collectionIds,
       ),
-      this.queue.all<{ id: string; public_id: string; title: string; deleted_at: number | null }>(
-        `SELECT id,public_id,title,deleted_at FROM pending_collections WHERE id IN (${marks})`,
+      this.queue.all<{
+        id: string;
+        public_id: string;
+        title: string;
+        metadata: string;
+        deleted_at: number | null;
+      }>(
+        `SELECT id,public_id,title,metadata,deleted_at FROM pending_collections WHERE id IN (${marks})`,
         collectionIds,
       ),
     ]);
@@ -444,6 +453,7 @@ export class ReadModel {
         id: row.id,
         public_id: row.public_id,
         title: row.title,
+        metadata: row.metadata,
         deleted: row.deleted_at != null,
         tombstoned: row.deleted_at != null,
         pendingTrashed: false,
@@ -453,6 +463,7 @@ export class ReadModel {
         id: row.id,
         public_id: row.public_id,
         title: row.title,
+        metadata: row.metadata,
         deleted: row.deleted_at != null,
         tombstoned: found.get(row.id)?.tombstoned ?? false,
         pendingTrashed: row.deleted_at != null,

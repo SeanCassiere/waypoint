@@ -103,12 +103,12 @@ const scenario: ViewerScenario = {
     await page.goto(`${base}/links`);
     // local-only writer: links are waiting (FC1)
     assert.equal(await page.locator('[data-count-of="active"]').textContent(), "0");
-    const row = page.locator(".r", { hasText: "Second reviewer" });
+    const row = page.locator(".lrow", { hasText: "Second reviewer" });
     await row.getByRole("button", { name: "Revoke…" }).click();
     await page.locator("#confirm [data-confirm-ok]").click();
     await row.locator("[data-stops]").waitFor();
     // OW-04: counts follow the refresh
-    await page.locator(".r[data-refreshed]", { hasText: "Second reviewer" }).waitFor();
+    await page.locator(".lrow[data-refreshed]", { hasText: "Second reviewer" }).waitFor();
     assert.equal(await row.locator("[data-link-state]").textContent(), "Revoked");
     assert.equal(
       await row.locator("[data-stops]").textContent(),
