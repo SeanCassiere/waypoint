@@ -75,7 +75,7 @@ function documentArea(options: PublicShellOptions): string {
     const shown = showBidi(options.current);
     const name = shown.slice(shown.lastIndexOf("/") + 1);
     const meta = `${size === null ? "" : `${bytes(size)} · `}${showBidi(mime)} · can't be previewed in the browser`;
-    return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
+    return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn primary" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
   }
   return `<main id="main"><iframe id="doc" class="pframe" title="${escapeHtml(showBidi(options.current))}" src="${escapeHtml(src)}" data-base="${escapeHtml(options.frameBase)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe></main>`;
 }
