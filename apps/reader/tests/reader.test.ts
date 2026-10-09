@@ -125,7 +125,8 @@ function fixture(body?: ReadableStream<Uint8Array>) {
       else if (sql.includes("FROM revision_files") && sql.includes("path=?"))
         rows = files.filter((item) => item.path === args[1]);
       else if (sql.includes("FROM revision_files")) rows = files;
-      else if (sql.includes("FROM renditions")) rows = rendition ? [rendition] : [];
+      else if (sql.includes("FROM renditions"))
+        rows = rendition && args[0] === hash && args[1] === "markdown" ? [rendition] : [];
       // This fake is intentionally the trust boundary for typed SQL rows.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       return rows.map((row) => row as T);

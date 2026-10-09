@@ -7,6 +7,7 @@ import {
   publicIdFor,
   parseId,
   inferMime,
+  rendererFor,
   normalizeMime,
   isContentHash,
   validatePath,
@@ -54,6 +55,28 @@ export class NullRenderer implements Renderer {
     return Promise.resolve(null);
   }
 }
+/** The renderers ingest uses, and which one (if any) renders a file of a given MIME type. */
+export interface RendererSet {
+  pick(mime: string): Renderer | null;
+  readonly all: readonly Renderer[];
+}
+/** Picks each file's renderer: the one whose rendererName equals rendererFor(mime), else null. */
+export function rendererSet(renderers: readonly Renderer[]): RendererSet {
+  return {
+    all: renderers,
+    pick(mime: string): Renderer | null {
+      const name = rendererFor(mime);
+      return renderers.find((renderer) => renderer.rendererName === name) ?? null;
+    },
+  };
+}
+/** Today's behaviour for a single renderer: markdown files only. */
+export function markdownOnly(renderer: Renderer): RendererSet {
+  return {
+    all: [renderer],
+    pick: (mime: string): Renderer | null => (rendererFor(mime) === "markdown" ? renderer : null),
+  };
+}
 export class IngestService {
   readonly gcBarrier = new GcBarrier();
   private locks = new Map<string, Promise<unknown>>();
@@ -65,7 +88,7 @@ export class IngestService {
   readonly reads: ReadModel;
   readonly sync: SyncClient;
   committer: Committer;
-  readonly renderer: Renderer;
+  readonly renderers: RendererSet;
   readonly maxFiles: number;
   readonly maxRevisionBytes: number;
   constructor(
@@ -75,7 +98,7 @@ export class IngestService {
     reads: ReadModel,
     sync: SyncClient,
     committer: Committer = new NoopCommitter(),
-    renderer: Renderer = new NullRenderer(),
+    renderer: Renderer | RendererSet = new NullRenderer(),
     maxFiles: number = DEFAULT_LIMITS.maxFiles,
     maxRevisionBytes: number = DEFAULT_LIMITS.maxRevisionBytes,
   ) {
@@ -85,7 +108,7 @@ export class IngestService {
     this.reads = reads;
     this.sync = sync;
     this.committer = committer;
-    this.renderer = renderer;
+    this.renderers = "pick" in renderer ? renderer : markdownOnly(renderer);
     this.maxFiles = maxFiles;
     this.maxRevisionBytes = maxRevisionBytes;
   }
@@ -314,28 +337,40 @@ export class IngestService {
       const collectionPublicId = creating
         ? await publicIdFor(parseId(collectionId, "col"))
         : collection!.public_id;
-      const renditions: { source: string; output: string; mime: string; size: number }[] = [];
+      const renditions: {
+        source: string;
+        renderer: Renderer;
+        output: string;
+        mime: string;
+        size: number;
+      }[] = [];
+      // Each file gets its type's renderer; the same bytes are rendered once per renderer.
       const renderedSources = new Set<string>();
       await inSeries(Object.values(manifest.files), async (entry) => {
-        if (entry.mime !== "text/markdown") return;
-        if (renderedSources.has(entry.hash)) return;
-        renderedSources.add(entry.hash);
+        const renderer = this.renderers.pick(entry.mime);
+        if (!renderer) return;
+        const key = `${renderer.rendererName}:${entry.hash}`;
+        if (renderedSources.has(key)) return;
+        renderedSources.add(key);
         const existingRendition =
           (await this.queue.get(
             "SELECT source_hash FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-            [entry.hash, this.renderer.rendererName, this.renderer.rendererVersion],
+            [entry.hash, renderer.rendererName, renderer.rendererVersion],
           )) ??
           (await this.waypoint.get(
             "SELECT source_hash FROM renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-            [entry.hash, this.renderer.rendererName, this.renderer.rendererVersion],
+            [entry.hash, renderer.rendererName, renderer.rendererVersion],
           ));
         if (existingRendition) return;
-        const source = await readFile(this.blobs.path(entry.hash));
+        // An inherited file's blob may not be local (the local blob store refills lazily from
+        // the bucket): no rendition, as on a renderer throw; rerender can backfill it later.
+        const source = await readFile(this.blobs.path(entry.hash)).catch(() => null);
+        if (!source) return;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let rendered: Rendition | null;
         try {
           rendered = await Promise.race([
-            this.renderer.render(source, entry.mime),
+            renderer.render(source, entry.mime),
             new Promise<null>((_, reject) => {
               timer = setTimeout(() => reject(new Error("Renderer timeout")), 5000);
             }),
@@ -345,11 +380,14 @@ export class IngestService {
         } finally {
           if (timer) clearTimeout(timer);
         }
-        if (rendered) {
+        // A rendition the blob store can't hold is no rendition: the file is served raw, and
+        // the write goes on (as on a renderer timeout or throw).
+        if (rendered && rendered.bytes.byteLength <= this.blobs.maxBlobBytes) {
           const output = await this.blobs.put(ReadableFromBytes(rendered.bytes));
           this.holdHash(output.hash, held);
           renditions.push({
             source: entry.hash,
+            renderer,
             output: output.hash,
             mime: rendered.mime,
             size: output.size,
@@ -383,8 +421,8 @@ export class IngestService {
               "INSERT OR IGNORE INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
               [
                 rendition.source,
-                this.renderer.rendererName,
-                this.renderer.rendererVersion,
+                rendition.renderer.rendererName,
+                rendition.renderer.rendererVersion,
                 rendition.output,
                 rendition.mime,
                 now,

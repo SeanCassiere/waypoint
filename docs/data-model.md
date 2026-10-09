@@ -108,7 +108,7 @@ CREATE TABLE blobs (                       -- insert-only, idempotent
 
 CREATE TABLE renditions (                  -- insert-only, idempotent
   source_hash      TEXT NOT NULL REFERENCES blobs(hash),
-  renderer         TEXT NOT NULL,          -- e.g. 'markdown'
+  renderer         TEXT NOT NULL,          -- 'markdown', 'text' or 'csv'
   renderer_version INTEGER NOT NULL,       -- 1, 2, ... (integer so MAX() orders correctly)
   output_hash      TEXT NOT NULL REFERENCES blobs(hash),
   output_mime      TEXT NOT NULL,          -- e.g. 'text/html'

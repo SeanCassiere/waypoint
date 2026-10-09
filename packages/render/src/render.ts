@@ -73,12 +73,13 @@ const aliases = new Map<string, (typeof languages)[number]>([
   ["docker", "dockerfile"],
   ["htm", "html"],
 ]);
-function isSupportedLanguage(value: string): value is (typeof languages)[number] {
+export type ShikiLanguage = (typeof languages)[number];
+export function isSupportedLanguage(value: string): value is ShikiLanguage {
   return languages.some((language) => language === value);
 }
 
 let highlighter: ReturnType<typeof createHighlighterCore> | undefined;
-function getHighlighter(): ReturnType<typeof createHighlighterCore> {
+export function getHighlighter(): ReturnType<typeof createHighlighterCore> {
   highlighter ??= createHighlighterCore({
     themes: [githubLight, githubDark],
     langs: [
@@ -249,6 +250,8 @@ details.toc ol{margin:.5em 0 .2em;padding-left:1.2em}details.toc li{margin:.15em
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:600px){:not(pre)>code{white-space:normal;overflow-wrap:anywhere}body{font-size:16.5px;padding:24px 18px 72px}h1{font-size:1.7rem}h2{font-size:1.3rem}.anchor{display:none}}
 @media print{body{max-width:none;padding:0;font-size:11pt}a{color:inherit}pre,.table-wrap{break-inside:avoid}details.toc,.anchor{display:none}}`;
+/** The reading template's CSS (palette and rules), shared by the text and CSV views. */
+export const readingCss: string = css;
 
 /**
  * The frame reporter (spec section 8). It tells the embedding shell which document is showing,
@@ -262,7 +265,7 @@ details.toc ol{margin:.5em 0 .2em;padding-left:1.2em}details.toc li{margin:.15em
  */
 export const FRAME_REPORTER = `(()=>{const d=document,t=d.querySelector("details.toc"),r=f=>d.readyState=="complete"?f():addEventListener("load",f);if(t){const q=matchMedia("(max-width:600px)");let u;const f=()=>{u||d.documentElement.clientWidth&&(t.open=!q.matches)};t.onclick=()=>u=1;q.onchange=f;r(()=>requestAnimationFrame(f))}const p=parent;if(p==window)return;const s=()=>{try{p.postMessage({type:"waypoint:location",href:location.pathname+location.hash},"*")}catch{}};addEventListener("hashchange",s);r(s)})();`;
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

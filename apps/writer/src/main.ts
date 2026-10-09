@@ -7,15 +7,16 @@ import { loadConfig } from "./config.ts";
 import { ownDataDirectory } from "./data-dir.ts";
 import { openDatabases } from "./db.ts";
 import { createApp } from "./http.ts";
-import { IngestService } from "./ingest.ts";
+import { IngestService, type Renderer } from "./ingest.ts";
 import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.ts";
 import { ReadModel } from "./read-model.ts";
-import { writerRenderer } from "./renderer.ts";
+import { writerRenderers } from "./renderer.ts";
 import {
   formatRerenderSummary,
   parseRerenderArgs,
   RERENDER_USAGE,
   rerender,
+  rerenderRendererName,
   type RerenderOptions,
 } from "./rerender.ts";
 import { restore } from "./restore.ts";
@@ -25,14 +26,20 @@ const command = process.argv[2] ?? "serve";
 const restoreMode = process.argv[3];
 if (command === "--help" || command === "help") {
   console.log(
-    `Usage: waypoint-writer serve | restore --from-bucket | restore --merge | rerender …\nA fresh writer normally bootstraps from the cloud DB; restore rebuilds missing cloud data from the bucket.\n${RERENDER_USAGE}\nrerender queues current-version renditions for existing markdown; run it with the server stopped.`,
+    `Usage: waypoint-writer serve | restore --from-bucket | restore --merge | rerender …\nA fresh writer normally bootstraps from the cloud DB; restore rebuilds missing cloud data from the bucket.\n${RERENDER_USAGE}\nrerender queues current-version renditions for existing files of one renderer's types (markdown by default; text and csv too); run it with the server stopped.`,
   );
   process.exit(0);
 }
 let rerenderOptions: RerenderOptions | undefined;
+let rerenderRenderer: Renderer | undefined;
 if (command === "rerender") {
   try {
-    rerenderOptions = parseRerenderArgs(process.argv.slice(3), writerRenderer);
+    const args = process.argv.slice(3);
+    const names = writerRenderers.all.map((renderer) => renderer.rendererName);
+    const name = rerenderRendererName(args, names);
+    rerenderRenderer = writerRenderers.all.find((renderer) => renderer.rendererName === name);
+    if (!rerenderRenderer) throw new Error(`Unknown renderer ${name}`);
+    rerenderOptions = parseRerenderArgs(args, rerenderRenderer);
   } catch (error) {
     console.error(
       `${error instanceof Error ? error.message : "Invalid arguments"}\n${RERENDER_USAGE}`,
@@ -77,11 +84,11 @@ try {
   }
   const blobs = new BlobStore(config.dataDir, config.maxBlobBytes);
   await blobs.sweepTemps();
-  if (rerenderOptions) {
+  if (rerenderOptions && rerenderRenderer) {
     const bucket = config.sync ? openBucket(config) : undefined;
     console.log(
       formatRerenderSummary(
-        await rerender(waypoint, queue, blobs, writerRenderer, rerenderOptions, bucket),
+        await rerender(waypoint, queue, blobs, rerenderRenderer, rerenderOptions, bucket),
       ),
     );
     await waypoint.close();
@@ -97,7 +104,7 @@ try {
     reads,
     syncClient,
     undefined,
-    writerRenderer,
+    writerRenderers,
     config.maxFiles,
     config.maxRevisionBytes,
   );
