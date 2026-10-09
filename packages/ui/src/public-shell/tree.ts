@@ -1,7 +1,8 @@
+import { icon } from "../icons.ts";
 import type { PublicShellOptions } from "./index.ts";
 import { esc, label } from "./text.ts";
 
-/** Tabs up to this many files; a "Files (N)" tree above it (spec §9). */
+/** Tabs up to this many files; a "Files N" tree above it (spec §9). */
 export const PUBLIC_SHELL_TAB_LIMIT = 8;
 /** Tree folders start collapsed above this many files, except the current file's (spec §4.9). */
 const OPEN_FOLDERS_LIMIT = 200;
@@ -21,8 +22,19 @@ interface Budget {
   listed: number;
 }
 
-function link(options: PublicShellOptions, path: string, text: string, budget: Budget): string {
-  const current = path === options.current ? ' aria-current="page"' : "";
+/**
+ * One file row: a bare link. `popover` rows (inside the Files popover) also carry `autofocus` on
+ * the current file, so opening the popover focuses it; tabs never do.
+ */
+function link(
+  options: PublicShellOptions,
+  path: string,
+  text: string,
+  budget: Budget,
+  popover: boolean,
+): string {
+  const current =
+    path === options.current ? ` aria-current="page"${popover ? " autofocus" : ""}` : "";
   const out = `<a href="${esc(options.fileHref(path))}" data-p="${esc(path)}"${current}>${label(text)}</a>`;
   // Count UTF-8 bytes roughly: non-ASCII names cost up to three bytes per character.
   budget.used += nonAscii.test(path) ? out.length * 3 : out.length;
@@ -79,7 +91,7 @@ function renderFolder(
   for (const entry of node.entries) {
     if (budget.used > PUBLIC_SHELL_LIST_BUDGET) return;
     if (typeof entry === "string") {
-      out.push(link(options, entry, entry.slice(prefix), budget));
+      out.push(link(options, entry, entry.slice(prefix), budget, true));
       continue;
     }
     // Collapse chains of folders that hold only one folder into one row.
@@ -92,7 +104,7 @@ function renderFolder(
     // A folder holding a single file shows as that file, labelled with its folders.
     const only = child.entries.length === 1 ? child.entries[0] : undefined;
     if (typeof only === "string") {
-      out.push(link(options, only, only.slice(prefix), budget));
+      out.push(link(options, only, only.slice(prefix), budget, true));
       continue;
     }
     const open = openAll || child.open ? " open" : "";
@@ -129,7 +141,10 @@ function tree(options: PublicShellOptions, paths: readonly string[], budget: Bud
   return out.join("");
 }
 
-/** The file list: tabs, a "Files (N)" tree past the tab limit, or "" for one file. */
+/**
+ * The file list, in a `.prow` row: tabs, a "Files N" button past the tab limit that opens the tree
+ * in a light-dismiss popover (a bottom sheet on phones), or "" for one file.
+ */
 export function files(options: PublicShellOptions): string {
   const all = options.files.map((file) => file.path);
   if (all.length <= 1) return "";
@@ -142,14 +157,19 @@ export function files(options: PublicShellOptions): string {
   const budget: Budget = { used: 0, listed: 0 };
   if (all.length <= PUBLIC_SHELL_TAB_LIMIT) {
     const ordered = hasHead ? [options.head, ...rest] : rest;
-    return `<nav class="ptabs2" aria-label="Files">${ordered.map((path) => link(options, path, path, budget)).join("")}</nav>`;
+    return `<div class="prow"><nav class="ptabs2" aria-label="Files">${ordered.map((path) => link(options, path, path, budget, false)).join("")}</nav></div>`;
   }
-  const head = hasHead ? `${link(options, options.head, options.head, budget)}<hr>` : "";
+  const head = hasHead ? `${link(options, options.head, options.head, budget, true)}<hr>` : "";
   const list = tree(options, rest, budget);
   const missing = all.length - budget.listed;
   const more =
     missing > 0
       ? `<p class="more">${missing} more ${missing === 1 ? "file isn't" : "files aren't"} listed here.</p>`
       : "";
-  return `<nav class="pfiles" aria-label="Files"><details><summary>Files <span class="n">(${all.length})</span><span class="cur" dir="auto">${label(options.current)}</span></summary><div class="pmenu tree">${head}${list}${more}</div></details></nav>`;
+  const count = `Files <span class="n">${all.length}</span>`;
+  // The current path is the button's description too; the popover is a sibling, never inside it.
+  const button = `<button type="button" class="fbtn" popovertarget="files" aria-describedby="files-cur">${count}<span class="cur" id="files-cur"><span class="t" dir="auto">${label(options.current)}</span></span>${icon("chevronDown", "sm chev")}</button>`;
+  // The heading and Done show only on phones, where the popover is a bottom sheet.
+  const sheetHead = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
+  return `<div class="prow"><nav class="pfiles" aria-label="Files">${button}<div id="files" class="menu files" popover="auto"><div class="mbox tree" role="group" aria-labelledby="files-h">${sheetHead}${head}${list}${more}</div></div></nav></div>`;
 }

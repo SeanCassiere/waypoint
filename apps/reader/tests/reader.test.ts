@@ -454,7 +454,7 @@ describe("public reader", () => {
     ).text();
     expect(tree).not.toContain('<nav class="ptabs2"');
     expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
-    expect(tree).toContain('<summary>Files <span class="n">(9)</span>');
+    expect(tree).toContain('Files <span class="n">9</span>');
     expect(tree).toContain('<details open><summary dir="auto">docs/</summary>');
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (

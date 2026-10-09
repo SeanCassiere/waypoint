@@ -36,7 +36,7 @@ describe("public shell", () => {
     // Only the shell's own elements exist; the payload survives only as escaped text.
     const tags = new Set([...markup(html).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]));
     const allowed =
-      "a body details div h1 head header hr html iframe main meta nav p path span summary svg time title";
+      "a body button details div h1 h2 head header hr html iframe main meta nav p path span summary svg time title";
     for (const tag of tags) expect(allowed.split(" ")).toContain(tag);
     expect(tags.has("img")).toBe(false);
     // Every tag is well-formed with double-quoted values, and none has a handler or style.
@@ -95,18 +95,16 @@ describe("public shell", () => {
       current: "a/b/y.md",
     });
     expect(tree).toContain(
-      '<summary>Files <span class="n">(9)</span><span class="cur" dir="auto">a/b/y.md</span>',
+      'Files <span class="n">9</span><span class="cur" id="files-cur"><span class="t" dir="auto">a/b/y.md</span></span>',
     );
-    const menu = tree.slice(tree.indexOf('<div class="pmenu tree">'));
+    const menu = tree.slice(tree.indexOf('<div class="mbox tree"'));
     expect(menu.indexOf('data-p="index.md"')).toBeLessThan(menu.indexOf("<details"));
     expect(menu).toContain(
       '<details open><summary dir="auto">a/</summary><div class="in"><details open><summary dir="auto">b/</summary><div class="in">',
     );
-    expect(menu).toContain('data-p="a/b/y.md" aria-current="page">y.md</a>');
-    // Balanced folders; the extra close is the Files dropdown itself.
-    expect((menu.match(/<details/g) ?? []).length + 1).toBe(
-      (menu.match(/<\/details>/g) ?? []).length,
-    );
+    expect(menu).toContain('data-p="a/b/y.md" aria-current="page" autofocus>y.md</a>');
+    // Balanced folders: the Files popover isn't a <details>.
+    expect((menu.match(/<details/g) ?? []).length).toBe((menu.match(/<\/details>/g) ?? []).length);
     expect(renderPublicShell(base)).not.toContain('aria-label="Files"');
   });
   it("collapses folders in large manifests except the current file's", () => {
@@ -159,7 +157,7 @@ describe("encodePathSegments", () => {
       expect(encodePathSegments(path)).toBe(path.split("/").map(encodeURIComponent).join("/"));
   });
 });
-const menuOf = (html: string): string => html.slice(html.indexOf('<div class="pmenu tree">'));
+const menuOf = (html: string): string => html.slice(html.indexOf('<div class="mbox tree"'));
 describe("tree limits", () => {
   it("collapses single-folder chains and single-file folders", () => {
     const paths = [

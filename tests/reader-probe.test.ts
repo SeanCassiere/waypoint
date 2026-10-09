@@ -403,7 +403,8 @@ describe("adversarial reader probes", () => {
     const shell = await (await get(`/s/${tokens.follow}/c/${A.pub}/`)).text();
     expect((shell.match(/<a href=/g) ?? []).length).toBeGreaterThan(2000);
     // Large manifests collapse folders, so the shell stays one cheap pass over the paths.
-    expect(shell).toContain('<summary>Files <span class="n">(2003)</span>');
+    expect(shell).toContain('popovertarget="files"');
+    expect(shell).toContain('Files <span class="n">2003</span>');
     expect(shell).not.toContain("<details open><summary>dir");
     // Time the Worker CPU work that scales with file count: the whole shell document.
     // The end-to-end request includes fake SQLite and Hono/Vitest scheduling overhead.

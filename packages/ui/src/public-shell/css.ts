@@ -1,4 +1,4 @@
-import { sharedTokensCss } from "../tokens.ts";
+import { PHONE_MAX, sharedTokensCss } from "../tokens.ts";
 
 /** The skip link's print rule; the base rule is in sharedTokensCss. */
 export const skipCss: string = `@media print{.skip{display:none}}
@@ -18,28 +18,48 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
 @media(forced-colors:active){.snap{border-color:CanvasText}}
 @media print{.pwrap{display:none}html,body{height:auto;overflow:visible}}
 `;
-/** Tabs and the "Files (N)" summary (R1). */
-export const filesCss: string = `.ptabs2{display:flex;gap:4px;max-width:1120px;margin:0 auto;padding:0 16px;overflow-x:auto;scrollbar-width:thin}
+/**
+ * The Files row (R1): tabs, or the "Files N" button that opens the tree popover. `.prow` owns the
+ * 1120 px column, so a later control at the row's end leaves the tab strip scrolling; the
+ * strip's edge fades follow its `data-more` (set by filesMenuScript).
+ */
+export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px;max-width:1120px;margin:0 auto;padding:0 16px}
+.ptabs2,.pfiles{min-width:0;flex:1 1 auto}
+.ptabs2{display:flex;gap:4px;overflow-x:auto;scrollbar-width:thin}
 .ptabs2 a{display:block;padding:8px 10px 10px;font-size:13px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;outline-offset:-2px}
 .ptabs2 a:hover{color:var(--ink)}
 .ptabs2 a[aria-current]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
-.pfiles{max-width:1120px;margin:0 auto;padding:0 16px}
-.pfiles>details{position:relative;display:inline-block;max-width:100%}
-.pfiles>details>summary{display:flex;align-items:center;gap:8px;padding:8px 10px 10px;font-size:13px;font-weight:600;cursor:pointer;list-style:none;border-bottom:2px solid var(--ink);outline-offset:-2px;min-width:0}
-.pfiles>details>summary::-webkit-details-marker{display:none}
-.pfiles>details>summary::after{content:"";flex:none;width:6px;height:6px;margin:-3px 2px 0;border:solid var(--muted);border-width:0 1.5px 1.5px 0;rotate:45deg}
-.pfiles>details[open]>summary::after{margin-top:3px;rotate:225deg}
-.pfiles .n{color:var(--faint);font-weight:500}
-.pfiles .cur{font-weight:500;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pfiles .cur{unicode-bidi:isolate}.ptabs2 a{unicode-bidi:plaintext}
-@media(max-width:600px){.ptabs2,.pfiles{padding:0 10px}.ptabs2 a,.pfiles>details>summary{min-height:44px;display:flex;align-items:center}}
-@media(forced-colors:active){.ptabs2 a[aria-current],.pfiles>details>summary{border-bottom-color:CanvasText}}
+.ptabs2[data-more=start]{mask-image:linear-gradient(90deg,transparent,#000 28px)}
+.ptabs2[data-more=end]{mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+.ptabs2[data-more="start end"]{mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+.pfiles{display:flex}
+.fbtn{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;margin:0;padding:8px 10px 10px;border:0;border-bottom:2px solid var(--ink);border-radius:0;background:none;font:600 13px var(--sans);color:var(--ink);cursor:pointer;outline-offset:-2px}
+.fbtn .n{color:var(--faint);font-weight:500}
+.fbtn .cur{display:inline-flex;min-width:0;font-weight:500;color:var(--muted)}
+.fbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fbtn .chev{color:var(--muted)}
+.fbtn .t{unicode-bidi:isolate}.ptabs2 a{unicode-bidi:plaintext}
+@media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.ptabs2 a{min-height:var(--tap);display:flex;align-items:center}.fbtn{min-height:var(--tap)}}
+@media(forced-colors:active){.ptabs2 a[aria-current],.fbtn{border-bottom-color:CanvasText}}
 `;
-/** The file menu and tree rows (R1). */
-export const menuCss: string = `.pmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:40;width:min(440px,calc(100vw - 24px));max-height:min(70dvh,600px);overflow:auto;padding:6px;background:var(--dlg);border:1px solid var(--rule-2);border-radius:var(--r-md);box-shadow:var(--sh-2)}
-.tree a,.tree summary{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;text-decoration:none;color:var(--ink-2);font-size:13.5px;overflow-wrap:anywhere}
+/**
+ * Popovers (D51) and the tree rows (R1). Every `[popover]` is an invisible positioning shell
+ * whose one child, `.mbox`, is the visible box: a `.menu` is anchored to its invoker from 600 px
+ * and a bottom sheet below. A popover's ::backdrop never takes pointer events, so on touch
+ * screens and under sheets a real scrim (`.pop-scrim`, tinted on phones) takes the closing tap;
+ * filesMenuScript keeps it a moment after close (`.linger`) so the tap's click lands there too.
+ * Generic: RX-01's About popover reuses all of it.
+ */
+export const menuCss: string = `[popover]{margin:0;inset:auto;padding:0;border:0;background:none;color:var(--ink);overflow:visible}
+.menu{position:fixed;z-index:40;position-area:bottom span-right;position-try-fallbacks:flip-block;margin-block:6px;width:min(400px,calc(100vw - 24px))}
+.mbox{background:var(--dlg);border:1px solid var(--rule-2);border-radius:var(--r-md);box-shadow:var(--sh-2);padding:6px;max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
+.files{width:min(440px,calc(100vw - 24px))}
+.files>.mbox{max-height:min(70dvh,600px)}
+.shd{display:none}
+.pop-scrim{display:none;opacity:0;position:fixed;inset:0;z-index:50;background:transparent}
+.tree a,.tree summary{display:flex;align-items:center;gap:7px;min-height:30px;padding:5px 8px;border-radius:7px;text-decoration:none;color:var(--ink-2);font-size:13.5px;line-height:1.35;overflow-wrap:anywhere}
 .tree a:hover,.tree summary:hover{background:var(--hover)}
-.tree a[aria-current]{background:var(--sel);color:var(--on-sel);font-weight:600}
+.tree a[aria-current]{background:var(--sunken);box-shadow:inset 3px 0 0 var(--sel-bar),inset 0 0 0 1px var(--sel-ring);color:var(--ink);font-weight:600}
 .tree summary{color:var(--muted);font-weight:600;font-size:12.5px;cursor:pointer;list-style:none}
 .tree summary::-webkit-details-marker{display:none}
 .tree summary::before{content:"";flex:none;width:5px;height:5px;margin:0 3px 0 1px;border:solid currentColor;border-width:0 1.5px 1.5px 0;rotate:-45deg}
@@ -48,7 +68,17 @@ export const menuCss: string = `.pmenu{position:absolute;top:calc(100% + 6px);le
 .tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
 .tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
 .tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
-@media(forced-colors:active){.tree a[aria-current]{outline:2px solid CanvasText}}
+@supports not (position-area:bottom){.menu{top:104px;left:max(12px,calc(50vw - 544px))}}
+@media(max-width:${PHONE_MAX}px){.menu{position-area:none;position-try-fallbacks:none;inset:auto 0 0 0;width:100%;margin:0}
+[popover]>.mbox{border-radius:16px 16px 0 0;border-bottom-width:0;max-height:82dvh;padding:0 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(27,26,23,.16)}
+[popover]>.mbox::before{content:"";display:block;width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:8px auto 4px}
+.shd{display:flex;align-items:center;gap:8px;position:sticky;top:0;z-index:1;background:var(--dlg);padding:2px 4px 8px;border-bottom:1px solid var(--rule);margin-bottom:6px}
+.shd h2{flex:1;margin:0;font:650 15px var(--sans)}.shd .n{color:var(--faint);font-weight:500}
+.done{min-width:64px;min-height:var(--tap);padding:0 14px;border-radius:var(--r-md);border:1px solid var(--rule-2);background:var(--surface);font:600 14px var(--sans);color:var(--ink);cursor:pointer}
+.tree a,.tree summary{min-height:var(--tap);font-size:15px}.tree summary{font-size:13.5px}
+.pop-scrim{background:var(--scrim)}}
+@media(pointer:coarse),(max-width:${PHONE_MAX}px){body:has([popover]:popover-open) .pop-scrim{display:block;opacity:1}.pop-scrim.linger{display:block}}
+@media(forced-colors:active){.tree a[aria-current]{outline:2px solid CanvasText}.mbox{border-color:CanvasText}}
 `;
 /** The document area: frame, scroller, download card (shared by R1 and R2; see Risks). */
 export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--paper)}
