@@ -75,7 +75,7 @@ export function HealthPill(props: { health: Health }) {
   const tone =
     health.state === "failed" || health.state === "blocked"
       ? "failed"
-      : health.state === "uploading" || health.state === "offline"
+      : health.state === "uploading" || health.state === "stalled" || health.state === "offline"
         ? "pending"
         : health.state === "off"
           ? "off"
@@ -100,6 +100,7 @@ function healthSummary(health: Health): string {
     failed: `${plural(health.failed.length, "revision")} failed to sync`,
     offline: "Can't reach the cloud. Writes are queued here.",
     off: "Cloud sync is off on this writer",
+    stalled: `${plural(health.stalled.length, "revision")} stalled`,
     uploading: `${plural(health.pending.length, "revision")} uploading`,
     synced: "Everything is synced",
   };
@@ -115,7 +116,7 @@ export function HealthPopover(props: { health: Health; now: number; host: string
   const dot =
     health.state === "failed" || health.state === "blocked"
       ? "failed"
-      : health.state === "uploading" || health.state === "offline"
+      : health.state === "uploading" || health.state === "stalled" || health.state === "offline"
         ? "pending"
         : health.state === "off"
           ? "off"
