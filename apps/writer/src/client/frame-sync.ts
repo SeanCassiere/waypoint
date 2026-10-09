@@ -35,6 +35,20 @@ function frameNotice(message: string | null, back?: { href: string; label: strin
   refreshStatusLine();
 }
 
+/** A section fragment (`#open-questions`) the bar may keep (RX-09): anything else becomes "". */
+const SECTION_HASH = /^#[\w.~%-]{1,256}$/;
+const sectionHash = (hash: string): string => (SECTION_HASH.test(hash) ? hash : "");
+/** Points the frame at a section of the document it has loaded, as a same-document navigation
+ *  (no load, no request) that adds no history entry. */
+function openSection(frame: HTMLIFrameElement, target: string): void {
+  try {
+    if (!frame.contentWindow) throw new Error("no window");
+    frame.contentWindow.location.replace(target);
+  } catch {
+    frame.src = target;
+  }
+}
+
 /** An absolute URL without its fragment. */
 function withoutHash(href: string): string {
   const url = new URL(href, location.href);
@@ -80,6 +94,8 @@ export function bindFrameSync(): void {
   const pinned = root.dataset.pinned === "true";
   const head = root.dataset.head ?? "";
   let keyboardOpen = false;
+  // RX-09: the section the page was opened at, handed to the frame on its first load.
+  let initialHash = sectionHash(location.hash);
   function update(path: string, search: string, hash: string, fromFrame: boolean): void {
     root!.dataset.path = path;
     const matched = links.find((link) => link.dataset.file === path);
@@ -108,7 +124,7 @@ export function bindFrameSync(): void {
       shellPath(collection, revision, path, pinned, head, withShellParams(search), hash),
     );
   }
-  function fromUrl(href: string): boolean {
+  function fromUrl(href: string, fallbackHash = ""): boolean {
     const url = new URL(href, location.href);
     if (url.origin !== location.origin) return false;
     const path = pathFromRaw(url.pathname, revision);
@@ -118,14 +134,19 @@ export function bindFrameSync(): void {
       location.assign(matched.href);
       return true;
     }
-    update(path, url.search, url.hash, true);
+    update(path, url.search, sectionHash(url.hash) || fallbackHash, true);
     return true;
   }
   frame?.addEventListener("load", () => {
     loading?.done();
+    const hash = initialHash;
+    initialHash = "";
     try {
       const href = frame.contentWindow?.location.href ?? frame.src;
-      if (!fromUrl(href)) throw new Error("left");
+      // The first load keeps the bar's section and scrolls the frame to it.
+      const opening = hash && !new URL(href).hash ? hash : "";
+      if (!fromUrl(href, opening)) throw new Error("left");
+      if (opening) openSection(frame, href + opening);
       // Same-origin documents: Esc inside the document returns focus to the shell.
       frame.contentDocument?.addEventListener("keydown", (event) => {
         if (event.key === "Escape") $("#tp-files a[aria-current]")?.focus();
@@ -140,6 +161,16 @@ export function bindFrameSync(): void {
       });
     }
   });
+  // A frame that loaded before this ran fires no load (see above), so the bar is synced now: it
+  // keeps a valid opening section (and the frame scrolls to it) and drops an invalid one.
+  if (frame && frame.contentDocument?.readyState === "complete") {
+    const href = frame.contentWindow?.location.href ?? "";
+    const opening = initialHash && !new URL(href, location.href).hash ? initialHash : "";
+    if (fromUrl(href, opening)) {
+      if (opening) openSection(frame, href + opening);
+      initialHash = "";
+    }
+  }
   // Renditions also report their location by postMessage (needed for the public reader's
   // sandboxed frames; redundant but harmless here). Only the frame's own window is trusted,
   // and only while it shows a same-origin document: a page the frame navigated to elsewhere
@@ -163,7 +194,8 @@ export function bindFrameSync(): void {
     try {
       const encoded = location.pathname.slice(prefix.length);
       const path = encoded ? encoded.split("/").map(decodeURIComponent).join("/") : head;
-      update(path, location.search, location.hash, false);
+      initialHash = "";
+      update(path, location.search, sectionHash(location.hash), false);
     } catch {
       frameNotice("Invalid file URL.");
     }
@@ -177,6 +209,8 @@ export function bindFrameSync(): void {
         return;
       }
       keyboardOpen = event.detail === 0;
+      // A switch before the first load supersedes the opening section (RX-09).
+      initialHash = "";
       const path = link.dataset.file ?? "";
       const raw = rawPath(revision, path);
       if (loadsDocument(frame, raw)) loading?.start(path);
