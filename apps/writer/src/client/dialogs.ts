@@ -14,7 +14,7 @@ export interface ConfirmOptions {
   title: string;
   body: string | Node;
   ok: string;
-  okClass?: "danger" | "danger-solid" | "primary";
+  okClass?: "danger-solid" | "primary";
   /** Danger band shown above the body (Purge, Drop). */
   band?: { title: string; body: string } | undefined;
   /** The OK button stays disabled until the typed text matches (Purge, OW-14). */
@@ -92,7 +92,7 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   const radios = options.choice ? choiceGroup(body, options.choice) : [];
   const chosen = () => radios.find((radio) => radio.checked)?.value ?? null;
   error.textContent = "";
-  ok.className = `btn ${options.okClass ?? "danger"}`;
+  ok.className = `btn ${options.okClass ?? "danger-solid"}`;
   setBusy(ok, false, options.ok);
   // A confirm dismissed while its run was pending may have left Cancel disabled.
   cancel.disabled = false;
