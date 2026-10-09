@@ -4,7 +4,7 @@ import { isStageImage } from "@waypoint/ui";
 import type { Context } from "hono";
 
 import type { HttpServices } from "../../../http.ts";
-import { isLive } from "../../../shares.ts";
+import { isLive, linksEnabled } from "../../../shares.ts";
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
 import { isEmbeddable } from "../../components.tsx";
 import { Layout } from "../../layout.tsx";
@@ -14,6 +14,7 @@ import { galleryPage } from "../gallery.tsx";
 import { publicPreview } from "../public-preview.tsx";
 import { LinksPanel, previewHref, publicSegment, ShareDialog, shareDisclosure } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
+import { trashLinks } from "../trash.tsx";
 import { CollectionBar, TabBar } from "./bar.tsx";
 import { CollectionDialogs } from "./dialogs.tsx";
 import { ImageStage } from "./image-stage.tsx";
@@ -53,14 +54,23 @@ export async function collectionPage(
   const loaded = await loadCollection(s, c, { pub, rpub, now });
   if (loaded.kind === "missing") return notFound(c, loaded.chrome, url.pathname);
   if (loaded.kind === "deleted") {
-    const rows = await s.reads.revisions(loaded.collection.id);
+    const id = loaded.collection.id;
+    // Restore… carries the same counts and paused links as the Trash row (OW-07).
+    const [rows, details, links] = await Promise.all([
+      s.reads.revisions(id),
+      s.reads.trashDetails([id]),
+      linksEnabled(s) ? trashLinks(s, [id]) : Promise.resolve(undefined),
+    ]);
     const last = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
+    const detail = details.get(id);
     return noStore(
       c.html(
         <DeletedPage
           chrome={loaded.chrome}
           collection={loaded.collection}
           n={last?.display_number ?? null}
+          detail={{ revisions: detail?.revisions ?? 0, files: detail?.files ?? 0 }}
+          paused={links?.get(id)?.paused ?? []}
         />,
         410,
       ),

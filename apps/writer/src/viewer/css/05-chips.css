@@ -43,6 +43,17 @@ a.chip.public:hover {
   background: var(--pending-bg);
   border-color: var(--pending-line);
 }
+/* A chip whose text is user content (OW-07: paused link labels, up to 200 characters each) never
+   widens its row: it stops at the row's width and the text ends in an ellipsis. The full labels
+   stay in the accessible text and in the restore dialog. */
+.chip:has(> .chip-t) {
+  max-width: 100%;
+}
+.chip-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .chip.ink {
   background: var(--sel);
   color: var(--on-sel);

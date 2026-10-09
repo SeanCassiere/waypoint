@@ -159,6 +159,59 @@ async function seedPendingCollection(
   );
   return { id, publicId, revisionId };
 }
+/** The app with sharing configured (as scale-guards.test.ts): links, paused links and chips. */
+function sharingApp(): ReturnType<typeof createApp> {
+  return createApp({
+    ...services,
+    publicBaseUrl: "https://reader.example.test",
+    shareTokenKey: new Uint8Array(32).fill(42),
+  });
+}
+/** One live share link on a collection, as a direct row (FKs are off). */
+async function insertLink(collectionId: string, n: number): Promise<void> {
+  await waypoint.run(
+    "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    [
+      `shl_${String(n).padStart(26, "0")}`,
+      `token-${n}`,
+      collectionId,
+      null,
+      `link ${n}`,
+      null,
+      null,
+      1,
+    ],
+  );
+}
+/** Every opening tag of `tag` that contains `has`. */
+const tagsOf = (markup: string, tag: string, has: string): string[] =>
+  [...markup.matchAll(new RegExp(`<${tag}\\b[^>]*>`, "g"))]
+    .map(([match]) => match)
+    .filter((match) => match.includes(has));
+/** An attribute's decoded value from an opening tag. */
+function attrOf(tag: string, name: string): string | null {
+  const value = new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
+  if (value === undefined) return null;
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+}
+/** The Trash row of the collection with public ID `pub`. */
+function trashRow(page: string, pub: string): string {
+  const start = page.indexOf(`<li class="item trash" data-pub="${pub}"`);
+  return start < 0 ? "" : page.slice(start, page.indexOf("</li>", start) + 5);
+}
+const pausedLinks = z.array(
+  z.object({
+    id: z.string(),
+    label: z.string().nullable(),
+    revision_display_number: z.number().nullable(),
+    expires_at: z.number().nullable(),
+  }),
+);
 describe("viewer routes", () => {
   it("shows a More link with the next search cursor", async () => {
     const search = vi
@@ -332,6 +385,85 @@ describe("viewer routes", () => {
     const deleted = await app.request(new URL(first.latest_url).pathname);
     expect(deleted.status).toBe(410);
     expect(await deleted.text()).toContain("is in Trash");
+  });
+  it("names and opens a trashed collection, and every Restore… carries the dialog's data", async () => {
+    const created = writeResult(
+      await (
+        await app.request(
+          "/api/collections",
+          json({ title: "Trash me", files: [await upload("index.md", "Gone")] }),
+        )
+      ).json(),
+    );
+    const pub = new URL(created.latest_url).pathname.split("/")[2] ?? "";
+    expect(pub).toHaveLength(12);
+    await app.request(`/api/collections/${created.collection_id}`, { method: "DELETE" });
+    const row = trashRow(await (await app.request("/trash")).text(), pub);
+    expect(row).not.toBe("");
+    expect(row).toContain(`<a class="tlink" id="it-${pub}" href="/c/${pub}/"`);
+    const msg = (/<p class="msg">([\s\S]*?)<\/p>/.exec(row)?.[1] ?? "").replaceAll(/<[^>]*>/g, "");
+    expect(msg).toMatch(/^Moved to Trash .+ · \d+ revisions? · \d+ files?$/);
+    expect(msg).toMatch(/ · 1 revision · 1 file$/);
+    expect(row).not.toContain("deleted");
+    expect(row).toContain(`<span class="mono">${pub}</span>`);
+    const [restore] = tagsOf(row, "button", 'data-action="restore"');
+    expect(restore).toBeDefined();
+    expect(row).toMatch(/data-action="restore"[^>]*>Restore…<\/button>/);
+    expect(attrOf(restore ?? "", "data-links")).toBe("[]");
+    expect(row).not.toContain("chip xs paused");
+
+    const page = await app.request(`/c/${pub}/`);
+    expect(page.status).toBe(410);
+    const html = await page.text();
+    const buttons = tagsOf(html, "button", 'data-action="restore"');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) {
+      expect(attrOf(button, "data-links")).toBe("[]");
+      expect(attrOf(button, "data-revisions")).toBe("1");
+      expect(attrOf(button, "data-files")).toBe("1");
+    }
+    expect(html).not.toContain("links included");
+    expect(html).toContain("It&#39;s hidden from lists and search. Restore brings it back.");
+  });
+  it("shows a trashed collection's paused link in its chip and on every Restore…", async () => {
+    app = sharingApp();
+    const created = writeResult(
+      await (
+        await app.request(
+          "/api/collections",
+          json({ title: "Leaked", files: [await upload("index.md", "Secret")] }),
+        )
+      ).json(),
+    );
+    const pub = new URL(created.latest_url).pathname.split("/")[2] ?? "";
+    const expires = Date.now() + 2 * 3_600_000;
+    const shared = await app.request(
+      `/api/collections/${created.collection_id}/share-links`,
+      json({ label: "Vendor debug", expires_at: expires }),
+    );
+    expect(shared.status).toBe(201);
+    await app.request(`/api/collections/${created.collection_id}`, { method: "DELETE" });
+    const row = trashRow(await (await app.request("/trash")).text(), pub);
+    expect(row).toMatch(
+      /<span class="chip xs paused"><svg class="ic sm"[^>]*>[\s\S]*?<\/svg><span class="chip-t">1 link paused · “Vendor debug”<\/span><\/span>/,
+    );
+    const [restore] = tagsOf(row, "button", 'data-action="restore"');
+    const links = pausedLinks.parse(JSON.parse(attrOf(restore ?? "", "data-links") ?? ""));
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      label: "Vendor debug",
+      revision_display_number: null,
+      expires_at: expires,
+    });
+
+    const page = await app.request(`/c/${pub}/`);
+    expect(page.status).toBe(410);
+    const html = await page.text();
+    const buttons = tagsOf(html, "button", 'data-action="restore"');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons)
+      expect(pausedLinks.parse(JSON.parse(attrOf(button, "data-links") ?? ""))).toEqual(links);
+    expect(html).toContain("its 1 public link is paused");
   });
   it("keeps list and shell query counts constant as history grows", async () => {
     await Promise.all(
@@ -636,6 +768,21 @@ describe("Folio shell", () => {
     expect(await queryCount("/status")).toBe(status);
     expect(await queryCount("/trash")).toBe(trash);
     expect(trash).toBeLessThan(20);
+  });
+  it("keeps the Trash query count constant with paused-link chips", async () => {
+    app = sharingApp();
+    await insertLink((await seedPendingCollection("Gone", Date.now() + 500, true)).id, 0);
+    const trash = await queryCount("/trash");
+    expect(await (await app.request("/trash")).text()).toContain("1 link paused");
+    await Promise.all(
+      Array.from({ length: 25 }, async (_, i) => {
+        const seeded = await seedPendingCollection(`Gone ${i}`, Date.now() + i + 1000, true);
+        await insertLink(seeded.id, i + 1);
+      }),
+    );
+    expect(await queryCount("/trash")).toBe(trash);
+    // 21 today: sharing adds the bar's link counts and trashLinks' one query plus shareViews.
+    expect(trash).toBeLessThan(25);
   });
 });
 

@@ -1,18 +1,26 @@
-import { $, $$ } from "./dom.ts";
+import { $, $$, el } from "./dom.ts";
 
+export interface ConfirmChoice {
+  /** Accessible name of the radio group ("What happens to the link"). */
+  label: string;
+  /** Footer note while nothing is chosen ("Choose what happens to the link"). */
+  prompt: string;
+  options: readonly { value: string; title: string; detail: string | Node }[];
+}
 export interface ConfirmOptions {
   title: string;
   body: string | Node;
   ok: string;
   okClass?: "danger" | "danger-solid" | "primary";
-  /** A third, alternative action (for example "Restore, revoke the link"). */
-  alt?: { label: string; run: () => Promise<void> } | undefined;
   /** Danger band shown above the body (Purge, Drop). */
   band?: { title: string; body: string } | undefined;
   /** The OK button stays disabled until this exact text is typed. */
   typed?: { expect: string; label: string; hint: string } | undefined;
   note?: string | undefined;
-  run: () => Promise<void>;
+  /** Radio choice with no default; OK stays disabled until one is checked. */
+  choice?: ConfirmChoice | undefined;
+  /** Receives the checked choice value (null when the dialog has no choice). */
+  run: (choice: string | null) => Promise<void>;
 }
 
 function setBusy(button: HTMLButtonElement, busy: boolean, label: string): void {
@@ -40,7 +48,6 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   const error = $("[data-confirm-error]", dialog)!;
   const note = $("[data-confirm-note]", dialog)!;
   const ok = $("[data-confirm-ok]", HTMLButtonElement, dialog)!;
-  const alt = $("[data-confirm-alt]", HTMLButtonElement, dialog)!;
   const cancel = $("[data-confirm-cancel]", HTMLButtonElement, dialog)!;
   dialog.classList.toggle("danger", Boolean(options.band));
   band.hidden = !options.band;
@@ -54,19 +61,26 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
     dialog.setAttribute("aria-labelledby", "confirm-title");
   }
   title.textContent = options.title;
+  // The dialog is reused: replacing the body drops the previous choice, so nothing is checked.
   body.replaceChildren(options.body);
-  note.textContent = options.note ?? "";
+  const radios = options.choice ? choiceGroup(body, options.choice) : [];
+  const chosen = () => radios.find((radio) => radio.checked)?.value ?? null;
   error.textContent = "";
   ok.className = `btn ${options.okClass ?? "danger"}`;
   setBusy(ok, false, options.ok);
-  alt.hidden = !options.alt;
-  if (options.alt) setBusy(alt, false, options.alt.label);
+  // A confirm dismissed while its run was pending may have left Cancel disabled.
+  cancel.disabled = false;
   typed.hidden = !options.typed;
   input.value = "";
+  // While run() is pending nothing re-enables OK: changing the choice can't start a second run.
+  let busy = false;
   const sync = () => {
     const matches = !options.typed || input.value === options.typed.expect;
-    ok.disabled = !matches;
-    ok.setAttribute("aria-disabled", String(!matches));
+    const picked = !options.choice || chosen() !== null;
+    const blocked = busy || !(matches && picked);
+    ok.disabled = blocked;
+    ok.setAttribute("aria-disabled", String(blocked));
+    note.textContent = picked ? (options.note ?? "") : (options.choice?.prompt ?? "");
   };
   if (options.typed) {
     $("[data-confirm-typed-label]", typed)!.textContent = options.typed.label;
@@ -75,40 +89,106 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   sync();
   return new Promise((resolve) => {
     let done = false;
+    // Escape is held off while run() is pending, but a second Escape still forces the dialog shut.
+    // The run then carries on: this call stops touching the shared dialog (it may already show
+    // another confirm) and resolves with the run's outcome once it settles.
+    let dismissed = false;
     const controller = new AbortController();
     const finish = (result: boolean) => {
       if (done) return;
       done = true;
       controller.abort();
-      if (dialog.open) dialog.close();
+      if (!dismissed && dialog.open) dialog.close();
       resolve(result);
     };
-    const attempt = (button: HTMLButtonElement, label: string, work: () => Promise<void>) => {
+    const attempt = () => {
+      if (busy || ok.disabled) return;
+      const value = chosen();
+      busy = true;
       error.textContent = "";
-      setBusy(button, true, label.endsWith("…") ? label : `${label}…`);
+      setBusy(ok, true, options.ok.endsWith("…") ? options.ok : `${options.ok}…`);
       cancel.disabled = true;
-      work()
+      for (const radio of radios) radio.disabled = true;
+      sync();
+      options
+        .run(value)
         .then(() => finish(true))
         .catch((cause: unknown) => {
+          if (dismissed) {
+            finish(false);
+            return;
+          }
+          busy = false;
           error.textContent = cause instanceof Error ? cause.message : "Request failed";
-          setBusy(button, false, label);
+          setBusy(ok, false, options.ok);
           cancel.disabled = false;
+          for (const radio of radios) radio.disabled = false;
           sync();
         });
     };
     const { signal } = controller;
     input.addEventListener("input", sync, { signal });
-    ok.addEventListener("click", () => attempt(ok, options.ok, options.run), { signal });
-    if (options.alt) {
-      const run = options.alt.run;
-      const label = options.alt.label;
-      alt.addEventListener("click", () => attempt(alt, label, run), { signal });
-    }
+    for (const radio of radios) radio.addEventListener("change", sync, { signal });
+    ok.addEventListener("click", attempt, { signal });
     cancel.addEventListener("click", () => finish(false), { signal });
-    dialog.addEventListener("close", () => finish(false), { signal });
+    dialog.addEventListener(
+      "cancel",
+      (event) => {
+        if (busy) event.preventDefault();
+      },
+      { signal },
+    );
+    dialog.addEventListener(
+      "close",
+      () => {
+        if (!busy) {
+          finish(false);
+          return;
+        }
+        dismissed = true;
+        controller.abort();
+      },
+      { signal },
+    );
     dialog.showModal();
-    (options.typed ? input : cancel).focus();
+    // focusVisible: Cancel shows its focus ring even when the dialog was opened with the mouse.
+    (options.typed ? input : cancel).focus({ focusVisible: true });
   });
+}
+
+/** Appends the choice's radio group (no option checked) to the body; returns its radios. */
+function choiceGroup(body: Element, choice: ConfirmChoice): HTMLInputElement[] {
+  const radios: HTMLInputElement[] = [];
+  const group = el("div", {
+    class: "ch2",
+    attrs: { role: "radiogroup", "aria-label": choice.label },
+  });
+  for (const [index, option] of choice.options.entries()) {
+    // The radio's name is the option's title; its detail is the description, not part of the name.
+    const titleId = `confirm-choice-${index}-title`;
+    const detailId = `confirm-choice-${index}-detail`;
+    const radio = el("input", {
+      attrs: {
+        type: "radio",
+        name: "confirm-choice",
+        value: option.value,
+        "aria-labelledby": titleId,
+        "aria-describedby": detailId,
+      },
+    });
+    radios.push(radio);
+    group.append(
+      el(
+        "label",
+        {},
+        radio,
+        el("b", { text: option.title, attrs: { id: titleId } }),
+        el("span", { attrs: { id: detailId } }, option.detail),
+      ),
+    );
+  }
+  body.append(group);
+  return radios;
 }
 
 /**

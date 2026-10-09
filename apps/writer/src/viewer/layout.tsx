@@ -383,7 +383,6 @@ function ConfirmDialog() {
         <button class="btn" value="cancel" data-confirm-cancel>
           Cancel
         </button>
-        <button type="button" class="btn" data-confirm-alt hidden />
         <button type="button" class="btn danger" data-confirm-ok>
           OK
         </button>

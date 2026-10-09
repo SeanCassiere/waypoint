@@ -1,5 +1,8 @@
+import { icon } from "@waypoint/ui";
+
 import { shellPath } from "../viewer-paths.ts";
 import { plural } from "../viewer/format.ts";
+import { formatTime } from "../viewer/timefmt.ts";
 import { ApiError, api, field } from "./api.ts";
 import { copyText, showCopied } from "./copy.ts";
 import { bindForm, confirmDialog } from "./dialogs.ts";
@@ -7,7 +10,6 @@ import { $, $$, el, run, shellRoot } from "./dom.ts";
 import {
   collectionName,
   dropFlash,
-  restoreFlash,
   retryFlash,
   revisionName,
   revisionsName,
@@ -16,6 +18,12 @@ import {
 import { readMark } from "./lastread.ts";
 import { setPanel, showTab, togglePanel } from "./panel.ts";
 import { flash } from "./toast.ts";
+import {
+  restoreFlashText,
+  restoreRequests,
+  type PausedLink,
+  type RestoreChoice,
+} from "./trash-rules.ts";
 
 type Action = (element: HTMLElement) => Promise<void> | void;
 type What = (element: HTMLElement) => string;
@@ -177,78 +185,138 @@ async function trash(): Promise<void> {
   });
   location.assign("/trash");
 }
+/** The paused links a Restore or Purge button carries in data-links; [] for anything else. */
+export function parseLinks(element: HTMLElement): PausedLink[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(element.dataset.links ?? "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((item: unknown) => {
+    const id = field(item, "id");
+    const label = field(item, "label");
+    const number = field(item, "revision_display_number");
+    const expires = field(item, "expires_at");
+    return typeof id === "string"
+      ? [
+          {
+            id,
+            label: typeof label === "string" && label ? label : null,
+            revision_display_number: typeof number === "number" ? number : null,
+            expires_at: typeof expires === "number" ? expires : null,
+          },
+        ]
+      : [];
+  });
+}
+/** One paused link in the restore dialog: label · mode · expiry (the mode is bold without a label). */
+function linkLine(link: PausedLink, now: number): HTMLElement {
+  const mode =
+    link.revision_display_number === null ? "Latest" : `Only #${link.revision_display_number}`;
+  const expiry =
+    link.expires_at === null
+      ? "never expires"
+      : `expires ${formatTime(link.expires_at, "until", now, false)}`;
+  const line = link.label
+    ? el("div", { class: "lnkl" }, el("b", { text: link.label }), ` · ${mode} · ${expiry}`)
+    : el("div", { class: "lnkl" }, el("b", { text: mode }), ` · ${expiry}`);
+  line.insertAdjacentHTML("afterbegin", icon("globe", "sm"));
+  return line;
+}
+/** Once revoke-all has succeeded, the restore dialog that asked keeps only the choice that is still
+ *  true. `intro` is that dialog's first paragraph: once another confirm has replaced the body, it is
+ *  detached and nothing is changed. */
+function lockRevoked(intro: HTMLElement): void {
+  const group = intro.isConnected ? intro.parentElement?.querySelector(".ch2") : null;
+  if (!group) return;
+  for (const radio of $$('input[name="confirm-choice"]', HTMLInputElement, group)) {
+    if (radio.value === "revoke") radio.checked = true;
+    else {
+      const label = radio.closest("label");
+      if (label) label.hidden = true;
+    }
+  }
+}
+const fragment = (...children: (Node | string)[]): DocumentFragment => {
+  const node = document.createDocumentFragment();
+  node.append(...children);
+  return node;
+};
+/** Every Restore… opens this dialog (D44): with paused links, Restore waits for a choice between
+ *  revoking them and turning them back on; nothing is chosen for you. */
 async function restore(element: HTMLElement): Promise<void> {
   const id = element.dataset.id ?? "";
-  const title = element.dataset.title ?? null;
-  let revoked = 0;
-  const after = () => {
-    flash({ text: restoreFlash(title, revoked) });
-    location.reload();
-  };
-  let active: { id: string; label: string | null; revision_display_number: number | null }[] = [];
-  try {
-    const parsed: unknown = JSON.parse(element.dataset.links ?? "[]");
-    if (Array.isArray(parsed))
-      active = parsed.flatMap((item: unknown) => {
-        const linkId = field(item, "id");
-        const label = field(item, "label");
-        const number = field(item, "revision_display_number");
-        return typeof linkId === "string"
-          ? [
-              {
-                id: linkId,
-                label: typeof label === "string" ? label : null,
-                revision_display_number: typeof number === "number" ? number : null,
-              },
-            ]
-          : [];
-      });
-  } catch {
-    active = [];
-  }
-  const undelete = async () => {
-    await api(`/api/collections/${encodeURIComponent(id)}/undelete`, "POST");
-  };
-  if (!active.length) {
-    const done = busy(element, "Restoring…");
-    try {
-      await undelete();
-      after();
-    } catch (error) {
-      done();
-      throw error;
-    }
-    return;
-  }
-  const describe = active
-    .map(
-      (link) =>
-        `${link.revision_display_number === null ? "Latest" : `Only #${link.revision_display_number}`}${link.label ? `, “${link.label}”` : ""}`,
-    )
-    .join("; ");
-  const body = el(
-    "p",
-    {},
-    `This brings back ${plural(Number(element.dataset.revisions ?? 0), "revision")} and ${plural(Number(element.dataset.files ?? 0), "file")}, and `,
-    el("b", { text: `reactivates ${plural(active.length, "public link")}` }),
-    ` (${describe}). ${active.length === 1 ? "It works" : "They work"} again for anyone who has ${active.length === 1 ? "it" : "them"} within seconds.`,
-  );
+  const title = element.dataset.title ?? "";
+  const paused = parseLinks(element);
+  const k = paused.length;
+  const one = k === 1;
+  const brings = `This brings back ${plural(Number(element.dataset.revisions ?? 0), "revision")} and ${plural(Number(element.dataset.files ?? 0), "file")}.`;
+  const now = Date.now();
+  const intro = el("p", {
+    text: k
+      ? `${brings} It has ${plural(k, "public link")}, paused while in Trash:`
+      : `${brings} It has no paused public links.`,
+  });
+  const body = k ? fragment(intro, ...paused.map((link) => linkLine(link, now))) : intro;
+  const prompt = one ? "Choose what happens to the link" : "Choose what happens to the links";
+  let chosen: RestoreChoice | null = null;
+  // Set once revoke-all has succeeded: a retry after a failed undelete only undeletes, and the
+  // flash says the links were revoked. The dialog then offers only what is still true (lockRevoked).
+  let revoked = false;
   const ok = await confirmDialog({
-    title: `Restore “${element.dataset.title ?? "this collection"}”?`,
+    title: `Restore “${title}”?`,
     body,
     ok: "Restore",
     okClass: "primary",
-    alt: {
-      label: active.length === 1 ? "Restore, revoke the link" : "Restore, revoke the links",
-      run: async () => {
-        await api(`/api/collections/${encodeURIComponent(id)}/share-links/revoke-all`, "POST");
-        await undelete();
-        revoked = active.length;
-      },
+    choice: k
+      ? {
+          label: one ? "What happens to the link" : "What happens to the links",
+          prompt,
+          options: [
+            {
+              value: "revoke",
+              title: one ? "Revoke the link" : "Revoke the links",
+              detail: one
+                ? "Final. Anyone who has it keeps seeing “not available”. You can create a new link later."
+                : "Final. Anyone who has them keeps seeing “not available”. You can create new links later.",
+            },
+            {
+              value: "keep",
+              title: one ? "Turn the link back on" : "Turn the links back on",
+              detail: fragment(
+                one ? "It works again " : "They work again ",
+                el("span", { class: "pub", text: "on the open internet within seconds" }),
+                one ? " for anyone who has it." : " for anyone who has them.",
+              ),
+            },
+          ],
+        }
+      : undefined,
+    run: async (choice) => {
+      chosen = choice === "revoke" || choice === "keep" ? choice : null;
+      const requests = revoked ? restoreRequests(id, 0, null) : restoreRequests(id, k, chosen);
+      if (!requests) throw new Error(prompt);
+      // In order: revoke-all, then undelete. A failed undelete leaves the links revoked.
+      for (const request of requests) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Each request waits for the last.
+        await api(request.url, request.method);
+        if (request.url.endsWith("/share-links/revoke-all")) {
+          revoked = true;
+          lockRevoked(intro);
+        }
+      }
     },
-    run: undelete,
   });
-  if (ok) after();
+  if (!ok) {
+    // Revoke-all went through but undelete didn't, and the owner closed the dialog: reload, so the
+    // row's chip and its Restore… no longer offer a link that is already revoked.
+    if (revoked) location.reload();
+    return;
+  }
+  flash({ text: restoreFlashText(title, k, revoked ? "revoke" : chosen), id });
+  location.reload();
 }
 async function purge(element: HTMLElement): Promise<void> {
   const id = element.dataset.id ?? "";

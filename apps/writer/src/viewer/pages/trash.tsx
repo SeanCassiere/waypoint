@@ -1,18 +1,26 @@
 /** @jsxImportSource hono/jsx */
+import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
+import { raw } from "hono/html";
 
+import { pausedChipText } from "../../client/trash-rules.ts";
 import type { HttpServices } from "../../http.ts";
 import { SHARE_COLUMNS, shareViews, type ShareRow } from "../../shares.ts";
 import { getChrome } from "../chrome.ts";
-import { Globe, Time } from "../components.tsx";
-import { plural, shortId } from "../format.ts";
+import { Time } from "../components.tsx";
+import { plural } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
 import { DayGroups, RecentRow, rowTitleId } from "./recent/rows.tsx";
 
 export interface TrashLinks {
-  /** Paused links (not revoked, not expired) that would work again after a restore. */
-  paused: { id: string; label: string | null; revision_display_number: number | null }[];
+  /** Links that work again after a restore (FC1: status "paused"). */
+  paused: {
+    id: string;
+    label: string | null;
+    revision_display_number: number | null;
+    expires_at: number | null;
+  }[];
   total: number;
 }
 
@@ -68,23 +76,27 @@ export async function trashPage(
                       <>
                         {item.deleted_at != null ? (
                           <>
-                            deleted <Time at={item.deleted_at} fmt="ago" now={now} /> ·{" "}
+                            Moved to Trash <Time at={item.deleted_at} fmt="ago" now={now} /> ·{" "}
                           </>
                         ) : null}
                         {plural(detail?.revisions ?? 0, "revision")} ·{" "}
-                        {plural(detail?.files ?? 0, "file")} ·{" "}
-                        <span class="mono" title={item.id}>
-                          {shortId(item.id, 12)}
-                        </span>
+                        {plural(detail?.files ?? 0, "file")}
                       </>
                     }
                     meta={
-                      link?.paused.length ? (
-                        <span class="chip xs">
-                          <Globe />
-                          {plural(link.paused.length, "link")}, inactive while in Trash
-                        </span>
-                      ) : undefined
+                      <>
+                        <span class="mono">{item.public_id}</span>
+                        {/* The space keeps the ID and the chip apart in the row's text (flex ignores it). */}
+                        {link?.paused.length ? (
+                          <>
+                            {" "}
+                            <span class="chip xs paused">
+                              {raw(icon("globe", "sm"))}
+                              <span class="chip-t">{pausedChipText(link.paused)}</span>
+                            </span>
+                          </>
+                        ) : null}
+                      </>
                     }
                     actions={
                       <>
@@ -99,7 +111,7 @@ export async function trashPage(
                           data-files={String(detail?.files ?? 0)}
                           data-links={JSON.stringify(link?.paused ?? [])}
                         >
-                          Restore
+                          Restore…
                         </button>
                         <button
                           type="button"
@@ -145,6 +157,7 @@ export async function trashLinks(s: HttpServices, ids: string[]): Promise<Map<st
         id: view.id,
         label: view.label,
         revision_display_number: view.revision_display_number,
+        expires_at: view.expires_at,
       });
     result.set(view.collection_id, entry);
   }
