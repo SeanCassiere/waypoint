@@ -19,6 +19,8 @@ import { readMark } from "./lastread.ts";
 import { setPanel, showTab, togglePanel } from "./panel.ts";
 import { flash } from "./toast.ts";
 import {
+  purgeFlashText,
+  purgeMatch,
   restoreFlashText,
   restoreRequests,
   type PausedLink,
@@ -318,54 +320,113 @@ async function restore(element: HTMLElement): Promise<void> {
   flash({ text: restoreFlashText(title, k, revoked ? "revoke" : chosen), id });
   location.reload();
 }
+/** A row of the purge dialog's Will be erased list, marked with the close icon. */
+function erasedRow(...children: (Node | string)[]): HTMLElement {
+  const mark = el("span", { class: "no", attrs: { "aria-hidden": "true" } });
+  mark.insertAdjacentHTML("afterbegin", icon("close", "sm"));
+  return el("div", { class: "row" }, mark, el("span", {}, ...children));
+}
+/** An item of the purge dialog's What happens when list: a bold lead, then the rest. */
+function whenStep(lead: string, ...rest: (Node | string)[]): HTMLElement {
+  return el("li", {}, el("b", { text: lead }), ...rest);
+}
+/** Purge (OW-14): what is erased, what happens when, and a typed title or public ID. */
 async function purge(element: HTMLElement): Promise<void> {
   const id = element.dataset.id ?? "";
   const title = element.dataset.title ?? "";
-  const linkCount = Number(element.dataset.linkCount ?? "0");
-  const body = el(
-    "div",
-    { class: "sees" },
-    el("h3", { text: "Will be erased" }),
+  const publicId = element.dataset.publicId ?? "";
+  const paused = parseLinks(element);
+  const k = paused.length;
+  const first = paused[0];
+  const linksRow =
+    k === 1 && first
+      ? first.label
+        ? `Its public link “${first.label}”, revoked the moment you confirm`
+        : `Its public link (${first.revision_display_number === null ? "Latest" : `Only #${first.revision_display_number}`}), revoked the moment you confirm`
+      : `Its ${k} public links, revoked the moment you confirm`;
+  const body = fragment(
     el(
       "div",
-      { class: "row" },
-      el("span", { class: "no", text: "✕", attrs: { "aria-hidden": "true" } }),
-      el(
-        "span",
-        {},
+      { class: "sees" },
+      el("h3", { text: "Will be erased" }),
+      erasedRow(
         el("b", { text: title }),
-        `: ${plural(Number(element.dataset.revisions ?? 0), "revision")}, ${plural(Number(element.dataset.files ?? 0), "file")}${linkCount ? `, ${plural(linkCount, "share link")}` : ""}`,
+        `: ${plural(Number(element.dataset.revisions ?? 0), "revision")}, ${plural(Number(element.dataset.files ?? 0), "file")}`,
+      ),
+      ...(k ? [erasedRow(linksRow)] : []),
+      erasedRow("Files no other collection uses"),
+    ),
+    el(
+      "div",
+      { class: "when" },
+      el("h3", { text: "What happens when" }),
+      el(
+        "ol",
+        {},
+        whenStep(
+          "Now:",
+          k === 0
+            ? " the collection can't be restored."
+            : k === 1
+              ? " the link is revoked and the collection can't be restored."
+              : " the links are revoked and the collection can't be restored.",
+        ),
+        whenStep(
+          "In the background:",
+          " the bucket, then the database, then the files. Usually under a minute; files written in the last 15 minutes wait out a safety window first.",
+        ),
+        whenStep(
+          "Until it finishes",
+          " it stays in Trash under ",
+          el("b", { text: "Being purged" }),
+          ", with its step. Status shows it too.",
+        ),
       ),
     ),
-    el(
-      "div",
-      { class: "row" },
-      el("span", { class: "no", text: "✕", attrs: { "aria-hidden": "true" } }),
-      el("span", { text: "Blobs that no other collection uses" }),
-    ),
   );
+  let purged = false;
   const ok = await confirmDialog({
     title: "",
     band: {
-      title: "Permanently purge this collection?",
+      title: `Permanently purge “${title}”?`,
       body: "This erases every revision and file from this writer, the cloud database, and the bucket. It can't be undone.",
     },
     body,
     typed: {
-      expect: title,
-      label: "Type the collection's title to confirm",
-      hint: "Purge stays disabled until the title matches exactly.",
+      expect: (value) => purgeMatch(value, { title, publicId }),
+      label: "To confirm, type the title or the public ID",
+      hint: "Paste or type either one. Case and extra spaces don't matter.",
+      mismatch: "Doesn't match the title or the public ID yet.",
+      matched: (what) => `Matches the ${what}`,
+      values: [
+        { key: "title", label: "Title", value: title, copyLabel: "Copy title", copyWhat: "title" },
+        ...(publicId
+          ? [
+              {
+                key: "public-id",
+                label: "Public ID",
+                value: publicId,
+                mono: true,
+                copyLabel: "Copy public ID",
+                copyWhat: "public ID",
+              },
+            ]
+          : []),
+      ],
     },
-    note: "Purges are queued and finish in the background; Status shows progress.",
     ok: "Purge permanently",
     okClass: "danger-solid",
     run: async () => {
-      await api(`/api/collections/${encodeURIComponent(id)}/purge`, "POST", { confirm: id });
+      const result = await api(`/api/collections/${encodeURIComponent(id)}/purge`, "POST", {
+        confirm: id,
+      });
+      purged = field(result, "purged") === true;
     },
   });
   if (!ok) return;
-  flash({ text: `Purge queued for ${collectionName(title)}` });
-  location.reload();
+  flash({ text: purgeFlashText(title, k, purged), id });
+  if (element.dataset.then === "trash") location.assign("/trash");
+  else location.reload();
 }
 
 const titleOf = (element: HTMLElement): string | null =>

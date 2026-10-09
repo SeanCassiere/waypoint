@@ -49,3 +49,34 @@ export function pausedChipText(links: readonly PausedLink[]): string {
   const more = labels.length > 2 ? ` +${labels.length - 2}` : "";
   return `${plural(links.length, "link")} paused${shown ? ` · ${shown}${more}` : ""}`;
 }
+
+// What Purge accepts and says (OW-14).
+
+/** Typed confirmation text compared loosely: trimmed, runs of whitespace as one space, lower-case. */
+export function normTyped(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Which value the typed text matches, if any; the title wins when both match. */
+export function purgeMatch(
+  value: string,
+  target: { title: string; publicId: string },
+): "title" | "public ID" | null {
+  const typed = normTyped(value);
+  if (!typed) return null;
+  if (typed === normTyped(target.title)) return "title";
+  if (target.publicId && typed === normTyped(target.publicId)) return "public ID";
+  return null;
+}
+
+/** The flash after a purge: queued (with the links its confirmation revoked) or erased at once. */
+export function purgeFlashText(title: string, linkCount: number, purged: boolean): string {
+  if (purged) return `Purged “${title}”. Nothing had reached the cloud.`;
+  const links =
+    linkCount === 1
+      ? " Its 1 public link was revoked just now."
+      : linkCount > 1
+        ? ` Its ${linkCount} public links were revoked just now.`
+        : "";
+  return `Purging “${title}”.${links} Progress is listed here ↑`;
+}

@@ -19,6 +19,7 @@ import { LineStrip, revisionHref, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
 import { chipText, explainItem, itemWord, stripModel, type ItemWord } from "../health-words.ts";
 import { HomeBar, Layout } from "../layout.tsx";
+import { purgeLinks, PurgeRow } from "../purge.tsx";
 import { noStore } from "../respond.ts";
 import { formatTime } from "../timefmt.ts";
 
@@ -362,11 +363,15 @@ export async function statusPage(
   extras: ViewerExtras,
 ): Promise<Response> {
   const now = Date.now();
-  const [status, chrome, bundle] = await Promise.all([
+  const [status, chrome, bundle, purges] = await Promise.all([
     getStatus(s),
     getChrome(s, now),
     extras.serverBundle(),
+    s.reads.purgingCollections(),
   ]);
+  const revokedLinks = await purgeLinks(s, purges);
+  // Purges are In progress rows; /api/status keeps them in queue_errors (OW-14).
+  const queueErrors = status.queue_errors.filter((row) => row.kind !== "purge");
   const health = chrome.health;
   const attention = health.collections.filter((group) => group.attention);
   const attentionIds = new Set(attention.map((group) => group.collection_id));
@@ -594,6 +599,22 @@ export async function statusPage(
           </section>
           <InProgressSection
             items={progressList.shown}
+            extra={purges.map((row) => (
+              <PurgeRow
+                row={row}
+                page="status"
+                now={now}
+                links={revokedLinks.get(row.collection_id) ?? []}
+                syncEnabled={health.syncEnabled}
+                bucketDeletes={status.queue.pending_r2_deletes}
+              />
+            ))}
+            extraCount={purges.length}
+            after={
+              purges.length ? (
+                <p class="legend">A purge is never marked failed: it retries until it finishes.</p>
+              ) : undefined
+            }
             now={now}
             syncEnabled={health.syncEnabled}
             window={{ from: progressList.from, total: progressList.total }}
@@ -637,31 +658,28 @@ export async function statusPage(
             </>
           ) : null}
           <h2 class="sec">
-            Background queue errors <span class="n">{status.queue_errors.length}</span>
+            Background queue errors <span class="n">{queueErrors.length}</span>
           </h2>
           <div class="rows">
-            {status.queue_errors.length ? (
-              status.queue_errors.slice(0, STATUS_LIST).map((row) => (
+            {queueErrors.length ? (
+              queueErrors.slice(0, STATUS_LIST).map((row) => (
                 <div class="r">
                   <span class="t">
-                    {row.kind === "bucket_delete"
-                      ? "Bucket delete"
-                      : row.kind === "purge"
-                        ? "Purge"
-                        : "Snapshot"}{" "}
+                    {row.kind === "bucket_delete" ? "Bucket delete" : "Snapshot"}{" "}
                     <span class="mono muted">{row.id}</span>
                   </span>
                   <span class="e">{row.last_error}</span>
                 </div>
               ))
             ) : (
-              <div class="empty">No snapshot, delete, or purge errors.</div>
+              <div class="empty">
+                No snapshot or bucket-delete errors. Purges are listed under In progress.
+              </div>
             )}
           </div>
-          {status.queue_errors.length > STATUS_LIST ? (
+          {queueErrors.length > STATUS_LIST ? (
             <p class="legend" data-more="queue-errors">
-              and {status.queue_errors.length - STATUS_LIST} more…{" "}
-              <a href="/api/status">All as JSON</a>
+              and {queueErrors.length - STATUS_LIST} more… <a href="/api/status">All as JSON</a>
             </p>
           ) : null}
           <h2 class="sec">Writer</h2>

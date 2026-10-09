@@ -233,6 +233,30 @@ export interface ShareSummary {
   follows_latest: boolean;
   paused: number;
 }
+/** A queued purge as the viewer shows it (OW-14). */
+export interface PurgingCollection {
+  collection_id: string;
+  /** null for rows queued before the public_id column existed and whose collection row is gone. */
+  public_id: string | null;
+  /** pending_purges.title ?? the live collection title ?? collection_id. */
+  title: string;
+  /** pending_purges.step: 0 bucket, 1 database, 2 files. */
+  step: number;
+  attempts: number;
+  next_attempt_at: number | null;
+  last_error: string | null;
+  requested_at: number;
+}
+interface PendingPurgeRow {
+  collection_id: string;
+  requested_at: number;
+  step: number;
+  next_attempt_at: number | null;
+  attempts: number;
+  last_error: string | null;
+  title: string | null;
+  public_id: string | null;
+}
 /** About 150 bytes each: a few MB at most. */
 export const CHANGE_CACHE_SIZE = 20_000;
 export class ReadModel {
@@ -290,16 +314,67 @@ export class ReadModel {
       ]));
     return row ? this.collection(row.id) : undefined;
   }
+  /** Trashed collections, newest deletion first; a collection with a queued purge isn't one. */
   async deletedCollections(): Promise<CollectionRow[]> {
-    const [pending, committed] = await Promise.all([
+    const [pending, committed, purging] = await Promise.all([
       this.queue.all<CollectionRow>(
         "SELECT * FROM pending_collections WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
       ),
       this.waypoint.all<CollectionRow>(
         "SELECT c.*,t.deleted_at FROM collections c JOIN collection_tombstones t ON t.collection_id=c.id ORDER BY t.deleted_at DESC",
       ),
+      this.queue.all<{ collection_id: string }>("SELECT collection_id FROM pending_purges"),
     ]);
-    return [...pending, ...committed].toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
+    const purged = new Set(purging.map((row) => row.collection_id));
+    return [...pending, ...committed]
+      .filter((row) => !purged.has(row.id))
+      .toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
+  }
+  /** Names queued purges; rows queued before FD4's columns fall back to the live collection. */
+  private async namePurges(rows: PendingPurgeRow[]): Promise<PurgingCollection[]> {
+    const unnamed = rows
+      .filter((row) => row.title == null || row.public_id == null)
+      .map((row) => row.collection_id);
+    const live = await this.collectionsById(unnamed);
+    return rows.map((row) => {
+      const found = live.get(row.collection_id);
+      return {
+        collection_id: row.collection_id,
+        public_id: row.public_id ?? found?.public_id ?? null,
+        title: row.title ?? found?.title ?? row.collection_id,
+        step: row.step,
+        attempts: row.attempts,
+        next_attempt_at: row.next_attempt_at,
+        last_error: row.last_error,
+        requested_at: row.requested_at,
+      };
+    });
+  }
+  /** Every queued purge, newest request first; constant query count. */
+  async purgingCollections(): Promise<PurgingCollection[]> {
+    return this.namePurges(
+      await this.queue.all<PendingPurgeRow>(
+        "SELECT * FROM pending_purges ORDER BY requested_at DESC, collection_id",
+      ),
+    );
+  }
+  async purgingCollection(collectionId: string): Promise<PurgingCollection | undefined> {
+    const row = await this.queue.get<PendingPurgeRow>(
+      "SELECT * FROM pending_purges WHERE collection_id=?",
+      [collectionId],
+    );
+    return row ? (await this.namePurges([row]))[0] : undefined;
+  }
+  async purgingByPublicId(publicId: string): Promise<PurgingCollection | undefined> {
+    const normalized = publicId.toLowerCase();
+    const row = await this.queue.get<PendingPurgeRow>(
+      "SELECT * FROM pending_purges WHERE public_id=?",
+      [normalized],
+    );
+    if (row) return (await this.namePurges([row]))[0];
+    // Rows queued before the public_id column: the live collection row names them.
+    const live = await this.collectionByPublicId(normalized);
+    return live ? this.purgingCollection(live.id) : undefined;
   }
   /** Revisions (with sync state and display numbers) for many collections in three queries. */
   async revisionIndex(collectionIds: string[]): Promise<Map<string, RevisionRow[]>> {

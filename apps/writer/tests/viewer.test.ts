@@ -10,7 +10,7 @@ import { BlobStore } from "../src/blob-store.ts";
 import { MemoryBucket } from "../src/bucket.ts";
 import { WriterCommitter } from "../src/committer.ts";
 import type { Config } from "../src/config.ts";
-import { openDatabases, type Db } from "../src/db.ts";
+import { openDatabases, type Db, type SyncClient } from "../src/db.ts";
 import { getHealth } from "../src/health.ts";
 import { createApp, type HttpServices } from "../src/http.ts";
 import { IngestService } from "../src/ingest.ts";
@@ -23,6 +23,7 @@ import {
 import { ReadModel } from "../src/read-model.ts";
 import { SyncLoop } from "../src/sync-loop.ts";
 import { pathFromRaw, rawPath, shellPath } from "../src/viewer-paths.ts";
+import { formatTime } from "../src/viewer/timefmt.ts";
 
 let dir: string;
 let waypoint: Db;
@@ -159,6 +160,112 @@ async function seedPendingCollection(
   );
   return { id, publicId, revisionId };
 }
+/**
+ * A committed collection (OW-14): created through the API, then committed by a local committer
+ * that stops afterwards, so a later purge takes the queued branch and stays at step 0.
+ */
+async function seedCommittedCollection(
+  title: string,
+  options: {
+    deleted?: boolean;
+    links?: { label: string | null }[];
+    syncLoop?: SyncLoop;
+    ingest?: IngestService;
+  } = {},
+): Promise<{ id: string; publicId: string }> {
+  const created = writeResult(
+    await (
+      await app.request(
+        "/api/collections",
+        json({ title, files: [await upload("index.md", `# ${title}`)] }),
+      )
+    ).json(),
+  );
+  const id = created.collection_id;
+  const ingest = options.ingest ?? services.ingest;
+  const syncLoop =
+    options.syncLoop ?? new SyncLoop(queue, services.ingest.sync, Date.now, waypoint);
+  const committer = new WriterCommitter(
+    waypoint,
+    queue,
+    services.blobs,
+    new MemoryBucket(),
+    syncLoop,
+    ingest,
+  );
+  for (let pass = 0; pass < 20; pass++) {
+    committer.wake();
+    await committer.drain();
+    if (!(await queue.get("SELECT 1 FROM pending_collections WHERE id=?", [id]))) break;
+  }
+  committer.stop();
+  await committer.drain();
+  expect(await queue.get("SELECT 1 FROM pending_collections WHERE id=?", [id])).toBeUndefined();
+  for (const [index, link] of (options.links ?? []).entries())
+    await waypoint.run(
+      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+      [newId("shl"), `token-${id}-${index}`, id, null, link.label, null, null, Date.now()],
+    );
+  const trashed = options.deleted
+    ? (await app.request(`/api/collections/${id}`, { method: "DELETE" })).status
+    : 200;
+  expect(trashed).toBe(200);
+  const row = await waypoint.get<{ public_id: string }>(
+    "SELECT public_id FROM collections WHERE id=?",
+    [id],
+  );
+  return { id, publicId: row?.public_id ?? "" };
+}
+/** Queues the collection's purge through the API (the queued branch: 202 `{ queued: true }`). */
+async function purgeQueued(id: string): Promise<void> {
+  const response = await app.request(`/api/collections/${id}/purge`, json({ confirm: id }));
+  expect(response.status).toBe(202);
+  expect(await response.json()).toEqual({ queued: true });
+}
+/** A pending_purges row as the accept writes it, or an older one (NULL title and public ID). */
+async function insertPurge(row: {
+  id: string;
+  step: number;
+  title?: string | null;
+  publicId?: string | null;
+  nextAt?: number | null;
+  attempts?: number;
+  error?: string | null;
+  requestedAt?: number;
+}): Promise<void> {
+  await queue.run(
+    "INSERT INTO pending_purges (collection_id,requested_at,step,next_attempt_at,attempts,last_error,title,public_id) VALUES (?,?,?,?,?,?,?,?)",
+    [
+      row.id,
+      row.requestedAt ?? Date.now() - 60_000,
+      row.step,
+      row.nextAt ?? null,
+      row.attempts ?? 0,
+      row.error ?? null,
+      row.title ?? null,
+      row.publicId ?? null,
+    ],
+  );
+}
+/** The purging row `purge-{pub}` (its track has <li>s too: it ends at the next row or list end). */
+function purgeRowOf(page: string, pub: string): string {
+  const at = page.indexOf(`id="purge-${pub}"`);
+  if (at < 0) return "";
+  const start = page.lastIndexOf("<li", at);
+  const ends = [page.indexOf('<li class="item', at), page.indexOf("</ul>", at)].filter(
+    (end) => end > 0,
+  );
+  return page.slice(start, Math.min(...ends));
+}
+/** Visible text of some markup: tags dropped, the entities the views use decoded. */
+const textOf = (markup: string): string =>
+  markup
+    .replaceAll(/<[^>]+>/g, "")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&amp;", "&");
+/** A <Time> as the page renders it (UTC on the server). */
+const clockOf = (at: number): string => formatTime(at, "clock", Date.now(), true);
 /** The app with sharing configured (as scale-guards.test.ts): links, paused links and chips. */
 function sharingApp(): ReturnType<typeof createApp> {
   return createApp({
@@ -771,6 +878,31 @@ describe("Folio shell", () => {
     expect(await queryCount("/trash")).toBe(trash);
     expect(trash).toBeLessThan(20);
   });
+  it("keeps Status and Trash query counts constant with purges (OW-14)", async () => {
+    // The sharing fixture, so purgeLinks() and the paused-link chips run. Both samples have the
+    // same shape (a step-0 purge whose collection exists, a step-2 purge without one), so no
+    // empty-list short-circuit changes the count.
+    app = sharingApp();
+    const purgeMix = async (i: number) => {
+      const live = await seedPendingCollection(`Purging ${i}`, Date.now() + i + 500, true);
+      await insertPurge({ id: live.id, step: 0, title: `Purging ${i}`, publicId: live.publicId });
+      const gone = newId("col");
+      await insertPurge({
+        id: gone,
+        step: 2,
+        title: `Gone ${i}`,
+        publicId: await publicIdFor(gone),
+      });
+    };
+    await seedPendingCollection("Trashed", Date.now() + 400, true);
+    await purgeMix(0);
+    const status = await queryCount("/status");
+    const trash = await queryCount("/trash");
+    for (let i = 1; i <= 12; i++) await purgeMix(i);
+    expect(await queryCount("/status")).toBe(status);
+    expect(await queryCount("/trash")).toBe(trash);
+    expect(trash).toBeLessThan(20);
+  });
   it("keeps the Trash query count constant with paused-link chips", async () => {
     app = sharingApp();
     await insertLink((await seedPendingCollection("Gone", Date.now() + 500, true)).id, 0);
@@ -785,6 +917,225 @@ describe("Folio shell", () => {
     expect(await queryCount("/trash")).toBe(trash);
     // 21 today: sharing adds the bar's link counts and trashLinks' one query plus shareViews.
     expect(trash).toBeLessThan(25);
+  });
+});
+
+describe("purge progress (OW-14)", () => {
+  it("trashPage lists a purging collection under Being purged with no Restore", async () => {
+    app = sharingApp();
+    const p = await seedCommittedCollection("P", { deleted: true });
+    const t = await seedPendingCollection("T", Date.now(), true);
+    await purgeQueued(p.id);
+    const page = await (await app.request("/trash")).text();
+    expect(page).toContain(
+      "Collections here are hidden everywhere and their public links are paused. Restore brings one back; Purge erases it for good. Nothing in Trash is purged automatically.",
+    );
+    expect(page).toContain('id="trash-purging"');
+    expect(page).toContain('>Being purged<span class="vh"> ·</span> <span class="n">1</span></h2>');
+    expect(page.indexOf('id="trash-purging"')).toBeLessThan(page.indexOf('id="trash-in"'));
+    const row = purgeRowOf(page, p.publicId);
+    expect(row).toContain(`<li class="item purging" id="purge-${p.publicId}"`);
+    expect(row).toContain(`data-flash-target="${p.id}"`);
+    expect(row).toContain('aria-busy="true"');
+    expect(textOf(row)).toContain("Purging · step 1 of 3");
+    expect(row).toContain('aria-current="step"');
+    expect(row).toContain(`href="/status#purge-${p.publicId}"`);
+    expect(textOf(row)).toContain("Details on Status");
+    expect(textOf(row)).toContain("Deleting it from the bucket. Nothing for you to do.");
+    expect(row).not.toContain('data-action="restore"');
+    expect(row).not.toContain('data-action="purge"');
+    expect(tagsOf(row, "a", "").length + tagsOf(row, "button", "").length).toBe(1);
+    // The In Trash section: only T, and every row keeps FD3's flash target.
+    const inTrash = page.slice(page.indexOf('id="trash-in"'));
+    expect(inTrash).not.toContain(`data-pub="${p.publicId}"`);
+    const rows = tagsOf(inTrash, "li", 'class="item trash"');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter((tag) => tag.includes("data-flash-target=")).length).toBe(rows.length);
+    expect(trashRow(page, t.publicId)).toContain(`data-flash-target="${t.id}"`);
+    // Purge… carries the dialog's data contract (OW-14): the public ID and the paused links.
+    const purge = tagsOf(trashRow(page, t.publicId), "button", 'data-action="purge"')[0] ?? "";
+    expect(attrOf(purge, "data-public-id")).toBe(t.publicId);
+    expect(attrOf(purge, "data-links")).toBe("[]");
+    expect(attrOf(purge, "data-link-count")).toBeNull();
+  });
+  it("a purge at step 2 is still listed by title", async () => {
+    const id = newId("col");
+    const pub = await publicIdFor(id);
+    const nextAt = Date.now() + 12 * 60_000;
+    await insertPurge({ id, step: 2, title: "Incident 4411 raw logs", publicId: pub, nextAt });
+    await queue.run("INSERT INTO pending_r2_deletes (key,requested_at) VALUES (?,?)", [
+      "blobs/sha256/00/demo",
+      Date.now(),
+    ]);
+    const trash = await (await app.request("/trash")).text();
+    const row = textOf(purgeRowOf(trash, pub));
+    expect(row).toContain("Incident 4411 raw logs");
+    expect(row).toContain("Purging · step 3 of 3");
+    expect(row).toContain(
+      `Removed from the bucket and the database. Waiting out a 15-minute safety window before deleting files written recently; next try ${clockOf(nextAt)}.`,
+    );
+    expect(row).not.toContain("had no public links");
+    expect(trash).not.toContain("Trash is empty.");
+    expect(trash).not.toContain('id="trash-in"');
+    const status = await (await app.request("/status")).text();
+    const statusRow = textOf(purgeRowOf(status, pub));
+    expect(statusRow).toContain("Purging “Incident 4411 raw logs”");
+    expect(statusRow).toContain(
+      `Waiting, not failing. Files written in the last 15 minutes are kept that long in case an upload still needs them. Next try ${clockOf(nextAt)}, automatically.`,
+    );
+    expect(statusRow).toContain("bucket file deletes queued: 1 (all collections)");
+    expect(status).toContain("A purge is never marked failed: it retries until it finishes.");
+    const notFound = await app.request(`/c/${pub}/`);
+    expect(notFound.status).toBe(404);
+    const html = await notFound.text();
+    expect(html).toContain("<b>“Incident 4411 raw logs” was purged.</b>");
+    expect(html).toContain('<a href="/trash">Trash</a>');
+    await queue.run("DELETE FROM pending_purges");
+    expect(await (await app.request(`/c/${pub}/`)).text()).not.toContain("was purged");
+  });
+  it("names an old purge row by the live title, then by its ID", async () => {
+    const live = await seedPendingCollection("Live title", Date.now(), true);
+    await insertPurge({ id: live.id, step: 0 });
+    const gone = newId("col");
+    await insertPurge({ id: gone, step: 2 });
+    const page = await (await app.request("/trash")).text();
+    expect(textOf(purgeRowOf(page, live.publicId))).toContain("Live title");
+    expect(textOf(purgeRowOf(page, gone))).toContain(gone);
+    expect(page).toContain(`href="/status#purge-${gone}"`);
+  });
+  it("shows a retrying purge's cause on Trash and its raw error on Status, not as a queue error", async () => {
+    const t = await seedPendingCollection("R", Date.now(), true);
+    const nextAt = Date.now() + 9 * 60_000;
+    await insertPurge({
+      id: t.id,
+      step: 0,
+      title: "R",
+      publicId: t.publicId,
+      attempts: 3,
+      nextAt,
+      error: "R2 DELETE manifests/x.json 503 Service Unavailable",
+    });
+    const trash = textOf(purgeRowOf(await (await app.request("/trash")).text(), t.publicId));
+    expect(trash).toContain("Purging · step 1 of 3 · retrying");
+    expect(trash).toContain(
+      `Deleting it from the bucket failed on attempt 3. The writer tries again at ${clockOf(nextAt)} on its own; nothing for you to do unless this keeps happening.`,
+    );
+    const status = await (await app.request("/status")).text();
+    const row = purgeRowOf(status, t.publicId);
+    expect(textOf(row)).toContain("step 1 of 3 · retrying");
+    expect(textOf(row)).toContain(
+      "The writer retries every 5–10 minutes; if this keeps failing, check the bucket credentials in the writer's env file.",
+    );
+    expect(row).toContain('<p class="raw">');
+    expect(textOf(row)).toContain(`503 Service Unavailable · attempt 3 · next ${clockOf(nextAt)}`);
+    expect(status).toContain('Background queue errors <span class="n">0</span>');
+    expect(status).toContain(
+      "No snapshot or bucket-delete errors. Purges are listed under In progress.",
+    );
+    const api = z
+      .object({
+        queue_errors: z.array(
+          z.object({ kind: z.string(), id: z.string(), last_error: z.string().nullable() }),
+        ),
+      })
+      .parse(await (await app.request("/api/status")).json());
+    expect(api.queue_errors).toContainEqual({
+      kind: "purge",
+      id: t.id,
+      last_error: "R2 DELETE manifests/x.json 503 Service Unavailable",
+    });
+  });
+  it("shows the Being purged banner on the in-Trash page, and Purge… when not purging", async () => {
+    const a = await seedPendingCollection("Purging", Date.now(), true);
+    const b = await seedPendingCollection("Not purging", Date.now(), true);
+    await insertPurge({ id: a.id, step: 0, title: "Purging", publicId: a.publicId });
+    const purging = await (await app.request(`/c/${a.publicId}/`)).text();
+    expect(purging).toContain("data-purge-banner");
+    expect(textOf(purging)).toContain("Being purged · step 1 of 3");
+    expect(textOf(purging)).toContain(
+      "“Purging” can't be restored. Its public links were revoked when you confirmed.",
+    );
+    expect(purging).toContain(`href="/status#purge-${a.publicId}"`);
+    expect(purging).not.toContain('data-action="restore"');
+    expect(purging).not.toContain('data-action="purge"');
+    expect(purging).toContain(">Open Trash<");
+    const plain = await (await app.request(`/c/${b.publicId}/`)).text();
+    expect(plain).not.toContain("data-purge-banner");
+    const purge = tagsOf(plain, "button", 'data-action="purge"')[0] ?? "";
+    expect(attrOf(purge, "data-public-id")).toBe(b.publicId);
+    expect(attrOf(purge, "data-then")).toBe("trash");
+    expect(attrOf(purge, "class")).toBe("btn danger");
+    const order = ["Restore…</button>", "Purge…</button>", ">Open Trash</a>"].map((text) =>
+      plain.indexOf(text, plain.indexOf('<div class="btns">')),
+    );
+    expect(order.every((at) => at > 0)).toBe(true);
+    expect(order).toEqual(order.toSorted((x, y) => x - y));
+  });
+  it("lists the links a purge revoked, sync off", async () => {
+    app = sharingApp();
+    const l = await seedCommittedCollection("L", {
+      deleted: true,
+      links: [{ label: "Vendor debug" }],
+    });
+    const none = await seedCommittedCollection("N", { deleted: true });
+    await purgeQueued(l.id);
+    await purgeQueued(none.id);
+    const revoked = z
+      .object({ revoked_at: z.number() })
+      .parse(
+        await waypoint.get("SELECT revoked_at FROM share_links WHERE collection_id=?", [l.id]),
+      );
+    const page = await (await app.request("/trash")).text();
+    const meta = textOf(purgeRowOf(page, l.publicId));
+    expect(meta).toContain(`link “Vendor debug” revoked ${clockOf(revoked.revoked_at)}`);
+    expect(meta).not.toContain("not yet in the cloud");
+    expect(meta).not.toContain("confirmed by the cloud");
+    expect(meta).toContain("Purge confirmed");
+    expect(textOf(purgeRowOf(page, none.publicId))).toContain("had no public links");
+  });
+  it("lists the links a purge revoked with their cloud push state, sync on", async () => {
+    // The purge's own triggerPush must not land before the first look: the cloud goes offline
+    // once seeding is done, and the test records the push that carried the revocation itself.
+    let online = true;
+    const cloud: SyncClient = {
+      lastPullAt: Date.now(),
+      verified: true,
+      pull: () => Promise.resolve(false),
+      push: () => (online ? Promise.resolve() : Promise.reject(new Error("offline"))),
+      checkpoint: () => Promise.resolve(),
+    };
+    const ingest = new IngestService(waypoint, queue, services.blobs, services.reads, cloud);
+    const syncLoop = new SyncLoop(queue, cloud, Date.now, waypoint);
+    app = createApp({
+      ...services,
+      ingest,
+      syncLoop,
+      publicBaseUrl: "https://reader.example.test",
+      shareTokenKey: new Uint8Array(32).fill(42),
+    });
+    const l = await seedCommittedCollection("L", {
+      deleted: true,
+      links: [{ label: "Vendor debug" }],
+      syncLoop,
+      ingest,
+    });
+    online = false;
+    await purgeQueued(l.id);
+    await syncLoop.drain();
+    const before = textOf(purgeRowOf(await (await app.request("/trash")).text(), l.publicId));
+    expect(before).toContain("link “Vendor debug” revoked here, not yet in the cloud");
+    const revoked = z
+      .object({ revoked_at: z.number() })
+      .parse(
+        await waypoint.get("SELECT revoked_at FROM share_links WHERE collection_id=?", [l.id]),
+      );
+    const started = revoked.revoked_at + 1;
+    const finished = started + 1000;
+    syncLoop.recordPush(started, finished);
+    const after = textOf(purgeRowOf(await (await app.request("/trash")).text(), l.publicId));
+    expect(after).toContain(
+      `link “Vendor debug” revoked ${clockOf(revoked.revoked_at)}, confirmed by the cloud ${clockOf(finished)}`,
+    );
   });
 });
 

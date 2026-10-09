@@ -736,7 +736,7 @@ export function createApp(s: HttpServices): Hono {
         if (row.deleted_at == null)
           throw new WaypointError("conflict", "Collection is not deleted");
         if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
-          throw new WaypointError("conflict", "Collection purge is queued");
+          throw new WaypointError("collection_purged", "Collection is being purged");
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (pending) {
           const result = await s.queue.run(
@@ -1015,9 +1015,10 @@ export function createApp(s: HttpServices): Hono {
           [Date.now(), id],
         );
         s.syncLoop?.triggerPush();
+        // The title and public ID let the viewer name the purge after its rows are gone.
         await s.queue.run(
-          "INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
-          [id, Date.now()],
+          "INSERT INTO pending_purges (collection_id,requested_at,step,title,public_id) VALUES (?,?,0,?,?) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL,title=COALESCE(title,excluded.title),public_id=COALESCE(public_id,excluded.public_id)",
+          [id, Date.now(), row.title, row.public_id],
         );
         s.ingest.committer.wake();
         return { queued: true };

@@ -21,6 +21,7 @@ export const ERROR_TEXT: Record<string, ErrorText> = {
     cause: "This collection is in Trash.",
     next: "Restore it from Trash first.",
   },
+  collection_purged: { cause: "This collection is being purged and can't be restored.", next: "" },
   forbidden: { cause: "The writer refused the request.", next: "Reload the page, then try again." },
   bucket_unavailable: {
     cause: "The bucket can't be reached right now.",

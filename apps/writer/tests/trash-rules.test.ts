@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  normTyped,
   pausedChipText,
+  purgeFlashText,
+  purgeMatch,
   restoreFlashText,
   restoreRequests,
   type PausedLink,
@@ -59,5 +62,28 @@ describe("pausedChipText", () => {
       "3 links paused · “A”, “B” +1",
     );
     expect(pausedChipText([link(null, 1), link("A", 2)])).toBe("2 links paused · “A”");
+  });
+});
+
+// OW-14: Purge accepts the title or the public ID, loosely, and says what it did.
+describe("purge rules", () => {
+  const target = { title: "Leaked .env in run output (do not share)", publicId: "22g2mtaktr5g" };
+  it("matches the title or the public ID, ignoring case and extra spaces", () => {
+    expect(normTyped("  A \t b\n C ")).toBe("a b c");
+    expect(purgeMatch("  leaked .ENV in   run output (do not share) ", target)).toBe("title");
+    expect(purgeMatch("22G2MTAKTR5G", target)).toBe("public ID");
+    expect(purgeMatch("", target)).toBeNull();
+    expect(purgeMatch("   ", target)).toBeNull();
+    expect(purgeMatch("leaked", target)).toBeNull();
+  });
+  it("flashes what happened", () => {
+    expect(purgeFlashText("P", 0, false)).toBe("Purging “P”. Progress is listed here ↑");
+    expect(purgeFlashText("P", 1, false)).toBe(
+      "Purging “P”. Its 1 public link was revoked just now. Progress is listed here ↑",
+    );
+    expect(purgeFlashText("P", 2, false)).toBe(
+      "Purging “P”. Its 2 public links were revoked just now. Progress is listed here ↑",
+    );
+    expect(purgeFlashText("P", 1, true)).toBe("Purged “P”. Nothing had reached the cloud.");
   });
 });

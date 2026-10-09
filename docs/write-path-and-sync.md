@@ -137,7 +137,7 @@ These are idempotent and **never give up**:
   - **Retrying a failed revision** re-queues it along with its failed descendants. Retry sets `first_attempt_at` to the retry time, so the give-up clock restarts at Retry.
   - **Dropping a failed revision** removes it and its descendants, and queues deletion of any DR manifests already written.
   - A bulk "retry all failed" operation is planned for later.
-- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`.
+- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`. A purge's blob-GC grace wait isn't an error: it only sets `next_attempt_at` (see [Purge](#purge)).
 - **An account-level 403 from the bucket** (bad or revoked credentials) pauses the committer and is reported in status. It doesn't fail every queued revision.
 
 ### Sync state of a revision
@@ -165,6 +165,12 @@ GC also skips:
 - local blob files modified in the last 15 minutes
 
 GC runs under a writer-wide barrier that ingest also takes, as a shared lock. Purge also **drops the collection's queued revisions** and deletes their local blobs that nothing else references, so a leaked secret doesn't linger in the queue. Phase 1 assumes a single writer; see [data-model.md](data-model.md#deletion).
+
+How a purge is recorded while it runs:
+- **A GC grace deferral is a scheduled wait, not an error.** When GC skips a blob file modified in the last 15 minutes, the purge stops before step 3's push and sets `next_attempt_at` to the youngest deferred file's mtime, rounded up to the millisecond, plus 15 minutes. `attempts` and `last_error` stay as they are, and the committer wakes at that time.
+- **Finishing a step resets `attempts` and `last_error`**, so an old bucket error doesn't make a later wait look like a failure.
+- **`pending_purges` keeps the collection's `title` and `public_id`**, written when the purge is accepted, so the viewer can name the purge on Trash, Status and the purged 404 after step 2 deleted the collection's rows. Rows queued before those columns existed fall back to the live collection, then to its ID.
+- **Undelete answers `collection_purged` (410) while a purge is queued**: a collection being purged can't be restored.
 
 ## Turso Sync
 

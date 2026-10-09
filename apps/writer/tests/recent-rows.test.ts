@@ -365,7 +365,8 @@ describe("the Trash page", () => {
     expect(row).toMatch(/>Purge…<\/button>/);
     expect(row).not.toContain('<a class="chip');
     expect(row).not.toContain('class="chip');
-    expect(page).toContain('<section aria-labelledby="trash-day-0">');
-    expect(page).toContain(">In Trash · moved today</h2>");
+    // OW-14: one In Trash section (Being purged, when any, comes first).
+    expect(page).toContain('<section aria-labelledby="trash-in">');
+    expect(page).toContain('>In Trash<span class="vh"> ·</span> <span class="n">1</span></h2>');
   });
 });

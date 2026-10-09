@@ -1077,7 +1077,14 @@ export class WriterCommitter implements Committer {
       if (this.stopping || this.accountError) break;
       if (row.next_attempt_at !== null && row.next_attempt_at > this.now()) continue;
       try {
-        await this.lock.withCollectionLock(row.collection_id, () => this.purge(row));
+        const wait = await this.lock.withCollectionLock(row.collection_id, () => this.purge(row));
+        // A grace wait is a scheduled retry, not a failure: attempts and
+        // last_error stay as they are.
+        if (wait)
+          await this.queue.run(
+            "UPDATE pending_purges SET next_attempt_at=? WHERE collection_id=? AND requested_at=?",
+            [wait.waitUntil, row.collection_id, row.requested_at],
+          );
       } catch (error) {
         if (error instanceof SimulatedCrash) throw error;
         await this.otherFailure(
@@ -1178,7 +1185,16 @@ export class WriterCommitter implements Committer {
     else await remove();
     this.rerun = true;
   }
-  private async purge(row: { collection_id: string; step: number }): Promise<void> {
+  /**
+   * Runs the purge from its recorded step. Returns `{ waitUntil }` when blob GC
+   * deferred a file still inside the 15-minute grace window; the final push and
+   * the row's delete then wait for the next attempt.
+   */
+  private async purge(row: {
+    collection_id: string;
+    requested_at: number;
+    step: number;
+  }): Promise<{ waitUntil: number } | null> {
     const id = row.collection_id;
     if (row.step === 0) {
       await this.queue.run("DELETE FROM pending_snapshots WHERE collection_id=?", [id]);
@@ -1194,7 +1210,10 @@ export class WriterCommitter implements Committer {
         await this.bucket.delete(manifestKey(rev.id), this.abortController.signal);
       await this.bucket.delete(collectionKey(id), this.abortController.signal);
       await this.dropQueuedCollection(id);
-      await this.queue.run("UPDATE pending_purges SET step=1 WHERE collection_id=?", [id]);
+      await this.queue.run(
+        "UPDATE pending_purges SET step=1,attempts=0,last_error=NULL WHERE collection_id=?",
+        [id],
+      );
       await this.step("purge_after_bucket");
     }
     if (row.step <= 1) {
@@ -1216,18 +1235,22 @@ export class WriterCommitter implements Committer {
         await tx.run("DELETE FROM collections WHERE id=?", [id]);
       });
       await this.sync.push();
-      await this.queue.run("UPDATE pending_purges SET step=2 WHERE collection_id=?", [id]);
+      await this.queue.run(
+        "UPDATE pending_purges SET step=2,attempts=0,last_error=NULL WHERE collection_id=?",
+        [id],
+      );
       await this.step("purge_after_rows");
     }
-    const gc = async () => {
-      let deferred = false;
+    const gc = async (): Promise<number | null> => {
+      let youngest: number | null = null;
       const needed = await this.neededHashes();
       for (const blob of await this.waypoint.all<{ hash: string }>("SELECT hash FROM blobs")) {
         if (needed.has(blob.hash)) continue;
         if (this.lock.isBlobInUse?.(blob.hash)) continue;
         try {
-          if (this.now() - (await stat(this.blobs.path(blob.hash))).mtimeMs < 15 * 60_000) {
-            deferred = true;
+          const { mtimeMs } = await stat(this.blobs.path(blob.hash));
+          if (this.now() - mtimeMs < 15 * 60_000) {
+            youngest = Math.max(youngest ?? mtimeMs, mtimeMs);
             continue;
           }
         } catch (error) {
@@ -1250,13 +1273,15 @@ export class WriterCommitter implements Committer {
         await this.blobs.delete(blob.hash);
         await this.step("purge_mid_gc");
       }
-      if (deferred) throw new Error("Purge GC waiting for local blob grace period");
+      // mtimeMs is fractional; next_attempt_at is an INTEGER column.
+      return youngest === null ? null : Math.ceil(youngest) + 15 * 60_000;
     };
-    if (this.lock.withGcExclusive) await this.lock.withGcExclusive(gc);
-    else await gc();
+    const graceUntil = this.lock.withGcExclusive ? await this.lock.withGcExclusive(gc) : await gc();
+    if (graceUntil !== null) return { waitUntil: graceUntil };
     await this.sync.push();
     await this.queue.run("DELETE FROM pending_purges WHERE collection_id=?", [id]);
     this.rerun = true;
+    return null;
   }
   stop(): void {
     this.stopping = true;

@@ -366,19 +366,25 @@ function ConfirmDialog() {
       <div class="bd">
         <h2 id="confirm-title" data-confirm-title />
         <div id="confirm-body" data-confirm-body />
-        <label class="fl" data-confirm-typed hidden>
-          <span data-confirm-typed-label>Type the collection's title to confirm</span>
+        {/* The label doesn't wrap the field, so the Copy buttons between them aren't labelled by it. */}
+        <div class="fl typed" data-confirm-typed hidden>
+          <label for="confirm-input" data-confirm-typed-label>
+            Type the collection's title to confirm
+          </label>
+          <dl class="cpv" data-confirm-values hidden />
           <input
+            id="confirm-input"
             class="confirm-input"
             autocomplete="off"
+            autocapitalize="off"
             spellcheck={false}
             aria-describedby="confirm-hint"
           />
-          <small id="confirm-hint" data-confirm-hint />
-        </label>
+          <small id="confirm-hint" data-confirm-hint aria-live="polite" />
+        </div>
       </div>
       <p class="alert" role="alert" data-confirm-error />
-      <form method="dialog" class="ft">
+      <form method="dialog" class="ft sticky">
         <span class="grow" data-confirm-note />
         <button class="btn" value="cancel" data-confirm-cancel>
           Cancel

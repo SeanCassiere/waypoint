@@ -187,14 +187,15 @@ const scenario: ViewerScenario = {
 
     // Trash: the shared variant, actions raised and described by the title.
     await page.goto(`${base}/trash`);
-    const trash = await sectionOf(page, pub.trashed).ariaSnapshot();
-    assert.deepEqual(
-      lines(trash)
-        .slice(0, 3)
-        .map((line) => line.text),
-      ['region "In Trash · moved today":', 'heading "In Trash · moved today" [level=2]', "list:"],
-      trash,
-    );
+    // OW-14: one "In Trash · N" section (no day groups); N is global on the shared writer, so it
+    // isn't asserted.
+    const trash = await page.locator('section[aria-labelledby="trash-in"]').ariaSnapshot();
+    const [region, heading, list] = lines(trash)
+      .slice(0, 3)
+      .map((line) => line.text);
+    assert.match(region ?? "", /^region "In Trash · \d+":$/, trash);
+    assert.match(heading ?? "", /^heading "In Trash · \d+" \[level=2\]$/, trash);
+    assert.equal(list, "list:", trash);
     assert.deepEqual(
       kinds(rowChildren(trash, TRASHED)),
       ["link", "paragraph", "paragraph", "button", "button"],
