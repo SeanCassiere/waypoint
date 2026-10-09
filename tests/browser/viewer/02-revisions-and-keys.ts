@@ -32,7 +32,7 @@ const scenario: ViewerScenario = {
     await page.goto(`${base}${secondPinned}notes/b.md`);
     await page.getByRole("button", { name: /^Revision 2/ }).click();
     await page.locator("#rev-menu").waitFor({ state: "visible" });
-    await page.locator("#rev-menu").getByRole("link", { name: "Revision 1" }).click();
+    await page.locator("#rev-menu").getByRole("link", { name: "#1", exact: true }).click();
     await page.waitForURL(`**${pinned}notes/b.md`);
     // "d" opens the Changes page against the parent; j focuses the first change; Esc goes back.
     await page.goto(`${base}${secondPinned}`);
@@ -62,7 +62,7 @@ const scenario: ViewerScenario = {
     await page.goto(`${base}${thirdPinned}`);
     await page.locator("#tab-history").click();
     assert.match(page.url(), /[?&]panel=history/);
-    await page.locator("#tp-history").getByRole("link", { name: "Second" }).click();
+    await page.locator("#tp-history").getByRole("link", { name: "#2", exact: true }).click();
     await page.waitForURL((url) => url.pathname === `${secondPinned}index.md`);
     assert.match(page.url(), /[?&]panel=history/);
     assert.equal(await page.locator("#tab-history").getAttribute("aria-selected"), "true");

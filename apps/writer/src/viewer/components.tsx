@@ -1,10 +1,14 @@
 /** @jsxImportSource hono/jsx */
 import { isTextMime, type ManifestFileEntry, type RevisionChanges } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import type { Health } from "../health.ts";
 import { shellPath } from "../viewer-paths.ts";
 import { changesTitle, plural } from "./format.ts";
+import { gutterFor, type GutterCell } from "./gutter.ts";
+import type { Lineage } from "./lineage.ts";
 import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
 
 export function LogoMark(props: { size?: number }) {
@@ -321,7 +325,43 @@ export interface TimelineRow {
   last_error?: string | null | undefined;
   progress?: string | undefined;
 }
-/** Timeline (spec §4.10): newest first, divs not nested links, "on #K" as the fork signal. */
+/** The lane gutter beside a History row: static segments drawn with borders, hidden from AT. */
+export function LineGutter(props: {
+  cell: GutterCell;
+  state: TimelineRow["sync_state"];
+  current: boolean;
+}) {
+  const { cell } = props;
+  const side = cell.lane > 0;
+  const state = props.state === "failed" ? " failed" : props.state === "pending" ? " pending" : "";
+  return (
+    <span class={`lg l${cell.lane}${props.current ? " cur" : ""}${state}`} aria-hidden="true">
+      {!side || cell.line0 ? (
+        <i
+          class={`ln${!side && !cell.ownUp ? " top" : ""}${!side && !cell.ownDown ? " bot" : ""}`}
+        />
+      ) : null}
+      {cell.pass.map((k) => (
+        <i class={`ps p${k}`} />
+      ))}
+      {side ? <i class={`run p${cell.lane}${cell.ownUp ? " up" : ""}`} /> : null}
+      {cell.join.map((k) => (
+        <i class={`jn p${k}`} />
+      ))}
+      <i class="nd" />
+    </span>
+  );
+}
+const NO_CELL: GutterCell = {
+  lane: 0,
+  pass: [],
+  join: [],
+  ownUp: false,
+  ownDown: false,
+  line0: false,
+};
+/** Timeline (spec §4.10): an <ol>, newest first, in display order; one link per row (its #n),
+ *  stretched over the row; lanes from lineage.ts beside it. */
 export function Timeline(props: {
   rows: readonly TimelineRow[];
   pub: string;
@@ -334,36 +374,53 @@ export function Timeline(props: {
   byId: ReadonlyMap<string, TimelineRow>;
   /** Shell state the revision links keep (for example "panel=history"). */
   query?: string | undefined;
+  lineage: Lineage<TimelineRow>;
+  labelledBy: string;
+  /** Row ids are `{p}-<pub>` (link), `{p}m-<pub>` (message) and `{p}b-<pub>` (branch line). */
+  idPrefix?: string;
 }) {
   const search = [props.path ? "fallback=head" : "", props.query ?? ""].filter(Boolean).join("&");
+  const p = props.idPrefix ?? "rv";
+  const gutter = gutterFor(props.lineage, props.rows);
   return (
-    <div class="tl">
-      {props.rows.map((row, index) => {
-        const below = props.rows[index + 1];
+    <ol class={`tl w${gutter.width}`} aria-labelledby={props.labelledBy}>
+      {props.rows.map((row) => {
         const parent = row.parent_revision_id ? props.byId.get(row.parent_revision_id) : undefined;
-        const fork = parent && below && parent.id !== below.id;
+        const onLine = props.lineage.onLine.has(row.id);
         const current = row.id === props.currentId;
         const href = `${shellPath(props.pub, row.public_id, props.path, true)}${search ? `?${search}` : ""}`;
         const state = row.sync_state;
+        const link = `${p}-${row.public_id}`;
         // The current revision gets "Changes from #K" whatever its state (spec §4.10).
         const changes =
           !props.compact && current && parent && props.changesHref ? (
-            <a class="btn sm" href={props.changesHref(row, parent)}>
+            <a class="btn sm" href={props.changesHref(row, parent)} aria-describedby={link}>
               Changes from #{parent.display_number}
             </a>
           ) : null;
         return (
-          <div
+          <li
             class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}`}
             aria-current={current ? "true" : undefined}
             data-rev={row.public_id}
+            data-n={String(row.display_number)}
+            data-parent={parent?.public_id ?? ""}
+            data-line={onLine ? "1" : "0"}
+            data-state={state}
           >
-            <span class="g" aria-hidden="true">
-              <i />
-            </span>
+            <LineGutter
+              cell={gutter.cells.get(row.id) ?? NO_CELL}
+              state={state}
+              current={current}
+            />
             <span>
               <span class="h">
-                <a href={href} aria-label={`Revision ${row.display_number}`}>
+                <a
+                  class="rvl"
+                  id={link}
+                  href={href}
+                  aria-describedby={`${p}m-${row.public_id}${onLine ? "" : ` ${p}b-${row.public_id}`}`}
+                >
                   <b>#{row.display_number}</b>
                 </a>
                 {state === "failed" ? (
@@ -383,12 +440,19 @@ export function Timeline(props: {
                   <Time at={row.created_at} now={props.now} />
                 </span>
               </span>
-              <a class="msg" href={href}>
+              {onLine ? null : (
+                <span class="br" id={`${p}b-${row.public_id}`}>
+                  {raw(icon("branch", "sm"))}{" "}
+                  {props.lineage.branchPoint(row.id) && parent
+                    ? `Branch off #${parent.display_number} · not in latest`
+                    : "Separate history · not in latest"}
+                </span>
+              )}
+              <span class="msg" id={`${p}m-${row.public_id}`}>
                 {row.message ?? "No message"}
-              </a>
+              </span>
               <span class="f">
                 {row.host ? <span class="host">{row.host}</span> : null}
-                {fork && parent ? <span class="fork">on #{parent.display_number}</span> : null}
                 <Chg changes={row.changes} />
               </span>
               {!props.compact && state === "failed" && row.last_error ? (
@@ -397,7 +461,7 @@ export function Timeline(props: {
               {props.compact ? (
                 current && parent && props.changesHref ? (
                   <span class="acts">
-                    <a class="btn sm" href={props.changesHref(row, parent)}>
+                    <a class="btn sm" href={props.changesHref(row, parent)} aria-describedby={link}>
                       Changes
                     </a>
                   </span>
@@ -405,20 +469,38 @@ export function Timeline(props: {
               ) : state === "failed" ? (
                 <span class="acts">
                   {changes}
-                  <button type="button" class="btn sm" data-action="retry" data-ids={row.id}>
+                  <button
+                    type="button"
+                    class="btn sm"
+                    data-action="retry"
+                    data-ids={row.id}
+                    aria-describedby={link}
+                  >
                     Retry
                   </button>
-                  <button type="button" class="btn sm danger" data-action="drop" data-id={row.id}>
+                  <button
+                    type="button"
+                    class="btn sm danger"
+                    data-action="drop"
+                    data-id={row.id}
+                    aria-describedby={link}
+                  >
                     Drop…
                   </button>
-                  <a class="btn sm ghost" href={`/status#${row.id}`}>
+                  <a class="btn sm ghost" href={`/status#${row.id}`} aria-describedby={link}>
                     Details
                   </a>
                 </span>
               ) : state === "pending" ? (
                 <span class="acts">
                   {changes}
-                  <button type="button" class="btn sm danger" data-action="drop" data-id={row.id}>
+                  <button
+                    type="button"
+                    class="btn sm danger"
+                    data-action="drop"
+                    data-id={row.id}
+                    aria-describedby={link}
+                  >
                     Drop…
                   </button>
                 </span>
@@ -426,9 +508,9 @@ export function Timeline(props: {
                 <span class="acts">{changes}</span>
               ) : null}
             </span>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }

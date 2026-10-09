@@ -17,6 +17,7 @@ import { getChrome } from "../../chrome.ts";
 import type { Glyph, TimelineRow } from "../../components.tsx";
 import { bytes, ext } from "../../format.ts";
 import { HomeBar, Layout, NotFoundBody, type Chrome } from "../../layout.tsx";
+import { makeLineage, type Lineage } from "../../lineage.ts";
 import { noStore } from "../../respond.ts";
 
 export const HISTORY_PAGE = 50;
@@ -35,6 +36,8 @@ export interface CollectionContext {
   changes: Map<string, RevisionChanges>;
   timeline: TimelineRow[];
   byId: Map<string, TimelineRow>;
+  /** The timeline's lineage (latest line, [ and ] stepping, History lanes), built once. */
+  lineage: Lineage<TimelineRow>;
   publicSees: RevisionRow | undefined;
   url: URL;
   /** Share links (any state); empty without WAYPOINT_PUBLIC_BASE_URL. */
@@ -130,6 +133,7 @@ export async function loadCollection(
       changes,
       timeline,
       byId: new Map(timeline.map((row) => [row.id, row])),
+      lineage: makeLineage(timeline),
       publicSees: rows.findLast((row) => row.sync_state === "synced"),
       url: new URL(c.req.raw.url),
       links,
@@ -174,7 +178,9 @@ export function ShellRoot(props: {
   mode: string;
 }) {
   const { ctx } = props;
-  const index = ctx.rows.findIndex((row) => row.id === ctx.revision.id);
+  // [ is the parent, ] the child on the same line; at an end, the toast text comes from lineage.ts.
+  const older = ctx.lineage.step(ctx.revision.id, -1);
+  const newer = ctx.lineage.step(ctx.revision.id, 1);
   return (
     <div
       class="shell"
@@ -195,10 +201,10 @@ export function ShellRoot(props: {
       data-head={ctx.revision.head_path}
       data-pinned={String(ctx.pinned)}
       data-base={ctx.s.reads.baseUrl}
-      data-older={index > 0 ? ctx.rows[index - 1]?.public_id : undefined}
-      data-newer={
-        index >= 0 && index < ctx.rows.length - 1 ? ctx.rows[index + 1]?.public_id : undefined
-      }
+      data-older={"to" in older ? older.to.public_id : undefined}
+      data-newer={"to" in newer ? newer.to.public_id : undefined}
+      data-older-end={"end" in older ? older.end : undefined}
+      data-newer-end={"end" in newer ? newer.end : undefined}
       data-parent={
         ctx.revision.parent_revision_id
           ? ctx.byId.get(ctx.revision.parent_revision_id)?.public_id

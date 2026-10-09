@@ -234,7 +234,8 @@ describe("viewer routes", () => {
       [fork.revision_id],
     );
     const shell = await (await app.request(new URL(first.latest_url).pathname)).text();
-    expect(shell).toContain("fork");
+    // The fork marker is History's branch line (NAV-05b); it was the "on #1" fork text.
+    expect(shell).toContain("Branch off #1 · not in latest");
     expect(shell).toContain("failed");
     const status = await app.request("/status");
     const statusHtml = await status.text();
