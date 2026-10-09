@@ -22,8 +22,8 @@ dialog.dlg::backdrop {
   gap: 12px;
   align-items: flex-start;
   padding: 16px 20px;
-  background: var(--public);
-  color: var(--on-public);
+  background: var(--public-solid);
+  color: var(--on-solid);
 }
 .dlg .band h2 {
   margin: 0;
@@ -32,19 +32,13 @@ dialog.dlg::backdrop {
 .dlg .band p {
   margin: 3px 0 0;
   font-size: 13px;
-  opacity: 0.95;
 }
 .dlg .band svg {
   margin-top: 1px;
 }
 .dlg.danger .band {
-  background: var(--failed);
-  color: #fff;
-}
-@media (prefers-color-scheme: dark) {
-  .dlg.danger .band {
-    color: #2a0d0a;
-  }
+  background: var(--failed-solid);
+  color: var(--on-solid);
 }
 .dlg .bd {
   padding: 18px 20px;
@@ -475,8 +469,8 @@ details.sees > summary h3 {
 }
 .tok button {
   border: 0;
-  background: var(--public);
-  color: var(--on-public);
+  background: var(--public-solid);
+  color: var(--on-solid);
   font-weight: 700;
   padding: 0 18px;
   cursor: pointer;
@@ -486,8 +480,8 @@ details.sees > summary h3 {
   white-space: nowrap;
 }
 .tok button[data-copied] {
-  background: var(--ok);
-  color: #fff;
+  background: var(--ok-solid);
+  color: var(--on-solid);
 }
 .btn[data-copied] {
   justify-content: center;
@@ -901,10 +895,12 @@ dialog.find .suggest {
 .find-tokens button:hover {
   background: var(--hover);
 }
+/* The pressed chip is inverted ink (--ink/--paper, the values of --sel/--on-sel, which VS-04
+   leaves to .chip.ink and the segmented control). */
 .find-tokens button[aria-pressed="true"] {
-  background: var(--sel);
-  border-color: var(--sel);
-  color: var(--on-sel);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 /* Forced colours would repaint the pressed fill like the others: keep it, in system colours. */
 @media (forced-colors: active) {

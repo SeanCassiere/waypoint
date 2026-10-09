@@ -412,9 +412,29 @@ mark {
 .btn:hover {
   border-color: var(--muted);
 }
+/* Disabled is neutral, never a faded colour (VS-04): faint text on a sunken fill, for every
+   variant, so a disabled solid or tinted button doesn't read as a dimmed one. */
 .btn[disabled],
 .btn[aria-disabled="true"] {
-  opacity: 0.55;
+  color: var(--faint);
+  background: var(--sunken);
+  border-color: var(--rule);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+/* Variants (and their later :hover rules) would repaint it: this outranks both. */
+.btn:is(.primary, .public-solid, .danger-solid, .public, .danger, .ghost):is(
+    [disabled],
+    [aria-disabled="true"]
+  ),
+.btn:is(.primary, .public-solid, .danger-solid, .public, .danger, .ghost):is(
+    [disabled],
+    [aria-disabled="true"]
+  ):hover {
+  color: var(--faint);
+  background: var(--sunken);
+  border-color: var(--rule);
+  box-shadow: none;
   cursor: not-allowed;
 }
 .btn.ghost {
@@ -438,23 +458,18 @@ mark {
   border-color: var(--public);
 }
 .btn.public-solid {
-  background: var(--public);
-  border-color: var(--public);
-  color: var(--on-public);
+  background: var(--public-solid);
+  border-color: var(--public-solid);
+  color: var(--on-solid);
 }
 .btn.danger {
   color: var(--failed);
   border-color: var(--failed-line);
 }
 .btn.danger-solid {
-  background: var(--failed);
-  border-color: var(--failed);
-  color: #fff;
-}
-@media (prefers-color-scheme: dark) {
-  .btn.danger-solid {
-    color: #2a0d0a;
-  }
+  background: var(--failed-solid);
+  border-color: var(--failed-solid);
+  color: var(--on-solid);
 }
 .btn.sm {
   height: var(--ctl-sm);

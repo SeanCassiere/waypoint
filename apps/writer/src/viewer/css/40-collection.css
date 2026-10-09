@@ -457,16 +457,31 @@
 .tree summary:hover {
   background: var(--hover);
 }
-.tree a[aria-current] {
-  background: var(--sel);
-  color: var(--on-sel);
+/* One selection style (VS-04): the Files tree's current file, History's current revision and a
+   menu's current destination. A raised row with a ring and an ink bar at the start edge; change
+   marks keep their role colours on it. History's row is li.rv, so it outranks .rv:hover. */
+.tree a[aria-current],
+li.rv[aria-current],
+.menu .mi[aria-current] {
+  background: var(--sel-bg);
+  color: var(--ink);
+  box-shadow:
+    inset 3px 0 0 var(--sel-bar),
+    0 0 0 1px var(--sel-ring);
+}
+.tree a[aria-current] .nm,
+li.rv[aria-current] .msg,
+.menu .mi[aria-current] {
   font-weight: 600;
 }
-.tree a[aria-current] .k,
-.tree a[aria-current] .hd,
-.tree a[aria-current] .sz {
-  color: var(--on-sel);
-  opacity: 0.75;
+/* The current file's head label and size are --muted meta on the raised row. */
+.tree a[aria-current] :is(.hd, .sz) {
+  color: var(--muted);
+}
+/* The bar and ring replace a menu row's focus shadow, so a focused current row gets an outline. */
+.menu .mi[aria-current]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
 .tree .dir,
 .tree summary {

@@ -377,9 +377,6 @@ h2.sec .n {
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
-.r.dead {
-  opacity: 0.75;
-}
 /* /links (OW-05): the header, the state segments, then one group per collection (a section
    named by its h2) holding its rows. A row is the label, the actions beside it, then a meta
    line; the waiting chip is the shared .chip.waiting (05-chips). */
@@ -470,8 +467,19 @@ h2.sec .n {
 .lrow:first-child {
   border-top: 0;
 }
+/* An inactive row: colour, never opacity (VS-04), as the Links tab's .lnk.dead. */
 .lrow.dead {
-  opacity: 0.75;
+  color: var(--muted);
+  box-shadow: inset 3px 0 0 var(--rule-2);
+}
+.lrow.dead .who b {
+  color: var(--ink-2);
+}
+.lrow.dead .chip:is(.public, .pending, .failed, .paused) {
+  color: var(--muted);
+  background: var(--sunken);
+  border-color: var(--rule-2);
+  border-style: solid;
 }
 .lrow .who {
   min-width: 0;

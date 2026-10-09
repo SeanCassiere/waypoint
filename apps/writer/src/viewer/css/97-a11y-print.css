@@ -16,7 +16,9 @@
   .bc .pill[aria-expanded="true"] {
     border-width: 2px;
   }
-  .tree a[aria-current] {
+  .tree a[aria-current],
+  .rv[aria-current],
+  .menu .mi[aria-current] {
     outline: 2px solid CanvasText;
   }
 }

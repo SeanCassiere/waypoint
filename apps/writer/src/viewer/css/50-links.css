@@ -139,9 +139,21 @@ details.why .note {
   padding-top: 8px;
   border-top: 1px solid var(--rule);
 }
+/* An inactive card (revoked, expired) is told apart by colour, never opacity (VS-04): muted meta,
+   an --ink-2 title, neutral chips and a rule at the start edge. */
 .lnk.dead {
   background: none;
-  opacity: 0.75;
+  color: var(--muted);
+  box-shadow: inset 3px 0 0 var(--rule-2);
+}
+.lnk.dead .h b {
+  color: var(--ink-2);
+}
+.lnk.dead .chip:is(.public, .pending, .failed, .paused) {
+  color: var(--muted);
+  background: var(--sunken);
+  border-color: var(--rule-2);
+  border-style: solid;
 }
 /* A card just revoked collapses into a dismissible confirmation row (OW-04). */
 .lnk.gone {
