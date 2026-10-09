@@ -355,6 +355,8 @@ const scenario: ViewerScenario = {
       await copy.focus();
       await page.keyboard.press("Enter");
       await page.locator("#copy-menu").waitFor({ state: "visible" });
+      // menus.ts moves focus in on the popover's toggle event, which fires after it shows.
+      await page.waitForFunction(`document.activeElement?.closest("#copy-menu") != null`);
       const focusedInside = async (where: string) => {
         const inside = z.object({ menu: z.boolean(), within: z.boolean() }).parse(
           await page.evaluate(`(() => {
