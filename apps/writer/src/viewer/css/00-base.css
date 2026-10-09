@@ -326,32 +326,54 @@ mark {
 .health:hover {
   border-color: var(--rule);
 }
-.health .short {
+/* The visible words by width (90-responsive): .lbl from 1100 px, the elsewhere .mid and ring
+   below it, .short up to 760 px. */
+.health .short,
+.health .mid,
+.health .d.ring {
   display: none;
 }
-.health .d {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ok);
-  flex: none;
+/* VS-03's state icons: alert failed, clock pending, okcircle synced, dot sync off. */
+.health.ok .ic {
+  color: var(--ok);
 }
-.health.off .d {
-  background: var(--faint);
+.health.off .ic {
+  color: var(--muted);
 }
 .health.pending {
   color: var(--pending);
   background: var(--pending-bg);
 }
-.health.pending .d {
-  background: var(--pending);
-}
 .health.failed {
   color: var(--failed);
   background: var(--failed-bg);
 }
-.health.failed .d {
-  background: var(--failed);
+/* Elsewhere (OW-10b): this collection is fine, so the pill is neutral and only its icon (or,
+   below 1100 px, its ring) is red, or amber when only stalls are elsewhere. */
+.health.away {
+  background: var(--surface);
+  border-color: var(--rule-2);
+  color: var(--ink-2);
+}
+.health.away:hover {
+  background: var(--hover);
+}
+.health.away .ic {
+  color: var(--failed);
+}
+.health .d.ring {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid var(--failed);
+  flex: none;
+}
+.health.away[data-health="stalled"] .ic {
+  color: var(--pending);
+}
+.health.away[data-health="stalled"] .d.ring {
+  border-color: var(--pending);
 }
 .iconbtn {
   width: 34px;

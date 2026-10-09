@@ -17,15 +17,9 @@ const RULES = {
   enable: ["label-content-name-mismatch"],
 };
 
-/** axe with RULES on the whole page. The bar's health pill is named "Writer status: …", not by its
- *  visible text (a known label-content-name-mismatch on that one node): OW-10b fixes the pill and
- *  removes this filter. */
+/** axe with RULES on the whole page. */
 async function rowAxe(page: Page): Promise<AxeViolation[]> {
-  const violations = await axe(page, RULES);
-  for (const violation of violations)
-    if (violation.id === "label-content-name-mismatch")
-      violation.nodes = violation.nodes.filter((node) => node.target.join(" ") !== ".health");
-  return violations.filter((violation) => violation.nodes.length > 0);
+  return axe(page, RULES);
 }
 /** An aria snapshot's lines as [depth, text] (two spaces per level, the leading "- " dropped). */
 function lines(snapshot: string): { depth: number; text: string }[] {

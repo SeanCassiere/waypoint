@@ -202,7 +202,7 @@ const scenario: ViewerScenario = {
       const shot = page.locator("[data-shot]").first();
       await shot.waitFor();
       await page.locator('header.bar [popovertarget="health-pop"]').tap();
-      await page.locator("#health-pop").getByRole("button", { name: "Retry failed" }).tap();
+      await page.locator("#health-pop").getByRole("button", { name: "Retry #6" }).tap();
       await toast.waitFor({ state: "visible" });
       await shot.tap();
       await page.locator("#lightbox[open] [data-toast]").waitFor({ state: "attached" });

@@ -173,8 +173,7 @@ const scenario: ViewerScenario = {
     }
 
     // The failed target: facts, Retry, the Latest preview, and what a Retry can change. axe finds
-    // nothing but the bar's health pill (its aria-label doesn't start with its visible text): that
-    // is layout's, and OW-10b renames it and removes this filter.
+    // nothing.
     {
       const { page } = await ctx.newPage(VIEWPORTS.desktop);
       await page.goto(pinned(6));
@@ -191,12 +190,7 @@ const scenario: ViewerScenario = {
       assert.equal(await retry.getAttribute("data-action"), "retry");
       assert.equal(await retry.getAttribute("data-ids"), rev(6).id);
       assert.equal(await page.locator("[data-preview-disclosure]").count(), 1);
-      const violations = (await axe(page)).filter(
-        (violation) =>
-          violation.id !== "label-content-name-mismatch" ||
-          violation.nodes.some((node) => !/^<button[^>]* class="health\b/.test(node.html)),
-      );
-      assert.deepEqual(violations, []);
+      assert.deepEqual(await axe(page), []);
       const preview = page.getByRole("link", { name: "Preview #5, what the public sees" });
       assert.equal(await preview.getAttribute("href"), `/c/${pg.public_id}/?as=public`);
       await preview.click();

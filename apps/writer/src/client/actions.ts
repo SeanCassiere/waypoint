@@ -381,7 +381,15 @@ registerAction("drop", drop, (element) => {
 registerAction("trash", trash, (element) => `move ${collectionName(titleOf(element))} to Trash`);
 registerAction("restore", restore, (element) => `restore ${collectionName(titleOf(element))}`);
 registerAction("purge", purge, (element) => `purge ${collectionName(titleOf(element))}`);
-registerAction("panel-tab", (element) => showTab(element.dataset.tab ?? "files"));
+registerAction("panel-tab", (element) => {
+  // A page without the panel (the "not public yet" preview, whose health popover still offers
+  // History, OW-10b) follows the link to the collection page with that tab open instead.
+  if (!$("#panel") && element instanceof HTMLAnchorElement && element.href) {
+    location.assign(element.href);
+    return;
+  }
+  showTab(element.dataset.tab ?? "files");
+});
 registerAction("panel-close", () => setPanel(false));
 registerAction("panel-toggle", () => togglePanel());
 registerAction("print", () => {

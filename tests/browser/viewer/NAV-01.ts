@@ -17,15 +17,9 @@ import {
 
 const strings = z.array(z.string());
 
-/** axe on `include`, minus the health pill's name mismatch (its aria-label doesn't start with its
- *  visible text). That markup is components.tsx's; OW-10b renames the pill and removes this filter. */
+/** axe on `include` finds nothing. */
 async function axeClean(page: Page, include: string): Promise<void> {
-  const violations = (await axe(page, { include })).filter(
-    (violation) =>
-      violation.id !== "label-content-name-mismatch" ||
-      violation.nodes.some((node) => !/^<button[^>]* class="health\b/.test(node.html)),
-  );
-  assert.deepEqual(violations, [], `axe on ${include}`);
+  assert.deepEqual(await axe(page, { include }), [], `axe on ${include}`);
 }
 
 /** The hrefs of the links in `selector` that have aria-current="page". */

@@ -12,6 +12,17 @@
   display: none;
 }
 @media (max-width: 1099.98px) {
+  /* The elsewhere pill (OW-10b) shows its ring and "1 failed" instead of its icon and words. */
+  .health.away .ic,
+  .health.away .lbl {
+    display: none;
+  }
+  .health.away .d.ring {
+    display: block;
+  }
+  .health.away .mid {
+    display: inline;
+  }
   .shell,
   .shell.closed {
     grid-template-columns: minmax(0, 1fr);
@@ -105,11 +116,18 @@
   .revbtn .l {
     display: none;
   }
-  .health:has(.short) .lbl {
+  .health:has(.short) .lbl,
+  .health.away .mid {
     display: none;
   }
   .health .short {
     display: inline;
+  }
+  /* The pill's own box is the 44 px target (the ring-dot count included), any pointer. */
+  .bar .health {
+    min-width: var(--tap);
+    min-height: var(--tap);
+    justify-content: center;
   }
   .opts,
   .fields {
@@ -253,12 +271,10 @@
   .bar .where {
     min-height: var(--tap);
   }
-  .bar .revbtn,
-  .bar .health {
+  .bar .revbtn {
     position: relative;
   }
-  .bar .revbtn::after,
-  .bar .health::after {
+  .bar .revbtn::after {
     content: "";
     position: absolute;
     inset: -8px -3px;
@@ -351,6 +367,10 @@
      (fading) scrim a moment longer so that click lands here too. */
   .pop-scrim.linger {
     display: block;
+  }
+  /* Touch: the health pill's own box is 44 px tall at every width (OW-10b); bars are taller. */
+  .bar .health {
+    min-height: var(--tap);
   }
 }
 .pop-scrim {

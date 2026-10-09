@@ -8,6 +8,14 @@ import type { Health, HealthItem } from "../health.ts";
 import { shellPath } from "../viewer-paths.ts";
 import { changesTitle, plural } from "./format.ts";
 import { gutterFor, type GutterCell } from "./gutter.ts";
+import {
+  elsewhereModel,
+  hereRows,
+  pillModel,
+  retryTarget,
+  type NotePart,
+  type PopRow,
+} from "./health-scope.ts";
 import { chipText, seesLine, type StripModel, type StripStep } from "./health-words.ts";
 import type { Lineage } from "./lineage.ts";
 import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
@@ -90,25 +98,29 @@ export function Chg(props: { changes: RevisionChanges | null | undefined; unit?:
 
 export function HealthPill(props: { health: Health }) {
   const { health } = props;
-  const tone =
-    health.state === "failed" || health.state === "blocked"
-      ? "failed"
-      : health.state === "uploading" || health.state === "stalled" || health.state === "offline"
-        ? "pending"
-        : health.state === "off"
-          ? "off"
-          : "";
+  const pill = pillModel(health);
   return (
     <button
       type="button"
-      class={`health ${tone}`}
+      class={`health ${pill.tone}`}
       popovertarget="health-pop"
-      aria-label={health.aria}
+      aria-label={pill.name}
       data-health={health.state}
+      data-scope={pill.scope ?? undefined}
     >
-      <span class="d" aria-hidden="true" />
-      <span class="lbl">{health.label}</span>
-      {health.short !== health.label ? <span class="short">{health.short}</span> : null}
+      {raw(icon(pill.icon))}
+      {pill.scope === "elsewhere" ? <span class="d ring" aria-hidden="true" /> : null}
+      <span class="lbl">{pill.label}</span>
+      {pill.mid !== null ? (
+        <span class="mid" aria-hidden="true">
+          {pill.mid}
+        </span>
+      ) : null}
+      {pill.short !== pill.label ? (
+        <span class="short" aria-hidden="true">
+          {pill.short}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -146,8 +158,149 @@ function RevisionLinks(props: { items: readonly HealthItem[] }) {
     </>
   );
 }
+/** One popover row: an icon, a bold first line (after the linked title), a muted second line. */
+function PopRowItem(props: { row: PopRow; now: number }) {
+  const { row, now } = props;
+  return (
+    <li class={row.tone}>
+      {raw(icon(row.icon))}
+      <span>
+        <b>
+          {row.item ? (
+            <>
+              <a href={revisionHref(row.item)}>{row.item.collection_title ?? "Untitled"}</a>{" "}
+            </>
+          ) : null}
+          {row.head}
+        </b>
+        {row.note.length ? (
+          <small>
+            {row.note.map((part: NotePart) =>
+              typeof part === "string" ? part : <Time at={part.at} fmt={part.fmt} now={now} />,
+            )}
+          </small>
+        ) : null}
+      </span>
+    </li>
+  );
+}
+/** A popover Retry over `items` (FD3's data-n and data-title when they name one revision). */
+function PopRetry(props: { items: readonly HealthItem[] }) {
+  const target = retryTarget(props.items);
+  return (
+    <button
+      type="button"
+      class="btn sm"
+      popovertarget="health-pop"
+      popovertargetaction="hide"
+      data-action="retry"
+      data-ids={target.ids}
+      data-n={target.n}
+      data-title={target.title}
+    >
+      {target.text}
+    </button>
+  );
+}
+/** On collection pages (OW-10b): This collection, Elsewhere on this writer, then the writer. */
+function ScopedHealth(props: { health: Health; now: number; host: string }) {
+  const { health, now } = props;
+  const scope = health.scope;
+  const pub = scope?.collectionPub;
+  const failedHere = health.failed.filter((item) => item.collection_public_id === pub);
+  const history = scope?.revisions !== null && scope?.revisions !== undefined;
+  const away = elsewhereModel(health, now);
+  return (
+    <>
+      <section class="hp" aria-labelledby="hp-here">
+        <h3 id="hp-here">This collection</h3>
+        <ul class="hrows">
+          {hereRows(health, now).map((row) => (
+            <PopRowItem row={row} now={now} />
+          ))}
+        </ul>
+        {failedHere.length || history ? (
+          <div class="acts">
+            {failedHere.length ? <PopRetry items={failedHere} /> : null}
+            {history ? (
+              <a
+                class="btn sm ghost"
+                href="?panel=history"
+                data-action="panel-tab"
+                data-tab="history"
+              >
+                History
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+      <section class="hp" aria-labelledby="hp-else">
+        <h3 id="hp-else">Elsewhere on this writer</h3>
+        <ul class="hrows">
+          {away.rows.map((row) => (
+            <PopRowItem row={row} now={now} />
+          ))}
+          {away.more ? (
+            <li class="more">
+              <a href="/status">+{away.more} more on Status</a>
+            </li>
+          ) : null}
+        </ul>
+        {away.trouble.length ? (
+          <div class="acts">
+            <a class="btn sm" href="/status">
+              Open Status
+            </a>
+            {away.failed.length ? <PopRetry items={away.failed} /> : null}
+          </div>
+        ) : null}
+      </section>
+      {health.blockedReason || health.cloudError ? (
+        <dl class="kv">
+          {health.blockedReason ? (
+            <>
+              <dt>Reason</dt>
+              <dd class="mono">{health.blockedReason}</dd>
+            </>
+          ) : null}
+          {health.cloudError ? (
+            <>
+              <dt>Last error</dt>
+              <dd class="mono">{health.cloudError}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+      <p class="hpw">
+        {"Last cloud sync "}
+        {!health.syncEnabled ? (
+          "off"
+        ) : health.cloudLastOkAt === null ? (
+          "not yet"
+        ) : (
+          <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
+        )}
+        {" · "}
+        <span class="mono">
+          {props.host} · {health.environment}
+        </span>
+        {" · "}
+        <a href="/status">Status</a>
+      </p>
+    </>
+  );
+}
 export function HealthPopover(props: { health: Health; now: number; host: string }) {
   const { health, now } = props;
+  if (health.scope)
+    return (
+      <div id="health-pop" class="pop2" popover="auto" role="dialog" aria-label="Writer status">
+        <div class="mbox">
+          <ScopedHealth health={health} now={now} host={props.host} />
+        </div>
+      </div>
+    );
   // Uploading or waiting: the pending revisions that aren't stalled (those have their own row).
   const moving = health.pending.filter((item) => item.sync !== "stalled");
   const oldest = moving.reduce<number | null>(
