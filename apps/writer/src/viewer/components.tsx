@@ -52,10 +52,27 @@ export function Time(props: { at: number; fmt?: TimeFormat; now: number }) {
 export function Chg(props: { changes: RevisionChanges | null | undefined; unit?: string }) {
   const changes = props.changes;
   if (!changes) return null;
-  const parts: Child[] = [];
-  if (changes.modified) parts.push(<span class="m">~{changes.modified}</span>);
-  if (changes.added) parts.push(<span class="a">+{changes.added}</span>);
-  if (changes.removed) parts.push(<span class="rm">−{changes.removed}</span>);
+  // Each part: the glyph for the eye, hidden words for a screen reader ("changed" = modified).
+  const kinds = [
+    ["m", "~", changes.modified, "changed"],
+    ["a", "+", changes.added, "added"],
+    ["rm", "−", changes.removed, "removed"],
+  ] as const;
+  const parts: Child[] = kinds.flatMap(([cls, glyph, count, word]) =>
+    count
+      ? [
+          <>
+            <span class={cls} aria-hidden="true">
+              {glyph}
+              {count}
+            </span>
+            <span class="vh">
+              {plural(count, "file")} {word}
+            </span>
+          </>,
+        ]
+      : [],
+  );
   if (!parts.length) return null;
   return (
     <span class="chg" title={changesTitle(changes)}>

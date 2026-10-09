@@ -1,6 +1,5 @@
 /** @jsxImportSource hono/jsx */
 import type { Context } from "hono";
-import type { Child } from "hono/jsx";
 
 import type { HttpServices } from "../../http.ts";
 import { SHARE_COLUMNS, shareViews, type ShareRow } from "../../shares.ts";
@@ -9,6 +8,7 @@ import { Globe, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
+import { DayGroups, RecentRow, rowTitleId } from "./recent/rows.tsx";
 
 export interface TrashLinks {
   /** Paused links (not revoked, not expired) that would work again after a restore. */
@@ -46,68 +46,83 @@ export async function trashPage(
               </p>
             </div>
           </div>
-          <div class="rows">
-            {items.length ? (
-              items.map((item) => {
+          {items.length ? (
+            <DayGroups
+              kind="trash"
+              items={items}
+              at={(item) => item.deleted_at ?? 0}
+              now={now}
+              render={(item) => {
                 const detail = details.get(item.id);
                 const link = links.get(item.id);
-                const linkChip: Child = link?.paused.length ? (
-                  <a class="chip xs" href="/links" title="Revoke them from Public links">
-                    <Globe />
-                    {plural(link.paused.length, "link")}, inactive while in Trash
-                  </a>
-                ) : null;
+                const describedBy = rowTitleId(item.public_id);
                 return (
-                  <div class="r" data-trash-row={item.id} data-flash-target={item.id}>
-                    <span class="t">{item.title}</span>
-                    <span class="acts">
-                      <button
-                        type="button"
-                        class="btn sm"
-                        data-action="restore"
-                        data-id={item.id}
-                        data-title={item.title}
-                        data-revisions={String(detail?.revisions ?? 0)}
-                        data-files={String(detail?.files ?? 0)}
-                        data-links={JSON.stringify(link?.paused ?? [])}
-                      >
-                        Restore
-                      </button>
-                      <button
-                        type="button"
-                        class="btn sm danger"
-                        data-action="purge"
-                        data-id={item.id}
-                        data-title={item.title}
-                        data-revisions={String(detail?.revisions ?? 0)}
-                        data-files={String(detail?.files ?? 0)}
-                        data-link-count={String(link?.total ?? 0)}
-                      >
-                        Purge…
-                      </button>
-                    </span>
-                    <span class="s">
-                      {item.deleted_at != null ? (
-                        <span>
-                          deleted <Time at={item.deleted_at} fmt="ago" now={now} />
-                        </span>
-                      ) : null}
-                      <span>
+                  <RecentRow
+                    variant="trash"
+                    pub={item.public_id}
+                    title={item.title}
+                    at={item.deleted_at ?? 0}
+                    flashTarget={item.id}
+                    now={now}
+                    msg={
+                      <>
+                        {item.deleted_at != null ? (
+                          <>
+                            deleted <Time at={item.deleted_at} fmt="ago" now={now} /> ·{" "}
+                          </>
+                        ) : null}
                         {plural(detail?.revisions ?? 0, "revision")} ·{" "}
-                        {plural(detail?.files ?? 0, "file")}
-                      </span>
-                      <span class="mono" title={item.id}>
-                        {shortId(item.id, 12)}
-                      </span>
-                      {linkChip}
-                    </span>
-                  </div>
+                        {plural(detail?.files ?? 0, "file")} ·{" "}
+                        <span class="mono" title={item.id}>
+                          {shortId(item.id, 12)}
+                        </span>
+                      </>
+                    }
+                    meta={
+                      link?.paused.length ? (
+                        <span class="chip xs">
+                          <Globe />
+                          {plural(link.paused.length, "link")}, inactive while in Trash
+                        </span>
+                      ) : undefined
+                    }
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          class="btn sm"
+                          aria-describedby={describedBy}
+                          data-action="restore"
+                          data-id={item.id}
+                          data-title={item.title}
+                          data-revisions={String(detail?.revisions ?? 0)}
+                          data-files={String(detail?.files ?? 0)}
+                          data-links={JSON.stringify(link?.paused ?? [])}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          class="btn sm danger"
+                          aria-describedby={describedBy}
+                          data-action="purge"
+                          data-id={item.id}
+                          data-title={item.title}
+                          data-revisions={String(detail?.revisions ?? 0)}
+                          data-files={String(detail?.files ?? 0)}
+                          data-link-count={String(link?.total ?? 0)}
+                        >
+                          Purge…
+                        </button>
+                      </>
+                    }
+                  />
                 );
-              })
-            ) : (
-              <div class="empty">Trash is empty.</div>
-            )}
-          </div>
+              }}
+            />
+          ) : (
+            <div class="empty">Trash is empty.</div>
+          )}
         </main>
       </Layout>,
     ),

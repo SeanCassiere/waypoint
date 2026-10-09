@@ -142,6 +142,70 @@
   font-weight: 600;
   color: var(--ink);
 }
+/* Row contract (A11Y-04): section > h2.day + ul.list > li.item. The title is the row's only link,
+   stretched over the row; siblings that act (meta links and buttons, Trash actions, OW-08's
+   .rv-link) are raised above the stretch. */
+ul.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+li.item p {
+  margin: 0;
+}
+li.item a.tlink {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* a.tlink stays position: static, so the stretch's containing block is the li. */
+li.item a.tlink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+}
+li.item a.tlink:focus-visible {
+  outline: none;
+}
+li.item:has(a.tlink:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+li.item .meta a,
+li.item .meta button,
+li.item .acts,
+li.item .rv-link {
+  position: relative;
+  z-index: 1;
+}
+/* Trash variant: title, message and meta in column 1, the actions centred beside them. */
+li.item .acts {
+  grid-column: 2;
+  grid-row: 1/span 3;
+  align-self: center;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+li.item.trash .meta {
+  grid-column: 1;
+}
+@media (max-width: 760px) {
+  li.item.trash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  li.item.trash .acts {
+    grid-column: 1;
+    grid-row: auto;
+    order: 99;
+    justify-content: flex-start;
+  }
+}
 .side h2 {
   font: 600 11.5px/1 var(--sans);
   letter-spacing: 0.07em;
@@ -152,7 +216,7 @@
 .side h2 + * {
   margin-top: 0;
 }
-.side .facet + h2 {
+.side ul + h2 {
   margin-top: 24px;
 }
 .card {

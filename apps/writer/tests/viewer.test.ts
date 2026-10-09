@@ -188,7 +188,7 @@ describe("viewer routes", () => {
     expect(css.headers.get("cache-control")).toContain("immutable");
     expect(await css.text()).toContain("prefers-color-scheme");
     expect(html).toContain('rel="icon"');
-    expect(html).toContain('<span class="m">~1</span>');
+    expect(html).toContain('<span class="m" aria-hidden="true">~1</span>');
     expect(html.indexOf("Newest")).toBeLessThan(html.indexOf("Alpha"));
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert(1)</script>");

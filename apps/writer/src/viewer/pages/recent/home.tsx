@@ -4,9 +4,8 @@ import type { CollectionSearchResult } from "@waypoint/core";
 import type { HttpServices } from "../../../http.ts";
 import { plural } from "../../format.ts";
 import type { Chrome } from "../../layout.tsx";
-import { dayLabel } from "../../timefmt.ts";
 import { NeedsAttention } from "./attention.tsx";
-import { CollectionRow } from "./rows.tsx";
+import { DayGroups, RecentRow } from "./rows.tsx";
 
 export interface Facet {
   value: string;
@@ -26,13 +25,6 @@ export function RecentBody(props: {
 }) {
   const { chrome, items } = props;
   const now = chrome.now;
-  const groups: { label: string; items: CollectionSearchResult[] }[] = [];
-  for (const item of items) {
-    const label = dayLabel(item.updated_at, now, true);
-    const last = groups.at(-1);
-    if (last?.label === label) last.items.push(item);
-    else groups.push({ label, items: [item] });
-  }
   return (
     <div class="home">
       <main id="main" aria-labelledby="recent-title" data-recent>
@@ -43,16 +35,13 @@ export function RecentBody(props: {
           Newest first, by latest revision.
         </p>
         <NeedsAttention health={chrome.health} now={now} />
-        <div data-groups>
-          {groups.map((group) => (
-            <>
-              <div class="day">{group.label}</div>
-              {group.items.map((item) => (
-                <CollectionRow item={item} now={now} />
-              ))}
-            </>
-          ))}
-        </div>
+        <DayGroups
+          kind="recent"
+          items={items}
+          at={(item) => item.updated_at}
+          now={now}
+          render={(item) => <RecentRow variant="recent" item={item} now={now} />}
+        />
         {props.nextCursor ? (
           <p class="pager">
             <a
@@ -68,29 +57,41 @@ export function RecentBody(props: {
         {props.projects.length ? (
           <>
             <h2>Projects</h2>
-            {props.projects.map((facet) => (
-              <a
-                class="facet"
-                href={`/?${new URLSearchParams({ q: `project:${facet.value}` }).toString()}`}
-              >
-                {facet.value}
-                <span>{facet.count}</span>
-              </a>
-            ))}
+            <ul class="list facets">
+              {props.projects.map((facet) => (
+                <li>
+                  <a
+                    class="facet"
+                    href={`/?${new URLSearchParams({ q: `project:${facet.value}` }).toString()}`}
+                  >
+                    {facet.value}
+                    <span>{facet.count}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </>
         ) : null}
         {props.publicNow ? (
           <>
             <h2>Public now</h2>
-            {props.publicNow.map((item) => (
-              <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
-                {item.title}
-                <span>{plural(item.links, "link")}</span>
-              </a>
-            ))}
-            <a class="facet all" href="/links">
-              {props.publicNow.length ? "All public links →" : "No public links. Manage links →"}
-            </a>
+            <ul class="list facets">
+              {props.publicNow.map((item) => (
+                <li>
+                  <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
+                    {item.title}
+                    <span>{plural(item.links, "link")}</span>
+                  </a>
+                </li>
+              ))}
+              <li>
+                <a class="facet all" href="/links">
+                  {props.publicNow.length
+                    ? "All public links →"
+                    : "No public links. Manage links →"}
+                </a>
+              </li>
+            </ul>
           </>
         ) : null}
       </aside>
