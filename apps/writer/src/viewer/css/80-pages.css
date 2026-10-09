@@ -504,9 +504,6 @@ details.tr ul {
 .small {
   font-size: 13px;
 }
-[data-token-hint] {
-  margin: -8px 0 14px;
-}
 .dl {
   border: 1px solid var(--rule);
   border-radius: 16px;

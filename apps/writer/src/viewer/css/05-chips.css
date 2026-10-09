@@ -38,6 +38,11 @@
 a.chip.public:hover {
   border-color: var(--public);
 }
+.chip.paused {
+  color: var(--pending);
+  background: var(--pending-bg);
+  border-color: var(--pending-line);
+}
 .chip.ink {
   background: var(--sel);
   color: var(--on-sel);
