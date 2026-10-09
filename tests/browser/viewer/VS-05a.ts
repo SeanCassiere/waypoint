@@ -116,13 +116,13 @@ const scenario: ViewerScenario = {
       desktopCheck = got.check;
     }
     // Opening a dialog on a mouse never sets --kb either.
-    await desktop.page.evaluate(`document.getElementById("rename").showModal()`);
+    await desktop.page.evaluate(`document.getElementById("details").showModal()`);
     assert.equal(await desktop.page.evaluate(KB), "");
     const desktopTitle = await desktop.page.evaluate(
-      `getComputedStyle(document.querySelector("#rename input[name=title]")).fontSize`,
+      `getComputedStyle(document.querySelector("#details input[name=title]")).fontSize`,
     );
     assert.ok(parseFloat(String(desktopTitle)) < 16, `a ${String(desktopTitle)} title field`);
-    const METADATA = `getComputedStyle(document.querySelector("#metadata textarea")).fontSize`;
+    const METADATA = `getComputedStyle(document.querySelector("#details textarea")).fontSize`;
     assert.equal(await desktop.page.evaluate(METADATA), "12.5px", "the metadata JSON on a mouse");
 
     // Touch phone: 44 px controls, 16 px fields, checkboxes left alone.
@@ -147,7 +147,7 @@ const scenario: ViewerScenario = {
       assert.equal(got.check, desktopCheck, `${url}: the checkbox keeps its mouse size`);
       assert.ok(parseFloat(got.checkParent) < 16);
     }
-    // The Edit metadata JSON field (phone is on the collection page now).
+    // The Collection details JSON field (NAV-11; phone is on the collection page now).
     assert.equal(await phone.page.evaluate(METADATA), "16px", "the metadata JSON on touch");
 
     // The keyboard: a fake visualViewport the client picks up at bind time. Reduced motion, so the
@@ -162,12 +162,12 @@ const scenario: ViewerScenario = {
     assert.equal(await kbd.page.evaluate(KB), "", "--kb without a dialog");
     await keyboardDown(kbd.page);
 
-    await kbd.page.evaluate(`document.getElementById("rename").showModal()`);
-    await kbd.page.locator('#rename input[name="title"]').focus();
+    await kbd.page.evaluate(`document.getElementById("details").showModal()`);
+    await kbd.page.locator('#details input[name="title"]').focus();
     assert.equal(await kbd.page.evaluate(KB), "", "--kb before the keyboard is up");
     await keyboardUp(kbd.page);
     assert.equal(await kbd.page.evaluate(KB), "336px");
-    const rename = sheetOf.parse(await kbd.page.evaluate(SHEET("#rename")));
+    const rename = sheetOf.parse(await kbd.page.evaluate(SHEET("#details")));
     assert.ok(Math.abs(rename.bottom - 508) <= 1, `the sheet's bottom at ${rename.bottom}`);
     assert.ok(rename.height <= 500, `a ${rename.height}px sheet`);
     assert.equal(rename.ftPosition, "sticky");
@@ -179,7 +179,7 @@ const scenario: ViewerScenario = {
     await keyboardUp(kbd.page);
     assert.equal(await kbd.page.evaluate(KB), "336px");
     // The close event is queued as a task: --kb goes once it has run.
-    await kbd.page.evaluate(`document.getElementById("rename").close()`);
+    await kbd.page.evaluate(`document.getElementById("details").close()`);
     await kbd.page.waitForFunction(`${KB} === ""`);
     // Detached: the keyboard changing again with no dialog open sets nothing.
     await keyboardDown(kbd.page);

@@ -26,6 +26,7 @@ import {
   type CollectionContext,
   type Segment,
 } from "../collection/index.tsx";
+import { AboutCard } from "../collection/panel.tsx";
 import { LinksPanel, previewHref, publicSegment, ShareDialog, shareDisclosure } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
 import {
@@ -274,6 +275,7 @@ export async function changesPage(
         <DiffKey />
       </p>
       <p class="legend">{legend}</p>
+      <AboutCard ctx={ctx} />
     </>
   );
   const cardList = (

@@ -5,7 +5,7 @@ import { plural } from "../viewer/format.ts";
 import { formatTime } from "../viewer/timefmt.ts";
 import { ApiError, api, field } from "./api.ts";
 import { copyText, showCopied } from "./copy.ts";
-import { bindForm, confirmDialog } from "./dialogs.ts";
+import { confirmDialog } from "./dialogs.ts";
 import { $, $$, el, run, shellRoot } from "./dom.ts";
 import {
   collectionName,
@@ -491,41 +491,7 @@ registerAction(
   },
   () => "copy the raw URL",
 );
-function bindCollectionForms(): void {
-  bindForm("rename", async (form) => {
-    const title = new FormData(form).get("title");
-    if (typeof title !== "string" || !title.trim()) throw new Error("Enter a title");
-    await api(
-      `/api/collections/${encodeURIComponent(shellRoot()?.dataset.collectionId ?? "")}`,
-      "PATCH",
-      { title: title.trim() },
-    );
-    // Every mutation flashes and reloads (OW-02); only revoke updates in place.
-    flash({ text: "Renamed" });
-    location.reload();
-  });
-  bindForm("metadata", async (form) => {
-    const raw = new FormData(form).get("metadata");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(typeof raw === "string" ? raw : "");
-    } catch {
-      throw new Error("Metadata must be valid JSON");
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      throw new Error("Metadata must be a JSON object");
-    await api(
-      `/api/collections/${encodeURIComponent(shellRoot()?.dataset.collectionId ?? "")}`,
-      "PATCH",
-      { metadata: parsed },
-    );
-    flash({ text: "Metadata saved" });
-    location.reload();
-  });
-}
-
 export function bindActions(): void {
-  bindCollectionForms();
   document.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;

@@ -49,6 +49,15 @@ A writer's check, made at startup and before every push, that its config, its lo
 **Collection**
 The unit you create, view, and share. It is a named, growing history of revisions, for example "Auth refactor plan" or "Run 2026-10-07 screenshot audit". The collection itself holds very little: an ID, a public ID, a title, free-form metadata, and a creation time. Its content lives in its revisions.
 
+**Project**
+A collection's group name, set in metadata as `project`. Recent groups and filters by it; search with `project:`.
+
+**Tag**
+A label in the collection's `tags` metadata. A collection can have several; search with `tag:`.
+
+**Written on**
+The host the agent published from (`source_host`), set automatically and read-only in the writer; search with `host:`.
+
 **Revision**
 An immutable snapshot of a collection's files at one point in time. Every write (`create_collection`, `add_revision`) creates exactly one new revision. The exception is a write that changes nothing: then the parent revision is returned and nothing is created. Revisions are never edited, never deleted individually, and kept forever.
 
