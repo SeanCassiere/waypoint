@@ -389,7 +389,16 @@ describe("one live rule for share links (FC1, OW-05a)", () => {
     const page = await linkPage(services, "active", undefined, NOW);
     expect(chrome.liveLinkCount).toBe(page.counts.active);
     expect(chrome.pausedLinkCount).toBe(page.counts.paused);
-    expect(page.counts).toEqual({ active: 3, paused: 2, waiting: 3, expired: 1, revoked: 1 });
+    // OW-05b: the live links' collections (live and unpushed) and none expiring within a day.
+    expect(page.counts).toEqual({
+      active: 3,
+      paused: 2,
+      waiting: 3,
+      expired: 1,
+      revoked: 1,
+      collections: 2,
+      soon: 0,
+    });
     expect(chrome.trashCount).toBe(3);
     expect(chrome.trashedPending).toEqual([collections.trashedPending]);
     // The Active listing shows live and waiting links; its count is live only.

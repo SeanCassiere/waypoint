@@ -11,11 +11,13 @@ import type { RevisionRow } from "../../read-model.ts";
 import {
   isLive,
   isOpen,
+  isPaused,
   linkPage,
   LINKS_PAGE,
   sharingEnabled,
   URL_UNAVAILABLE,
   type LinkFilter,
+  type LinkPage,
   type ShareView,
 } from "../../shares.ts";
 import { shellPath } from "../../viewer-paths.ts";
@@ -104,15 +106,25 @@ export function RevokeNote(props: { link: ShareView; inline?: boolean }) {
   );
 }
 
-/** Copy URL (the card's primary action) and Open, or why the URL can't be shown. */
-export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
+/**
+ * Copy URL (the card's primary action) and Open, or why the URL can't be shown. `describedBy`
+ * (a /links row's label id, OW-05b) describes each control; unset, no attribute renders.
+ */
+export function LinkUrlActions(props: {
+  link: ShareView;
+  sharing?: boolean;
+  describedBy?: string;
+}) {
   const { url } = props.link;
+  const { describedBy } = props;
   // Without sharing configured, no URL can be derived for any link.
   if (props.sharing === false) return null;
   if (!url)
     return (
       <details class="why" data-url-missing>
-        <summary class="chip xs">URL unavailable</summary>
+        <summary class="chip xs" aria-describedby={describedBy}>
+          URL unavailable
+        </summary>
         <p class="note">{URL_UNAVAILABLE}</p>
       </details>
     );
@@ -126,11 +138,19 @@ export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
         data-label="public link"
         data-copy-url
         title={url}
+        aria-describedby={describedBy}
       >
         {html(icon("copy", "sm"))}
         Copy URL
       </button>
-      <a class="btn sm ghost" href={url} target="_blank" rel="noopener noreferrer" data-open-url>
+      <a
+        class="btn sm ghost"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-open-url
+        aria-describedby={describedBy}
+      >
         Open
         {html(icon("external", "sm"))}
       </a>
@@ -998,18 +1018,267 @@ export function ShareDialog(props: {
   );
 }
 
-/** /links: every public link across collections (spec §5.7, shares.html). */
-export async function linksPage(s: HttpServices, c: Context): Promise<Response> {
-  const now = Date.now();
-  const raw = c.req.query("state");
-  const filter: LinkFilter =
+/** /links segments, in order: the filter key (FC1's), the visible label and the URL (OW-05b). */
+const SEGMENTS = [
+  ["active", "Live", "/links"],
+  ["paused", "Paused in Trash", "/links?state=paused"],
+  ["expired", "Expired", "/links?state=expired"],
+  ["revoked", "Revoked", "/links?state=revoked"],
+] as const;
+/** A paused row's note: what recipients get, and what a restore does. */
+const PAUSED_NOTE =
+  "Answers “not available” while the collection is in Trash. Restoring asks before it works again.";
+
+/** `?state=` as a filter: `live` is an alias of `active` (the Live segment), anything else too. */
+function linkFilter(raw: string | undefined): LinkFilter {
+  if (
     raw === "paused" ||
     raw === "waiting" ||
     raw === "expired" ||
     raw === "revoked" ||
     raw === "inactive"
-      ? raw
-      : "active";
+  )
+    return raw;
+  return "active";
+}
+
+/** The header: how many links on how many collections the reader serves right now. */
+function LinksHead(props: { counts: LinkPage["counts"] }) {
+  const { active, collections, soon } = props.counts;
+  if (!active) return <>Nothing is readable outside your tailnet right now.</>;
+  const expiring = soon ? ` ${soon} ${soon === 1 ? "expires" : "expire"} within a day.` : "";
+  return (
+    <>
+      <b>
+        {plural(active, "link")} on {plural(collections, "collection")}
+      </b>
+      {` ${active === 1 ? "is" : "are"} readable outside your tailnet right now.${expiring} Revoking takes effect within seconds.`}
+    </>
+  );
+}
+
+/** Extend… on a /links row: the Links tab card's +7 days / +30 days confirmation. */
+function ExtendAct(props: { link: ShareView; expires: number; describedBy: string }) {
+  const { link, describedBy } = props;
+  return (
+    <details class="act">
+      <summary class="txtbtn" aria-describedby={describedBy}>
+        Extend…
+      </summary>
+      <div class="pop neutral" role="group" aria-label="Extend this link">
+        <span>Keep this link working longer. The new expiry reaches viewers within seconds.</span>
+        <span class="row">
+          <button
+            type="button"
+            class="btn sm"
+            data-action="close-details"
+            aria-describedby={describedBy}
+          >
+            Keep as is
+          </button>
+          {(["7", "30"] as const).map((days) => (
+            <button
+              type="button"
+              class="btn sm"
+              data-action="extend-link"
+              data-id={link.id}
+              data-days={days}
+              data-from={String(props.expires)}
+              aria-describedby={describedBy}
+            >
+              +{days} days
+            </button>
+          ))}
+        </span>
+      </div>
+    </details>
+  );
+}
+
+/** A live or waiting row's expiry: a clock and ink at 600 within a day (never amber). */
+function RowExpiry(props: { expires: number | null; now: number }) {
+  const { expires, now } = props;
+  if (expires === null) return <span data-live>never expires</span>;
+  if (expires - now < DAY)
+    return (
+      <span class="soon" data-live>
+        {html(icon("clock", "sm"))}
+        expires <Time at={expires} fmt="until" now={now} />
+      </span>
+    );
+  return (
+    <span data-live>
+      expires <Time at={expires} fmt="until" now={now} />
+    </span>
+  );
+}
+
+/** "Opens when #7 syncs": the pinned revision, or for Latest the collection's newest. */
+function opensWhen(link: ShareView): string {
+  const number = link.revision_id
+    ? link.revision_display_number
+    : link.collection.latest_display_number;
+  return number === null ? "Opens when a revision syncs" : `Opens when #${number} syncs`;
+}
+
+/**
+ * One /links row (OW-05b): the label (which describes every action), the actions for an open
+ * link (a paused one can only be revoked), then the target, the state, the fingerprint and
+ * when it was made.
+ */
+function LinkRow(props: { link: ShareView; now: number; sharing: boolean }) {
+  const { link, now } = props;
+  const open = isOpen(link);
+  const paused = isPaused(link);
+  const described = `lw-${link.id}`;
+  const fp = link.url ? fingerprint(link.url) : null;
+  return (
+    <li class={`lrow${open ? "" : " dead"}`} data-link={link.id} data-link-status={link.status}>
+      <span class="who" id={described}>
+        {link.label ? <b data-link-label>{link.label}</b> : <i data-link-label>No label</i>}
+      </span>
+      {open ? (
+        <span class="acts">
+          {paused ? null : (
+            <>
+              <LinkUrlActions link={link} sharing={props.sharing} describedBy={described} />
+              {link.expires_at !== null ? (
+                <ExtendAct link={link} expires={link.expires_at} describedBy={described} />
+              ) : (
+                <span class="slot" aria-hidden="true" />
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            class="txtbtn danger"
+            data-action="revoke-link"
+            data-id={link.id}
+            data-confirm="true"
+            aria-describedby={described}
+          >
+            Revoke…
+          </button>
+        </span>
+      ) : null}
+      <span class="s">
+        <span class={`chip xs${link.revision_id ? "" : " public"}`} data-shows>
+          {link.revision_id ? null : <Globe />}
+          {showsText(link, null)}
+        </span>
+        {paused ? (
+          <>
+            <span class="chip xs" data-link-state="paused">
+              Paused
+            </span>
+            {/* data-live: a revoke removes it (a revoked link never works again). */}
+            <span data-live>{PAUSED_NOTE}</span>
+          </>
+        ) : open ? (
+          <>
+            {link.status === "waiting" ? (
+              <span class="chip xs waiting" data-link-state="waiting">
+                {html(icon("clock", "sm"))}
+                {opensWhen(link)}
+              </span>
+            ) : null}
+            <RowExpiry expires={link.expires_at} now={now} />
+          </>
+        ) : (
+          <>
+            {link.revoked_at !== null ? (
+              <span>
+                revoked <Time at={link.revoked_at} fmt="ago" now={now} />
+              </span>
+            ) : link.expires_at !== null ? (
+              <span>
+                expired <Time at={link.expires_at} fmt="date" now={now} />
+              </span>
+            ) : null}
+            <RevokeNote link={link} inline />
+          </>
+        )}
+        {fp ? (
+          <code class="fp" data-fp>
+            {fp}
+          </code>
+        ) : null}
+        <span>
+          created <Time at={link.created_at} fmt="day" now={now} />
+        </span>
+      </span>
+    </li>
+  );
+}
+
+/** This page's rows by collection, in order of each collection's first (newest) row. */
+function groupByCollection(views: ShareView[]): ShareView[][] {
+  const groups = new Map<string, ShareView[]>();
+  for (const view of views) {
+    const group = groups.get(view.collection.id);
+    if (group) group.push(view);
+    else groups.set(view.collection.id, [view]);
+  }
+  return [...groups.values()];
+}
+
+/** A collection's links on /links: its title, project and newest revision, and where to manage. */
+function LinkGroup(props: {
+  links: ShareView[];
+  index: number;
+  inTrash: boolean;
+  now: number;
+  sharing: boolean;
+}) {
+  const first = props.links[0];
+  if (!first) return null;
+  const { collection } = first;
+  const heading = `lg-${props.index}`;
+  // A collection gone from underneath its links: no title, nothing to link to.
+  const known = Boolean(collection.public_id && collection.title);
+  const number =
+    collection.latest_display_number === null ? null : `now #${collection.latest_display_number}`;
+  const meta = [collection.project, number].filter(Boolean).join(" · ");
+  return (
+    <section class="lgrp" aria-labelledby={heading} data-collection={collection.id}>
+      <header class="lgh">
+        <h2 id={heading}>
+          {known ? (
+            <a href={`/c/${collection.public_id}/`}>{collection.title}</a>
+          ) : (
+            "Unknown collection"
+          )}
+        </h2>
+        {meta ? <span class="p">{meta}</span> : null}
+        <span class="grow" />
+        {!known ? null : props.inTrash || collection.deleted ? (
+          <a class="tab" href="/trash">
+            Trash
+          </a>
+        ) : (
+          <a class="tab" href={`/c/${collection.public_id}/?panel=links`}>
+            Links tab
+          </a>
+        )}
+      </header>
+      <ul class="lrows">
+        {props.links.map((link) => (
+          <LinkRow link={link} now={props.now} sharing={props.sharing} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * /links: every public link across collections (spec §5.7, OW-05b). Segments by FC1's live rule
+ * (Live counts only links the reader serves; waiting links are listed there, not counted), rows
+ * grouped by collection, and a header that says how much is readable right now. The nodes a
+ * revoke changes carry data-refresh keys, so they follow a re-fetch of the page (OW-04).
+ */
+export async function linksPage(s: HttpServices, c: Context): Promise<Response> {
+  const now = Date.now();
+  const filter = linkFilter(c.req.query("state"));
   // One page at a time, counted in SQL: prod-sized link lists made this page megabytes.
   const chrome = await getChrome(s, now);
   const {
@@ -1018,8 +1287,8 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
     remaining,
     next,
   } = await linkPage(s, filter, c.req.query("after"), now, chrome.trashedPending);
-  const inactive = counts.expired + counts.revoked;
   const sharing = sharingEnabled(s);
+  const live = filter === "active";
   return noStore(
     c.html(
       <Layout
@@ -1028,118 +1297,70 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
         bar={<HomeBar chrome={chrome} current="links" />}
         page="links"
       >
-        <main class="wrap" id="main">
+        <main class="wrap" id="main" data-links-page>
           <div class="ph">
             <div>
               <h1>
                 <Globe /> Public links
               </h1>
-              <p>
-                Everything readable outside your tailnet right now. Revoking takes effect within
-                seconds.
+              <p data-refresh="links-head">
+                <LinksHead counts={counts} />
               </p>
               {sharing ? null : <p class="note">{KEY_MISSING}</p>}
             </div>
           </div>
-          <div class="filters">
-            <nav class="seg" aria-label="Filter links">
-              {(
-                [
-                  ["active", "Active"],
-                  ["paused", "Paused in Trash"],
-                  ["expired", "Expired"],
-                  ["revoked", "Revoked"],
-                ] as const
-              ).map(([key, label]) => (
-                <a href={`/links?state=${key}`} aria-current={key === filter ? "page" : undefined}>
-                  {label} <span data-count-of={key}>{counts[key]}</span>
-                </a>
-              ))}
-            </nav>
-          </div>
-          <div class="rows">
-            {shown.length ? (
-              shown.map((link) => (
-                <div
-                  class={`r${isOpen(link) ? "" : " dead"}`}
-                  data-link={link.id}
-                  data-link-status={link.status}
-                >
-                  <span class="t">
-                    {link.collection.public_id && !link.collection.deleted ? (
-                      <a href={`/c/${link.collection.public_id}/?panel=links`}>
-                        {link.collection.title}
-                      </a>
-                    ) : (
-                      <span>{link.collection.title || "Unknown collection"}</span>
-                    )}{" "}
-                    · {link.label || "(no label)"}
-                  </span>
-                  {isOpen(link) ? (
-                    <div class="acts">
-                      <LinkUrlActions link={link} sharing={sharing} />
-                      <button
-                        type="button"
-                        class="txtbtn danger"
-                        data-action="revoke-link"
-                        data-id={link.id}
-                        data-confirm="true"
-                      >
-                        Revoke…
-                      </button>
-                    </div>
-                  ) : null}
-                  <span class="s">
-                    <StateChip link={link} />
-                    <span class={`chip xs${link.revision_id ? "" : " public"}`}>
-                      {link.revision_id ? null : <Globe />}
-                      {showsText(link, null)}
-                    </span>
-                    <RevokeNote link={link} inline />
-                    {link.collection.deleted ? <span>inactive while in Trash</span> : null}
-                    {isOpen(link) ? (
-                      link.expires_at === null ? (
-                        <span class="soon" data-live>
-                          never expires
-                        </span>
-                      ) : (
-                        <span class={link.expires_at - now < DAY ? "soon" : undefined} data-live>
-                          expires <Time at={link.expires_at} fmt="until" now={now} />
-                        </span>
-                      )
-                    ) : link.revoked_at !== null ? (
-                      <span>
-                        revoked <Time at={link.revoked_at} fmt="ago" now={now} />
-                      </span>
-                    ) : link.expires_at !== null ? (
-                      <span>
-                        expired <Time at={link.expires_at} fmt="date" now={now} />
-                      </span>
-                    ) : null}
-                    <span>
-                      created <Time at={link.created_at} fmt="day" now={now} />
-                    </span>
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div class="empty">
-                {filter === "active"
-                  ? "No public links. Nothing is readable outside your tailnet."
-                  : `No ${filter} links.`}
-              </div>
-            )}
-          </div>
-          {filter === "active" && counts.active >= 2 ? (
-            <div class="lnk-foot">
+          <nav class="seg" aria-label="Link state" data-refresh="links-seg">
+            {SEGMENTS.map(([key, label, href]) => (
+              <a href={href} aria-current={key === filter ? "page" : undefined}>
+                {label}{" "}
+                <span class="n" data-count-of={key}>
+                  {counts[key]}
+                </span>
+              </a>
+            ))}
+          </nav>
+          {live && counts.paused ? (
+            <p class="legend" data-refresh="links-paused">
+              {counts.paused === 1
+                ? "1 paused link on a collection in Trash isn't counted."
+                : `${counts.paused} paused links on collections in Trash aren't counted.`}{" "}
+              <a href="/links?state=paused">
+                Show
+                {html(icon("chevronRight", "sm"))}
+              </a>
+            </p>
+          ) : null}
+          {shown.length ? (
+            groupByCollection(shown).map((links, index) => (
+              <LinkGroup
+                links={links}
+                index={index + 1}
+                inTrash={filter === "paused"}
+                now={now}
+                sharing={sharing}
+              />
+            ))
+          ) : (
+            <div class="empty">
+              {live
+                ? "No public links. Nothing is readable outside your tailnet."
+                : `No ${filter} links.`}
+            </div>
+          )}
+          {live && counts.active >= 2 ? (
+            <div class="lnk-foot lc-foot" data-refresh="links-foot">
+              <span>
+                Expired and revoked links stay listed under their tabs; they can't be turned back
+                on.
+              </span>
               <button
                 type="button"
                 class="txtbtn danger"
                 data-action="revoke-all"
                 data-count={String(counts.active)}
-                data-noun="active links"
+                data-noun="live links"
               >
-                Revoke all {counts.active} active links…
+                Revoke all {counts.active} live links…
               </button>
             </div>
           ) : null}
@@ -1148,12 +1369,6 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
               <a href={`/links?${new URLSearchParams({ state: filter, after: next }).toString()}`}>
                 Show {Math.min(remaining, LINKS_PAGE)} more of {remaining}…
               </a>
-            </p>
-          ) : null}
-          {filter === "active" && inactive ? (
-            <p class="legend" data-inactive>
-              <a href="/links?state=inactive">Show {plural(inactive, "inactive link")}</a> (expired
-              or revoked)
             </p>
           ) : null}
         </main>

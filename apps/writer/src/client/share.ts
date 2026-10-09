@@ -101,23 +101,29 @@ function collapseCard(holder: HTMLElement, pushed: boolean): void {
 
 /**
  * Shows a link as revoked the moment the writer has recorded it: a card (Links tab) collapses
- * into a confirmation row; a row (/links) loses its actions and its chip reads Revoked. The
- * note says whether the revocation has reached the cloud yet (until then the public reader
- * still serves the link), and follows it until it has. Counts are the refresh's job.
+ * into a confirmation row; a row (/links) loses its actions and its chip reads Revoked (a live
+ * /links row has no state chip: one is added after its target chip). The note says whether the
+ * revocation has reached the cloud yet (until then the public reader still serves the link),
+ * and follows it until it has. Counts are the refresh's job.
  */
 function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
   if (holder.classList.contains("lnk")) collapseCard(holder, pushed);
   else {
     holder.classList.add("dead");
-    const chip = $("[data-link-state]", holder);
+    const row = holder.classList.contains("r") || holder.classList.contains("lrow");
+    let chip = $("[data-link-state]", holder);
+    if (!chip && holder.classList.contains("lrow")) {
+      chip = el("span");
+      $(":scope > .s > [data-shows]", holder)?.after(chip);
+    }
     if (chip) {
-      chip.className = holder.classList.contains("r") ? "chip xs" : "chip";
+      chip.className = row ? "chip xs" : "chip";
       chip.dataset.linkState = "revoking";
       chip.replaceChildren("Revoked");
     }
     for (const node of $$(".row, .acts, [data-url-missing]", holder))
       if (node.parentElement === holder) node.remove();
-    // Expiry no longer applies (/links rows).
+    // Expiry, and a paused row's restore note, no longer apply (/links rows).
     for (const node of $$("[data-live]", holder)) node.remove();
     setRevokeNote(holder, pushed);
   }
@@ -573,7 +579,7 @@ export function bindShare(): void {
       const ok = await confirmDialog({
         title: collection
           ? `Revoke all ${plural(count, "link")}?`
-          : `Revoke all ${plural(count, "active link")}?`,
+          : `Revoke all ${plural(count, "live link")}?`,
         body: `Everyone using ${count === 1 ? "it" : "them"} loses access within seconds. You can't undo this.`,
         ok: count === 1 ? "Revoke link" : "Revoke all",
         run: async () => {
@@ -589,7 +595,12 @@ export function bindShare(): void {
         },
       });
       if (!ok) return;
-      flash({ text: `Revoked ${plural(revoked, "link")}` });
+      // /links (no collection) revokes live links only, and says what it left alone.
+      flash({
+        text: collection
+          ? `Revoked ${plural(revoked, "link")}`
+          : `Revoked ${plural(revoked, "live link")}. Paused, waiting and expired links are unchanged.`,
+      });
       location.reload();
     },
     () => "revoke the links",
@@ -617,12 +628,12 @@ export function bindShare(): void {
 }
 
 /**
- * Inline confirmations on link cards (Revoke…, Extend…) are <details> whose summary hides
- * while open. Focus follows: into the confirmation when it opens, back to the summary when
- * it closes (Keep, Keep as is, Esc).
+ * Inline confirmations on link cards (Revoke…, Extend…) and /links rows (Extend…) are <details>
+ * whose summary hides while open. Focus follows: into the confirmation when it opens, back to
+ * the summary when it closes (Keep, Keep as is, Esc).
  */
 function bindInlineConfirms(): void {
-  for (const details of $$(".lnk details.act", HTMLDetailsElement)) {
+  for (const details of $$(".lnk details.act, .lrow details.act", HTMLDetailsElement)) {
     const summary = $("summary", details);
     details.addEventListener("toggle", () => {
       if (details.open) {
