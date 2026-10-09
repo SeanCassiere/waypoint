@@ -127,14 +127,25 @@ export function LinkUrlActions(props: { link: ShareView; sharing?: boolean }) {
         data-copy-url
         title={url}
       >
-        <span aria-hidden="true">⧉</span>
+        {html(icon("copy", "sm"))}
         Copy URL
       </button>
       <a class="btn sm ghost" href={url} target="_blank" rel="noopener noreferrer" data-open-url>
-        Open ↗
+        Open
+        {html(icon("external", "sm"))}
       </a>
     </>
   );
+}
+
+/**
+ * A short, owner-only fingerprint of a link's URL (D50): "…/s/wps_Lfqv…/c/w1h0…", enough to tell
+ * two links apart without showing the token. Null when the URL isn't a share URL.
+ */
+export function fingerprint(url: string): string | null {
+  const [, token, pub] = /\/s\/([^/?#]+)\/c\/([^/?#]+)\//.exec(url) ?? [];
+  if (!token || !pub) return null;
+  return `…/s/${token.slice(0, 8)}…/c/${pub.slice(0, 4)}…`;
 }
 
 function LinkCard(props: {
@@ -144,13 +155,14 @@ function LinkCard(props: {
   sharing: boolean;
 }) {
   const { link, now } = props;
-  // Live, waiting and paused cards keep their actions (and a paused one its Trash note).
-  const live = isOpen(link);
-  const soon = live && link.expires_at !== null && link.expires_at - now < DAY;
+  // Live, waiting and paused cards keep their actions (OW-05).
+  const open = isOpen(link);
+  const soon = open && link.expires_at !== null && link.expires_at - now < DAY;
+  const fp = link.url ? fingerprint(link.url) : null;
   return (
-    <div class={`lnk${live ? "" : " dead"}`} data-link={link.id} data-link-status={link.status}>
+    <div class={`lnk${open ? "" : " dead"}`} data-link={link.id} data-link-status={link.status}>
       <div class="h">
-        <b>{link.label || "(no label)"}</b>
+        {link.label ? <b data-link-label>{link.label}</b> : <i data-link-label>No label</i>}
         <StateChip link={link} />
       </div>
       <dl>
@@ -186,76 +198,82 @@ function LinkCard(props: {
             </dd>
           </>
         )}
-        {link.collection.deleted && live ? (
-          <>
-            <dt>Now</dt>
-            <dd>Inactive while the collection is in Trash</dd>
-          </>
-        ) : null}
       </dl>
+      {fp ? (
+        <code class="fp" data-fp>
+          {fp}
+        </code>
+      ) : null}
       <RevokeNote link={link} />
-      {live ? (
-        <div class="row">
-          <LinkUrlActions link={link} sharing={props.sharing} />
-          <span class="grow" />
-          {soon ? (
+      {open ? (
+        <>
+          {props.sharing ? (
+            <div class="row r1">
+              <LinkUrlActions link={link} sharing={props.sharing} />
+            </div>
+          ) : null}
+          {/* Extend… on any expiring open link (D48), Revoke… at the far end. */}
+          <div class="row r2">
+            {link.expires_at !== null ? (
+              <details class="act">
+                <summary class="txtbtn">Extend…</summary>
+                <div class="pop neutral" role="group" aria-label="Extend this link">
+                  <span>
+                    Keep this link working longer. The new expiry reaches viewers within seconds.
+                  </span>
+                  <span class="row">
+                    <button type="button" class="btn sm" data-action="close-details">
+                      Keep as is
+                    </button>
+                    <button
+                      type="button"
+                      class="btn sm"
+                      data-action="extend-link"
+                      data-id={link.id}
+                      data-days="7"
+                      data-from={String(link.expires_at)}
+                    >
+                      +7 days
+                    </button>
+                    <button
+                      type="button"
+                      class="btn sm"
+                      data-action="extend-link"
+                      data-id={link.id}
+                      data-days="30"
+                      data-from={String(link.expires_at)}
+                    >
+                      +30 days
+                    </button>
+                  </span>
+                </div>
+              </details>
+            ) : null}
+            <span class="grow" />
             <details class="act">
-              <summary class="txtbtn">Extend…</summary>
-              <div class="pop neutral" role="group" aria-label="Extend this link">
+              <summary class="txtbtn danger">Revoke…</summary>
+              <div class="pop" role="group" aria-label="Confirm revoke">
                 <span>
-                  Keep this link working longer. The new expiry reaches viewers within seconds.
+                  <b>Revoke this link?</b> People using it lose access within seconds. You can't
+                  undo this.
                 </span>
                 <span class="row">
                   <button type="button" class="btn sm" data-action="close-details">
-                    Keep as is
+                    Keep
                   </button>
                   <button
                     type="button"
-                    class="btn sm"
-                    data-action="extend-link"
+                    class="btn sm danger"
+                    data-action="revoke-link"
                     data-id={link.id}
-                    data-days="7"
-                    data-from={String(link.expires_at)}
                   >
-                    +7 days
-                  </button>
-                  <button
-                    type="button"
-                    class="btn sm"
-                    data-action="extend-link"
-                    data-id={link.id}
-                    data-days="30"
-                    data-from={String(link.expires_at)}
-                  >
-                    +30 days
+                    Revoke link
                   </button>
                 </span>
               </div>
             </details>
-          ) : null}
-          <details class="act">
-            <summary class="txtbtn danger">Revoke…</summary>
-            <div class="pop" role="group" aria-label="Confirm revoke">
-              <span>
-                <b>Revoke this link?</b> People using it lose access within seconds. You can't undo
-                this.
-              </span>
-              <span class="row">
-                <button type="button" class="btn sm" data-action="close-details">
-                  Keep
-                </button>
-                <button
-                  type="button"
-                  class="btn sm danger"
-                  data-action="revoke-link"
-                  data-id={link.id}
-                >
-                  Revoke link
-                </button>
-              </span>
-            </div>
-          </details>
-        </div>
+          </div>
+        </>
       ) : null}
     </div>
   );
@@ -264,7 +282,8 @@ function LinkCard(props: {
 /**
  * The collection panel's Links tab (spec §4.17, reworked from owner feedback): one primary
  * action, a quiet secondary row, calm cards with Copy URL first, and "Revoke all" demoted to
- * a text action under the cards when there's more than one link to revoke.
+ * a text action under the cards when there's more than one link to revoke. The nodes a revoke
+ * changes carry data-refresh keys: the client swaps them from a re-fetch of the page (OW-04).
  */
 export function LinksPanel(props: {
   ctx: CollectionContext;
@@ -288,15 +307,20 @@ export function LinksPanel(props: {
           <p class="note">{KEY_MISSING}</p>
         )}
         <a class="txtbtn" href={props.previewHref} target="_blank" rel="noopener">
-          Preview as public ↗
+          Preview as public
+          {html(icon("external", "sm"))}
         </a>
       </div>
       {live.map((link) => (
         <LinkCard link={link} now={ctx.chrome.now} newest={newest} sharing={ctx.sharing} />
       ))}
-      {!live.length ? <p class="legend">No active links. Create one with Share.</p> : null}
+      {!live.length ? (
+        <p class="legend" data-refresh="links-empty">
+          No live links. Create one with Share.
+        </p>
+      ) : null}
       {live.length >= 2 ? (
-        <div class="lnk-foot">
+        <div class="lnk-foot" data-refresh="links-foot">
           <button
             type="button"
             class="txtbtn danger"
@@ -310,7 +334,7 @@ export function LinksPanel(props: {
         </div>
       ) : null}
       {dead.length ? (
-        <details class="inactive">
+        <details class="inactive" data-refresh="links-inactive">
           <summary>Show {dead.length} inactive</summary>
           {dead.map((link) => (
             <LinkCard link={link} now={ctx.chrome.now} newest={newest} sharing={ctx.sharing} />
@@ -321,25 +345,62 @@ export function LinksPanel(props: {
   );
 }
 
-/** The status line's public segment, when a live link follows latest. */
+/** A link as the status line names it. */
+const linkName = (link: ShareView): string => (link.label ? `“${link.label}”` : "A link");
+
+/**
+ * The status line's public segment, over live links only: the one that follows latest, else the
+ * one pinned link, else how many pinned links there are. Null when nothing is live.
+ */
 export function publicSegment(
   links: ShareView[],
 ): { tone: "public"; body: Child; text: string; brief: string } | null {
   const live = links.filter(isLive);
+  if (!live.length) return null;
+  const count = plural(live.length, "live link");
+  const pubseg = (
+    <span class="pubseg">
+      <Globe /> Public
+    </span>
+  );
   const following = live.find((link) => !link.revision_id);
-  if (!following) return null;
-  const who = following.label ? `“${following.label}”` : "A link";
+  if (following) {
+    const who = linkName(following);
+    return {
+      tone: "public",
+      text: `Public: ${count}. ${who} follows latest, so new revisions become public within seconds of syncing.`,
+      brief: `Public: ${who} follows latest`,
+      body: (
+        <span>
+          {pubseg} {count}. <b>{who} follows latest</b>
+          <span class="long">, so new revisions become public within seconds of syncing.</span>
+        </span>
+      ),
+    };
+  }
+  const [only] = live;
+  if (live.length === 1 && only) {
+    const shows = `${linkName(only)} shows only #${only.revision_display_number ?? "?"}`;
+    return {
+      tone: "public",
+      text: `Public: ${count}. ${shows}; new revisions stay private.`,
+      brief: `Public: ${shows}`,
+      body: (
+        <span>
+          {pubseg} {count}. <b>{shows}</b>
+          <span class="long">; new revisions stay private.</span>
+        </span>
+      ),
+    };
+  }
   return {
     tone: "public",
-    text: `Public: ${plural(live.length, "active link")}. ${who} follows latest, so new revisions become public within seconds of syncing.`,
-    brief: `Public: ${who} follows latest`,
+    text: `Public: ${count}, each pinned to one revision; new revisions stay private.`,
+    brief: `Public: ${live.length} pinned links`,
     body: (
       <span>
-        <span class="pubseg">
-          <Globe /> Public
-        </span>{" "}
-        {plural(live.length, "active link")}. <b>{who} follows latest</b>
-        <span class="long">, so new revisions become public within seconds of syncing.</span>
+        {pubseg} {count}
+        <span class="long">, each pinned to one revision; new revisions stay private.</span>
       </span>
     ),
   };

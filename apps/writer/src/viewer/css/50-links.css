@@ -86,10 +86,14 @@ details.why .note {
   align-items: center;
   gap: 8px;
 }
-.lnk .h b {
+.lnk .h b,
+.lnk .h i {
   font-size: 14px;
   flex: 1;
   overflow-wrap: anywhere;
+}
+.lnk .h i {
+  color: var(--muted);
 }
 .lnk dl {
   display: grid;
@@ -105,9 +109,20 @@ details.why .note {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Expires within a day: ink at 600, never amber (amber means pending). */
 .lnk .soon {
-  color: var(--pending);
+  color: var(--ink);
   font-weight: 600;
+}
+/* The URL's owner-only fingerprint: one line, truncated. */
+.lnk .fp {
+  display: block;
+  margin: 0 0 10px;
+  font: 11.5px var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .lnk .row {
   display: flex;
@@ -121,9 +136,34 @@ details.why .note {
   margin: 0;
   flex-basis: 100%;
 }
+/* Row 1: Copy URL · Open. Row 2, under a hairline: Extend… at the start, Revoke… at the end. */
+.lnk .r2 {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+}
 .lnk.dead {
   background: none;
   opacity: 0.75;
+}
+/* A card just revoked collapses into a dismissible confirmation row (OW-04). */
+.lnk.gone {
+  padding: 8px 8px 8px 12px;
+  border-style: dashed;
+  border-color: var(--rule-2);
+  opacity: 1;
+  color: var(--ink-2);
+}
+.lnk.gone .h b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.lnk.gone .iconbtn {
+  align-self: flex-start;
+  color: var(--muted);
+}
+.lnk.gone .note {
+  margin: 2px 0 0;
 }
 .pop {
   border: 1px solid var(--failed-line);

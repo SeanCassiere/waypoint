@@ -654,7 +654,7 @@ details.sees > summary h3 {
 }
 .lnk .soon,
 .r .soon {
-  color: var(--pending);
+  color: var(--ink);
   font-weight: 600;
 }
 .lnk .row {
