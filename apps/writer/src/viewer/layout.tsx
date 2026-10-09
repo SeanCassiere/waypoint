@@ -1,9 +1,13 @@
 /** @jsxImportSource hono/jsx */
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import type { Health } from "../health.ts";
 import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.ts";
 import { HealthPill, HealthPopover, LogoMark } from "./components.tsx";
+import { plural } from "./format.ts";
+import { keycaps, keyFor } from "./keymap.ts";
 import { KeysDialog } from "./keys-dialog.tsx";
 
 /** Per-request data every page needs for its chrome (bar, health pill and popover). */
@@ -60,15 +64,108 @@ export function Layout(props: {
   );
 }
 
-export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
+export type HomeBarCurrent = "recent" | "links" | "trash" | "status" | "mcp" | null;
+
+/** The phone switcher's label: where you are ("Go to" on a page that isn't a destination). */
+const WHERE: Readonly<Record<NonNullable<HomeBarCurrent>, string>> = {
+  recent: "Recent",
+  links: "Public links",
+  trash: "Trash",
+  status: "Status",
+  mcp: "Connect an agent",
+};
+
+/** "Public links 4": the live count follows the label, and nothing at 0. */
+function LinksLabel(props: { live: number }) {
+  return (
+    <>
+      Public links
+      {props.live > 0 ? (
+        <>
+          {" "}
+          <span class="n">{props.live}</span>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * "Trash 2, 1 public link paused": the count, then the paused links for screen readers only.
+ * Browsers put a space before an out-of-flow (.sr) or blockified (.n in a flex or grid item)
+ * child when they compute a name, which would read "Trash 2 , 1 …"; so while links are paused
+ * the hidden text repeats the count and the visible count is hidden from the name instead.
+ * With no count to repeat, it repeats the label ("Trash, 1 public link paused").
+ */
+function TrashLabel(props: { trash: number; paused: number }) {
+  const { trash, paused } = props;
+  const suffix = paused > 0 ? `, ${plural(paused, "public link")} paused` : "";
+  return (
+    <>
+      {trash === 0 && suffix ? <span aria-hidden="true">Trash</span> : "Trash"}
+      {trash > 0 ? (
+        <>
+          {" "}
+          <span class="n" aria-hidden={suffix ? "true" : undefined}>
+            {trash}
+          </span>
+        </>
+      ) : null}
+      {suffix ? (
+        <span class="sr">
+          {trash > 0 ? trash : "Trash"}
+          {suffix}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The bar every page outside a collection shares (NAV-01): Recent, Public links and Trash tabs
+ * with their live counts (Chrome's, per request), the inline search, the health pill and ⋯. On
+ * phones the tabs fold into a "Go to" sheet opened from the current page's name.
+ */
+export function HomeBar(props: {
+  chrome: Chrome;
+  current: HomeBarCurrent;
+  q?: string | undefined;
+}) {
+  const { chrome, current } = props;
+  const here = (page: NonNullable<HomeBarCurrent>) => (current === page ? "page" : undefined);
+  const where = current ? WHERE[current] : "Go to";
+  const live = chrome.liveLinkCount;
+  const trash = <TrashLabel trash={chrome.trashCount} paused={chrome.pausedLinkCount} />;
   return (
     <header class="bar">
       <a class="logo" href="/" aria-label="Waypoint, Recent">
         <LogoMark />
-        <span>Waypoint</span>
+        <span class="hide-sm">Waypoint</span>
       </a>
+      <nav class="gnav hide-sm" aria-label="Main">
+        <a href="/" aria-current={here("recent")}>
+          Recent
+        </a>
+        <a
+          href="/links"
+          aria-current={here("links")}
+          title={live > 0 ? plural(live, "live public link") : undefined}
+        >
+          <LinksLabel live={live} />
+        </a>
+        <a href="/trash" aria-current={here("trash")}>
+          {trash}
+        </a>
+      </nav>
+      {/* The hidden text repeats the label, for the same reason as TrashLabel's: the button is a
+          grid, so a name built from "Recent" and a separate ", go to …" would read "Recent , go". */}
+      <button type="button" class="where show-sm" popovertarget="go-to">
+        <span aria-hidden="true">{where}</span>
+        {raw(icon("chevronDown", "sm"))}
+        <span class="sr">{where}, go to another page</span>
+      </button>
       <form class="search hide-sm" role="search" action="/" method="get" data-search>
-        <span aria-hidden="true">⌕</span>
+        {raw(icon("search"))}
         <input
           type="search"
           name="q"
@@ -85,52 +182,69 @@ export function HomeBar(props: { chrome: Chrome; q?: string | undefined }) {
         <kbd aria-hidden="true">/</kbd>
         <ul class="suggest" id="suggest" role="listbox" aria-label="Suggestions" hidden />
       </form>
+      <span class="grow" />
       <a
         class="iconbtn show-sm"
         href={props.q ? `/?q=${encodeURIComponent(props.q)}` : "/?q="}
-        aria-label="Search"
+        aria-label="Find"
       >
-        ⌕
+        {raw(icon("search", "lg"))}
       </a>
-      <HealthPill health={props.chrome.health} />
-      <a class="iconbtn hide-sm" href="/trash" title="Trash" aria-label="Trash">
-        ⌫
-      </a>
+      <HealthPill health={chrome.health} />
       <button
         type="button"
-        class="iconbtn"
+        class="iconbtn hide-sm"
         popovertarget="home-more"
         aria-haspopup="menu"
         aria-label="More"
         title="More"
       >
-        ⋯
+        {raw(icon("more", "lg"))}
       </button>
       <div id="home-more" class="menu" popover="auto" role="menu" aria-label="More">
         <div class="mbox">
-          <a class="mi" role="menuitem" href="/links">
-            <span aria-hidden="true">◍</span>
-            <span>Public links</span>
+          <a class="mi" role="menuitem" href="/status" aria-current={here("status")}>
+            <span>Status</span>
+            <span>
+              {keycaps(keyFor("go-status")).map((cap, index) => (
+                <>
+                  {index ? " " : ""}
+                  <kbd>{cap}</kbd>
+                </>
+              ))}
+            </span>
           </a>
-          <a class="mi" role="menuitem" href="/mcp">
-            <span aria-hidden="true">⚯</span>
+          <a class="mi" role="menuitem" href="/mcp" aria-current={here("mcp")}>
             <span>Connect an agent</span>
           </a>
-          <a class="mi" role="menuitem" href="/status">
-            <span aria-hidden="true">◉</span>
-            <span>Status</span>
-            <kbd>g s</kbd>
-          </a>
-          <a class="mi show-sm" role="menuitem" href="/trash">
-            <span aria-hidden="true">⌫</span>
-            <span>Trash</span>
-          </a>
           <button type="button" class="mi" role="menuitem" commandfor="keys" command="show-modal">
-            <span aria-hidden="true">?</span>
             <span>Keyboard shortcuts</span>
-            <kbd>?</kbd>
+            <kbd>{keyFor("keys")}</kbd>
           </button>
         </div>
+      </div>
+      <div id="go-to" class="menu navsheet" popover="auto">
+        <nav class="mbox" aria-label="Go to">
+          <div class="lbl" aria-hidden="true">
+            Go to
+          </div>
+          <a class="mi" href="/" aria-current={here("recent")}>
+            Recent
+          </a>
+          <a class="mi" href="/links" aria-current={here("links")}>
+            <LinksLabel live={live} />
+          </a>
+          <a class="mi" href="/trash" aria-current={here("trash")}>
+            {trash}
+          </a>
+          <hr />
+          <a class="mi" href="/status" aria-current={here("status")}>
+            Status
+          </a>
+          <a class="mi" href="/mcp" aria-current={here("mcp")}>
+            Connect an agent
+          </a>
+        </nav>
       </div>
     </header>
   );

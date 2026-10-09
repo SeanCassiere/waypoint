@@ -229,6 +229,9 @@
     width: 44px;
     height: 44px;
   }
+  .bar .where {
+    min-height: var(--tap);
+  }
   .bar .revbtn,
   .bar .health {
     position: relative;

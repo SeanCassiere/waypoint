@@ -239,7 +239,12 @@ export function notFound(
 ) {
   return noStore(
     c.html(
-      <Layout title="Not found" chrome={chrome} bar={<HomeBar chrome={chrome} />} page="not-found">
+      <Layout
+        title="Not found"
+        chrome={chrome}
+        bar={<HomeBar chrome={chrome} current={null} />}
+        page="not-found"
+      >
         <NotFoundBody path={path} latestHref={latestHref} message={message} />
       </Layout>,
       404,
