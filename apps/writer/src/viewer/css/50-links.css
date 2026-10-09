@@ -56,9 +56,6 @@ details.why > summary {
 details.why > summary::-webkit-details-marker {
   display: none;
 }
-details.why > summary::after {
-  content: " ⓘ";
-}
 details.why[open] {
   flex-basis: 100%;
 }

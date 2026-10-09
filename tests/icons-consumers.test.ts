@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { ICON_NAMES, type IconName } from "@waypoint/ui";
+import { ICON_NAMES } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
 // Every icon in the set has a consumer: a source under apps/ or packages/ui/src that passes the
@@ -12,39 +12,6 @@ const root = new URL("..", import.meta.url).pathname;
 const SOURCES = ["apps", "packages/ui/src"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "tests", ".turbo", ".wrangler"]);
 const SKIP_FILES = new Set([join(root, "packages/ui/src/icons.ts")]);
-
-// Icons with no consumer yet. Only shrinks; VS-03b empties it. Lanes don't edit it.
-const NOT_YET_CONSUMED_ICONS: readonly IconName[] = [
-  "search",
-  "more",
-  "panel",
-  "chevronDown",
-  "chevronLeft",
-  "chevronRight",
-  "close",
-  "check",
-  "copy",
-  "external",
-  "download",
-  "history",
-  "grid",
-  "alert",
-  "clock",
-  "okcircle",
-  "dot",
-  "globe",
-  "branch",
-  "follow",
-  "pin",
-  "lock",
-  "info",
-  "doc",
-  "image",
-  "table",
-  "code",
-  "binary",
-  "folder",
-];
 
 async function files(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true });
@@ -80,16 +47,8 @@ describe("icon consumers", () => {
     expect([...(await consumedNames())].filter((name) => !known.has(name))).toEqual([]);
   });
 
-  it("leaves no icon unused outside the not-yet-consumed list", async () => {
+  it("leaves no icon unused", async () => {
     const consumed = await consumedNames();
-    expect(
-      ICON_NAMES.filter((name) => !consumed.has(name) && !NOT_YET_CONSUMED_ICONS.includes(name)),
-    ).toEqual([]);
-  });
-
-  it("lists only icons in the set, each once", () => {
-    const known: ReadonlySet<string> = new Set(ICON_NAMES);
-    expect(NOT_YET_CONSUMED_ICONS.filter((name) => !known.has(name))).toEqual([]);
-    expect(new Set(NOT_YET_CONSUMED_ICONS).size).toBe(NOT_YET_CONSUMED_ICONS.length);
+    expect(ICON_NAMES.filter((name) => !consumed.has(name))).toEqual([]);
   });
 });

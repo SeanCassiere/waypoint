@@ -22,7 +22,7 @@ import {
 } from "../../shares.ts";
 import { shellPath } from "../../viewer-paths.ts";
 import { getChrome } from "../chrome.ts";
-import { Globe, Spinner, Time } from "../components.tsx";
+import { Spinner, Time } from "../components.tsx";
 import { plural } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
@@ -50,7 +50,7 @@ export function StateChip(props: { link: ShareView }) {
   if (state === "active")
     return (
       <span class="chip public" data-link-state="active">
-        <Globe />
+        {html(icon("globe", "sm"))}
         Active
       </span>
     );
@@ -123,7 +123,7 @@ export function LinkUrlActions(props: {
     return (
       <details class="why" data-url-missing>
         <summary class="chip xs" aria-describedby={describedBy}>
-          URL unavailable
+          URL unavailable {html(icon("info", "sm"))}
         </summary>
         <p class="note">{URL_UNAVAILABLE}</p>
       </details>
@@ -320,7 +320,7 @@ export function LinksPanel(props: {
       <div class="lnk-acts">
         {ctx.sharing ? (
           <button type="button" class="btn public center" commandfor="share" command="show-modal">
-            <Globe />
+            {html(icon("globe"))}
             New public link
           </button>
         ) : (
@@ -378,11 +378,7 @@ export function publicSegment(
   const live = links.filter(isLive);
   if (!live.length) return null;
   const count = plural(live.length, "live link");
-  const pubseg = (
-    <span class="pubseg">
-      <Globe /> Public
-    </span>
-  );
+  const pubseg = <span class="pubseg">{html(icon("globe", "sm"))} Public</span>;
   const following = live.find((link) => !link.revision_id);
   if (following) {
     const who = linkName(following);
@@ -779,7 +775,7 @@ export function ShareDialog(props: {
     >
       <div data-share-step="create">
         <div class="band">
-          <Globe />
+          {html(icon("globe", "xl"))}
           <div>
             <h2 id="share-title">Create a public link</h2>
             <p id="share-desc">
@@ -854,6 +850,9 @@ export function ShareDialog(props: {
                 <span class="sum-sm alt">
                   {failed ? null : <SumSm target="only" text={onlySum} />}
                   <SumSm target="latest" text={latestSum} />
+                </span>
+                <span class="sum-more" aria-hidden="true">
+                  Details {html(icon("chevronDown", "sm"))}
                 </span>
               </summary>
               <SeesRow mark="yes">
@@ -969,7 +968,7 @@ export function ShareDialog(props: {
       </div>
       <div data-share-step="created" hidden>
         <div class="band">
-          <Globe />
+          {html(icon("globe", "xl"))}
           <div>
             <h2 id="share-created-title">Link created</h2>
             <p>
@@ -1006,7 +1005,7 @@ export function ShareDialog(props: {
         <div class="ft">
           <span class="grow">
             <a href="#" target="_blank" rel="noopener noreferrer" data-share-open>
-              Open ↗
+              Open {html(icon("external", "sm"))}
             </a>
           </span>
           <button type="button" class="btn primary" data-share-done>
@@ -1163,7 +1162,7 @@ function LinkRow(props: { link: ShareView; now: number; sharing: boolean }) {
       ) : null}
       <span class="s">
         <span class={`chip xs${link.revision_id ? "" : " public"}`} data-shows>
-          {link.revision_id ? null : <Globe />}
+          {link.revision_id ? null : html(icon("globe", "sm"))}
           {showsText(link, null)}
         </span>
         {paused ? (
@@ -1300,9 +1299,7 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
         <main class="wrap" id="main" data-links-page>
           <div class="ph">
             <div>
-              <h1>
-                <Globe /> Public links
-              </h1>
+              <h1>{html(icon("globe", "xl"))} Public links</h1>
               <p data-refresh="links-head">
                 <LinksHead counts={counts} />
               </p>

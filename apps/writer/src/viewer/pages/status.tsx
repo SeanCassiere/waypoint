@@ -42,10 +42,26 @@ function describeClient(client: string | null): string {
   return `${name} on ${host ?? "an unknown machine"}`;
 }
 
-function Hero(props: { tone: "bad" | "warn" | "ok" | "off"; title: Child; body?: Child }) {
+/**
+ * Each hero tone's state icon (VS-03): alert failed, clock pending, okcircle synced, dot sync off.
+ * The sync-off dot carries its own `off` class, so it stays muted on prod's warning-toned hero.
+ */
+const HERO_ICONS = {
+  bad: icon("alert"),
+  warn: icon("clock"),
+  ok: icon("okcircle"),
+  off: icon("dot", "off"),
+} as const;
+function Hero(props: {
+  tone: "bad" | "warn" | "ok" | "off";
+  title: Child;
+  body?: Child;
+  /** The state icon, when it isn't the tone's (sync off on prod is a warning). */
+  icon?: string;
+}) {
   return (
     <div class={`hero ${props.tone}`} role={props.tone === "bad" ? "alert" : undefined}>
-      <span class="dot" aria-hidden="true" />
+      {raw(props.icon ?? HERO_ICONS[props.tone])}
       <div>
         <b>{props.title}</b>
         {props.body ? <span>{props.body}</span> : null}
@@ -400,6 +416,7 @@ export async function statusPage(
     heroes.push(
       <Hero
         tone={status.environment === "prod" ? "warn" : "off"}
+        icon={HERO_ICONS.off}
         title={LOCAL_ONLY_TITLE}
         body={LOCAL_ONLY_DETAIL}
       />,

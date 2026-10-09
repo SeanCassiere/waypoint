@@ -35,15 +35,7 @@ dialog.dlg::backdrop {
   opacity: 0.95;
 }
 .dlg .band svg {
-  flex: none;
   margin-top: 1px;
-  width: 22px;
-  height: 22px;
-}
-.dlg .band .bang {
-  font-size: 20px;
-  font-weight: 800;
-  line-height: 1;
 }
 .dlg.danger .band {
   background: var(--failed);
@@ -363,6 +355,10 @@ details.sees > summary {
   gap: 10px;
   background: var(--sunken);
   border-bottom: 1px solid var(--rule);
+}
+/* "Details" and its chevron, phones only (90-responsive). */
+details.sees .sum-more {
+  display: none;
 }
 details.sees > summary::-webkit-details-marker {
   display: none;
@@ -757,11 +753,6 @@ dialog.dlg .when b {
 #share:has(input[name="target"][value="latest"]:checked) .when-only,
 #share:not(:has(input[name="expires"][value="never"]:checked)) .when-never {
   visibility: hidden;
-}
-#share .band .globe,
-.ph h1 .globe {
-  width: 22px;
-  height: 22px;
 }
 .kv.flat {
   margin: 0;

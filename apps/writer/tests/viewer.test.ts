@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { newId, mintRevisionId, publicIdFor, WAYPOINT_VERSION } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -428,6 +429,8 @@ describe("viewer routes", () => {
     });
     const html = await (await prod.request("/status")).text();
     expect(html).toContain('class="hero warn"');
+    // Sync off is the muted dot whatever the hero's tone (VS-03).
+    expect(html).toContain(`<div class="hero warn">${icon("dot", "off")}<div><b>Local-only mode`);
     expect(html).toContain("Local-only mode (WAYPOINT_SYNC=off): no cloud durability.");
     expect(html).toContain("Public share links can&#39;t be served");
     expect(html).toContain(`${WAYPOINT_VERSION} (${sha.slice(0, 12)})`);
@@ -444,7 +447,7 @@ describe("viewer routes", () => {
     expect(status.warnings[0]?.message).toContain("no cloud durability");
     // Dev keeps the quieter tone; the warning text is the same.
     expect(await (await app.request("/status")).text()).toContain(
-      '<div class="hero off"><span class="dot" aria-hidden="true"></span><div><b>Local-only mode',
+      `<div class="hero off">${icon("dot", "off")}<div><b>Local-only mode`,
     );
   });
   it("shares live committer and sync status between the API and status page", async () => {

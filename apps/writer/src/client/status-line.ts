@@ -25,7 +25,7 @@ export function refreshStatusLine(): void {
   tap.dataset.tab = links ? "links" : "history";
   tap.setAttribute("href", `?panel=${tap.dataset.tab}`);
   const tab = links ? "Links" : "History";
-  const spoken = text.replace(/(^|· )[!◌●] /g, "$1").replace(/\.?$/, ".");
+  const spoken = text.replace(/\.?$/, ".");
   tap.textContent = brief;
   tap.setAttribute("aria-label", `${spoken} Open ${tab}.`);
   line.hidden = !segments.length;

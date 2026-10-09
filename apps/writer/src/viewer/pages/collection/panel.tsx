@@ -47,7 +47,7 @@ export function Panel(props: {
           </a>
         ))}
         <button type="button" class="iconbtn x" data-action="panel-close" aria-label="Close panel">
-          ✕
+          {raw(icon("close", "lg"))}
         </button>
       </nav>
       {tabs.map((tab) => (

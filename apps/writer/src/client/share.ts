@@ -706,7 +706,7 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
     if (sees) sees.open = !window.matchMedia("(max-width: 760px)").matches || warned(dialog);
   };
   const focusTarget = () => $('input[name="target"]:checked', HTMLInputElement, form)?.focus();
-  // Every way in (Share, s, New public link, the ⋯ menu) ends here once the dialog is open.
+  // Every way in (Share, s, New public link, the More menu) ends here once the dialog is open.
   dialog.addEventListener("toggle", () => {
     if (!dialog.open) return;
     fold();
@@ -743,7 +743,10 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
     const text = $("[data-share-state-text]", dialog);
     if (!chip || !text || state !== "active") return;
     chip.className = "state ok";
-    chip.replaceChildren("● Active");
+    chip.replaceChildren();
+    // Public is globe in --public (VS-03), like the server's Active chip; the word keeps its colour.
+    chip.insertAdjacentHTML("beforeend", icon("globe", "sm public"));
+    chip.append("Active");
     text.textContent = "Works now for anyone who has the link.";
   };
   let painted = "";

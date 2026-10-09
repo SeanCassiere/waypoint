@@ -301,7 +301,7 @@ export function bindForm(id: string, submit: (form: HTMLFormElement) => Promise<
 /**
  * Dialogs opened from a menu item (Rename…, Compare…, Move to Trash…, Edit metadata…,
  * Keyboard shortcuts) would return focus to that item, which sits in a popover that has
- * already closed, so focus falls to <body>. Remember the menu's own invoker (⋯ or the
+ * already closed, so focus falls to <body>. Remember the menu's own invoker (More or the
  * revision pill) and focus it when the dialog closes and nothing else has focus.
  */
 export function bindFocusReturn(): void {
