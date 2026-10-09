@@ -151,7 +151,13 @@ export function SearchBody(props: {
               props.trash ? (
                 <TrashResult item={item} now={now} freeText={props.freeText} />
               ) : (
-                <RecentRow variant="search" item={item} now={now} query={props.freeText} />
+                <RecentRow
+                  variant="search"
+                  item={item}
+                  now={now}
+                  query={props.freeText}
+                  health={chrome.health}
+                />
               )
             }
           />

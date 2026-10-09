@@ -51,6 +51,7 @@ export function RecentBody(props: {
               item={item}
               now={now}
               latestPub={props.latestPubs.get(item.id)}
+              health={chrome.health}
             />
           )}
         />

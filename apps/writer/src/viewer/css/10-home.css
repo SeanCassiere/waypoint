@@ -433,6 +433,158 @@ li.item.trash .meta {
     margin-top: 10px;
   }
 }
+.attn h2 .n {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  margin-left: 4px;
+}
+/* One card per collection that needs you (OW-06b). */
+.attn .ag {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  padding: 10px 14px 13px;
+  align-items: start;
+  border-top: 1px solid var(--failed-line);
+}
+.attn h2 + .ag {
+  border-top: 0;
+}
+.ag .t {
+  font-weight: 650;
+  font-size: 15px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ag .t a {
+  color: var(--ink);
+}
+.ag .proj {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ag .acts {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.ag .cause {
+  grid-column: 1/-1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.ag .cause b {
+  font-weight: 650;
+  color: var(--ink);
+}
+/* The revision lines strip: labels left, chips right (one column on phones). */
+.lin2 {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--failed-line);
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+.lin2 .sline {
+  display: contents;
+}
+.lin2 .lk {
+  font: 600 12px/24px var(--sans);
+  color: var(--muted);
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  white-space: nowrap;
+}
+.lin2 .lv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  min-height: 24px;
+  min-width: 0;
+}
+.lin2 .sc,
+.srow .sc,
+.lin2 .scm {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.lin2 .sc.ok,
+.srow .sc.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.lin2 .sc.f,
+.srow .sc.f {
+  color: var(--failed);
+  border-color: var(--failed-line);
+  background: var(--failed-bg);
+}
+.lin2 .sc.p,
+.srow .sc.p {
+  color: var(--pending);
+  border-color: var(--pending-line);
+  background: var(--pending-bg);
+}
+.lin2 .sc.w,
+.srow .sc.w {
+  color: var(--muted);
+  border-style: dashed;
+}
+.lin2 .scm {
+  color: var(--muted);
+  font-weight: 500;
+}
+.lin2 .to {
+  display: inline-flex;
+  color: var(--faint);
+}
+.lin2 .q {
+  color: var(--muted);
+}
+.lin2 .q2 {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+/* Sync off: a neutral note instead of the card. */
+.attn.off {
+  display: block;
+  border-color: var(--rule-2);
+  background: var(--sunken);
+  padding: 11px 14px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.attn.off .ic {
+  color: var(--muted);
+  margin-right: 6px;
+}
+.attn.off b {
+  color: var(--ink);
+}
 /* The empty search page (NAV-02, /?q=): the heading and lede, and below 761 px an in-page field
    (.show-sm makes it a grid there), since the bar's is hidden. */
 .searchstart .lede {

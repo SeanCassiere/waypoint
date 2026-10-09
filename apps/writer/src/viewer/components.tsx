@@ -4,10 +4,11 @@ import { icon, isStageImage } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
-import type { Health } from "../health.ts";
+import type { Health, HealthItem } from "../health.ts";
 import { shellPath } from "../viewer-paths.ts";
 import { changesTitle, plural } from "./format.ts";
 import { gutterFor, type GutterCell } from "./gutter.ts";
+import { chipText, seesLine, type StripModel, type StripStep } from "./health-words.ts";
 import type { Lineage } from "./lineage.ts";
 import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
 
@@ -128,8 +129,31 @@ export function revisionHref(item: { collection_public_id: string | null; public
     ? shellPath(item.collection_public_id, item.public_id, "", true)
     : "/status";
 }
+/** Up to three "{title} #6" links, then "+N more". */
+function RevisionLinks(props: { items: readonly HealthItem[] }) {
+  const { items } = props;
+  return (
+    <>
+      {items.slice(0, 3).map((item, index) => (
+        <>
+          {index ? ", " : ""}
+          <a href={revisionHref(item)}>
+            {item.collection_title ?? "Untitled"} #{item.display_number ?? "?"}
+          </a>
+        </>
+      ))}
+      {items.length > 3 ? ` +${items.length - 3} more` : ""}
+    </>
+  );
+}
 export function HealthPopover(props: { health: Health; now: number; host: string }) {
   const { health, now } = props;
+  // Uploading or waiting: the pending revisions that aren't stalled (those have their own row).
+  const moving = health.pending.filter((item) => item.sync !== "stalled");
+  const oldest = moving.reduce<number | null>(
+    (at, item) => (at === null || item.created_at < at ? item.created_at : at),
+    null,
+  );
   const dot =
     health.state === "failed" || health.state === "blocked"
       ? "failed"
@@ -156,27 +180,27 @@ export function HealthPopover(props: { health: Health; now: number; host: string
             <>
               <dt>Failed</dt>
               <dd>
-                {health.failed.slice(0, 3).map((item, index) => (
-                  <>
-                    {index ? ", " : ""}
-                    <a href={revisionHref(item)}>
-                      {item.collection_title ?? "Untitled"} #{item.display_number ?? "?"}
-                    </a>
-                  </>
-                ))}
-                {health.failed.length > 3 ? ` +${health.failed.length - 3} more` : ""}
+                <RevisionLinks items={health.failed} />
               </dd>
             </>
           ) : null}
-          {health.pending.length ? (
+          {health.stalled.length ? (
+            <>
+              <dt>Stalled</dt>
+              <dd>
+                <RevisionLinks items={health.stalled} />
+              </dd>
+            </>
+          ) : null}
+          {moving.length ? (
             <>
               <dt>Uploading</dt>
               <dd>
-                {plural(health.pending.length, "revision")}
-                {health.oldestPendingAt !== null ? (
+                {plural(moving.length, "revision")}
+                {oldest !== null ? (
                   <>
                     {" · oldest "}
-                    <Time at={health.oldestPendingAt} fmt="ago" now={now} />
+                    <Time at={oldest} fmt="ago" now={now} />
                   </>
                 ) : null}
               </dd>
@@ -231,6 +255,113 @@ export function HealthPopover(props: { health: Health; now: number; host: string
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+const STEP_CLASS: Record<StripStep["word"], string> = {
+  synced: "ok",
+  failed: "f",
+  uploading: "p",
+  stalled: "p",
+  waiting: "w",
+};
+const STEP_ICON = {
+  synced: "okcircle",
+  failed: "alert",
+  uploading: "clock",
+  stalled: "clock",
+  waiting: "clock",
+} as const satisfies Record<StripStep["word"], string>;
+function StripChip(props: { step: StripStep }) {
+  const { row, word, waitingFor } = props.step;
+  return (
+    <span class={`sc ${STEP_CLASS[word]}`}>
+      {raw(icon(STEP_ICON[word], "sm"))}
+      {word === "synced"
+        ? `#${row.display_number} synced`
+        : chipText(row.display_number, word, waitingFor)}
+    </span>
+  );
+}
+const More = (props: { n: number; unit?: string }) =>
+  props.n > 0 ? (
+    <span class="scm">
+      +{props.n} more{props.unit ? ` ${props.unit}` : ""}
+    </span>
+  ) : null;
+/**
+ * A collection's revision lines (OW-06b): the latest line from its newest synced revision to the
+ * latest, then one line per fork point with the revisions that aren't synced. Lanes are an
+ * owner-side view; only the sees line says what other machines and public links get.
+ */
+export function LineStrip(props: { model: StripModel; showSees?: boolean }) {
+  const { model } = props;
+  const latest = model.latest;
+  // The synced step, then "+N more" older unsynced steps, then the newest unsynced ones.
+  const chain: (StripStep | number)[] = latest
+    ? [
+        ...(latest.synced ? [latest.synced] : []),
+        ...(latest.more ? [latest.more] : []),
+        ...latest.unsynced,
+      ]
+    : [];
+  return (
+    <div class="lin2" role="group" aria-label="Revision lines">
+      {latest ? (
+        <div class="sline">
+          <span class="lk">Latest line</span>
+          <span class="lv">
+            {chain.map((step, index) => (
+              <>
+                {index ? (
+                  <span class="to" aria-hidden="true">
+                    {raw(icon("chevronRight", "sm"))}
+                  </span>
+                ) : null}
+                {typeof step === "number" ? <More n={step} /> : <StripChip step={step} />}
+              </>
+            ))}
+            <span class="q">{latest.onN === null ? "latest" : `latest, on #${latest.onN}`}</span>
+            {props.showSees === false ? null : <span class="q2">{seesLine(model)}</span>}
+          </span>
+        </div>
+      ) : null}
+      {model.branches.map((branch) => (
+        <div class={latest ? "sline br" : "sline"}>
+          <span class="lk">
+            {!latest ? (
+              "Revisions"
+            ) : (
+              <>
+                {raw(icon("branch", "sm"))}
+                {branch.offN === null ? "Separate branch" : `Branch off #${branch.offN}`}
+              </>
+            )}
+          </span>
+          <span class="lv">
+            {branch.steps.map((step) => (
+              <StripChip step={step} />
+            ))}
+            <More n={branch.more} />
+            <span class="q">
+              {!latest
+                ? "nothing in this collection has synced"
+                : branch.steps.some((step) => step.word === "failed")
+                  ? "not in latest; nobody else sees it"
+                  : "not in latest"}
+            </span>
+          </span>
+        </div>
+      ))}
+      {model.moreBranches ? (
+        <div class="sline br">
+          <span class="lk" />
+          <span class="lv">
+            <More n={model.moreBranches} unit={model.moreBranches === 1 ? "branch" : "branches"} />
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

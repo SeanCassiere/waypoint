@@ -12,6 +12,7 @@ import { z } from "zod";
 import { BlobStore } from "../src/blob-store.ts";
 import type { Config } from "../src/config.ts";
 import { openDatabases, type Db } from "../src/db.ts";
+import type { Health, HealthItem } from "../src/health.ts";
 import { createApp } from "../src/http.ts";
 import { IngestService } from "../src/ingest.ts";
 import {
@@ -122,18 +123,65 @@ describe("RecentRow, recent and search variants", () => {
     const link = row.slice(row.indexOf('<a class="tlink"'), row.indexOf("</a>") + 4);
     expect(link).toContain("<mark>idempotency</mark>");
   });
-  it("leaves the queue chips as they were (OW-06b restyles them)", async () => {
-    const row = await html(
-      RecentRow({
-        variant: "recent",
-        item: result({ queue: { failed: 1, pending: 1 } }),
-        now: NOW,
-      }),
-    );
-    expect(row).toContain(
-      '<span class="chip xs failed"><span aria-hidden="true">!</span> 1 failed</span>',
-    );
-    expect(row).toContain('<span class="chip xs pending">uploading</span>');
+  it("names the queued revisions in its sync chips (OW-06b)", async () => {
+    const item = result({ queue: { failed: 1, pending: 1 } });
+    const queued = (n: number, sync: "failed" | "uploading"): HealthItem => ({
+      id: `rev_${n}`,
+      public_id: `pub${n}`,
+      collection_id: item.id,
+      collection_public_id: PUB,
+      collection_title: item.title,
+      display_number: n,
+      message: null,
+      created_at: NOW - n,
+      last_error: null,
+      error_kind: null,
+      source_host: null,
+      state: sync === "failed" ? "failed" : "pending",
+      first_attempt_at: null,
+      attempts: 0,
+      next_attempt_at: null,
+      parent_revision_id: null,
+      parent_state: null,
+      sync,
+    });
+    const items = [queued(5, "uploading"), queued(4, "failed")];
+    const health: Health = {
+      state: "failed",
+      label: "1 failed",
+      short: "1 failed",
+      aria: "",
+      failed: items.filter((entry) => entry.state === "failed"),
+      pending: items.filter((entry) => entry.state === "pending"),
+      stalled: [],
+      waiting: [],
+      collections: [
+        {
+          collection_id: item.id,
+          collection_public_id: PUB,
+          collection_title: item.title,
+          items,
+          rows: [],
+          worst: "failed",
+          project: null,
+          attention: true,
+          liveLinks: 0,
+          followsLatest: false,
+        },
+      ],
+      oldestPendingAt: null,
+      lastPushAt: null,
+      lastPullAt: null,
+      cloudLastOkAt: null,
+      cloudError: null,
+      blockedReason: null,
+      environment: "dev",
+      syncEnabled: true,
+    };
+    const row = await html(RecentRow({ variant: "recent", item, now: NOW, health }));
+    expect(row).toMatch(/<span class="chip xs failed">.*?#4 failed<\/span>/);
+    expect(row).toMatch(/<span class="chip xs pending">.*?#5 uploading<\/span>/);
+    expect(row).not.toContain("1 failed");
   });
 });
 

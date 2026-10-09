@@ -3,8 +3,9 @@ import type { SyncState } from "@waypoint/core";
 import { LocalSyncClient } from "./db.ts";
 import type { HttpServices } from "./http.ts";
 import { sourceHost } from "./read-model.ts";
+import { trashedPendingIds } from "./shares.ts";
 import { cloudLastOkAt } from "./status-data.ts";
-import { plural } from "./viewer/format.ts";
+import { plural, projectAndTags } from "./viewer/format.ts";
 
 /** Writer health for the pill, the popover, Needs attention and Status (spec §4.2). */
 export type HealthState =
@@ -56,6 +57,14 @@ export interface CollectionHealth {
   /** Every revision of the collection, oldest first (display-number order). */
   rows: HealthRevision[];
   worst: RevisionHealth;
+  /** The collection's `project` metadata, null when absent or unparsable (OW-06b). */
+  project: string | null;
+  /** Something here needs the owner: `worst` is failed or stalled. */
+  attention: boolean;
+  /** Live links on the collection (FC1's rule); 0 unless `attention`. */
+  liveLinks: number;
+  /** A live link follows latest; false unless `attention`. */
+  followsLatest: boolean;
 }
 export interface Health {
   state: HealthState;
@@ -147,9 +156,23 @@ export function collectionHealth(
   return health.collections.find((entry) => entry.collection_public_id === collectionPub);
 }
 
+/** `project` from a collection's metadata JSON, or null. */
+function projectOf(metadataJson: string | undefined): string | null {
+  if (!metadataJson) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadataJson);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? projectAndTags(Object.fromEntries(Object.entries(parsed))).project
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * One query when nothing is queued; six when something is (the pending scan, pending and
- * committed collection titles, and revisionIndex's three), constant in queue size.
+ * committed collection titles, and revisionIndex's three), constant in queue size; two more when
+ * a collection needs attention (the trashed-pending lookup and the share summary).
  */
 export async function getHealth(s: HttpServices, now = Date.now()): Promise<Health> {
   const rows = await s.queue.all<{
@@ -173,12 +196,12 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
   const marks = collectionIds.map(() => "?").join(",");
   const [pendingCollections, committedCollections, index] = collectionIds.length
     ? await Promise.all([
-        s.queue.all<{ id: string; public_id: string; title: string }>(
-          `SELECT id,public_id,title FROM pending_collections WHERE id IN (${marks})`,
+        s.queue.all<{ id: string; public_id: string; title: string; metadata: string }>(
+          `SELECT id,public_id,title,metadata FROM pending_collections WHERE id IN (${marks})`,
           collectionIds,
         ),
-        s.waypoint.all<{ id: string; public_id: string; title: string }>(
-          `SELECT id,public_id,title FROM collections WHERE id IN (${marks})`,
+        s.waypoint.all<{ id: string; public_id: string; title: string; metadata: string }>(
+          `SELECT id,public_id,title,metadata FROM collections WHERE id IN (${marks})`,
           collectionIds,
         ),
         s.reads.revisionIndex(collectionIds),
@@ -249,18 +272,36 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
   }
   const collectionHealths = [...grouped].map(([collectionId, list]): CollectionHealth => {
     const first = list[0];
+    const worst = list.reduce<RevisionHealth>(
+      (acc, row) => (rank[row.sync] < rank[acc] ? row.sync : acc),
+      "waiting",
+    );
     return {
       collection_id: collectionId,
       collection_public_id: first?.collection_public_id ?? null,
       collection_title: first?.collection_title ?? null,
       items: list,
       rows: revisions.get(collectionId) ?? [],
-      worst: list.reduce<RevisionHealth>(
-        (worst, row) => (rank[row.sync] < rank[worst] ? row.sync : worst),
-        "waiting",
-      ),
+      worst,
+      project: projectOf(collections.get(collectionId)?.metadata),
+      attention: worst === "failed" || worst === "stalled",
+      liveLinks: 0,
+      followsLatest: false,
     };
   });
+  // Public impact for the cards (OW-05's live rule), two queries, only when something needs you.
+  const attentionIds = collectionHealths.flatMap((entry) =>
+    entry.attention ? [entry.collection_id] : [],
+  );
+  if (attentionIds.length) {
+    const trashedPending = await trashedPendingIds(s);
+    const summary = await s.reads.shareSummary(attentionIds, { now, trashedPending });
+    for (const entry of collectionHealths) {
+      const share = entry.attention ? summary.get(entry.collection_id) : undefined;
+      entry.liveLinks = share?.active ?? 0;
+      entry.followsLatest = share?.follows_latest ?? false;
+    }
+  }
   const byWorst = collectionHealths.toSorted(
     (a, b) =>
       rank[a.worst] - rank[b.worst] ||
@@ -283,6 +324,11 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
     state = "blocked";
     label = "Sync blocked";
     aria = `Writer status: sync is blocked. ${blockedReason}`;
+  } else if (!syncEnabled) {
+    // Above failed: with sync off nothing uploads, so the pill says that (OW-06b).
+    state = "off";
+    label = "Sync off";
+    aria = "Writer status: cloud sync is off on this writer";
   } else if (failed.length) {
     state = "failed";
     label = `${failed.length} failed`;
@@ -291,10 +337,6 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
     state = "offline";
     label = "Offline · writes queued";
     aria = "Writer status: can't reach the cloud; writes are queued here";
-  } else if (!syncEnabled) {
-    state = "off";
-    label = "Sync off";
-    aria = "Writer status: cloud sync is off on this writer";
   } else if (stalled.length) {
     state = "stalled";
     label = `${stalled.length} stalled`;
