@@ -1189,7 +1189,9 @@ describe("owner feedback 1: copyable links, calm Links tab, History state", () =
     const one = await createdId(await create({ label: "one" }));
     let tab = await viewerHtml(`/c/${collectionPublicId}/?panel=links`);
     expect(tab).toContain("New public link");
-    expect(tab).toMatch(/class="txtbtn"[^>]*>Preview as public ↗/);
+    expect(tab).toMatch(
+      /class="txtbtn"[^>]*>Preview as public\s*<svg class="ic[^"]*"[^>]*aria-hidden="true"/,
+    );
     expect(tab).not.toContain("Revoke all");
     // Revoke… is a quiet text action, not a red button.
     expect(tab).toContain('<summary class="txtbtn danger">Revoke…</summary>');

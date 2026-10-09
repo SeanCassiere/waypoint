@@ -1,3 +1,5 @@
+import { icon } from "@waypoint/ui";
+
 import { plural } from "../viewer/format.ts";
 import { fullDate } from "../viewer/timefmt.ts";
 import { registerAction } from "./actions.ts";
@@ -6,23 +8,32 @@ import { copyText, showCopied } from "./copy.ts";
 import { confirmDialog } from "./dialogs.ts";
 import { $, $$, el, run, shellRoot } from "./dom.ts";
 import { onCommand } from "./keys.ts";
+import { refreshStatusLine } from "./status-line.ts";
 import { flash, toast } from "./toast.ts";
 
 const DAY = 86_400_000;
 /** Keep in step with STOPS_SOON and NOT_PUSHED in viewer/pages/share.tsx. */
 const STOPS_SOON = "Public access stops within seconds.";
 const NOT_PUSHED = "Revoked, not yet pushed. Public access continues until it syncs.";
+/** A revoked card's note once the reader no longer serves the link. */
+const STOPPED = "Its URL no longer works.";
 
 function linkState(value: unknown): string {
   const state = field(field(value, "share_link"), "state");
   return typeof state === "string" ? state : "";
 }
 
-/** The revocation note on a card (Links tab) or row (/links): pushed yet, or not. */
+/**
+ * The revocation note on a card (Links tab) or row (/links): pushed yet, or not. Once the link
+ * reads revoked (null), a card's confirmation row says its URL no longer works; a row drops it.
+ */
 function setRevokeNote(holder: HTMLElement, pushed: boolean | null): void {
   let note = $("[data-stops]", holder);
   if (pushed === null) {
-    note?.remove();
+    if (note && holder.classList.contains("gone")) {
+      note.dataset.stops = "done";
+      note.textContent = STOPPED;
+    } else note?.remove();
     return;
   }
   if (!note) {
@@ -41,7 +52,7 @@ function bump(node: HTMLElement | null, by: number): void {
 /**
  * One fewer link of this status (the holder's data-link-status before the revoke): the Links
  * tab count (live links only), the /links segment counts and Revoke all (on /links, only for
- * a live link).
+ * a live link). Only when the page couldn't be re-fetched (refreshAfterRevoke).
  */
 function countRevoked(status: string): void {
   if (status === "active") bump($("#tab-links .n"), -1);
@@ -61,31 +72,62 @@ function countRevoked(status: string): void {
 }
 
 /**
- * Shows a link as revoked the moment the writer has recorded it: the card (Links tab) or row
- * (/links) loses its actions and its chip reads Revoked. Its note says whether the
- * revocation has reached the cloud yet (until then the public reader still serves the link),
- * and follows it until it has. No reload, so nothing else on the page moves.
+ * A revoked card (Links tab) collapses into a confirmation row: "Revoked “label”", Dismiss, the
+ * push note, and where the link went. The fresh inactive list shows the link itself.
+ */
+function collapseCard(holder: HTMLElement, pushed: boolean): void {
+  const label = $("[data-link-label]", holder);
+  // An unlabelled card's label is <i>No label</i>.
+  const name = label?.tagName === "B" ? label.textContent : null;
+  const dismiss = el("button", {
+    class: "iconbtn sm",
+    attrs: { type: "button", "data-action": "dismiss-revoked", "aria-label": "Dismiss" },
+  });
+  dismiss.insertAdjacentHTML("beforeend", icon("close", "sm"));
+  holder.replaceChildren(
+    el(
+      "div",
+      { class: "h" },
+      el("b", { text: name ? `Revoked “${name}”` : "Revoked link" }),
+      dismiss,
+    ),
+    el("p", { class: "note stops", attrs: { "data-stops": String(pushed) } }),
+    el("p", { class: "note", text: "Listed under inactive." }),
+  );
+  holder.classList.add("dead", "gone");
+  holder.dataset.revoked = "";
+  setRevokeNote(holder, pushed);
+}
+
+/**
+ * Shows a link as revoked the moment the writer has recorded it: a card (Links tab) collapses
+ * into a confirmation row; a row (/links) loses its actions and its chip reads Revoked. The
+ * note says whether the revocation has reached the cloud yet (until then the public reader
+ * still serves the link), and follows it until it has. Counts are the refresh's job.
  */
 function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
-  holder.classList.add("dead");
-  const chip = $("[data-link-state]", holder);
-  if (chip) {
-    chip.className = holder.classList.contains("r") ? "chip xs" : "chip";
-    chip.dataset.linkState = "revoking";
-    chip.replaceChildren("Revoked");
+  if (holder.classList.contains("lnk")) collapseCard(holder, pushed);
+  else {
+    holder.classList.add("dead");
+    const chip = $("[data-link-state]", holder);
+    if (chip) {
+      chip.className = holder.classList.contains("r") ? "chip xs" : "chip";
+      chip.dataset.linkState = "revoking";
+      chip.replaceChildren("Revoked");
+    }
+    for (const node of $$(".row, .acts, [data-url-missing]", holder))
+      if (node.parentElement === holder) node.remove();
+    // Expiry no longer applies (/links rows).
+    for (const node of $$("[data-live]", holder)) node.remove();
+    setRevokeNote(holder, pushed);
   }
-  for (const node of $$(".row, .acts, [data-url-missing]", holder))
-    if (node.parentElement === holder) node.remove();
-  // Expiry no longer applies (/links rows).
-  for (const node of $$("[data-live]", holder)) node.remove();
-  setRevokeNote(holder, pushed);
-  const status = holder.dataset.linkStatus ?? "";
   holder.dataset.linkStatus = "revoked";
-  countRevoked(status);
   holder.tabIndex = -1;
   holder.focus();
   const started = Date.now();
   const check = () => {
+    // A dismissed confirmation row has nothing left to follow.
+    if (!holder.isConnected) return;
     api(`/api/share-links/${encodeURIComponent(id)}`)
       .then((value) => {
         const link = field(value, "share_link");
@@ -102,6 +144,374 @@ function markRevoked(holder: HTMLElement, id: string, pushed: boolean): void {
       });
   };
   setTimeout(check, 1000);
+}
+
+/**
+ * Counter selectors the refresh copies from the fresh page (outside keyed nodes): what
+ * countRevoked() bumps. Appendable, so a later page can add a counter without a new pass.
+ */
+export const REFRESH_SELECTORS: string[] = ["#tab-links .n", "[data-count-of]"];
+
+/** Refreshes started so far: each one's sequence number. */
+let refreshes = 0;
+/** The newest refresh whose page came back: that page shows every earlier revoke too. */
+let arrived = 0;
+/** The end of the newest refresh's turn: refreshes decide in the order they started. */
+let turns: Promise<void> = Promise.resolve();
+/** Each pending refresh's outcome, so an overtaken one can wait for the refresh that swaps. */
+const outcomes = new Map<number, Promise<boolean>>();
+/** A refresh that hangs mustn't hold up the ones after it. */
+const REFRESH_TIMEOUT_MS = 15_000;
+
+const outsideKeyed = (node: Element) => !node.parentElement?.closest("[data-refresh]");
+const adopt = (node: Element) => document.importNode(node, true);
+const isPublic = (segment: Element) => segment.querySelector(".pubseg") !== null;
+/** Pairs a counter with its fresh copy: by data-count-of where it has one. */
+const countKey = (node: Element) => node.getAttribute("data-count-of") ?? "";
+const keyOf = (node: Element) => node.getAttribute("data-refresh") ?? "";
+/** The outermost keyed nodes (an inner one comes with its outer one). */
+const keyed = (root: ParentNode) =>
+  [...root.querySelectorAll("[data-refresh]")].filter(outsideKeyed);
+const present = (key: string) => $(`[data-refresh="${CSS.escape(key)}"]`);
+
+const FOCUSABLE = "button, summary, a[href], input, select, textarea, [tabindex]";
+/** The node itself when it takes focus, else its first control. */
+function control(node: Element): HTMLElement | null {
+  const found = node.matches(FOCUSABLE) ? node : node.querySelector(FOCUSABLE);
+  return found instanceof HTMLElement ? found : null;
+}
+/** Where focus was when a swap took its node away: it goes to the next control after it. */
+let lostFocus: Comment | null = null;
+/** Child indexes from `root` down to `node`. */
+function pathTo(root: Element, node: Element): number[] {
+  const path: number[] = [];
+  for (let at: Element = node; at !== root && at.parentElement; at = at.parentElement)
+    path.unshift([...at.parentElement.children].indexOf(at));
+  return path;
+}
+
+/** Removes a swapped-out node; if it held focus, marks the spot for restoreFocus(). */
+function removeNode(node: Element): void {
+  if (lostFocus || !node.contains(document.activeElement)) {
+    node.remove();
+    return;
+  }
+  lostFocus = document.createComment("");
+  node.replaceWith(lostFocus);
+}
+
+/**
+ * Replaces a node with its fresh copy. Focus inside it moves to the same control in the copy
+ * (same place, same element), else to the copy's first control, else to the next one after it.
+ */
+function replaceNode(node: Element, added: Element): void {
+  const active = document.activeElement;
+  const path = active && node.contains(active) ? pathTo(node, active) : null;
+  node.replaceWith(added);
+  if (!path || !active) return;
+  let same: Element | undefined = added;
+  for (const index of path) same = same?.children[index];
+  const target =
+    same instanceof HTMLElement && same.tagName === active.tagName ? same : control(added);
+  if (target) target.focus({ preventScroll: true });
+  else if (!lostFocus) {
+    lostFocus = document.createComment("");
+    added.after(lostFocus);
+  }
+}
+
+/** Focus a swap took away goes to the next control after its spot, else its container's first. */
+function restoreFocus(): void {
+  const marker = lostFocus;
+  lostFocus = null;
+  if (!marker) return;
+  const parent = marker.parentElement;
+  let target: HTMLElement | null = null;
+  for (let next = marker.nextElementSibling; next && !target; next = next.nextElementSibling)
+    target = control(next);
+  marker.remove();
+  target ??= parent ? control(parent) : null;
+  target?.focus({ preventScroll: true });
+}
+
+function parsePage(html: string): Document | null {
+  const fresh = new DOMParser().parseFromString(html, "text/html");
+  return fresh.body?.firstElementChild ? fresh : null;
+}
+
+const shown = (node: HTMLElement) => node.getClientRects().length > 0;
+/**
+ * Focus the status line had when the refresh hid it or took its control away: the line's first
+ * visible control, else, as when a sheet's opener is gone (panel.ts), the visible panel toggle,
+ * else the main area.
+ */
+function keepStatusFocus(line: HTMLElement): void {
+  const active = document.activeElement;
+  // A control in a hidden line can still be document.activeElement until the browser blurs it.
+  if (!line.hidden && active instanceof HTMLElement && line.contains(active) && shown(active))
+    return;
+  const target =
+    (line.hidden ? undefined : $$("a[href], button", line).find(shown)) ??
+    $$("[data-action=panel-toggle]").find(shown) ??
+    $("#main");
+  target?.focus({ preventScroll: true });
+}
+
+/** Watches the open phone sheet while the refresh has hidden the status line. */
+let sheetWatch: MutationObserver | null = null;
+/**
+ * The refresh hid the status line while the Links sheet is open: closing the sheet returns focus
+ * to its opener (panel.ts), which may be a control in the line, hidden now, so focus would stay
+ * in the closed sheet or drop to the body. When the sheet closes and focus has nowhere to be,
+ * it goes where keepStatusFocus() sends it.
+ */
+function watchSheetClose(line: HTMLElement): void {
+  const root = $("#shell");
+  if (sheetWatch || !root?.classList.contains("open")) return;
+  const watch = new MutationObserver(() => {
+    if (root.classList.contains("open")) return;
+    watch.disconnect();
+    sheetWatch = null;
+    const active = document.activeElement;
+    // A control in the closed (visibility: hidden) sheet stays document.activeElement until
+    // the browser blurs it.
+    const lost =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      active.closest("[hidden]") !== null ||
+      !shown(active) ||
+      getComputedStyle(active).visibility === "hidden";
+    if (lost) keepStatusFocus(line);
+  });
+  sheetWatch = watch;
+  watch.observe(root, { attributes: true, attributeFilter: ["class"] });
+}
+
+const separator = () =>
+  el("span", { class: "sepdot", text: "·", attrs: { "aria-hidden": "true" } });
+/**
+ * A public segment the current line lacks (a link went live meanwhile): in spec order, after
+ * failed and uploading, before "new since you last read" and the older revision.
+ */
+function insertPublic(line: HTMLElement, added: Element): void {
+  const segments = $$(":scope > .seg1", line);
+  const anchor =
+    $(":scope > .seg1[data-newsince]", line) ??
+    $("[data-older-segment]", line)?.closest(".seg1") ??
+    $(":scope > .grow", line);
+  if (anchor?.classList.contains("seg1")) anchor.before(added, separator());
+  else {
+    const parts = segments.length > 0 ? [separator(), added] : [added];
+    if (anchor) anchor.before(...parts);
+    else line.append(...parts);
+  }
+}
+
+/** The status line's public segment (and its tone), then the phone tap text. */
+function swapStatus(fresh: Document): void {
+  const line = $("[data-status]");
+  if (!line) return;
+  const active = document.activeElement;
+  const hadFocus = active !== null && line.contains(active);
+  const freshLine = fresh.querySelector("[data-status]");
+  const current = $$(".seg1", line).find(isPublic);
+  const next = freshLine ? [...freshLine.querySelectorAll(".seg1")].find(isPublic) : undefined;
+  if (current && next) current.replaceWith(adopt(next));
+  else if (next) insertPublic(line, adopt(next));
+  else if (current) {
+    const before = current.previousElementSibling;
+    const after = current.nextElementSibling;
+    if (before?.classList.contains("sepdot")) before.remove();
+    else if (after?.classList.contains("sepdot")) after.remove();
+    current.remove();
+  }
+  // Script-added segments (new since you last read, the frame notice) set no tone of their own.
+  if (freshLine && !$("[data-newsince], [data-frame-notice]", line))
+    line.className = freshLine.className;
+  refreshStatusLine();
+  if (hadFocus) keepStatusFocus(line);
+  else if (line.hidden) watchSheetClose(line);
+}
+
+/** REFRESH_SELECTORS: each count takes the fresh page's value, goes, or appears. */
+function swapCounters(fresh: Document): void {
+  for (const selector of REFRESH_SELECTORS) {
+    const current = $$(selector).filter(outsideKeyed);
+    const next = [...fresh.querySelectorAll(selector)].filter(outsideKeyed);
+    for (const node of current) {
+      const match = next.find((candidate) => countKey(candidate) === countKey(node));
+      if (match) node.textContent = match.textContent;
+      else node.remove();
+    }
+    for (const node of next) {
+      if (current.some((candidate) => countKey(candidate) === countKey(node))) continue;
+      // Into the same container (by id), before its button if it has one (#tab-links .n).
+      const id = node.parentElement?.id;
+      const container = id ? document.getElementById(id) : null;
+      if (container) container.insertBefore(adopt(node), $(":scope > button", container));
+    }
+  }
+}
+
+/** Revoke all buttons outside keyed nodes (/links): the fresh count and text, or gone. */
+function swapRevokeAll(fresh: Document): void {
+  const next = [...fresh.querySelectorAll("[data-action=revoke-all]")].filter(outsideKeyed);
+  for (const button of $$("[data-action=revoke-all]").filter(outsideKeyed)) {
+    const collection = button.getAttribute("data-collection-id");
+    const match = next.find(
+      (candidate) => candidate.getAttribute("data-collection-id") === collection,
+    );
+    if (!match) {
+      removeNode(button.closest(".lnk-foot") ?? button);
+      continue;
+    }
+    for (const name of ["data-count", "data-noun"]) {
+      const value = match.getAttribute(name);
+      if (value === null) button.removeAttribute(name);
+      else button.setAttribute(name, value);
+    }
+    button.textContent = match.textContent;
+  }
+}
+
+/**
+ * data-refresh="<key>" nodes: replaced, removed, or inserted after the node holding the previous
+ * key in fresh order (before the next one's, else at the end of the fresh node's container).
+ * Focus inside a replaced or removed node stays on its control (replaceNode, restoreFocus).
+ */
+function swapKeyed(fresh: Document): void {
+  const nextNodes = keyed(fresh);
+  const next = new Map(nextNodes.map((node) => [keyOf(node), node]));
+  for (const node of keyed(document)) {
+    const match = next.get(keyOf(node));
+    if (!match) {
+      removeNode(node);
+      continue;
+    }
+    const added = adopt(match);
+    // An expanded "Show N inactive" stays expanded.
+    if (node instanceof HTMLDetailsElement && added instanceof HTMLDetailsElement)
+      added.open = node.open;
+    replaceNode(node, added);
+  }
+  for (const [index, node] of nextNodes.entries()) {
+    if (present(keyOf(node))) continue;
+    const added = adopt(node);
+    const before = nextNodes
+      .slice(0, index)
+      .toReversed()
+      .map((other) => present(keyOf(other)));
+    const after = nextNodes.slice(index + 1).map((other) => present(keyOf(other)));
+    const previous = before.find((other) => other !== null);
+    const following = after.find((other) => other !== null);
+    const id = node.parentElement?.closest("[id]")?.id;
+    const container = id ? document.getElementById(id) : null;
+    if (previous) previous.after(added);
+    else if (following) following.before(added);
+    else container?.append(added);
+  }
+}
+
+/**
+ * Brings what a revoke changed up to date from a fresh copy of the page: the status line's
+ * public segment, the counts, Revoke all, the bar's Public chip and every keyed node. Unkeyed
+ * nodes (cards, rows, the confirmation row) stay as they are; nothing reloads or scrolls, and
+ * keyboard focus in a swapped node moves to the same control in its fresh copy.
+ */
+export function refreshFrom(html: string): void {
+  const fresh = parsePage(html);
+  if (fresh) swapPage(fresh);
+}
+
+function swapPage(fresh: Document): void {
+  swapStatus(fresh);
+  swapCounters(fresh);
+  swapRevokeAll(fresh);
+  if (!fresh.querySelector("header .chip.public")) $("header .chip.public")?.remove();
+  swapKeyed(fresh);
+  restoreFocus();
+}
+
+/**
+ * Re-fetches this page and swaps in what a revoke changed. False when it couldn't (then the
+ * caller adjusts the counts itself with countRevoked(), a best-effort estimate: the next
+ * successful refresh or page load shows the true counts); true when it did, or a later revoke's
+ * refresh did.
+ *
+ * Overlapping revokes: the pages are fetched in parallel, but each refresh decides in the order
+ * they started, after the one before it has settled (including its caller's countRevoked()
+ * fallback), so an older page never undoes a newer one. A refresh overtaken by a later one whose
+ * page has come back doesn't swap (that page shows this revoke too, and it swaps); it settles
+ * only once that one has, so data-refreshed still marks final counts.
+ */
+export function refreshAfterRevoke(): Promise<boolean> {
+  const mine = ++refreshes;
+  const previous = turns;
+  let release!: () => void;
+  turns = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const outcome = decide(mine, previous, release);
+  outcomes.set(mine, outcome);
+  const forget = () => {
+    outcomes.delete(mine);
+  };
+  void outcome.then(forget, forget);
+  return outcome;
+}
+
+/** Fetches this page; null when that fails. */
+async function fetchPage(): Promise<Document | null> {
+  try {
+    const response = await fetch(location.href, {
+      headers: { accept: "text/html" },
+      credentials: "same-origin",
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+    });
+    return response.ok ? parsePage(await response.text()) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function decide(
+  mine: number,
+  previous: Promise<void>,
+  release: () => void,
+): Promise<boolean> {
+  const fresh = await fetchPage();
+  if (fresh) arrived = Math.max(arrived, mine);
+  await previous;
+  try {
+    const later = arrived > mine ? outcomes.get(arrived) : undefined;
+    if (later) {
+      release();
+      await later;
+      return true;
+    }
+    if (fresh) swapPage(fresh);
+    return fresh !== null;
+  } finally {
+    // After the caller's fallback (its await resumes in a microtask), the next refresh decides.
+    setTimeout(release, 0);
+  }
+}
+
+/** A control that can take focus: shown and not disabled. */
+const usable = (node: HTMLElement) =>
+  shown(node) && !(node instanceof HTMLButtonElement && node.disabled);
+/** Dismiss on a confirmation row: focus goes to the next open card, else to New public link. */
+function dismissRevoked(row: HTMLElement): void {
+  let next = row.nextElementSibling;
+  while (next && !next.matches(".lnk:not(.dead)")) next = next.nextElementSibling;
+  // The first control shown: an open Extend… or Revoke… hides its summary; a writer without
+  // sharing has no Copy URL.
+  const target =
+    (next ? $$("button, summary", next).find(usable) : undefined) ??
+    $$('#tp-links button[commandfor="share"]').find(usable) ??
+    $("#tab-links");
+  row.remove();
+  target?.focus();
 }
 
 /**
@@ -139,10 +549,21 @@ export function bindShare(): void {
       // The one mutation that updates in place instead of flashing and reloading (OW-02, OW-04).
       toast("Link revoked");
       const holder = element.closest<HTMLElement>("[data-link]");
-      if (holder) markRevoked(holder, id, pushed);
+      if (!holder) return;
+      // countRevoked() is keyed by the status the link had.
+      const was = holder.dataset.linkStatus ?? "";
+      markRevoked(holder, id, pushed);
+      // Every holder, card or /links row: the page's counts and keyed nodes follow the fresh copy.
+      if (!(await refreshAfterRevoke())) countRevoked(was);
+      // The counts are final (a test hook).
+      holder.dataset.refreshed = "";
     },
     () => "revoke the link",
   );
+  registerAction("dismiss-revoked", (element) => {
+    const row = element.closest<HTMLElement>(".lnk.gone");
+    if (row) dismissRevoked(row);
+  });
   registerAction(
     "revoke-all",
     async (element) => {
@@ -178,10 +599,17 @@ export function bindShare(): void {
     async (element) => {
       const from = Number(element.dataset.from);
       const days = Number(element.dataset.days);
-      await api(`/api/share-links/${encodeURIComponent(element.dataset.id ?? "")}/extend`, "POST", {
-        expires_at: Math.max(from, Date.now()) + days * DAY,
+      const requested = Math.max(from, Date.now()) + days * DAY;
+      const result = await api(
+        `/api/share-links/${encodeURIComponent(element.dataset.id ?? "")}/extend`,
+        "POST",
+        { expires_at: requested },
+      );
+      const at = field(field(result, "share_link"), "expires_at");
+      const label = $("[data-link-label]", element.closest("[data-link]") ?? document);
+      flash({
+        text: `Extended “${label?.textContent ?? "No label"}” by ${days} days. It now expires ${fullDate(typeof at === "number" ? at : requested, false)}.`,
       });
-      flash({ text: `Extended by ${days} days` });
       location.reload();
     },
     () => "extend the link",
