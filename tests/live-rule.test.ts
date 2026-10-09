@@ -453,7 +453,7 @@ describe("one live rule for share links (FC1, OW-05a)", () => {
   it("lists a trashed collection's paused links for restore", async () => {
     const found = await trashLinks(services, [collections.trashed]);
     expect(found.get(collections.trashed)).toEqual({
-      paused: [{ id: idOf("e"), label: null, revision_display_number: null }],
+      paused: [{ id: idOf("e"), label: null, revision_display_number: null, expires_at: null }],
       total: 1,
     });
   });

@@ -155,6 +155,77 @@ legend {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+/* restore dialog (OW-07): paused link lines and a choice with no default */
+/* The confirm dialog's title and body carry user text (a collection title can be one unbroken
+   word): they wrap inside the dialog, never widen it. */
+#confirm .bd {
+  grid-template-columns: minmax(0, 1fr);
+}
+#confirm [data-confirm-title],
+#confirm [data-confirm-body] {
+  overflow-wrap: anywhere;
+}
+.lnkl {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--sunken);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  /* A label is user text up to 200 characters, maybe one unbroken word: it wraps, never widens. */
+  overflow-wrap: anywhere;
+}
+.lnkl svg.ic {
+  margin-right: 6px;
+}
+.ch2 {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.ch2 label {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 2px 8px;
+  min-height: var(--tap);
+  border: 1px solid var(--control);
+  border-radius: 12px;
+  padding: 11px 12px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.ch2 label:has(input:checked) {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.ch2 label:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.ch2 input {
+  margin: 2px 0 0;
+  accent-color: var(--ink);
+}
+.ch2 b {
+  font-size: 14px;
+}
+.ch2 label > span {
+  grid-column: 2;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.ch2 .pub {
+  color: var(--public);
+  font-weight: 600;
+}
+/* Forced colours drop the box-shadow: the chosen card keeps a thicker border in Highlight. */
+@media (forced-colors: active) {
+  .ch2 label:has(input:checked) {
+    border: 2px solid Highlight;
+    padding: 10px 11px;
+  }
+}
 .fields {
   display: grid;
   grid-template-columns: 1.3fr 1fr;

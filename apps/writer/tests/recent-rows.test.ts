@@ -313,7 +313,7 @@ describe("the Trash page", () => {
     expect(restore).toContain(`aria-describedby="it-${pub}"`);
     expect(purge).toContain(`aria-describedby="it-${pub}"`);
     expect(restore).toContain('data-links="[]"');
-    expect(row).toMatch(/>Restore<\/button>/);
+    expect(row).toMatch(/>Restore…<\/button>/);
     expect(row).toMatch(/>Purge…<\/button>/);
     expect(row).not.toContain('<a class="chip');
     expect(row).not.toContain('class="chip');
