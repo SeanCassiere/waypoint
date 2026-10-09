@@ -686,6 +686,9 @@ export function Timeline(props: {
   pub: string;
   currentId: string | null;
   latestId: string | null;
+  /** The newest synced revision, which Latest links show, when it isn't the latest (NAV-09):
+   *  its row says "public sees". */
+  publicSeesId?: string | null;
   now: number;
   path: string;
   compact?: boolean;
@@ -765,6 +768,9 @@ export function Timeline(props: {
                   </span>
                 ) : row.id === props.latestId ? (
                   <span class="chip xs">latest</span>
+                ) : null}
+                {props.publicSeesId && row.id === props.publicSeesId ? (
+                  <span class="chip xs public">{raw(icon("globe", "sm"))}public sees</span>
                 ) : null}
                 <span class="w">
                   <Time at={row.created_at} now={props.now} />

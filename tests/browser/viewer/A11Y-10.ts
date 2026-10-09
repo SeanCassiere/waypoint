@@ -365,7 +365,8 @@ const scenario: ViewerScenario = {
             const a = item.getBoundingClientRect();
             const b = mbox.getBoundingClientRect();
             return {
-              menu: mbox.contains(item) && item.classList.contains("mi"),
+              // The last item is the footer's Share (NAV-09b), which the arrow keys rove too.
+              menu: mbox.contains(item) && item.matches(".mi, .mnote [role=menuitem]"),
               within: a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5 && a.left >= b.left - 0.5 && a.right <= b.right + 0.5,
             };
           })()`),

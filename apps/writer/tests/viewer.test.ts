@@ -731,7 +731,7 @@ describe("viewer routes", () => {
       ).json(),
     );
     const html = await (await app.request(new URL(binary.url).pathname)).text();
-    expect(html).toContain("Download file");
+    expect(html).toContain('Download <span data-file-name="true">data.bin</span>');
     expect(html).not.toContain("<iframe");
   });
 });
@@ -770,6 +770,11 @@ describe("Folio shell", () => {
     expect(shell).toContain('<aside class="panel" id="panel" aria-label="Collection panel">');
     expect(shell).toContain('role="tablist"');
     expect(shell).toContain('id="copy-menu"');
+    // No share key here, so the Copy menu's footer points to Status instead of Share (NAV-09b).
+    expect(shell).toContain(
+      '<div class="mnote">Need a link for someone outside the tailnet? Public links need a share key; see Status.</div>',
+    );
+    expect(shell).not.toContain("outside the tailnet? Use");
     expect(shell).toContain("Watch: wait_for_revision");
     expect(shell).toContain('<nav class="tabbar" aria-label="Collection">');
   });

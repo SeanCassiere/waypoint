@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { raw } from "hono/html";
 
 import type { HttpServices } from "../../http.ts";
+import { isLive } from "../../shares.ts";
 import { rawPath, shellPath } from "../../viewer-paths.ts";
 import { bytes, plural } from "../format.ts";
 import { Layout } from "../layout.tsx";
@@ -21,6 +22,7 @@ import {
   TabBar,
   type CollectionContext,
 } from "./collection/index.tsx";
+import { LinksPanel, previewHref, ShareDialog, shareDisclosure } from "./share.tsx";
 
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
 
@@ -57,6 +59,12 @@ export async function galleryPage(
   const parentN = parentRow?.display_number ?? null;
   const n = revision.display_number ?? 0;
   const done = shellPath(collection.public_id, revision.public_id, "", true);
+  // The bar's Share, More's "Share…" and the Copy menu's footer Share all open #share, so the
+  // gallery renders it the way the collection page does (NAV-09b, standing ruling 4).
+  const disclosure = ctx.sharing ? await shareDisclosure(ctx, revision.head_path) : null;
+  // Closing the share dialog after a link is made reloads with ?panel=links ("You can copy it
+  // again any time from the Public links tab"), so the gallery's panel has that tab too.
+  const tab = c.req.query("panel") === "links" && ctx.links.length ? "links" : "files";
   return noStore(
     c.html(
       <Layout
@@ -69,9 +77,19 @@ export async function galleryPage(
         <ShellRoot ctx={ctx} path={revision.head_path} mode="gallery">
           <Panel
             ctx={ctx}
-            tab="files"
+            tab={tab}
             files={<FilesPanel ctx={ctx} path={null} glyphs={glyphs} />}
             history={<HistoryPanel ctx={ctx} path="" all={false} />}
+            links={
+              ctx.links.length ? (
+                <LinksPanel
+                  ctx={ctx}
+                  links={ctx.links}
+                  previewHref={previewHref(ctx, revision.head_path)}
+                />
+              ) : undefined
+            }
+            linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
             <div
@@ -166,6 +184,7 @@ export async function galleryPage(
         <CopyMenu ctx={ctx} path={revision.head_path} />
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
+        {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
         <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title" data-mode="side">
           <header>
             <b id="lbx-title" data-lbx-title />

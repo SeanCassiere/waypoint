@@ -381,11 +381,16 @@
   padding: 8px 10px 0;
   border-bottom: 1px solid var(--rule);
 }
+/* A tab's words never wrap or ellipsize ("Public links" stays whole); if the three tabs ever need
+   more than the panel (very large counts, a wide system font), a tab's count drops under its
+   words instead of anything being clipped. */
 .ptabs a {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 0 6px;
   align-items: center;
-  padding: 7px 10px 9px;
+  padding: 7px 8px 9px;
+  white-space: nowrap;
   text-decoration: none;
   color: var(--muted);
   border-bottom: 2px solid transparent;

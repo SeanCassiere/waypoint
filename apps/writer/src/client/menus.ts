@@ -9,7 +9,7 @@ import { $, $$ } from "./dom.ts";
 // - on phones, a scrim that takes the closing tap so it can't act on what's beneath;
 // - the entrance's transform-origin in browsers without anchored container queries.
 function items(menu: HTMLElement): HTMLElement[] {
-  return $$(".mi, .rv a, .acts .btn", menu).filter(
+  return $$(".mi, .rv a, .acts .btn, .mnote [role=menuitem]", menu).filter(
     (item) => item.offsetParent !== null && !item.hasAttribute("disabled"),
   );
 }

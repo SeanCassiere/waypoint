@@ -328,7 +328,7 @@ const scenario: ViewerScenario = {
     await openShare(desk);
     await desk.locator("#share [data-share-submit]").click();
     await desk.locator("#share [data-share-state] svg.ic").waitFor({ state: "visible" });
-    assert.equal((await desk.locator("#share [data-share-state]").innerText()).trim(), "Active");
+    assert.equal((await desk.locator("#share [data-share-state]").innerText()).trim(), "Live");
     await isSquare(desk, "#share [data-share-state] svg.ic", 12, "Active chip");
     const active = await colours("#share [data-share-state] svg.ic", "--public");
     assert.equal(active.icon, active.token, "the Active chip's globe is --public");

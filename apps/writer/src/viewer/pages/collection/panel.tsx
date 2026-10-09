@@ -26,7 +26,12 @@ export function Panel(props: {
     { id: "history", label: "History", count: ctx.rows.length, body: props.history },
   ];
   if (props.links !== undefined)
-    tabs.push({ id: "links", label: "Links", count: props.linkCount ?? 0, body: props.links });
+    tabs.push({
+      id: "links",
+      label: "Public links",
+      count: props.linkCount ?? 0,
+      body: props.links,
+    });
   return (
     <aside class="panel" id="panel" aria-label="Collection panel">
       <h2 class="vh">Files and history</h2>
@@ -205,6 +210,11 @@ export function HistoryPanel(props: {
           pub={ctx.collection.public_id}
           currentId={ctx.revision.id}
           latestId={ctx.latest?.id ?? null}
+          publicSeesId={
+            ctx.publicSees && ctx.latest && ctx.publicSees.id !== ctx.latest.id
+              ? ctx.publicSees.id
+              : null
+          }
           now={ctx.chrome.now}
           path={props.path}
           byId={ctx.byId}

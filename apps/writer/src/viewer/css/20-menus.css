@@ -221,10 +221,31 @@
 .menu .mi:focus-visible {
   box-shadow: inset 0 0 0 2px var(--ink);
 }
-.menu .mi small {
+.menu .mi small,
+.menu .mnote {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 12px;
+}
+/* The Copy menu's footer pointing to Share (NAV-09). */
+.menu .mnote {
+  padding: 8px 10px 4px;
+  margin: 0;
+}
+.linkbtn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* The raw items name the current file (NAV-09): a long name wraps inside the item, never widens
+   the menu or the phone sheet (the full path is the item's title). */
+.menu [data-file-name] {
+  overflow-wrap: anywhere;
 }
 .menu .mi small.mono {
   overflow: hidden;
@@ -248,6 +269,20 @@
   text-transform: uppercase;
   color: var(--faint);
   padding: 8px 10px 4px;
+}
+/* The Copy menu's "Tailnet links" heading (NAV-09): the lock sits with its words, and the
+   note after them reads in normal case. */
+.menu .lbl .lbl-ic {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  vertical-align: middle;
+}
+.menu .lbl .lbl-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--muted);
 }
 /* Go to (NAV-01): the phone sheet of the global bar's destinations. From 600 px it hangs from
    the switcher at the bar's left edge. */

@@ -257,7 +257,9 @@ describe("OW-05b /links", () => {
     ] as const) {
       const heading = /aria-labelledby="(lg-\d+)"/.exec(group ?? "")?.[1];
       expect(group).toContain(`<h2 id="${heading}"><a href="/c/${made.pub}/">`);
-      expect(group).toContain(`<a class="tab" href="/c/${made.pub}/?panel=links">Links tab</a>`);
+      expect(group).toContain(
+        `<a class="tab" href="/c/${made.pub}/?panel=links">Public links tab</a>`,
+      );
       expect(group).toContain(`data-collection="${made.id}"`);
     }
     expect(bGroup).toContain('<span class="p">api · now #1</span>');

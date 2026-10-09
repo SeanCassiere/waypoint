@@ -51,9 +51,9 @@ const TABLE: Row[] = [
   [
     "collection",
     ["."],
-    "Show or hide Files and History",
+    "Show or hide Files and history",
     undefined,
-    "Files and History",
+    "Files and history",
     ["panel"],
     false,
   ],

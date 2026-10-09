@@ -203,7 +203,7 @@ export function StatusLine(props: { ctx: CollectionContext; extra?: Segment[] })
         data-action="panel-tab"
         data-tab={tab}
         data-status-tap
-        aria-label={`${spoken} Open ${tab === "links" ? "Links" : "History"}.`}
+        aria-label={`${spoken} Open ${tab === "links" ? "Public links" : "History"}.`}
       >
         {brief}
       </a>

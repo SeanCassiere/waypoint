@@ -397,7 +397,8 @@ async function purge(element: HTMLElement): Promise<void> {
       label: "To confirm, type the title or the public ID",
       hint: "Paste or type either one. Case and extra spaces don't matter.",
       mismatch: "Doesn't match the title or the public ID yet.",
-      matched: (what) => `Matches the ${what}`,
+      // One literal per hint (NAV-09b: pinned sentences are never composed from parts).
+      matched: (what) => (what === "title" ? "Matches the title" : "Matches the public ID"),
       values: [
         { key: "title", label: "Title", value: title, copyLabel: "Copy title", copyWhat: "title" },
         ...(publicId

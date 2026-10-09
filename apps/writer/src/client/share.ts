@@ -92,7 +92,7 @@ function collapseCard(holder: HTMLElement, pushed: boolean): void {
       dismiss,
     ),
     el("p", { class: "note stops", attrs: { "data-stops": String(pushed) } }),
-    el("p", { class: "note", text: "Listed under inactive." }),
+    el("p", { class: "note", text: "Listed under expired or revoked." }),
   );
   holder.classList.add("dead", "gone");
   holder.dataset.revoked = "";
@@ -395,7 +395,7 @@ function swapKeyed(fresh: Document): void {
       continue;
     }
     const added = adopt(match);
-    // An expanded "Show N inactive" stays expanded.
+    // An expanded "Show N expired or revoked" stays expanded.
     if (node instanceof HTMLDetailsElement && added instanceof HTMLDetailsElement)
       added.open = node.open;
     replaceNode(node, added);
@@ -719,8 +719,8 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   });
   let url = "";
   let poll: ReturnType<typeof setTimeout> | undefined;
-  // Once a link exists, closing the dialog (Done, Esc) shows it in the Links tab, where its
-  // URL can be copied again. Without one, the form goes back to its defaults.
+  // Once a link exists, closing the dialog (Done, Esc) shows it in the Public links tab, where
+  // its URL can be copied again. Without one, the form goes back to its defaults.
   dialog.addEventListener("close", () => {
     if (!url) {
       reset();
@@ -734,7 +734,7 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
   $("[data-share-done]", dialog)?.addEventListener("click", () => dialog.close());
   copyButton.addEventListener("click", () =>
     run(async () => {
-      await copyText(url, "link");
+      await copyText(url, "public link");
       showCopied(copyButton);
     }, "copy the link"),
   );
@@ -744,9 +744,9 @@ function bindDialog(dialog: HTMLDialogElement, root: HTMLElement): void {
     if (!chip || !text || state !== "active") return;
     chip.className = "state ok";
     chip.replaceChildren();
-    // Public is globe in --public (VS-03), like the server's Active chip; the word keeps its colour.
+    // Public is globe in --public (VS-03), like the server's Live chip; the word keeps its colour.
     chip.insertAdjacentHTML("beforeend", icon("globe", "sm public"));
-    chip.append("Active");
+    chip.append("Live");
     text.textContent = "Works now for anyone who has the link.";
   };
   let painted = "";

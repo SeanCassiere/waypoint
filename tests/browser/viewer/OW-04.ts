@@ -123,7 +123,7 @@ const scenario: ViewerScenario = {
     // NAV-04 may remove the bar's Public chip; while it's there, it follows the live links.
     const chips = await chip.count();
     assert.equal(await tabCount.textContent(), "3");
-    assert.equal(await inactive.textContent(), "Show 2 inactive");
+    assert.equal(await inactive.textContent(), "Show 2 expired or revoked");
     assert.equal(await revokeAll.textContent(), "Revoke all 3 links…");
 
     // Revoke Sam: no reload; the card collapses into a confirmation row with focus; the status
@@ -142,7 +142,7 @@ const scenario: ViewerScenario = {
       notes[0] ?? "",
       /^(Revoked, not yet pushed\.|Public access stops within seconds\.)/,
     );
-    assert.equal(notes[1], "Listed under inactive.");
+    assert.equal(notes[1], "Listed under expired or revoked.");
     assert.equal(
       await page.evaluate("document.activeElement?.matches('.lnk.gone[data-revoked]')"),
       true,
@@ -152,7 +152,7 @@ const scenario: ViewerScenario = {
     assert.equal(await tabCount.textContent(), "2");
     await status.filter({ hasText: "“Third” follows latest" }).waitFor();
     assert.match((await status.textContent()) ?? "", /“Third” follows latest/);
-    await expectText(inactive, "Show 3 inactive", "the inactive list follows");
+    await expectText(inactive, "Show 3 expired or revoked", "the inactive list follows");
     await expectText(revokeAll, "Revoke all 2 links…", "Revoke all counts open cards");
 
     // Revoke Third: the status line names the one remaining pinned link; Revoke all goes. The
@@ -169,7 +169,7 @@ const scenario: ViewerScenario = {
     await page.locator("[data-refresh=links-foot]").waitFor({ state: "detached" });
     assert.equal(await page.locator("[data-refresh=links-foot]").count(), 0);
     assert.equal(await chip.count(), chips > 0 ? 1 : 0, "Priya is still live");
-    await expectText(inactive, "Show 4 inactive", "the inactive list follows again");
+    await expectText(inactive, "Show 4 expired or revoked", "the inactive list follows again");
     assert.equal(
       await page.evaluate(`document.querySelector("#tp-links details.inactive")?.open`),
       true,
@@ -234,7 +234,7 @@ const scenario: ViewerScenario = {
     assert.equal(await page.locator("[data-status] .pubseg").count(), 0);
     await expectText(
       page.locator("[data-refresh=links-empty]"),
-      "No live links. Create one with Share.",
+      "No live public links.",
       "the empty note",
     );
     await chip.waitFor({ state: "detached" });

@@ -90,8 +90,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   {
     scope: "collection",
     keys: ["."],
-    label: "Show or hide Files and History",
-    title: "Files and History",
+    label: "Show or hide Files and history",
+    title: "Files and history",
     command: "panel",
   },
   {
