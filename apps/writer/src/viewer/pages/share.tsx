@@ -1,8 +1,13 @@
 /** @jsxImportSource hono/jsx */
+import type { Manifest } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
+import { raw as html } from "hono/html";
 import type { Child } from "hono/jsx";
 
+import type { Health } from "../../health.ts";
 import type { HttpServices } from "../../http.ts";
+import type { RevisionRow } from "../../read-model.ts";
 import {
   isLive,
   isOpen,
@@ -22,6 +27,8 @@ import { noStore } from "../respond.ts";
 import type { CollectionContext } from "./collection/index.tsx";
 
 const DAY = 86_400_000;
+/** The share dialog's preview link, when it opens the Latest URL. */
+const PREVIEW_LATEST_TITLE = "Opens the Latest URL as a stranger sees it today";
 
 export function StateChip(props: { link: ShareView }) {
   const { state, status } = props.link;
@@ -338,29 +345,347 @@ export function publicSegment(
   };
 }
 
+export type RevisionWord = "synced" | "uploading" | "stalled" | "waiting" | "failed";
+export interface DisclosedRevision {
+  /** Display number. */
+  n: number;
+  publicId: string;
+  word: RevisionWord;
+  /** Manifest paths, head file first, then sorted (empty for the track's steps). */
+  files: string[];
+}
+/** What each share target publishes, for the share dialog (OW-03). */
+export interface ShareDisclosure {
+  /** The revision the dialog was opened on: what "Only #N" publishes. */
+  current: DisclosedRevision;
+  /** What a Latest link shows now (ctx.publicSees). */
+  newestSynced: DisclosedRevision | null;
+  /** ctx.latest when it is newer than newestSynced and not synced: what Latest shows next. */
+  next: DisclosedRevision | null;
+  /** Every revision newer than newestSynced, in display order (failed and unsynced alike). */
+  steps: DisclosedRevision[];
+  /** RX-11's rule: a revision that isn't failed or synced is newer than newestSynced. */
+  syncing: boolean;
+  hrefs: { latest: string; pinned: string };
+}
+
+/**
+ * One revision's sync word: FC2's precomputed health for a queued revision (already
+ * "uploading" instead of "stalled" with sync off); a committed one isn't public yet, so it
+ * counts as uploading.
+ */
+export function revisionWord(row: RevisionRow, health: Health): RevisionWord {
+  if (row.sync_state === "failed") return "failed";
+  if (row.sync_state === "committed") return "uploading";
+  if (row.sync_state === "pending")
+    return health.pending.find((item) => item.id === row.id)?.sync ?? "uploading";
+  return "synced";
+}
+
+const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** A manifest's paths: the head file first, then the rest sorted. */
+function manifestPaths(manifest: Manifest): string[] {
+  const rest = Object.keys(manifest.files)
+    .filter((p) => p !== manifest.headPath)
+    .toSorted(byPath);
+  return manifest.files[manifest.headPath] ? [manifest.headPath, ...rest] : rest;
+}
+
+/**
+ * The Latest URL opening `path` when the newest synced revision has it, else that revision's
+ * head file. The Latest URL resolves a bare `/c/{pub}/` to ctx.latest's head file, not the
+ * synced one's (collection/index.tsx, then public-preview.tsx), so the file is named in the URL
+ * unless it is ctx.latest's head: otherwise a newer revision that changes the head file would
+ * make the preview open a different file.
+ */
+function latestHref(ctx: CollectionContext, path: string, synced: RevisionRow, has: boolean) {
+  const file = has ? path : synced.head_path;
+  return `${shellPath(ctx.collection.public_id, ctx.revision.public_id, file, false, ctx.latest?.head_path)}?as=public`;
+}
+
+/**
+ * The newest synced revision's manifest per page context, recorded by shareDisclosure so the
+ * synchronous previewHref(…, "latest") can apply the same path rule as hrefs.latest.
+ */
+const syncedManifests = new WeakMap<CollectionContext, Manifest>();
+
+/** The newest synced manifest when it is known without a query. */
+function knownSyncedManifest(ctx: CollectionContext): Manifest | undefined {
+  if (ctx.publicSees?.id === ctx.revision.id) return ctx.manifest;
+  return syncedManifests.get(ctx);
+}
+
+/**
+ * The share dialog's data: the revision "Only #N" publishes, what a Latest link shows now and
+ * next, and the steps between. At most two manifest queries, constant in history length.
+ */
+export async function shareDisclosure(
+  ctx: CollectionContext,
+  path: string,
+): Promise<ShareDisclosure> {
+  const { health } = ctx.chrome;
+  const synced = ctx.publicSees;
+  const after = synced?.display_number ?? 0;
+  const latest = ctx.latest;
+  const next =
+    latest &&
+    latest.sync_state !== "synced" &&
+    latest.sync_state !== "failed" &&
+    (latest.display_number ?? 0) > after
+      ? latest
+      : undefined;
+  const manifestOf = (row: RevisionRow | undefined) =>
+    !row
+      ? Promise.resolve(undefined)
+      : row.id === ctx.revision.id
+        ? Promise.resolve(ctx.manifest)
+        : ctx.s.reads.manifestOf(row);
+  const [syncedManifest, nextManifest] = await Promise.all([manifestOf(synced), manifestOf(next)]);
+  if (syncedManifest) syncedManifests.set(ctx, syncedManifest);
+  const disclose = (row: RevisionRow, manifest?: Manifest): DisclosedRevision => ({
+    n: row.display_number ?? 0,
+    publicId: row.public_id,
+    word: revisionWord(row, health),
+    files: manifest ? manifestPaths(manifest) : [],
+  });
+  const steps = ctx.rows
+    .filter((row) => (row.display_number ?? 0) > after)
+    .toSorted((a, b) => (a.display_number ?? 0) - (b.display_number ?? 0))
+    .map((row) => disclose(row));
+  const pub = ctx.collection.public_id;
+  return {
+    current: disclose(ctx.revision, ctx.manifest),
+    newestSynced: synced ? disclose(synced, syncedManifest) : null,
+    next: next ? disclose(next, nextManifest) : null,
+    steps,
+    syncing: steps.some((step) => step.word !== "failed"),
+    hrefs: {
+      latest: synced
+        ? latestHref(ctx, path, synced, Boolean(syncedManifest?.files[path]))
+        : `/c/${pub}/?as=public`,
+      pinned: `${shellPath(pub, ctx.revision.public_id, path, true, ctx.revision.head_path)}?as=public`,
+    },
+  };
+}
+
+/** Chip class and icon per word (VS-03: synced okcircle, failed alert, pending states clock). */
+const OK_ICON = icon("okcircle", "sm");
+const CLOCK_ICON = icon("clock", "sm");
+const CHIP: Record<RevisionWord, readonly [string, string]> = {
+  synced: ["ok", OK_ICON],
+  failed: ["f", icon("alert", "sm")],
+  uploading: ["p", CLOCK_ICON],
+  stalled: ["p", CLOCK_ICON],
+  waiting: ["w", CLOCK_ICON],
+};
+
+/** One step chip: "#5 now", "#7 uploading", or a struck "#6 failed". */
+function StepChip(props: { rev: DisclosedRevision; now?: boolean; bare?: boolean }) {
+  const { rev } = props;
+  const [cls, mark] = CHIP[props.now ? "synced" : rev.word];
+  const text = props.now ? `#${rev.n} now` : props.bare ? `#${rev.n}` : `#${rev.n} ${rev.word}`;
+  return (
+    <span class={`sc ${cls}`}>
+      {html(mark)}
+      {rev.word === "failed" ? <s>{text}</s> : text}
+    </span>
+  );
+}
+
+/** The "Public sees" track of one target: chips joined by chevrons, then one sentence. */
+function Track(props: { target: "only" | "latest"; warn: boolean; chips: Child[]; note: string }) {
+  return (
+    <div
+      class={`track when-${props.target}`}
+      role="note"
+      data-track={props.target}
+      data-warn={props.warn ? "" : undefined}
+    >
+      <span class="lab">Public sees</span>
+      {props.chips.flatMap((chip, i) =>
+        i
+          ? [
+              <span class="to" aria-hidden="true">
+                {html(icon("chevronRight", "sm"))}
+              </span>,
+              chip,
+            ]
+          : [chip],
+      )}
+      <p class="tnote">{props.note}</p>
+    </div>
+  );
+}
+
+/**
+ * At most four chips after "now": with more than four steps, the older ones collapse into a
+ * leading "+N more" chip and the newest three stay (so `next` stays visible).
+ */
+function stepChips(steps: DisclosedRevision[]): Child[] {
+  if (steps.length <= 4) return steps.map((step) => <StepChip rev={step} />);
+  const shown = steps.slice(-3).map((step) => <StepChip rev={step} />);
+  return [<span class="sc">+{steps.length - 3} more</span>, ...shown];
+}
+
+function LatestTrack(props: { d: ShareDisclosure }) {
+  const { newestSynced: synced, next, steps, syncing } = props.d;
+  if (!synced)
+    return (
+      <Track
+        target="latest"
+        warn
+        chips={stepChips(steps)}
+        note="Nothing in this collection has synced yet. The link won't work until it does."
+      />
+    );
+  const chips = [<StepChip rev={synced} now />, ...stepChips(steps)];
+  if (syncing && next)
+    return (
+      <Track
+        target="latest"
+        warn
+        chips={chips}
+        note={`Latest: shows the newest revision. While #${next.n} uploads, recipients see #${synced.n} with a syncing note.`}
+      />
+    );
+  const failed = steps.at(-1);
+  if (failed)
+    return (
+      <Track
+        target="latest"
+        warn
+        chips={chips}
+        note={`Latest: shows the newest revision that has synced. #${failed.n} failed to upload, so recipients see #${synced.n} until you retry it.`}
+      />
+    );
+  return (
+    <Track
+      target="latest"
+      warn={false}
+      chips={chips}
+      note={`Latest: shows the newest revision, now #${synced.n}.`}
+    />
+  );
+}
+
+function OnlyTrack(props: { d: ShareDisclosure }) {
+  const { current } = props.d;
+  if (current.word === "failed") return null;
+  if (current.word === "synced")
+    return (
+      <Track
+        target="only"
+        warn={false}
+        chips={[<StepChip rev={current} bare />]}
+        note={`An Only #${current.n} link shows this revision. It won't change.`}
+      />
+    );
+  return (
+    <Track
+      target="only"
+      warn
+      chips={[<StepChip rev={current} />]}
+      note={`Until #${current.n} syncs, people with the link see “This link isn't available”.`}
+    />
+  );
+}
+
+const MARKS = {
+  yes: icon("check"),
+  no: icon("close"),
+  bang: icon("alert"),
+  later: icon("clock"),
+} as const;
+
+/** A checklist row: its mark (an icon) and its text. */
+function SeesRow(props: {
+  mark: "yes" | "no" | "bang" | "later";
+  class?: string;
+  children: Child;
+}) {
+  return (
+    <div class={props.class ? `row ${props.class}` : "row"}>
+      <span class={props.mark} aria-hidden="true">
+        {html(MARKS[props.mark])}
+      </span>
+      <span>{props.children}</span>
+    </div>
+  );
+}
+
+/** The checklist lists paths in plain sorted order (DisclosedRevision.files is head-first). */
+const sortedPaths = (files: string[]): string[] => files.toSorted(byPath);
+
+/** The first six paths, then "· +N more". */
+function FileList(props: { items: Child[] }) {
+  const { items } = props;
+  const shown = items.slice(0, 6).flatMap((item, i) => (i ? [" · ", item] : [item]));
+  return (
+    <span class="files">
+      {shown}
+      {items.length > 6 ? ` · +${items.length - 6} more` : null}
+    </span>
+  );
+}
+
+/** What a Latest link shows once `next` syncs: added paths first, then removed, then the rest. */
+function NextFiles(props: { next: DisclosedRevision; now: DisclosedRevision | null }) {
+  const files = sortedPaths(props.next.files);
+  if (!props.now) return <FileList items={files} />;
+  const was = sortedPaths(props.now.files);
+  const before = new Set(was);
+  const after = new Set(files);
+  return (
+    <FileList
+      items={[
+        ...files.filter((p) => !before.has(p)).map((p) => <span class="add">+ {p}</span>),
+        ...was.filter((p) => !after.has(p)).map((p) => <span class="rm">− {p}</span>),
+        ...files.filter((p) => before.has(p)),
+      ]}
+    />
+  );
+}
+
+/**
+ * One phone-summary sentence. The shown one wraps if a long count doesn't fit on one line; the
+ * full sentence is also its title, and the checklist below spells it out.
+ */
+function SumSm(props: { target: "only" | "latest"; text: string }) {
+  return (
+    <span class={`when-${props.target}`} title={props.text}>
+      {props.text}
+    </span>
+  );
+}
+
+/** "the file" or "3 files". */
+const fileCount = (files: string[]): string =>
+  files.length === 1 ? "the file" : `${files.length} files`;
+
 /** Create a public link (4.15) and Link created (4.16): one dialog, two steps. */
 export function ShareDialog(props: {
   ctx: CollectionContext;
   links: ShareView[];
-  previewHref: string;
+  disclosure: ShareDisclosure;
 }) {
-  const { ctx } = props;
-  const { revision, latest, rows } = ctx;
-  const n = revision.display_number ?? 0;
-  const latestN = latest?.display_number ?? n;
-  const synced = rows.filter((row) => row.sync_state === "synced");
-  const newestSynced = synced.at(-1);
+  const { ctx, disclosure: d } = props;
+  const { current, newestSynced: synced, next, hrefs } = d;
+  const n = current.n;
+  const latestN = ctx.latest?.display_number ?? n;
   const hosts = [
     ...new Set(ctx.timeline.map((row) => row.host).filter((host): host is string => Boolean(host))),
   ];
-  const files = ctx.files.map((file) => file.path);
-  const shown =
-    files.slice(0, 6).join(" · ") + (files.length > 6 ? ` · +${files.length - 6} more` : "");
   const liveCount = props.links.filter(isLive).length;
-  const onlyUnsynced = revision.sync_state !== "synced";
-  const latestUnsynced = Boolean(latest && latest.sync_state !== "synced" && newestSynced);
-  const nothingSynced = !newestSynced;
-  const failed = revision.sync_state === "failed";
+  const failed = current.word === "failed";
+  const external = html(icon("external", "sm"));
+  const onlySum =
+    current.files.length === 1
+      ? `Title + the file in #${n}`
+      : `Title + all ${current.files.length} files in #${n}`;
+  const latestSum = synced
+    ? `Title + ${fileCount(synced.files)} in #${synced.n} now, then every future revision`
+    : "Title, then every future revision once one syncs";
   return (
     <dialog
       class="dlg share"
@@ -410,36 +735,10 @@ export function ShareDialog(props: {
                 </label>
               </div>
             </fieldset>
-            {nothingSynced ? (
-              <div class="warn" role="note" data-warn>
-                <span aria-hidden="true">!</span>
-                <span>
-                  <b>Nothing in this collection has synced yet.</b>The link won't work until it
-                  does.
-                </span>
-              </div>
-            ) : (
-              <>
-                {onlyUnsynced && !failed ? (
-                  <div class="warn when-only" role="note" data-warn>
-                    <span aria-hidden="true">!</span>
-                    <span>
-                      <b>#{n} hasn't synced yet.</b>An “Only #{n}” link shows “not available” until
-                      it syncs.
-                    </span>
-                  </div>
-                ) : null}
-                {latestUnsynced ? (
-                  <div class="warn when-latest" role="note" data-warn>
-                    <span aria-hidden="true">!</span>
-                    <span>
-                      <b>#{latestN} hasn't synced yet.</b>A Latest link shows #
-                      {newestSynced?.display_number} until then.
-                    </span>
-                  </div>
-                ) : null}
-              </>
-            )}
+            <div class="alt">
+              <OnlyTrack d={d} />
+              <LatestTrack d={d} />
+            </div>
             <div class="fields">
               <label class="fl">
                 Label <small>Who it's for (only you see this)</small>
@@ -471,66 +770,104 @@ export function ShareDialog(props: {
             <details class="sees" open data-sees>
               <summary>
                 <h3>What the public will see</h3>
-                <span class="sum-sm">
-                  Title + all {files.length} files in #<span class="when-only">{n}</span>
-                  <span class="when-latest">{latestN}</span>
-                  <span class="when-latest"> + future revisions</span>
+                <span class="sum-sm alt">
+                  {failed ? null : <SumSm target="only" text={onlySum} />}
+                  <SumSm target="latest" text={latestSum} />
                 </span>
               </summary>
-              <div class="row">
-                <span class="yes" aria-hidden="true">
-                  ✓
-                </span>
-                <span>
-                  The title <b>“{ctx.collection.title}”</b>
-                </span>
+              <SeesRow mark="yes">
+                The title <b>“{ctx.collection.title}”</b>
+              </SeesRow>
+              <div class="alt">
+                {failed ? null : (
+                  <div class="when-only">
+                    <SeesRow mark="yes">
+                      {current.files.length === 1 ? (
+                        <>
+                          <b>The file</b> in #{n}
+                        </>
+                      ) : (
+                        <>
+                          <b>
+                            All {current.files.length} files in #{n}
+                          </b>
+                          , not just the one you're reading
+                        </>
+                      )}
+                      <br />
+                      <FileList items={sortedPaths(current.files)} />
+                    </SeesRow>
+                  </div>
+                )}
+                <div class="when-latest">
+                  <SeesRow mark="yes">
+                    {synced ? (
+                      <>
+                        <b>
+                          Now: {fileCount(synced.files)} in #{synced.n}
+                        </b>
+                        <br />
+                        <FileList items={sortedPaths(synced.files)} />
+                      </>
+                    ) : (
+                      <>
+                        <b>Now: nothing.</b> No revision has synced yet.
+                      </>
+                    )}
+                  </SeesRow>
+                  {next ? (
+                    <SeesRow mark="later" class="next">
+                      <b>
+                        When #{next.n} syncs: {plural(next.files.length, "file")}
+                      </b>
+                      <br />
+                      <NextFiles next={next} now={synced} />
+                    </SeesRow>
+                  ) : null}
+                  <SeesRow mark="bang">
+                    <b>Every future revision</b>, by any agent on{" "}
+                    <span class="mono">{hosts.length ? hosts.join(", ") : "any machine"}</span>,
+                    within seconds of syncing, with no review step
+                  </SeesRow>
+                </div>
               </div>
-              <div class="row">
-                <span class="yes" aria-hidden="true">
-                  ✓
-                </span>
-                <span>
-                  <b>{files.length === 1 ? "The file" : `All ${files.length} files`}</b> in #
-                  <span class="when-only">{n}</span>
-                  <span class="when-latest">{newestSynced?.display_number ?? latestN}</span>
-                  {files.length === 1 ? "" : ", not just the one you're reading"}
-                  <br />
-                  <span class="files">{shown}</span>
-                </span>
-              </div>
-              <div class="row when-latest">
-                <span class="bang" aria-hidden="true">
-                  !
-                </span>
-                <span>
-                  <b>Every future revision</b>, by any agent on{" "}
-                  <span class="mono">{hosts.length ? hosts.join(", ") : "any machine"}</span>,
-                  within seconds of syncing, with no review step
-                </span>
-              </div>
-              <div class="row when-never">
-                <span class="bang" aria-hidden="true">
-                  !
-                </span>
-                <span>
-                  <b>No expiry.</b> It stays public until you revoke it.
-                </span>
-              </div>
-              <div class="row">
-                <span class="no" aria-hidden="true">
-                  ✕
-                </span>
+              <SeesRow mark="bang" class="when-never">
+                <b>No expiry.</b> It stays public until you revoke it.
+              </SeesRow>
+              <SeesRow mark="no">
                 <span class="muted">
                   Other revisions, revision messages, metadata, machine names, and your other
                   collections
                 </span>
-              </div>
+              </SeesRow>
             </details>
           </div>
           <div class="ft sticky">
             <span class="grow">
-              <a href={props.previewHref} target="_blank" rel="noopener">
-                Preview as public ↗
+              <a
+                class="alt"
+                href={failed ? hrefs.latest : hrefs.pinned}
+                target="_blank"
+                rel="noopener"
+                data-preview-for="target"
+                data-latest={hrefs.latest}
+                data-pinned={hrefs.pinned}
+                title={failed ? PREVIEW_LATEST_TITLE : undefined}
+              >
+                <span class="when-latest">
+                  Preview what this link shows
+                  {synced ? (
+                    <>
+                      : <b>#{synced.n}</b>
+                    </>
+                  ) : null}{" "}
+                  {external}
+                </span>
+                {failed ? null : (
+                  <span class="when-only">
+                    Preview #{n} as public {external}
+                  </span>
+                )}
               </a>
               {liveCount ? (
                 <span class="exist">
@@ -764,6 +1101,27 @@ export async function linksPage(s: HttpServices, c: Context): Promise<Response> 
   );
 }
 
-export function previewHref(ctx: CollectionContext, path: string): string {
-  return `${shellPath(ctx.collection.public_id, ctx.revision.public_id, path, ctx.pinned, ctx.revision.head_path)}?as=public`;
+/**
+ * "Preview as public": with no target, the URL this page was opened on; "only" the pinned URL
+ * of this revision; "latest" the Latest URL, which (like shareDisclosure's hrefs.latest) keeps
+ * `path` only when the newest synced revision has it. That manifest is known when the newest
+ * synced revision is the page's own, or once shareDisclosure has run for this context (every
+ * page that renders the share dialog awaits it first). This helper is synchronous and
+ * CollectionContext carries only the page revision's manifest, so before that it keeps `path`:
+ * the public preview opens that file when the newest synced revision has it (the same URL as
+ * hrefs.latest) and that revision's head file when it doesn't.
+ */
+export function previewHref(
+  ctx: CollectionContext,
+  path: string,
+  target?: "latest" | "only",
+): string {
+  const pub = ctx.collection.public_id;
+  if (target === "latest") {
+    if (!ctx.publicSees) return `/c/${pub}/?as=public`;
+    const known = knownSyncedManifest(ctx);
+    return latestHref(ctx, path, ctx.publicSees, known ? Boolean(known.files[path]) : true);
+  }
+  const pinned = target === "only" || ctx.pinned;
+  return `${shellPath(pub, ctx.revision.public_id, path, pinned, ctx.revision.head_path)}?as=public`;
 }

@@ -15,9 +15,9 @@ const scenario: ViewerScenario = {
     // Share: the dialog opens natively, the checklist follows the form, the link shows once.
     await page.getByRole("button", { name: "Share", exact: true }).click();
     await page.locator("#share").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#share .row.when-latest").isVisible(), false);
+    assert.equal(await page.locator("#share .sees div.alt > .when-latest").isVisible(), false);
     await page.locator("#share label.opt", { hasText: "Latest revision" }).click();
-    assert.equal(await page.locator("#share .row.when-latest").isVisible(), true);
+    assert.equal(await page.locator("#share .sees div.alt > .when-latest").isVisible(), true);
     await page.locator('#share input[name="label"]').fill("Browser review");
     await page.locator("[data-share-submit]").click();
     await page.locator('[data-share-step="created"]').waitFor({ state: "visible" });

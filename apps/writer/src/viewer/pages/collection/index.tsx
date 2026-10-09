@@ -11,7 +11,7 @@ import { noStore } from "../../respond.ts";
 import { changesPage } from "../changes/index.tsx";
 import { galleryPage } from "../gallery.tsx";
 import { publicPreview } from "../public-preview.tsx";
-import { LinksPanel, previewHref, publicSegment, ShareDialog } from "../share.tsx";
+import { LinksPanel, previewHref, publicSegment, ShareDialog, shareDisclosure } from "../share.tsx";
 import type { ViewerExtras } from "../status.tsx";
 import { CollectionBar, TabBar } from "./bar.tsx";
 import { CollectionDialogs } from "./dialogs.tsx";
@@ -130,6 +130,7 @@ export async function collectionPage(
   const tab: PanelTab =
     panel === "history" ? "history" : panel === "links" && ctx.links.length ? "links" : "files";
   const raw = rawPath(revision.public_id, path) + documentSearch(url.search);
+  const disclosure = ctx.sharing ? await shareDisclosure(ctx, path) : null;
   return noStore(
     c.html(
       <Layout
@@ -174,9 +175,7 @@ export async function collectionPage(
         <CopyMenu ctx={ctx} path={path} />
         <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
         <CollectionDialogs ctx={ctx} />
-        {ctx.sharing ? (
-          <ShareDialog ctx={ctx} links={ctx.links} previewHref={previewHref(ctx, path)} />
-        ) : null}
+        {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
       </Layout>,
     ),
   );
