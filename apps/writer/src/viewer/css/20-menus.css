@@ -49,10 +49,39 @@
   border-radius: 12px;
   box-shadow: var(--sh-2);
   padding: 6px;
-  max-height: calc(100dvh - 120px);
+  max-height: calc(100dvh - var(--bar-h) - 20px);
   overflow: auto;
   overscroll-behavior: contain;
   transform-origin: var(--origin, top right);
+}
+/* A menu with a list: an optional header, the list as the only scroller, and optional pinned
+   actions under a soft rule. Each child sits in its named area, so a missing header or footer
+   leaves an empty row and nothing (not even a pseudo-element) lands in an implicit row. */
+.mbox.has-list {
+  position: relative;
+  display: grid;
+  grid-template-areas: "head" "body" "foot";
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  max-height: calc(100dvh - var(--bar-h) - 20px);
+  padding: 0;
+}
+.mbox.has-list > .mhead {
+  grid-area: head;
+  padding: 6px 6px 0;
+}
+.mbox.has-list > .mbody {
+  grid-area: body;
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 6px;
+}
+.mbox.has-list > .mfoot {
+  grid-area: foot;
+  padding: 6px;
+  border-top: 1px solid var(--rule);
+  box-shadow: 0 -6px 8px -8px rgba(27, 26, 23, 0.18);
 }
 .rmenu > .mbox {
   transform-origin: var(--origin, top left);

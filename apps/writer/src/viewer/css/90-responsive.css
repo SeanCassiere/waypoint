@@ -285,6 +285,28 @@
     background: var(--rule-2);
     margin: 2px auto 8px;
   }
+  /* A sheet with a list: the grabber leaves the grid, and the topmost child makes room for it. */
+  [popover] > .mbox.has-list {
+    max-height: 85dvh;
+    padding: 0;
+  }
+  [popover] > .mbox.has-list > .mfoot {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+  [popover] > .mbox.has-list::before {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    margin: 0;
+    transform: translateX(-50%);
+  }
+  [popover] > .mbox.has-list > .mbody,
+  [popover] > .mbox.has-list > .mhead {
+    padding-top: 16px;
+  }
+  [popover] > .mbox.has-list > .mhead + .mbody {
+    padding-top: 6px;
+  }
   .menu .mi {
     min-height: 44px;
   }
