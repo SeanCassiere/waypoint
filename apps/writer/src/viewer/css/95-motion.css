@@ -53,7 +53,8 @@
     }
   }
   dialog.dlg,
-  dialog.lbx {
+  dialog.lbx,
+  dialog.find {
     transition:
       opacity 150ms ease-out,
       transform 150ms ease-out,
@@ -61,13 +62,15 @@
       display 150ms allow-discrete;
   }
   dialog.dlg:not([open]),
-  dialog.lbx:not([open]) {
+  dialog.lbx:not([open]),
+  dialog.find:not([open]) {
     opacity: 0;
     transform: translateY(6px);
   }
   @starting-style {
     dialog.dlg[open],
-    dialog.lbx[open] {
+    dialog.lbx[open],
+    dialog.find[open] {
       opacity: 0;
       transform: translateY(6px);
     }

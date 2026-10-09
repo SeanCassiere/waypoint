@@ -145,8 +145,13 @@ const scenario: ViewerScenario = {
     const where = tap.getByRole("button", { name: "Recent, go to another page", exact: true });
     assert.equal(await where.isVisible(), true);
     await axeClean(tap, "header.bar");
-    const find = tap.getByRole("link", { name: "Find", exact: true });
+    const find = tap.getByRole("button", { name: "Find", exact: true });
     assert.ok(((await find.boundingBox())?.height ?? 0) >= 44, "Find is at least 44 px tall");
+    // NAV-02: Find opens the Find dialog (it used to link to /?q=).
+    await find.tap();
+    await tap.locator("dialog#find[open]").waitFor();
+    await tap.locator("#find .find-cancel").tap();
+    await tap.locator("dialog#find:not([open])").waitFor({ state: "attached" });
     await where.tap();
     await tap.waitForFunction(`document.getElementById("go-to").matches(":popover-open")`);
     const sheet = tap.getByRole("navigation", { name: "Go to" });

@@ -138,6 +138,7 @@ export async function collectionPage(
         chrome={ctx.chrome}
         bar={<CollectionBar ctx={ctx} />}
         page="collection"
+        findIn={collection.title}
       >
         <ShellRoot ctx={ctx} path={path} mode="document">
           <Panel

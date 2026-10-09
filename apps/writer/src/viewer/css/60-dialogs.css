@@ -599,3 +599,192 @@ details.sees > summary h3 {
 .lnk details.act .pop {
   margin-top: 0;
 }
+/* Find (NAV-02): top-anchored, so it doesn't jump as results arrive. The form fills the box
+   (padding 0), so a click whose target is the dialog itself landed on ::backdrop. */
+dialog.find {
+  padding: 0;
+  margin: 12vh auto auto;
+  width: min(640px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 12vh - 24px);
+  overflow: hidden;
+  background: var(--dlg);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+}
+/* only when open: an author display would override the closed dialog's UA display: none */
+dialog.find[open] {
+  display: flex;
+  flex-direction: column;
+}
+dialog.find::backdrop {
+  background: var(--scrim);
+}
+.find-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+}
+.find-q {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+}
+.find-q input {
+  flex: 1;
+  min-width: 0;
+  height: 50px;
+  border: 0;
+  background: none;
+  outline: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+/* The field draws no outline of its own; the row shows focus, inset so the dialog's edge doesn't
+   clip it (an outline, so it survives forced colours). */
+.find-q:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+.find-q input::placeholder {
+  color: var(--muted);
+}
+.find-q input::-webkit-search-cancel-button {
+  display: none;
+}
+.find-cancel {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  padding: 0 8px;
+  min-height: 34px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.find-cancel:hover {
+  background: var(--hover);
+}
+/* The body scrolls; the field and the hints stay put. */
+.find-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 6px 6px 12px;
+}
+dialog.find .suggest {
+  position: static;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+  padding: 0;
+}
+.find-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 2px;
+}
+.find-tl {
+  font: 650 11px/1 var(--sans);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+}
+.find-tokens button {
+  font: 12.5px/1 var(--mono);
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.find-tokens button:hover {
+  background: var(--hover);
+}
+.find-tokens button[aria-pressed="true"] {
+  background: var(--sel);
+  border-color: var(--sel);
+  color: var(--on-sel);
+}
+/* Forced colours would repaint the pressed fill like the others: keep it, in system colours. */
+@media (forced-colors: active) {
+  .find-tokens button[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
+  }
+}
+.find-files {
+  margin: 10px 10px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: 13.5px;
+  color: var(--ink-2);
+  /* A long unbroken title wraps instead of scrolling Find sideways. */
+  overflow-wrap: anywhere;
+}
+.find-files b {
+  color: var(--ink);
+}
+.find-files a {
+  color: var(--ink);
+}
+.find-hints {
+  flex: none;
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Touch screens have no keyboard to use the hints and keycaps with. */
+@media (hover: none) and (pointer: coarse) {
+  .find-hints,
+  .suggest .all kbd {
+    display: none;
+  }
+}
+/* Phones: a full-width sheet from the top; the dimmed page below it closes it. */
+@media (max-width: 599.98px) {
+  dialog.find {
+    margin: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - var(--kb, 0px) - 72px);
+    border-width: 0 0 1px;
+    border-radius: 0 0 16px 16px;
+  }
+  /* (0,2,2): outranks a coarse-pointer field rule like input:not([type=checkbox]) (VS-05a). */
+  dialog.find input[type="search"] {
+    font-size: 17px;
+  }
+  .find-cancel {
+    min-height: 44px;
+  }
+  dialog.find .suggest [role="option"] {
+    min-height: 52px;
+    align-content: center;
+  }
+  .find-tokens button {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+}

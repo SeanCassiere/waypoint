@@ -7,7 +7,7 @@ import type { Health } from "../health.ts";
 import { clientAsset, cssAsset, faviconAsset, pagesAsset } from "./assets.ts";
 import { HealthPill, HealthPopover, LogoMark } from "./components.tsx";
 import { plural } from "./format.ts";
-import { keycaps, keyFor } from "./keymap.ts";
+import { ariaKeyshortcuts, keycaps, keyFor, keyTitle } from "./keymap.ts";
 import { KeysDialog } from "./keys-dialog.tsx";
 
 /** Per-request data every page needs for its chrome (bar, health pill and popover). */
@@ -31,13 +31,18 @@ export function Layout(props: {
   bar: Child;
   children: Child;
   page: string;
+  /** The collection's title on collection, Changes and gallery pages: Find's Files row. */
+  findIn?: string | undefined;
 }) {
   const pageScript = props.page === "changes" || props.page === "gallery";
   return (
     <html lang="en">
       <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+        />
         <title>{props.title === "Waypoint" ? "Waypoint" : `${props.title} · Waypoint`}</title>
         <link rel="icon" href={faviconAsset.url} type="image/svg+xml" />
         <link rel="stylesheet" href={cssAsset.url} />
@@ -54,6 +59,7 @@ export function Layout(props: {
           host={props.chrome.host}
         />
         <KeysDialog page={props.page} />
+        <FindDialog findIn={props.findIn} />
         <ConfirmDialog />
         <div class="pop-scrim" aria-hidden="true" />
         <div class="toasts" data-toast popover="manual">
@@ -189,16 +195,11 @@ export function HomeBar(props: {
           aria-autocomplete="list"
         />
         <kbd aria-hidden="true">/</kbd>
-        <ul class="suggest" id="suggest" role="listbox" aria-label="Suggestions" hidden />
+        <div class="suggest" id="suggest" role="listbox" aria-label="Suggestions" hidden />
+        <span class="sr" role="status" data-search-status />
       </form>
       <span class="grow" />
-      <a
-        class="iconbtn show-sm"
-        href={props.q ? `/?q=${encodeURIComponent(props.q)}` : "/?q="}
-        aria-label="Find"
-      >
-        {raw(icon("search", "lg"))}
-      </a>
+      <FindButton class="show-sm" />
       <HealthPill health={chrome.health} />
       <button
         type="button"
@@ -256,6 +257,90 @@ export function HomeBar(props: {
         </nav>
       </div>
     </header>
+  );
+}
+
+/** Opens Find (`/` does too, on pages without a visible search field). */
+export function FindButton(props: { class?: string }) {
+  return (
+    <button
+      type="button"
+      class={props.class ? `iconbtn ${props.class}` : "iconbtn"}
+      commandfor="find"
+      command="show-modal"
+      aria-label="Find"
+      aria-keyshortcuts={ariaKeyshortcuts("find")}
+      title={keyTitle("find")}
+    >
+      {raw(icon("search", "lg"))}
+    </button>
+  );
+}
+
+const FIND_TOKENS = ["is:public", "is:failed", "in:trash", "project:"] as const;
+
+/**
+ * Find (NAV-02): one dialog on every page, for finding collections. The form is a [data-search]
+ * combobox like the bar's field (client/search.ts fills its listbox) and fills the dialog
+ * (padding 0), so a click whose target is the dialog itself landed on ::backdrop. On collection
+ * pages, a dead-end row points file searches at the Files tab.
+ */
+export function FindDialog(props: { findIn?: string | undefined }) {
+  return (
+    <dialog id="find" class="find" aria-labelledby="find-title" closedby="any">
+      <h2 id="find-title" class="sr">
+        Find a collection
+      </h2>
+      <form class="find-form" role="search" action="/" method="get" data-search data-find>
+        <div class="find-q">
+          {raw(icon("search"))}
+          <input
+            type="search"
+            name="q"
+            placeholder="Find a collection, or paste a URL or ID"
+            aria-label="Find a collection, or paste a URL or ID"
+            autocomplete="off"
+            autocapitalize="none"
+            enterkeyhint="search"
+            spellcheck={false}
+            autofocus
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="find-suggest"
+            aria-autocomplete="list"
+          />
+          <button type="button" class="find-cancel" commandfor="find" command="close">
+            Cancel
+          </button>
+        </div>
+        <div class="find-body">
+          <div class="suggest" id="find-suggest" role="listbox" aria-label="Suggestions" hidden />
+          <div class="find-tokens" role="group" aria-label="Filters">
+            <span class="find-tl" aria-hidden="true">
+              Filters
+            </span>
+            {FIND_TOKENS.map((token) => (
+              <button type="button" data-token={token} aria-pressed="false">
+                {token}
+              </button>
+            ))}
+          </div>
+          {props.findIn ? (
+            <p class="find-files">
+              Looking for a file in <b>{props.findIn}</b>?{" "}
+              <a href="?panel=files" data-find-files>
+                Open Files<span aria-hidden="true"> ›</span>
+              </a>
+            </p>
+          ) : null}
+        </div>
+        <p class="find-hints">
+          <kbd>↑↓</kbd> move · <kbd>↵</kbd> open · <kbd>⇧↵</kbd> all results · Paste a Waypoint URL
+          or ID to jump to it
+        </p>
+        <span class="sr" role="status" data-search-status />
+      </form>
+    </dialog>
   );
 }
 

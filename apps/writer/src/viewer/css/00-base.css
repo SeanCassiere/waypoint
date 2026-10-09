@@ -177,33 +177,68 @@ mark {
   box-shadow: var(--sh-2);
   padding: 6px;
   margin: 0;
-  list-style: none;
 }
-.suggest li {
+/* Groups (NAV-02): "Collections", then All results under a rule. */
+.suggest [role="group"] + [role="group"] {
+  border-top: 1px solid var(--rule);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.suggest .sg-h {
+  font: 650 11px/1 var(--sans);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 10px 6px;
+}
+/* Two lines: the title, then "project · #n message". */
+.suggest [role="option"] {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 10px;
+  gap: 2px;
   padding: 7px 10px;
   border-radius: 8px;
   cursor: pointer;
   color: var(--ink);
+  text-decoration: none;
 }
-.suggest li small {
+.suggest [role="option"] small {
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.suggest li b {
+.suggest [role="option"] b {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.suggest li[aria-selected="true"],
-.suggest li:hover {
+.suggest mark {
+  padding: 0 1px;
+}
+.suggest .all {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+/* A long unbroken query wraps inside its column, clear of the keycap. */
+.suggest .all span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.suggest [role="option"]:hover {
   background: var(--hover);
+}
+.suggest [role="option"][aria-selected="true"] {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+}
+@media (forced-colors: active) {
+  .suggest [role="option"][aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 /* The global bar's destinations (NAV-01). The search field follows the tabs, so it starts at the
    same x on every page that shares the bar. */
