@@ -1,5 +1,6 @@
 // RX-05: the viewer's raw route serves CSV and TSV as plain text, so its frame shows their text;
 // the API file route keeps the stored type for API and MCP clients.
+// RX-06: `?download` on /raw/r/ serves the stored file, under its stored type, as an attachment.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,5 +97,74 @@ describe("raw route content types (RX-05)", () => {
     const markdown = await app.request(`/raw/r/${publicId}/index.md`);
     expect(markdown.status).toBe(200);
     expect(markdown.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+  });
+});
+describe("raw route downloads (RX-06)", () => {
+  it("serves the stored bytes under the stored type as an attachment", async () => {
+    const csv = "region,requests\neu-west,1200\n";
+    const markdownSource = "# Field kit\n\nNotes.";
+    // A renderer, so index.md has a rendition the download must skip.
+    const renderer = {
+      rendererName: "test-renderer",
+      rendererVersion: 1,
+      render: () =>
+        Promise.resolve({
+          bytes: new TextEncoder().encode("<h1>Field kit</h1>"),
+          mime: "text/html",
+        }),
+    };
+    const rendering = new IngestService(
+      waypoint,
+      queue,
+      blobs,
+      reads,
+      ingest.sync,
+      undefined,
+      renderer,
+    );
+    const result = await rendering.create({
+      title: "Downloads",
+      files: [
+        await stored("index.md", markdownSource, "text/markdown"),
+        await stored("data.csv", csv, "text/csv"),
+      ],
+    });
+    const publicId = result.url.split("/r/")[1]?.split("/")[0];
+    expect(publicId).toBeTruthy();
+    const framedMarkdown = await app.request(`/raw/r/${publicId}/index.md`);
+    expect(framedMarkdown.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const etag = framedMarkdown.headers.get("etag") ?? "";
+    expect(etag).toMatch(/^"sha256:/);
+    expect(await framedMarkdown.text()).toBe("<h1>Field kit</h1>");
+    const markdown = await app.request(`/raw/r/${publicId}/index.md?download`, {
+      headers: { "if-none-match": etag },
+    });
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(markdown.headers.get("content-disposition")).toBe(
+      "attachment; filename*=UTF-8''index.md",
+    );
+    expect(markdown.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(markdown.headers.get("etag")).toBeNull();
+    expect(markdown.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(await markdown.text()).toBe(markdownSource);
+    const table = await app.request(`/raw/r/${publicId}/data.csv?download`);
+    expect(table.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(table.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''data.csv");
+    expect(await table.text()).toBe(csv);
+    const framed = await app.request(`/raw/r/${publicId}/data.csv`);
+    expect(framed.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(framed.headers.get("content-disposition")).toBeNull();
+    const api = await app.request(`/api/revisions/${result.revision_id}/files/index.md?download`);
+    expect(api.status).toBe(200);
+    expect(api.headers.get("content-disposition")).toBeNull();
+  });
+  it("keeps the raw route's errors", async () => {
+    const plain = await app.request("/raw/r/nope/x.md");
+    const download = await app.request("/raw/r/nope/x.md?download");
+    expect(plain.status).toBe(404);
+    expect(download.status).toBe(plain.status);
+    expect([...download.headers]).toEqual([...plain.headers]);
+    expect(await download.text()).toBe(await plain.text());
   });
 });

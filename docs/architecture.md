@@ -140,7 +140,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 | `/c/<collection public id>/` | Viewer for the latest revision's head document |
 | `/c/<collection public id>/<path>` | Viewer for a file in the latest revision |
 | `/c/<collection public id>/r/<revision public id>/<path>` | Viewer for a file in a pinned revision |
-| `/raw/r/<revision public id>/<path>` | Raw content of a file. Markdown returns its HTML rendition; add `?source` for the original. CSV and TSV files are served as `text/plain; charset=utf-8`, so a frame shows their text instead of a blocked download. |
+| `/raw/r/<revision public id>/<path>` | Raw content of a file. Markdown returns its HTML rendition; add `?source` for the original. CSV and TSV files are served as `text/plain; charset=utf-8`, so a frame shows their text instead of a blocked download. `?download` returns the original file as an attachment. |
 | `/assets/<renderer version>/<file>` | Reserved for static, non-secret JS and CSS that renditions may reference. No renderer version uses it yet. |
 | `/s/<token>/c/…`, `/x/<link id>.<cap>/r/…` | (Reader) the share shell behind a share token, and raw content behind a derived per-revision capability. See [public-reader.md](public-reader.md#urls). |
 

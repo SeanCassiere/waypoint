@@ -1,4 +1,5 @@
 import {
+  attachmentDisposition,
   buildInfo,
   hashShareToken,
   isShareToken,
@@ -482,9 +483,12 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
           void work;
         }
       };
+      // `?download` (RX-06): the stored file as an attachment, never a rendition and never a 304,
+      // so a browser can't reuse a rendition's body for it.
+      const download = new URL(c.req.url).searchParams.has("download");
       let hash = file.blob_hash;
       let mime = file.mime;
-      const markdown = mime === "text/markdown";
+      const markdown = mime === "text/markdown" && !download;
       if (markdown) {
         const rendition = (
           await db.all<Rendition>(
@@ -532,10 +536,15 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       }
       const headers = new Headers({
         ...standard,
-        "Content-Type": rawContentType(mime),
+        "Content-Type": download
+          ? isTextMime(mime)
+            ? `${mime}; charset=utf-8`
+            : mime
+          : rawContentType(mime),
         "Content-Security-Policy": rawCsp,
         "Cache-Control": "private, no-cache",
       });
+      if (download) headers.set("Content-Disposition", attachmentDisposition(path));
       if (markdown) headers.set("ETag", `"${hash}"`);
       response = new Response(source.body, { headers });
     }

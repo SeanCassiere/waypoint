@@ -89,7 +89,8 @@ export const timeScript: string = `(() => {
  * title ("<file name> · <the h1's text>", RX-03), and replaces the URL with that link's own
  * server-rendered href. Before the first `replaceState` it pins every file link to its absolute
  * URL (RX-02), so links written relative to the original page still point at the right files
- * once the URL is in another folder.
+ * once the URL is in another folder. The row's Download control (RX-06) follows the new file:
+ * its `?download` URL, saved name and accessible name come from that link's own `data-p`.
  */
 export const locationScript: string = `(() => {
   const frame = document.getElementById("doc");
@@ -144,6 +145,15 @@ export const locationScript: string = `(() => {
     if (icon && kind) icon.setAttribute("href", kind.getAttribute("href"));
     const h1 = document.querySelector("h1");
     document.title = shown.slice(shown.lastIndexOf("/") + 1) + (h1 ? " · " + h1.textContent : "");
+    const download = document.querySelector(".prow > .dlb");
+    if (download) {
+      const p = hit.dataset.p;
+      const name = p.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
+      const href = base + p.split("/").map(encodeURIComponent).join("/") + "?download";
+      download.setAttribute("href", href);
+      download.setAttribute("download", name.slice(name.lastIndexOf("/") + 1));
+      download.setAttribute("aria-label", "Download " + name);
+    }
     if (hit.href !== location.href) {
       pinLinks();
       history.replaceState(null, "", hit.href);

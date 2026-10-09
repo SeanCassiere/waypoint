@@ -1,4 +1,5 @@
 import { icon, iconUse } from "../icons.ts";
+import { downloadLink } from "./download.ts";
 import type { PublicShellFile, PublicShellOptions } from "./index.ts";
 import { bytes, esc, label } from "./text.ts";
 
@@ -206,7 +207,8 @@ function tree(
 
 /**
  * The file list, in a `.prow` row: tabs, a "Files N" button past the tab limit that opens the tree
- * in a light-dismiss popover (a bottom sheet on phones), or "" for one file.
+ * in a light-dismiss popover (a bottom sheet on phones), or "" for one file. The current file's
+ * Download control (RX-06) ends the row; a one-file shell has it in the letterhead instead.
  */
 export function files(options: PublicShellOptions): string {
   let all = options.files;
@@ -221,7 +223,7 @@ export function files(options: PublicShellOptions): string {
   const budget: Budget = { used: 0, listed: 0, mime: undefined, kind: "doc" };
   if (all.length <= PUBLIC_SHELL_TAB_LIMIT) {
     const ordered = head ? [head, ...rest] : rest;
-    return `<div class="prow"><nav class="ptabs2" aria-label="Files">${ordered.map((file) => link(options, file, file.path, budget, false)).join("")}</nav></div>`;
+    return `<div class="prow"><nav class="ptabs2" aria-label="Files">${ordered.map((file) => link(options, file, file.path, budget, false)).join("")}</nav>${downloadLink(options, "row")}</div>`;
   }
   const headRow = head ? `${link(options, head, head.path, budget, true)}<hr>` : "";
   const list = tree(options, rest, budget);
@@ -235,5 +237,5 @@ export function files(options: PublicShellOptions): string {
   const button = `<button type="button" class="fbtn" popovertarget="files" aria-describedby="files-cur">${count}<span class="cur" id="files-cur">${iconUse(shellFileKind(all.find((file) => file.path === options.current)?.mime))}<span class="t" dir="auto">${label(options.current)}</span></span>${icon("chevronDown", "sm chev")}</button>`;
   // The heading and Done show only on phones, where the popover is a bottom sheet.
   const sheetHead = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
-  return `<div class="prow"><nav class="pfiles" aria-label="Files">${button}<div id="files" class="menu files" popover="auto"><div class="mbox tree" role="group" aria-labelledby="files-h">${sheetHead}${headRow}${list}${more}</div></div></nav></div>`;
+  return `<div class="prow"><nav class="pfiles" aria-label="Files">${button}<div id="files" class="menu files" popover="auto"><div class="mbox tree" role="group" aria-labelledby="files-h">${sheetHead}${headRow}${list}${more}</div></div></nav>${downloadLink(options, "row")}</div>`;
 }
