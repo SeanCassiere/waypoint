@@ -229,8 +229,62 @@ body:has(#rev-menu:popover-open) .revbtn .caret {
   background: var(--paper);
   min-height: 0;
 }
-.frame.img {
-  background: var(--sunken);
+/* RX-04: image files sit on the shared stage (stageCss) with a caption bar under it. */
+.wstage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wcap {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.wcap b {
+  font: 600 12.5px var(--mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.wcap .sp {
+  flex: 1;
+}
+.wcap [data-dim]:empty {
+  display: none;
+}
+/* The change chip uses OW-12's diff roles (decision f). */
+.ichg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ichg.m {
+  background: var(--changed-bg);
+  color: var(--changed);
+}
+.ichg.a {
+  background: var(--add-bg);
+  color: var(--add);
+}
+.ichg a {
+  color: inherit;
+  font-weight: 500;
+}
+@media (max-width: 599.98px) {
+  .wcap .ty {
+    display: none;
+  }
 }
 .status1 {
   display: flex;

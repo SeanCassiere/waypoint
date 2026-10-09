@@ -9,7 +9,7 @@ import {
   shareShellUrl,
   validatePath,
 } from "@waypoint/core";
-import { encodeLinkPath, renderPublicShell } from "@waypoint/ui";
+import { encodeLinkPath, isStageImage, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
 import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.ts";
@@ -78,8 +78,12 @@ const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbo
  * Hash-only CSPs. The hashes are build-time constants (csp-hashes.ts, verified against the exact
  * inline <style> and <script> bodies by tests/reader-csp-hashes.test.ts), so no response,
  * least of all the denial, waits on crypto.
+ *
+ * An image shell (RX-04, decision c) may load images only from `imageBase`, this response's own
+ * frame base: a trailing `/` makes CSP match by prefix, so only files of the revision it shows.
  */
-const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const shellPolicy = (imageBase: string | null): string =>
+  `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; ${imageBase === null ? "" : `img-src ${imageBase}; `}frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /** The `/x/` denial card's policy: the static one, but the shell (same origin) may frame it. */
 const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
@@ -449,6 +453,8 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       const depth = new URL(c.req.url).pathname.split("/").length - prefixPath.split("/").length;
       const linkPrefix = depth < 0 ? prefixPath : depth === 0 ? "./" : "../".repeat(depth);
       const cap = await rawCap(env.RAW_CAP_KEY, link.id, revision.public_id);
+      const frameBase = `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`;
+      const image = previewable(file.mime) && isStageImage(file.mime);
       const html = renderPublicShell({
         title: link.title,
         files,
@@ -456,19 +462,20 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         current: path,
         // Relative, minimally encoded links keep a 2,000-file shell small.
         fileHref: (item) => linkPrefix + encodeLinkPath(item),
-        frameBase: `${base}/x/${link.id}.${cap}/r/${revision.public_id}/`,
+        frameBase,
         updatedAt: link.revision_id ? null : revision.created_at,
         snapshotAt: link.revision_id ? revision.created_at : null,
         expiresAt: link.expires_at,
         now: now(),
         syncing: newer,
         download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
+        image: image ? { mime: file.mime, size: file.size ?? null } : null,
       });
       response = new Response(html, {
         headers: {
           ...standard,
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": shellPolicy,
+          "Content-Security-Policy": shellPolicy(image ? frameBase : null),
           "X-Frame-Options": "DENY",
           // Documents may open popups that escape the sandbox; sever their opener to the shell.
           "Cross-Origin-Opener-Policy": "same-origin",
