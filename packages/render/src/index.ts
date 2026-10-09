@@ -1,18 +1,32 @@
 import { Worker } from "node:worker_threads";
 
-import { isMarkdown } from "@waypoint/core";
+import { isMarkdown, rendererFor } from "@waypoint/core";
 
+import { CSV_LIMITS, CSV_RENDERER_NAME, CSV_RENDERER_VERSION } from "./csv.ts";
 import { fallbackDocument, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
+import { TEXT_LIMITS, TEXT_RENDERER_NAME, TEXT_RENDERER_VERSION } from "./text.ts";
+import { decodeSource } from "./view.ts";
 
 export { renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "./render.ts";
+export { renderText, TEXT_LIMITS, TEXT_RENDERER_NAME, TEXT_RENDERER_VERSION } from "./text.ts";
+export { renderCsv, CSV_LIMITS, CSV_RENDERER_NAME, CSV_RENDERER_VERSION } from "./csv.ts";
 
 type Result = { bytes: Uint8Array; mime: "text/html" };
-type Renderer = {
-  readonly name: typeof RENDERER_NAME;
-  readonly version: typeof RENDERER_VERSION;
+/** A renderer of this package: its rendition name, version and render function. */
+export type HtmlRenderer = {
+  readonly name: string;
+  readonly version: number;
   render(source: Uint8Array, mime: string): Promise<Result | null>;
 };
-type Job = { resolve: (html: string) => void; reject: (reason: Error) => void };
+/** The worker protocol: a missing `kind` means markdown. */
+type WorkerMessage = {
+  source: string;
+  title?: string;
+  kind?: "markdown" | "text" | "csv";
+  mime?: string;
+  byteLength?: number;
+};
+type Job = { resolve: (html: string | null) => void; reject: (reason: Error) => void };
 type Slot = { worker: Worker; jobs: Map<number, Job>; failed: boolean };
 
 const slots: Slot[] = [];
@@ -46,7 +60,7 @@ function createSlot(): Slot {
   function fail(): void {
     discardSlot(slot);
   }
-  worker.on("message", (message: { id: number; html: string }) => {
+  worker.on("message", (message: { id: number; html: string | null }) => {
     const job = slot.jobs.get(message.id);
     if (!job) return;
     slot.jobs.delete(message.id);
@@ -60,7 +74,7 @@ function createSlot(): Slot {
   return slot;
 }
 
-function renderInWorker(source: string): Promise<string> {
+function renderInWorker(message: WorkerMessage): Promise<string | null> {
   const slot =
     slots.length < 2
       ? createSlot()
@@ -70,7 +84,7 @@ function renderInWorker(source: string): Promise<string> {
     slot.jobs.set(id, { resolve, reject });
     slot.worker.ref();
     try {
-      slot.worker.postMessage({ id, source }, []);
+      slot.worker.postMessage({ id, ...message }, []);
     } catch (error) {
       slot.jobs.delete(id);
       if (slot.jobs.size === 0) slot.worker.unref();
@@ -81,7 +95,7 @@ function renderInWorker(source: string): Promise<string> {
   });
 }
 
-export const markdownRenderer: Renderer = {
+export const markdownRenderer: HtmlRenderer = {
   name: RENDERER_NAME,
   version: RENDERER_VERSION,
   async render(source: Uint8Array, mime: string): Promise<Result | null> {
@@ -97,13 +111,60 @@ export const markdownRenderer: Renderer = {
       .replace(/^\uFEFF/u, "");
     let html: string;
     try {
-      html = await renderInWorker(text);
+      html =
+        (await renderInWorker({ source: text })) ??
+        fallbackDocument(text, undefined, "could not be rendered");
     } catch {
       html = fallbackDocument(text, undefined, "could not be rendered");
     }
     return { bytes: new TextEncoder().encode(html), mime: "text/html" };
   },
 };
+
+/**
+ * A text or CSV renderer: the MIME type and size are checked here, the view is built in the worker
+ * pool. Unlike markdown there is no fallback document: a worker failure means no rendition.
+ */
+function viewRenderer(
+  kind: "text" | "csv",
+  name: string,
+  version: number,
+  maxBytes: number,
+): HtmlRenderer {
+  return {
+    name,
+    version,
+    async render(source: Uint8Array, mime: string): Promise<Result | null> {
+      if (rendererFor(mime) !== kind || source.byteLength > maxBytes) return null;
+      let html: string | null;
+      try {
+        // The view removes one leading BOM itself, like renderText/renderCsv called directly.
+        html = await renderInWorker({
+          source: decodeSource(source),
+          kind,
+          mime,
+          byteLength: source.byteLength,
+        });
+      } catch {
+        return null;
+      }
+      return html === null ? null : { bytes: new TextEncoder().encode(html), mime: "text/html" };
+    },
+  };
+}
+
+export const textRenderer: HtmlRenderer = viewRenderer(
+  "text",
+  TEXT_RENDERER_NAME,
+  TEXT_RENDERER_VERSION,
+  TEXT_LIMITS.maxBytes,
+);
+export const csvRenderer: HtmlRenderer = viewRenderer(
+  "csv",
+  CSV_RENDERER_NAME,
+  CSV_RENDERER_VERSION,
+  CSV_LIMITS.maxBytes,
+);
 export {
   markWords,
   MAX_FRAGMENT_SOURCE,

@@ -1198,22 +1198,27 @@ export class ReadModel {
         .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
   }
-  async rendition(hash: string): Promise<{ hash: string; mime: string } | undefined> {
+  /** The newest rendition of `hash` by one renderer (queued or committed). */
+  async rendition(
+    hash: string,
+    renderer: string = "markdown",
+  ): Promise<{ hash: string; mime: string } | undefined> {
     const pending = await this.queue.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
     }>(
-      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=?",
-      [hash],
+      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=? AND renderer=?",
+      [hash, renderer],
     );
     const committed = await this.waypoint.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
-    }>("SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=?", [
-      hash,
-    ]);
+    }>(
+      "SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=? AND renderer=?",
+      [hash, renderer],
+    );
     const newest = [...pending, ...committed].toSorted(
       (a, b) => b.renderer_version - a.renderer_version,
     )[0];

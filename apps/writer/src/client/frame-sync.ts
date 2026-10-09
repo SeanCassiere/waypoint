@@ -104,8 +104,10 @@ export function bindFrameSync(): void {
       else link.removeAttribute("aria-current");
     frameNotice(matched ? null : "This file isn't in this revision.");
     const raw = rawPath(revision, path) + search + hash;
-    for (const link of $$("[data-open-raw],[data-download-raw],[data-download]", HTMLAnchorElement))
-      link.href = raw;
+    for (const link of $$("[data-open-raw],[data-download]", HTMLAnchorElement)) link.href = raw;
+    // "Download file" saves the original bytes (RX-06), never the file's HTML rendition.
+    for (const link of $$("[data-download-raw]", HTMLAnchorElement))
+      link.href = rawPath(revision, path) + "?download";
     const latest = $("[data-copy-preview=latest]");
     if (latest) latest.textContent = `…${shellPath(collection, revision, path, false, head)}`;
     const pinnedPreview = $("[data-copy-preview=pinned]");

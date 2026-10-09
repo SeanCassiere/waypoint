@@ -6,6 +6,7 @@
 // Set WAYPOINT_PUBLIC_BASE_URL (e.g. http://127.0.0.1:7422) so share URLs point at a demo reader
 // (`pnpm demo:reader`).
 // Set WAYPOINT_DEMO_READER_FIXTURE=1 to add the reader lane's "Field kit: reader fixture" link.
+// Set WAYPOINT_DEMO_RENDITIONS_FIXTURE=1 to add RX-08's "Field kit: renditions fixture" link.
 // It never touches Turso, R2, or ~/.config/waypoint.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -28,7 +29,7 @@ import {
   waypointMigrations,
 } from "../apps/writer/src/migrations.ts";
 import { ReadModel } from "../apps/writer/src/read-model.ts";
-import { writerRenderer } from "../apps/writer/src/renderer.ts";
+import { writerRenderers } from "../apps/writer/src/renderer.ts";
 import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 // @waypoint/core from source: the repository root doesn't depend on the workspace packages.
 import { newId, parseId, parseShareTokenKey, publicIdFor } from "../packages/core/src/index.ts";
@@ -57,7 +58,7 @@ const cloud: SyncClient = {
 await guardEnvironment(waypoint, cloud, "dev", false);
 const blobs = new BlobStore(dir, 64 * 1024 * 1024);
 const reads = new ReadModel(waypoint, queue, base);
-const ingest = new IngestService(waypoint, queue, blobs, reads, cloud, undefined, writerRenderer);
+const ingest = new IngestService(waypoint, queue, blobs, reads, cloud, undefined, writerRenderers);
 const syncLoop = new SyncLoop(queue, cloud, Date.now, waypoint);
 const committer = new WriterCommitter(
   waypoint,
@@ -600,6 +601,130 @@ if (process.env.WAYPOINT_DEMO_READER_FIXTURE === "1") {
   readerFixtureUrl = String(fixtureLink.url);
   await syncLoop.push();
 }
+let renditionsFixtureUrl: string | undefined;
+if (process.env.WAYPOINT_DEMO_RENDITIONS_FIXTURE === "1") {
+  // RX-08: text, code, logs, JSON and CSV files for the text and table views' spot checks.
+  const drain = `${[
+    "#!/usr/bin/env bash",
+    "# Pause PgBouncer, wait for in-flight transactions, then hand over to pg_upgrade.",
+    "# Run from the bastion as the admin user. Safe to re-run: every step checks state first.",
+    "set -euo pipefail",
+    "",
+    'PGB_HOST="${PGB_HOST:-pgbouncer}"',
+    'PGB_PORT="${PGB_PORT:-6432}"',
+    'DB="app"',
+    "DRAIN_TIMEOUT=120   # seconds to wait for active server connections to finish",
+    "",
+    'log() { echo "[$(date -u +%H:%M:%S)] $*"; }',
+    "",
+    "pgb() {",
+    '  psql -h "$PGB_HOST" -p "$PGB_PORT" -U admin pgbouncer -tAc "$1"',
+    "}",
+    "",
+    'log "Pausing $DB on $PGB_HOST:$PGB_PORT"',
+    'pgb "PAUSE $DB;"',
+    "",
+    "# PAUSE returns once clients are queued; server connections may still be busy.",
+    'for i in $(seq 1 "$DRAIN_TIMEOUT"); do',
+    '  active=$(pgb "SHOW SERVERS;" | awk -F\'|\' -v db="$DB" \'$2 == db && $4 == "active"\' | wc -l)',
+    '  if [ "$active" -eq 0 ]; then',
+    '    log "Drained after ${i}s"',
+    "    break",
+    "  fi",
+    "  sleep 1",
+    "done",
+    "",
+    'if [ "$active" -ne 0 ]; then',
+    '  log "Still $active active connections after ${DRAIN_TIMEOUT}s; resuming and aborting"',
+    '  pgb "RESUME $DB;"',
+    "  exit 1",
+    "fi",
+    "",
+    'log "Paused. Clients are queued, not refused. Run pg_upgrade now, then:"',
+    "log \"  pgb 'RESUME $DB;'\"",
+  ].join("\n")}\n`;
+  const metrics =
+    '{"run":"2026-10-06T21:14:03Z","model":"rerank-v4","baseline":"bm25+rules","queries":1200,"metrics":{"ndcg@10":{"baseline":0.412,"candidate":0.468,"delta":0.056},"mrr@10":{"baseline":0.377,"candidate":0.431,"delta":0.054},"recall@50":{"baseline":0.781,"candidate":0.804,"delta":0.023},"p95_latency_ms":{"baseline":38,"candidate":61,"delta":23}},"slices":[{"name":"navigational","queries":410,"ndcg_delta":0.012},{"name":"long-tail","queries":520,"ndcg_delta":0.091},{"name":"misspelled","queries":270,"ndcg_delta":0.047}],"regressions":["q-0193","q-0877"],"passed":true}' +
+    "\n";
+  const queries = [
+    "refund policy for annual plan",
+    "how to rotate api keys",
+    "webhook retry schedule",
+    "export invoices csv",
+    "sso with okta",
+    "rate limit headers",
+    "delete workspace",
+    "change billing email",
+    "audit log retention",
+    "2fa recovery codes",
+    "ip allowlist",
+    "custom domain ssl",
+    "pagination cursor",
+    "data residency eu",
+  ];
+  const results = [
+    "query_id,query,ndcg@10,mrr,recall@50,latency_ms",
+    ...Array.from({ length: 1284 }, (_, index) => {
+      const i = index + 1;
+      return [
+        `q-${String(i).padStart(4, "0")}`,
+        queries[(i - 1) % queries.length],
+        (0.6 + ((i * 37) % 400) / 1000).toFixed(3),
+        (0.55 + ((i * 53) % 400) / 1000).toFixed(3),
+        (0.8 + ((i * 29) % 200) / 1000).toFixed(3),
+        String(30 + ((i * 7) % 30)),
+      ].join(",");
+    }),
+  ];
+  const log = [
+    ...Array.from(
+      { length: 40 },
+      (_, n) =>
+        `2026-10-06T21:14:${String(n % 60).padStart(2, "0")}Z INFO request id=${n + 1} status=200`,
+    ),
+    "2026-10-06T21:15:00Z WARN payload=".padEnd(5000, "ab"),
+  ];
+  let huge = "";
+  for (let i = 1; huge.length < 2_200_000; i++) huge += `line ${i}\n`;
+  const fixture = await create(
+    "Field kit: renditions fixture",
+    { project: "demo", tags: ["fixture"] },
+    "devbox",
+    "Renditions fixture",
+    [
+      await put("drain.sh", drain),
+      await put("metrics.json", metrics),
+      await put(
+        "events.jsonl",
+        '{"id":1,"kind":"deploy"}\n{"id":2,"kind":"build"}\n{"id":3,"kind":"test"}\n',
+      ),
+      await put("server.log", `${log.join("\n")}\n`),
+      await put(
+        "trojan.js",
+        'const s = "</pre><script>alert(1)</script>";\n// \u202E}\u202C {\n\u200B\u0000x\ry\n',
+      ),
+      await put("results.csv", `${results.join("\n")}\n`),
+      await put("quoted.csv", 'name,note\n"Smith, J.","said ""hi""\nthen left"\nLee,ok\n'),
+      await put("broken.csv", 'a,b\n"unterminated,1\n'),
+      await put("wide.tsv", "region\trequests\nwest\t12\neast\t34\n", "text/tab-separated-values"),
+      await put(
+        "big.py",
+        `${Array.from({ length: 6000 }, (_, index) => `x_${index + 1} = ${index + 1}`).join("\n")}\n`,
+      ),
+      await put("huge.txt", huge.slice(0, 2_200_000)),
+      await put("page.html", "<!doctype html><h1>HTML stays HTML</h1>"),
+      await put("notes.md", "# Notes\n\nMarkdown still renders.\n"),
+    ],
+    "drain.sh",
+  );
+  await settle();
+  const fixtureLink = await call(
+    `/api/collections/${fixture.id}/share-links`,
+    json("POST", { label: "Renditions fixture" }),
+  );
+  renditionsFixtureUrl = String(fixtureLink.url);
+  await syncLoop.push();
+}
 
 // Trash.
 await call(`/api/collections/${scratch.id}`, { method: "DELETE" });
@@ -720,3 +845,5 @@ serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
 console.log(`Demo writer on ${base} (data ${dir})`);
 if (process.env.WAYPOINT_DEMO_READER_FIXTURE === "1")
   console.log(`Reader fixture link: ${readerFixtureUrl}`);
+if (process.env.WAYPOINT_DEMO_RENDITIONS_FIXTURE === "1")
+  console.log(`Renditions fixture link: ${renditionsFixtureUrl}`);

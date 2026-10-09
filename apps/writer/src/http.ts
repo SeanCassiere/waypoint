@@ -11,6 +11,7 @@ import {
   validateClientId,
   isTextMime,
   rawContentType,
+  rendererFor,
   MCP_LAUNCHER_API,
   WaypointError,
   newId,
@@ -1237,10 +1238,17 @@ export function createApp(s: HttpServices): Hono {
     }
     const filePath = validatePath(decoded);
     const entry = await s.reads.file(id, filePath);
-    // A download (RX-06) is always the stored file under its original type, never a rendition.
-    const original = source || mode === "download";
-    const rendition =
-      entry.mime === "text/markdown" && !original ? await s.reads.rendition(entry.hash) : undefined;
+    // The raw route substitutes each type's rendition (rendererFor); the API only markdown's. A
+    // download (RX-06) and `?source` are always the stored file under its original type.
+    const renderer =
+      source || mode === "download"
+        ? null
+        : mode === "raw"
+          ? rendererFor(entry.mime)
+          : entry.mime === "text/markdown"
+            ? "markdown"
+            : null;
+    const rendition = renderer ? await s.reads.rendition(entry.hash, renderer) : undefined;
     if (rendition)
       try {
         await ensureBlob(rendition.hash);
@@ -1267,7 +1275,7 @@ export function createApp(s: HttpServices): Hono {
         : isTextMime(served.mime)
           ? `${served.mime}; charset=utf-8`
           : served.mime;
-    const changeable = entry.mime === "text/markdown" && !original;
+    const changeable = renderer !== null;
     const headers = new Headers({
       "content-type": mime,
       "x-content-type-options": "nosniff",

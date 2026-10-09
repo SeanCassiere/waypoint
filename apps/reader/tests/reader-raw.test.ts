@@ -132,7 +132,8 @@ describe("raw route content types (RX-05)", () => {
       );
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
       expect(response.headers.get("cache-control")).toBe("private, no-cache");
-      expect(response.headers.get("etag")).toBeNull();
+      // RX-08: CSV and TSV have a renderer, so a rendition may replace the file: ETag by hash.
+      expect(response.headers.get("etag")).toBe(`"${hash}"`);
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two files, checked in order.
       expect(await response.text()).toBe(blobs.get(hash));
     }

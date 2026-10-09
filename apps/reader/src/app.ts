@@ -6,6 +6,7 @@ import {
   isTextMime,
   parseShareUrl,
   rawContentType,
+  rendererFor,
   shareShellUrl,
   validatePath,
 } from "@waypoint/core";
@@ -495,12 +496,13 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       const download = new URL(c.req.url).searchParams.has("download");
       let hash = file.blob_hash;
       let mime = file.mime;
-      const markdown = mime === "text/markdown" && !download;
-      if (markdown) {
+      // Markdown, text and CSV files show their type's newest rendition (rendererFor).
+      const renderer = download ? null : rendererFor(file.mime);
+      if (renderer !== null) {
         const rendition = (
           await db.all<Rendition>(
-            "SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=? AND renderer='markdown' ORDER BY renderer_version DESC LIMIT 1",
-            [hash],
+            "SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=? AND renderer=? ORDER BY renderer_version DESC LIMIT 1",
+            [hash, renderer],
           )
         )[0];
         if (rendition) {
@@ -508,7 +510,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
           mime = rendition.output_mime;
         }
       }
-      if (markdown && c.req.header("if-none-match") === `"${hash}"`) {
+      if (renderer !== null && c.req.header("if-none-match") === `"${hash}"`) {
         const headers = new Headers({
           ...standard,
           "Content-Type": rawContentType(mime),
@@ -526,7 +528,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         logFailure("R2", error);
         return deny(env, ip, c.req.path);
       }
-      if (!source.ok && markdown && hash !== file.blob_hash) {
+      if (!source.ok && renderer !== null && hash !== file.blob_hash) {
         hash = file.blob_hash;
         mime = file.mime;
         try {
@@ -552,7 +554,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         "Cache-Control": "private, no-cache",
       });
       if (download) headers.set("Content-Disposition", attachmentDisposition(path));
-      if (markdown) headers.set("ETag", `"${hash}"`);
+      if (renderer !== null) headers.set("ETag", `"${hash}"`);
       response = new Response(source.body, { headers });
     }
     record(link, revision.id, path, status);

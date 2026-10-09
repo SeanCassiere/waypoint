@@ -83,7 +83,7 @@ packages/
   core/            runtime-agnostic: types, ID + public-ID derivation, path rules,
                    manifest merge, URL routing, Hono route handlers written against
                    Storage / Repo interfaces. Web APIs only (fetch, Web Crypto, Web Streams).
-  render/          markdown → HTML renderer (runs on the writer only)
+  render/          markdown, text and CSV → HTML renderers (run on the writer only)
   ui/              runtime-agnostic UI shared by the writer viewer and the reader:
                    design tokens (shared, writer-only, and the frozen reading set),
                    the SVG icon set, HTML escaping, the public shell, and the frame
@@ -140,7 +140,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 | `/c/<collection public id>/` | Viewer for the latest revision's head document |
 | `/c/<collection public id>/<path>` | Viewer for a file in the latest revision |
 | `/c/<collection public id>/r/<revision public id>/<path>` | Viewer for a file in a pinned revision |
-| `/raw/r/<revision public id>/<path>` | Raw content of a file. Markdown returns its HTML rendition; add `?source` for the original. CSV and TSV files are served as `text/plain; charset=utf-8`, so a frame shows their text instead of a blocked download. `?download` returns the original file as an attachment. |
+| `/raw/r/<revision public id>/<path>` | Raw content of a file. Markdown, text and CSV files return their HTML rendition (HTML files never do); add `?source` for the original. CSV and TSV files without a rendition are served as `text/plain; charset=utf-8`, so a frame shows their text instead of a blocked download. `?download` returns the original file as an attachment. |
 | `/assets/<renderer version>/<file>` | Reserved for static, non-secret JS and CSS that renditions may reference. No renderer version uses it yet. |
 | `/s/<token>/c/…`, `/x/<link id>.<cap>/r/…` | (Reader) the share shell behind a share token, and raw content behind a derived per-revision capability. See [public-reader.md](public-reader.md#urls). |
 
@@ -152,7 +152,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 
 ## Renditions
 
-- **Created at ingest.** The writer renders markdown into renditions when content is ingested. It never renders on request. After a renderer version bump, `waypoint-writer rerender` gives existing markdown a rendition at the new version (see [Re-rendering](#re-rendering-after-a-version-bump)).
+- **Created at ingest.** The writer renders markdown, text and CSV files into renditions when content is ingested. It never renders on request. After a renderer version bump, `waypoint-writer rerender` gives existing files a rendition at that renderer's new version (see [Re-rendering](#re-rendering-after-a-version-bump)).
 - **Self-contained.** CSS is inlined, and syntax highlighting is done at render time, also inlined. As a result a rendition displays correctly with no internet access on the tailnet, and the reader only has to stream it.
 - **Assets.** If a renderer version needs JS (for example Mermaid, later), it may reference only `/assets/<renderer version>/…`, which both the writer and the reader would then serve as static files, with no token. No version needs this yet: renditions are self-contained, and the reader returns 404 there.
 - **No CDNs.** Renditions never reference external CDNs.
@@ -160,9 +160,10 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
   - Highlighting has no time limit, but lines over 5,000 characters and fences over 100 KB are shown as plain text.
   - Sources over 1 MB, deeply nested input, and render errors fall back to the same page template showing the escaped source as plain text, with a one-line notice.
   - Rendering runs in a worker thread with a fixed stack size, so it never blocks the writer's event loop.
+  - Text and CSV: over 2 MB or 50,000 lines there is no rendition (the raw file is served); highlighting only up to 256 KB and 5,000 lines; a CSV table shows its first 500 rows, with cells cut at 64 K characters. The output is bounded too (16 M UTF-16 code units): formatted JSON over it is shown as authored, a CSV table over it gets the text view, and a text view over it is no rendition. At ingest and in `rerender`, a rendition larger than the blob limit is no rendition rather than a failed write.
 - **Version policy.** Any change to renderer dependencies, CSS, language set, template, or options bumps `RENDERER_VERSION`. A golden-output hash test enforces this.
 - **Front matter.** YAML front matter is shown in a collapsed "Front matter" block at the top.
-- **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
+- **Which version is served.** Renditions are keyed by `(source hash, renderer, renderer version)`, and several versions of the same source can coexist. They are served per `(source hash, renderer)`; the renderer comes from the file's MIME type (`rendererFor` in `@waypoint/core`). The writer serves the highest version among its committed and queued renditions; the reader serves the highest committed one (`ORDER BY renderer_version DESC LIMIT 1`). A new version therefore takes over as soon as its row exists, with no change to revisions or shells.
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
 - **Changes-page fragments** (`renderFragment` in `@waypoint/render`, run in `compare-worker.ts`) aren't renditions: they're rendered per request, never stored, so they don't bump `RENDERER_VERSION`; a separate fragment golden test pins their output, including GFM callouts and relative links resolved to the head revision's writer path.
 
@@ -182,10 +183,20 @@ The template follows the Folio design spec (section 8). The CSS is inlined in ev
 
 Fallback documents (oversized, too deeply nested, or failed renders) use the same template and script.
 
+### Text and CSV renditions (text v1, csv v1)
+
+Text, code, logs and JSON (`text`) and CSV/TSV (`csv`) files get a rendition on the same reading template, palette and frame reporter. HTML, XHTML and SVG never do. Each renderer has its own version constant (`TEXT_RENDERER_VERSION`, `CSV_RENDERER_VERSION`) and golden hash, so they change independently of markdown.
+- **Header:** the file name in mono, a kind chip (`Shell script`, `JSON`, `Plain text`, `Table`, …) and a meta line (`41 lines · 1.3 KB`). A rendition is shared by every file with the same bytes, so it can't contain the name: its one inline `<script>` fills the name in from the frame's own URL (`textContent`, bidi controls shown as U+FFFD), then runs the frame reporter.
+- **Lines:** a non-selectable gutter of line numbers, each line an `id="L<n>"` anchor (`#L23` is shareable and highlighted with `--mark`). Long lines wrap inside the code column, so continuation rows stay under the code. Copying lines yields just the source.
+- **Highlighting:** Shiki with the markdown renderer's themes and language set, chosen by MIME type; plain text and logs stay uncoloured.
+- **JSON:** a JSON file that is one line over 200 characters and parses is shown re-indented by 2 spaces, lexically (numbers, escapes and duplicate keys stay exactly as written), with a note that Download gives the file exactly as shared.
+- **Escaping:** every character is escaped; bidi and invisible control characters show as visible `⟪U+XXXX⟫` markers; no link or markup comes from content.
+- **CSV:** a table of the first 500 rows with a sticky header row, row numbers, right-aligned numeric columns and tabular figures, and a footer counting the rows not shown. A file that doesn't parse (an unterminated quote) or is empty gets the text view instead.
+
 ### Re-rendering after a version bump
 
-`waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>]` renders current-version renditions for markdown blobs that lack one. It also accepts `--renderer markdown --version <n>` and refuses a version other than the one it was built with. Operating it: [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
-- **Scope:** the markdown files of committed revisions and of pending (not failed) revisions, in all collections or one (by ID or public ID), including trashed collections, excluding collections being purged. Each distinct source blob is rendered once.
+`waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>] [--renderer markdown|text|csv]` renders current-version renditions for the files of one renderer (default `markdown`) that lack one. One renderer per run; `deploy/upgrade.sh rerender` runs all three. It also accepts `--version <n>` and refuses a version other than the one it was built with. Operating it: [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
+- **Scope:** the files whose MIME type picks the run's renderer (`rendererFor`) in committed revisions and of pending (not failed) revisions, in all collections or one (by ID or public ID), including trashed collections, excluding collections being purged. Each distinct source blob is rendered once, as the lexicographically smallest of its in-scope MIME types.
 - **Queue path.** Outputs go into the local blob store with `pending_blobs` and `pending_renditions` rows, exactly as at ingest. The committer then commits each queued rendition whose source blob is committed: it uploads the output, inserts its `blobs` and `renditions` rows (blob before row), clears the queue rows, and pushes. A rendition whose source is still only in a pending revision commits with that revision. See [write-path-and-sync.md](write-path-and-sync.md#other-queued-work).
 - **Missing sources.** A writer bootstrapped from the cloud fetches blobs lazily, so `rerender` downloads a source that is missing locally from the bucket, like the viewer does.
 - **Idempotent and resumable.** Sources that already have a current-version rendition, committed or queued, are skipped. `--limit` caps the renditions queued per run (missing and failed sources don't count toward it); running again continues. The JSON summary reports `sources`, `current`, `queued`, `remaining`, and the `missing` and `failed` source hashes. Plain `missing: X` and `failed: Y` lines follow, then a last line `remaining: N`. `remaining` excludes missing and failed sources, which another run won't fix, so a loop that repeats while it is above 0 ends. `/api/status` reports the standalone backlog as `queue.rerender_pending`, which, unlike `pending_renditions`, leaves out renditions waiting on a queued (pending or failed) revision.

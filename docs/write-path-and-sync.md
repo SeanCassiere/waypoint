@@ -49,7 +49,7 @@ Exactly one writer process owns a data directory. Within that process:
    - Apply `remove`, then `files`.
    - Resolve the head path: the explicit one, or the parent's if it still exists, or the inferred one. Otherwise return `head_path_missing` or `head_path_ambiguous`.
 6. **Skip no-op writes.** If the manifest and head path equal the parent's, return the parent with `unchanged: true` and create nothing.
-7. **Render.** Every markdown file gets a rendition at the current renderer version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows. (Older blobs get a new version's rendition from `waypoint-writer rerender`, through the same queue tables; see [Other queued work](#other-queued-work).)
+7. **Render.** Every markdown, text and CSV file gets a rendition from its type's renderer at that renderer's current version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows. (Older blobs get a new version's rendition from `waypoint-writer rerender`, through the same queue tables; see [Other queued work](#other-queued-work).)
 8. **Queue.** In one `queue.db` transaction, insert:
    - the `pending_revisions` row
    - its `pending_renditions` rows

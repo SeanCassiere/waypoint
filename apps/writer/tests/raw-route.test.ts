@@ -105,7 +105,7 @@ describe("raw route downloads (RX-06)", () => {
     const markdownSource = "# Field kit\n\nNotes.";
     // A renderer, so index.md has a rendition the download must skip.
     const renderer = {
-      rendererName: "test-renderer",
+      rendererName: "markdown",
       rendererVersion: 1,
       render: () =>
         Promise.resolve({
