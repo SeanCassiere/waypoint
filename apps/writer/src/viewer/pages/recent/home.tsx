@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import type { CollectionSearchResult } from "@waypoint/core";
+import type { JSX } from "hono/jsx/jsx-runtime";
 
 import type { HttpServices } from "../../../http.ts";
 import { plural } from "../../format.ts";
@@ -37,6 +38,7 @@ export function RecentBody(props: {
           Newest first, by latest revision.
         </p>
         <NeedsAttention health={chrome.health} now={now} />
+        <BrowseRow projects={props.projects} publicNow={props.publicNow} />
         <DayGroups
           kind="recent"
           items={items}
@@ -62,49 +64,117 @@ export function RecentBody(props: {
           </p>
         ) : null}
       </main>
-      <aside class="side hide-sm" aria-label="Browse">
-        {props.projects.length ? (
-          <>
-            <h2>Projects</h2>
-            <ul class="list facets">
-              {props.projects.map((facet) => (
-                <li>
-                  <a
-                    class="facet"
-                    href={`/?${new URLSearchParams({ q: `project:${facet.value}` }).toString()}`}
-                  >
-                    {facet.value}
-                    <span>{facet.count}</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
-        {props.publicNow ? (
-          <>
-            <h2>Public now</h2>
-            <ul class="list facets">
-              {props.publicNow.map((item) => (
-                <li>
-                  <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
-                    {item.title}
-                    <span>{plural(item.links, "link")}</span>
-                  </a>
-                </li>
-              ))}
+      <BrowseAside projects={props.projects} publicNow={props.publicNow} />
+    </div>
+  );
+}
+
+/** The sidebar's Projects list shows this many; the rest sit behind "Show all N". */
+const PROJECTS_SHOWN = 12;
+/** `/?q=project:<value>`, quoting a value with whitespace (`project:"api team"`) so FC3's
+ *  parser reads the whole name rather than its first word plus free text. */
+function projectHref(value: string): string {
+  const token = /\s/.test(value) ? `project:"${value}"` : `project:${value}`;
+  return `/?${new URLSearchParams({ q: token }).toString()}`;
+}
+function ProjectFacet(props: { facet: Facet }): JSX.Element {
+  return (
+    <li>
+      <a class="facet" href={projectHref(props.facet.value)}>
+        {props.facet.value}
+        <span>{props.facet.count}</span>
+      </a>
+    </li>
+  );
+}
+
+/** Recent's sidebar, also on search results (NAV-03): Projects (12, then "Show all N", which
+ *  works without JS) and Public now. Hidden on phones, where BrowseRow takes its place. */
+export function BrowseAside(props: {
+  projects: Facet[];
+  publicNow: PublicNow[] | null;
+}): JSX.Element {
+  const rest = props.projects.slice(PROJECTS_SHOWN);
+  return (
+    <aside class="side hide-sm" aria-label="Browse">
+      {props.projects.length ? (
+        <>
+          <h2>Projects</h2>
+          <ul class="list facets">
+            {props.projects.slice(0, PROJECTS_SHOWN).map((facet) => (
+              <ProjectFacet facet={facet} />
+            ))}
+            {rest.length ? (
               <li>
-                <a class="facet all" href="/links">
-                  {props.publicNow.length
-                    ? "All public links →"
-                    : "No public links. Manage links →"}
+                <details class="more">
+                  <summary>Show all {props.projects.length}</summary>
+                  <ul class="list facets">
+                    {rest.map((facet) => (
+                      <ProjectFacet facet={facet} />
+                    ))}
+                  </ul>
+                </details>
+              </li>
+            ) : null}
+          </ul>
+        </>
+      ) : null}
+      {props.publicNow ? (
+        <>
+          <h2>Public now</h2>
+          <ul class="list facets">
+            {props.publicNow.map((item) => (
+              <li>
+                <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
+                  {item.title}
+                  <span>{plural(item.links, "link")}</span>
                 </a>
               </li>
-            </ul>
-          </>
+            ))}
+            <li>
+              <a class="facet all" href="/links">
+                {props.publicNow.length ? "All public links →" : "No public links. Manage links →"}
+              </a>
+            </li>
+          </ul>
+        </>
+      ) : null}
+    </aside>
+  );
+}
+
+/**
+ * The sidebar on phones (NAV-03, A11Y-02): one horizontally scrolling row of 44 px chips, Public
+ * now first, then every project. Rendered where it reads (after Needs attention on Recent, after
+ * the hint on search), so DOM, focus and visual order agree; hidden above 760 px.
+ */
+export function BrowseRow(props: {
+  projects: Facet[];
+  publicNow: PublicNow[] | null;
+}): JSX.Element | null {
+  // Public now's list length (at most 8, loadPublicNow's cap): collections, not links.
+  const publicNow = props.publicNow?.length ?? 0;
+  if (!publicNow && !props.projects.length) return null;
+  return (
+    <nav class="browse" aria-labelledby="browse-h">
+      <h2 id="browse-h">Browse</h2>
+      <ul class="list">
+        {publicNow ? (
+          <li>
+            <a class="bchip pub" href="/links">
+              Public now <span>{publicNow}</span>
+            </a>
+          </li>
         ) : null}
-      </aside>
-    </div>
+        {props.projects.map((facet) => (
+          <li>
+            <a class="bchip" href={projectHref(facet.value)}>
+              {facet.value} <span>{facet.count}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 

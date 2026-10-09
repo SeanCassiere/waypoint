@@ -74,7 +74,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
     if (target) return noStore(c.redirect(target, 302));
   }
   const parsed = parseSearch(q);
-  const [search, chrome, publicNow] = await Promise.all([
+  const [search, chrome, publicNow, browse] = await Promise.all([
     s.reads.searchCollections({
       query: parsed.text,
       limit: 50,
@@ -90,7 +90,9 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
       projects: !q,
     }),
     getChrome(s, now),
-    q || !linksEnabled(s) ? Promise.resolve(null) : loadPublicNow(s),
+    linksEnabled(s) ? loadPublicNow(s) : Promise.resolve(null),
+    // Search pages show Recent's sidebar: its projects from the same uncached read Recent's use.
+    q ? s.reads.searchCollections({ limit: 1, projects: true }) : Promise.resolve(null),
   ]);
   const items = search.collections;
   if (q)
@@ -105,9 +107,13 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
           <SearchBody
             chrome={chrome}
             q={q}
+            parsed={parsed}
             items={items}
             nextCursor={search.next_cursor}
-            freeText={q}
+            freeText={parsed.text}
+            trash={parsed.trash}
+            projects={browse?.projects ?? []}
+            publicNow={publicNow}
           />
         </Layout>,
       ),
@@ -134,7 +140,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
             chrome={chrome}
             items={items}
             nextCursor={search.next_cursor}
-            projects={(search.projects ?? []).slice(0, 12)}
+            projects={search.projects ?? []}
             publicNow={publicNow}
             latestPubs={latestPubs}
           />

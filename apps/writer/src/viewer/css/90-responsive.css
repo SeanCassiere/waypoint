@@ -55,9 +55,6 @@
     padding: 20px 16px 80px;
     gap: 24px;
   }
-  .side {
-    order: -1;
-  }
   .side .card {
     margin-bottom: 0;
   }

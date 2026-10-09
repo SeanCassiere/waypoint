@@ -384,3 +384,204 @@ form.search-page input[type="search"] {
   min-height: 52px;
   align-content: center;
 }
+/* Search results (NAV-03): the count as H1, one removable chip per active filter, Clear all and
+   one hint line. Below 761 px the query field sits in the page (the bar's is hidden there) and
+   the Browse chip row stands in for the sidebar; both are display: none above, so "/" and Tab
+   skip them on wider screens. */
+.home > main {
+  min-width: 0;
+}
+.qfield {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  margin: 0 0 16px;
+  padding: 0 12px;
+  border: 1px solid var(--control);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+}
+.qfield:focus-within {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* (0,2,2), as .search-page's: 16 px so iOS doesn't zoom, 44 px tall. */
+form.qfield input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  height: var(--tap);
+  border: 0;
+  background: none;
+  outline: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+.qfield input::-webkit-search-cancel-button {
+  display: none;
+}
+.fbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+/* A chip never grows past the column: a long label (typed free text, a long project name) ends in
+   an ellipsis while its × stays in view; the × link's aria-label keeps the full name. */
+ul.fchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 4px 0 11px;
+  border-radius: 99px;
+  background: var(--sunken);
+  border: 1px solid var(--rule-2);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fchip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fchip .k {
+  color: var(--muted);
+  font-weight: 500;
+}
+.fchip a {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.fchip a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.fchip.pub {
+  background: var(--public-bg);
+  border-color: var(--public-line);
+  color: var(--public);
+}
+.fchip.trash {
+  background: var(--pending-bg);
+  border-color: var(--pending-line);
+  color: var(--pending);
+}
+.fchip.pub a,
+.fchip.trash a {
+  color: inherit;
+}
+.clear {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.hint {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Phones: Public now, then every project, in one row that scrolls sideways (fading out at the
+   right edge), edge to edge of the page's padding. The fade is a fixed 40 px and the end padding
+   is wider, so the last chip clears it once the row is scrolled to the end. */
+.browse {
+  display: none;
+  margin: 18px -16px 0;
+}
+.browse h2 {
+  margin: 0 16px 8px;
+  font: 600 11.5px/1 var(--sans);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.browse ul {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 48px 6px 16px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
+}
+.browse li {
+  flex: none;
+}
+.bchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--rule-2);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.bchip span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.bchip.pub {
+  background: var(--public-bg);
+  border-color: var(--public-line);
+  color: var(--public);
+}
+.bchip.pub span {
+  color: inherit;
+}
+/* The sidebar's projects past the first 12. */
+.side details.more summary {
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  .qfield {
+    display: flex;
+  }
+  .browse {
+    display: block;
+  }
+}
+/* Each chip's × keeps its 22 px circle but takes a 44 × 44 tap; the wider row gap keeps the
+   taps of wrapped rows apart. */
+@media (pointer: coarse) {
+  ul.fchips {
+    row-gap: 14px;
+  }
+  .fchip a::before {
+    content: "";
+    position: absolute;
+    inset: -11px;
+  }
+  .clear {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+  }
+}

@@ -207,11 +207,17 @@ describe("search tokens and redirects (B6)", () => {
     expect(await results("is:public")).toEqual(["Rate plan"]);
     expect(await results("is:shared")).toEqual(["Rate plan"]);
     expect(await results("IS:Shared")).toEqual(["Rate plan"]);
-    const hint = /<p[^>]*data-token-hint[^>]*>([\s\S]*?)<\/p>/.exec(await search("x"))?.[1] ?? "";
-    expect(hint).toContain("is:public");
-    expect(hint).toContain("is:failed");
-    expect(hint).not.toContain("is:shared");
-    expect(hint).not.toContain("is:pending");
+    // NAV-03: one hint line, and filters show as chips in canonical words (never the alias).
+    const plain = await search("x");
+    expect(plain).toContain(
+      'Add a filter by typing <span class="mono">is:</span>, <span class="mono">project:</span> or <span class="mono">in:trash</span>.',
+    );
+    expect(plain).not.toContain("data-token-hint");
+    const chips = [
+      ...(await search("x is:shared")).matchAll(/<li class="fchip[^"]*">([\s\S]*?)<\/li>/g),
+    ].map((match) => (match[1] ?? "").replace(/<[^>]*>/g, ""));
+    expect(chips).toContain("Only Public");
+    expect(chips.filter((chip) => chip.includes("is:shared"))).toEqual([]);
     const pub = new URL(one.latest_url ?? "").pathname;
     const rev = new URL(one.url ?? "").pathname;
     const go = async (q: string) => {
