@@ -9,8 +9,12 @@
   .health,
   .status1,
   .btn,
-  .revbtn {
+  .revbtn,
+  .bc .pill {
     border: 1px solid CanvasText;
+  }
+  .bc .pill[aria-expanded="true"] {
+    border-width: 2px;
   }
   .tree a[aria-current] {
     outline: 2px solid CanvasText;

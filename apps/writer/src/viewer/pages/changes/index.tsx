@@ -19,7 +19,6 @@ import {
   HistoryPanel,
   MoreMenu,
   Panel,
-  RevisionMenu,
   ShellRoot,
   TabBar,
   CollectionDialogs,
@@ -325,7 +324,7 @@ export async function changesPage(
       <Layout
         title={`Changes in #${headN} · ${collection.title}`}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} pill={pill} crumb={crumb} doneHref={done} />}
+        bar={<CollectionBar ctx={ctx} mode="changes" pill={pill} crumb={crumb} doneHref={done} />}
         page="changes"
         findIn={collection.title}
       >
@@ -360,6 +359,7 @@ export async function changesPage(
             linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
+            <h2 class="vh">Sync and sharing status</h2>
             <StatusLine ctx={ctx} extra={segments} />
             <div class="cmp" data-done={done}>
               {error ? (
@@ -506,7 +506,6 @@ export async function changesPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <RevisionMenu ctx={ctx} path="" />
         <CopyMenu ctx={ctx} path={revision.head_path} />
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />

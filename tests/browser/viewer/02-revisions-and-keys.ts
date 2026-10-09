@@ -2,7 +2,7 @@ import { assert, type ViewerScenario, type WriterHandle } from "../harness.ts";
 import { baseline } from "./_baseline.ts";
 
 const scenario: ViewerScenario = {
-  name: "revision stepping, revision menu, changes keys, compare, shortcuts, History tab persistence",
+  name: "revision stepping, revision pill, changes keys, compare, shortcuts, History tab persistence",
   async run(ctx) {
     const { base } = ctx.writer;
     const api: WriterHandle["api"] = (path, body) => ctx.writer.api(path, body);
@@ -28,12 +28,12 @@ const scenario: ViewerScenario = {
     await page.locator("body").press("]");
     await page.waitForURL(`**${thirdPinned}`);
     assert.equal(new URL(page.url()).pathname, `${thirdPinned}index.md`);
-    // The revision menu opens with "r" and its entries keep the current file.
+    // The revision pill opens History (NAV-04), whose entries keep the current file.
     await page.goto(`${base}${secondPinned}notes/b.md`);
-    await page.getByRole("button", { name: /^Revision 2/ }).click();
-    await page.locator("#rev-menu").waitFor({ state: "visible" });
-    await page.locator("#rev-menu").getByRole("link", { name: "#1", exact: true }).click();
-    await page.waitForURL(`**${pinned}notes/b.md`);
+    await page.locator("a.pill.rev").click();
+    await page.locator("#tp-history").waitFor({ state: "visible" });
+    await page.locator("#tp-history").getByRole("link", { name: "#1", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === `${pinned}notes/b.md`);
     // "d" opens the Changes page against the parent; j focuses the first change; Esc goes back.
     await page.goto(`${base}${secondPinned}`);
     await page.locator("body").press("d");

@@ -17,7 +17,6 @@ import {
   HistoryPanel,
   MoreMenu,
   Panel,
-  RevisionMenu,
   ShellRoot,
   TabBar,
   type CollectionContext,
@@ -63,7 +62,7 @@ export async function galleryPage(
       <Layout
         title={`${dir} · ${collection.title}`}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} pill={`gallery · ${dir}`} doneHref={done} />}
+        bar={<CollectionBar ctx={ctx} mode="gallery" pill={`gallery · ${dir}`} doneHref={done} />}
         page="gallery"
         findIn={collection.title}
       >
@@ -164,7 +163,6 @@ export async function galleryPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <RevisionMenu ctx={ctx} path="" />
         <CopyMenu ctx={ctx} path={revision.head_path} />
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />

@@ -25,6 +25,7 @@ export function Panel(props: {
     tabs.push({ id: "links", label: "Links", count: props.linkCount ?? 0, body: props.links });
   return (
     <aside class="panel" id="panel" aria-label="Collection panel">
+      <h2 class="vh">Files and history</h2>
       <nav class="ptabs" role="tablist" aria-label="Panel">
         {tabs.map((tab) => (
           <a

@@ -1,11 +1,12 @@
 /** @jsxImportSource hono/jsx */
 import { latestCollectionUrl, pinnedRevisionUrl, rawUrl } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 
 import { rawPath, shellPath } from "../../../viewer-paths.ts";
-import { Globe, Timeline } from "../../components.tsx";
+import { Globe } from "../../components.tsx";
 import { projectAndTags } from "../../format.ts";
-import { menuCompareHref } from "./panel.tsx";
-import { type CollectionContext, changesHref } from "./shell.tsx";
+import type { CollectionContext } from "./shell.tsx";
 
 const shortUrl = (url: string) => `…${new URL(url).pathname}`;
 
@@ -31,54 +32,6 @@ export function handoffBlock(ctx: CollectionContext): string {
   ].join("\n");
 }
 
-export function RevisionMenu(props: { ctx: CollectionContext; path: string }) {
-  const { ctx } = props;
-  const recent = ctx.timeline.toReversed().slice(0, 8);
-  return (
-    <div id="rev-menu" class="menu rmenu" popover="auto" role="dialog" aria-label="Revisions">
-      <div class="mbox">
-        <div class="lbl" id="rm-h">
-          Revisions · newest first
-        </div>
-        <Timeline
-          rows={recent}
-          pub={ctx.collection.public_id}
-          currentId={ctx.revision.id}
-          latestId={ctx.latest?.id ?? null}
-          now={ctx.chrome.now}
-          path={props.path}
-          compact
-          byId={ctx.byId}
-          changesHref={changesHref(ctx)}
-          lineage={ctx.lineage}
-          labelledBy="rm-h"
-          idPrefix="rm"
-        />
-        <hr />
-        {ctx.rows.length >= 2 ? (
-          <a class="mi" href={menuCompareHref(ctx)} data-compare-open>
-            <span aria-hidden="true">⇄</span>
-            <span>Compare…</span>
-            <small>Choose any two revisions</small>
-          </a>
-        ) : null}
-        <button
-          type="button"
-          class="mi"
-          data-action="panel-tab"
-          data-tab="history"
-          popovertarget="rev-menu"
-          popovertargetaction="hide"
-        >
-          <span aria-hidden="true">◷</span>
-          <span>Open History panel</span>
-          <kbd>h</kbd>
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
   const { ctx, path } = props;
   const base = ctx.s.reads.baseUrl;
@@ -90,87 +43,93 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
   const pinnedUrl = pinnedRevisionUrl(base, ctx.collection.public_id, ctx.revision.public_id, path);
   return (
     <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
-      <div class="mbox">
-        <div class="lbl">Links</div>
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="copy-menu"
-          popovertargetaction="hide"
-          data-action="copy-link"
-          data-kind="latest"
-        >
-          <span aria-hidden="true">⧉</span>
-          <span>Link to latest</span>
-          <kbd>c</kbd>
-          <small class="mono" data-copy-preview="latest">
-            {shortUrl(latestUrl)}
-          </small>
-        </button>
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="copy-menu"
-          popovertargetaction="hide"
-          data-action="copy-link"
-          data-kind="pinned"
-        >
-          <span aria-hidden="true">⧉</span>
-          <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
-          <kbd>⇧C</kbd>
-          <small class="mono" data-copy-preview="pinned">
-            {shortUrl(pinnedUrl)}
-          </small>
-        </button>
-        <hr />
-        <div class="lbl">For another agent</div>
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="copy-menu"
-          popovertargetaction="hide"
-          data-action="copy-handoff"
-        >
-          <span aria-hidden="true">⧉</span>
-          <span>Handoff block</span>
-          <kbd>a</kbd>
-          <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
-        </button>
-        <pre class="handoff" data-handoff>
-          {handoffBlock(ctx)}
-        </pre>
-        <hr />
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="copy-menu"
-          popovertargetaction="hide"
-          data-action="copy-text"
-          data-text={ctx.collection.id}
-          data-label="collection ID"
-        >
-          <span aria-hidden="true">#</span>
-          <span>Collection ID</span>
-          <small class="mono">{ctx.collection.id}</small>
-        </button>
-        <button
-          type="button"
-          class="mi"
-          role="menuitem"
-          popovertarget="copy-menu"
-          popovertargetaction="hide"
-          data-action="copy-text"
-          data-text={ctx.revision.id}
-          data-label="revision ID"
-        >
-          <span aria-hidden="true">#</span>
-          <span>Revision ID</span>
-          <small class="mono">{ctx.revision.id}</small>
-        </button>
+      <div class="mbox has-list">
+        <div class="mbody">
+          <div class="lbl">Links</div>
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="copy-menu"
+            popovertargetaction="hide"
+            data-action="copy-link"
+            data-kind="latest"
+          >
+            <span aria-hidden="true">⧉</span>
+            <span>Link to latest</span>
+            <kbd>c</kbd>
+            <small class="mono" data-copy-preview="latest">
+              {shortUrl(latestUrl)}
+            </small>
+          </button>
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="copy-menu"
+            popovertargetaction="hide"
+            data-action="copy-link"
+            data-kind="pinned"
+          >
+            <span aria-hidden="true">⧉</span>
+            <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
+            <kbd>⇧C</kbd>
+            <small class="mono" data-copy-preview="pinned">
+              {shortUrl(pinnedUrl)}
+            </small>
+          </button>
+          <hr />
+          <div class="lbl">For another agent</div>
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="copy-menu"
+            popovertargetaction="hide"
+            data-action="copy-handoff"
+          >
+            <span aria-hidden="true">⧉</span>
+            <span>Handoff block</span>
+            <kbd>a</kbd>
+            <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
+          </button>
+          <details class="handoff-d">
+            <summary>Preview</summary>
+            <pre class="handoff" data-handoff>
+              {handoffBlock(ctx)}
+            </pre>
+          </details>
+        </div>
+        <div class="mfoot">
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="copy-menu"
+            popovertargetaction="hide"
+            data-action="copy-text"
+            data-text={ctx.collection.id}
+            data-label="collection ID"
+          >
+            <span aria-hidden="true">#</span>
+            <span>Collection ID</span>
+            <small class="mono">{ctx.collection.id}</small>
+          </button>
+          <button
+            type="button"
+            class="mi"
+            role="menuitem"
+            popovertarget="copy-menu"
+            popovertargetaction="hide"
+            data-action="copy-text"
+            data-text={ctx.revision.id}
+            data-label="revision ID"
+          >
+            <span aria-hidden="true">#</span>
+            <span>Revision ID</span>
+            <small class="mono">{ctx.revision.id}</small>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -178,7 +137,7 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
 
 export function MoreMenu(props: { ctx: CollectionContext; path: string; previewPublic?: boolean }) {
   const { ctx, path } = props;
-  const raw = rawPath(ctx.revision.public_id, path);
+  const rawHref = rawPath(ctx.revision.public_id, path);
   return (
     <div id="more-menu" class="menu" popover="auto" role="menu" aria-label="More actions">
       <div class="mbox">
@@ -195,6 +154,47 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
             <kbd>s</kbd>
           </button>
         ) : null}
+        {/* 761–1099.98 px: Copy link leaves the bar, so its actions are here (NAV-04). */}
+        <div class="lbl midonly">Copy link</div>
+        <button
+          type="button"
+          class="mi midonly"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="copy-link"
+          data-kind="latest"
+        >
+          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
+          <span>Link to latest</span>
+          <kbd>c</kbd>
+        </button>
+        <button
+          type="button"
+          class="mi midonly"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="copy-link"
+          data-kind="pinned"
+        >
+          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
+          <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
+          <kbd>⇧C</kbd>
+        </button>
+        <button
+          type="button"
+          class="mi midonly"
+          role="menuitem"
+          popovertarget="more-menu"
+          popovertargetaction="hide"
+          data-action="copy-handoff"
+        >
+          <span aria-hidden="true">{raw(icon("copy", "sm"))}</span>
+          <span>Handoff block</span>
+          <kbd>a</kbd>
+        </button>
+        <hr class="midonly" />
         <button type="button" class="mi" role="menuitem" commandfor="rename" command="show-modal">
           <span aria-hidden="true">✎</span>
           <span>Rename…</span>
@@ -204,11 +204,11 @@ export function MoreMenu(props: { ctx: CollectionContext; path: string; previewP
           <span>Edit metadata…</span>
         </button>
         <hr />
-        <a class="mi" role="menuitem" href={raw} target="_blank" rel="noopener" data-open-raw>
+        <a class="mi" role="menuitem" href={rawHref} target="_blank" rel="noopener" data-open-raw>
           <span aria-hidden="true">↗</span>
           <span>Open raw</span>
         </a>
-        <a class="mi" role="menuitem" href={raw} download data-download-raw>
+        <a class="mi" role="menuitem" href={`${rawHref}?download`} download data-download-raw>
           <span aria-hidden="true">↓</span>
           <span>Download file</span>
         </a>

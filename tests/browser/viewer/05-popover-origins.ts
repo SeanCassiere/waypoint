@@ -23,8 +23,6 @@ const scenario: ViewerScenario = {
       await legacyPage.waitForFunction(`${expression} !== ""`);
       return legacyPage.evaluate(expression);
     };
-    await legacyPage.locator(".revbtn").click();
-    assert.equal(await origin("rev-menu"), "top left");
     await legacyPage.locator('header [popovertarget="copy-menu"]').click();
     assert.equal(await origin("copy-menu"), "top right");
     await legacy.close();

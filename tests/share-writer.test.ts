@@ -996,7 +996,8 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const search = await reads.searchCollections({});
     expect(search.collections[0]?.share).toEqual({ active: 2, follows_latest: true, paused: 0 });
     const html = await (await app.request(`/c/${collectionPublicId}/?panel=links`)).text();
-    expect(html).toContain('class="chip public hide-sm"');
+    // NAV-04 removed the bar's duplicate Public chip; the Links tab and the status line say it.
+    expect(html).not.toContain('class="chip public hide-sm"');
     expect(html).toContain("follows latest");
     expect(html).toContain("Revoke all 2 links…");
     expect(html).toContain('aria-selected="true"');

@@ -18,7 +18,7 @@ import { trashLinks } from "../trash.tsx";
 import { CollectionBar, TabBar } from "./bar.tsx";
 import { CollectionDialogs } from "./dialogs.tsx";
 import { ImageStage } from "./image-stage.tsx";
-import { RevisionMenu, CopyMenu, MoreMenu } from "./menus.tsx";
+import { CopyMenu, MoreMenu } from "./menus.tsx";
 import { type PanelTab, Panel, HistoryPanel, FilesPanel } from "./panel.tsx";
 import {
   glyphsAgainst,
@@ -111,28 +111,53 @@ export async function collectionPage(
       ),
     );
   }
-  if (!file)
-    return notFound(
-      c,
-      ctx.chrome,
-      url.pathname,
-      `/c/${collection.public_id}/`,
-      <>
-        This file isn't in #{revision.display_number}: <span class="mono">{path}</span>.{" "}
-        <a
-          href={shellPath(
-            collection.public_id,
-            revision.public_id,
-            "",
-            ctx.pinned,
-            revision.head_path,
-          )}
+  if (!file) {
+    // A file that isn't in this revision (NAV-04): the collection bar stays, and the file in the
+    // latest revision is one click away when it's there.
+    const { latest } = ctx;
+    const other = latest && latest.id !== revision.id ? latest : undefined;
+    const inLatest = other && (await s.reads.manifestOf(other)).files[path] ? other : undefined;
+    return noStore(
+      c.html(
+        <Layout
+          title="Not found"
+          chrome={ctx.chrome}
+          bar={<CollectionBar ctx={ctx} mode="missing" />}
+          page="not-found"
         >
-          Open its head file
-        </a>
-        .
-      </>,
+          <main class="wrap narrow notfound" id="main">
+            <h2>Not found</h2>
+            <p class="muted">
+              This file isn't in #{revision.display_number}: <span class="mono">{path}</span>.
+            </p>
+            <div class="btns">
+              {inLatest ? (
+                <a
+                  class="btn primary"
+                  href={shellPath(collection.public_id, inLatest.public_id, path, false)}
+                >
+                  Open {path} in latest
+                </a>
+              ) : null}
+              <a
+                class="btn"
+                href={shellPath(
+                  collection.public_id,
+                  revision.public_id,
+                  "",
+                  ctx.pinned,
+                  revision.head_path,
+                )}
+              >
+                Open its head file
+              </a>
+            </div>
+          </main>
+        </Layout>,
+        404,
+      ),
     );
+  }
   const parentRow = revision.parent_revision_id
     ? ctx.rows.find((row) => row.id === revision.parent_revision_id)
     : undefined;
@@ -148,7 +173,7 @@ export async function collectionPage(
       <Layout
         title={collection.title}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} />}
+        bar={<CollectionBar ctx={ctx} path={path} />}
         page="collection"
         findIn={collection.title}
       >
@@ -166,10 +191,12 @@ export async function collectionPage(
             linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
+            <h2 class="vh">Sync and sharing status</h2>
             <StatusLine
               ctx={ctx}
               extra={[publicSegment(ctx.links)].filter((item) => item !== null)}
             />
+            <h2 class="vh">Document: {path}</h2>
             {isStageImage(file.mime) ? (
               <ImageStage
                 ctx={ctx}
@@ -192,7 +219,6 @@ export async function collectionPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <RevisionMenu ctx={ctx} path={path} />
         <CopyMenu ctx={ctx} path={path} />
         <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
         <CollectionDialogs ctx={ctx} />
@@ -213,7 +239,7 @@ export {
   notFound,
 } from "./shell.tsx";
 export { CollectionBar, TabBar, HomeBarLite } from "./bar.tsx";
-export { handoffBlock, RevisionMenu, CopyMenu, MoreMenu } from "./menus.tsx";
+export { handoffBlock, CopyMenu, MoreMenu } from "./menus.tsx";
 export { CollectionDialogs } from "./dialogs.tsx";
 export { type PanelTab, Panel, HistoryPanel, FilesPanel } from "./panel.tsx";
 export { type Segment, statusSegments, StatusLine } from "./status-line.tsx";
