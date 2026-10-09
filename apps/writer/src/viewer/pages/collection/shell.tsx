@@ -16,6 +16,7 @@ import { shellPath } from "../../../viewer-paths.ts";
 import { getChrome } from "../../chrome.ts";
 import type { Glyph, TimelineRow } from "../../components.tsx";
 import { bytes, ext } from "../../format.ts";
+import { withHealthScope } from "../../health-scope.ts";
 import { HomeBar, Layout, NotFoundBody, type Chrome } from "../../layout.tsx";
 import { makeLineage, type Lineage } from "../../lineage.ts";
 import { noStore } from "../../respond.ts";
@@ -84,7 +85,18 @@ export async function loadCollection(
     getChrome(s, options.now),
   ]);
   if (!collection) return { kind: "missing", chrome };
-  if (collection.deleted_at != null) return { kind: "deleted", chrome, collection };
+  if (collection.deleted_at != null)
+    return {
+      kind: "deleted",
+      chrome: withHealthScope(chrome, {
+        collectionPub: collection.public_id,
+        revisions: null,
+        newestSyncedN: null,
+        latestN: null,
+        liveLinks: null,
+      }),
+      collection,
+    };
   const rows = await s.reads.revisions(collection.id);
   const latest = rows.findLast((row) => row.sync_state !== "failed") ?? rows.at(-1);
   const revision = options.rpub ? rows.find((row) => row.public_id === options.rpub) : latest;
@@ -122,7 +134,13 @@ export async function loadCollection(
     kind: "ok",
     ctx: {
       s,
-      chrome,
+      chrome: withHealthScope(chrome, {
+        collectionPub: collection.public_id,
+        revisions: rows.length,
+        newestSyncedN: rows.findLast((row) => row.sync_state === "synced")?.display_number ?? null,
+        latestN: latest?.display_number ?? null,
+        liveLinks: linksEnabled(s) ? links.filter(isLive).length : null,
+      }),
       collection: { ...collection, metadataObject },
       rows,
       latest,

@@ -43,18 +43,12 @@ const markOf = async (page: Page, pub: string) =>
     .object({ id: z.string(), n: z.number(), pub: z.string() })
     .parse(JSON.parse(String(await page.evaluate(`localStorage.getItem("wp:read:${pub}")`))));
 
-/** axe with the row rules on the whole page. The bar's health pill is named "Writer status: …",
- *  not by its visible text (a known label-content-name-mismatch on that one node): OW-10b fixes
- *  the pill and removes this filter, as in A11Y-04. */
+/** axe with the row rules on the whole page. */
 async function rowAxe(page: Page): Promise<AxeViolation[]> {
-  const violations = await axe(page, {
+  return axe(page, {
     rules: ["nested-interactive", "label-content-name-mismatch"],
     enable: ["label-content-name-mismatch"],
   });
-  for (const violation of violations)
-    if (violation.id === "label-content-name-mismatch")
-      violation.nodes = violation.nodes.filter((node) => node.target.join(" ") !== ".health");
-  return violations.filter((violation) => violation.nodes.length > 0);
 }
 
 const scenario: ViewerScenario = {

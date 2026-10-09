@@ -141,6 +141,66 @@
   margin-top: 12px;
   flex-wrap: wrap;
 }
+/* The scoped popover (OW-10b): This collection, Elsewhere on this writer, then the writer. */
+.pop2 .hp + .hp {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.pop2 .hp h3 {
+  margin: 0 0 8px;
+  font: 650 11px/1 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.pop2 .hp .acts {
+  margin-top: 10px;
+}
+.hrows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hrows li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.hrows li .ic {
+  margin-top: 2px;
+}
+.hrows .f .ic {
+  color: var(--failed);
+}
+.hrows .p .ic {
+  color: var(--pending);
+}
+.hrows .ok .ic {
+  color: var(--ok);
+}
+.hrows b {
+  font-weight: 600;
+}
+.hrows small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.hrows .more {
+  padding-left: calc(var(--ic-md) + 8px);
+}
+.hpw {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--muted);
+}
 .menu .mi {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;

@@ -186,9 +186,7 @@ const scenario: ViewerScenario = {
         "a non-current tab is underlined in forced colours",
       );
 
-    // Desktop, mouse: the Copy buttons keep the small size, and axe finds nothing on the page. The
-    // one exception is the bar's health pill (its aria-label doesn't start with its visible text):
-    // that is layout's, and OW-10b renames it and removes this filter.
+    // Desktop, mouse: the Copy buttons keep the small size, and axe finds nothing on the page.
     const desktop = await ctx.newPage(VIEWPORTS.desktop);
     await desktop.page.goto(`${base}/mcp`);
     const small = heightsOf.parse(
@@ -196,12 +194,7 @@ const scenario: ViewerScenario = {
     );
     assert.equal(small.length, 3);
     for (const height of small) assert.ok(height === 26 || height === 28, `${height}px Copy`);
-    const violations = (await axe(desktop.page)).filter(
-      (violation) =>
-        violation.id !== "label-content-name-mismatch" ||
-        violation.nodes.some((node) => !/^<button[^>]* class="health\b/.test(node.html)),
-    );
-    assert.deepEqual(violations, []);
+    assert.deepEqual(await axe(desktop.page), []);
   },
 };
 export default scenario;

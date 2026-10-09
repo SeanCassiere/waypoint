@@ -17,11 +17,9 @@ const PROJECTS = [
   "nav03-foxtrot",
 ];
 
-/** axe with the brief's rules on the whole page. The bar's health pill is named "Writer status:
- *  …", not by its visible text (a known label-content-name-mismatch on that one node): OW-10b
- *  fixes the pill and removes this filter. */
+/** axe with the brief's rules on the whole page. */
 async function searchAxe(page: Page): Promise<AxeViolation[]> {
-  const violations = await axe(page, {
+  return axe(page, {
     enable: ["label-content-name-mismatch"],
     rules: [
       "label-content-name-mismatch",
@@ -32,10 +30,6 @@ async function searchAxe(page: Page): Promise<AxeViolation[]> {
       "link-name",
     ],
   });
-  for (const violation of violations)
-    if (violation.id === "label-content-name-mismatch")
-      violation.nodes = violation.nodes.filter((node) => node.target.join(" ") !== ".health");
-  return violations.filter((violation) => violation.nodes.length > 0);
 }
 
 const LongChip = z.object({

@@ -91,6 +91,20 @@ export interface Health {
   blockedReason: string | null;
   environment: "dev" | "prod";
   syncEnabled: boolean;
+  /** The collection the page shows, on collection pages only (OW-10b's scoped pill and popover). */
+  scope?: HealthScope;
+}
+/** What the scoped pill and popover need about the collection being viewed (OW-10b). */
+export interface HealthScope {
+  collectionPub: string;
+  /** Revision count; null on the in-Trash page. */
+  revisions: number | null;
+  /** What Latest links serve: the newest synced revision's number. */
+  newestSyncedN: number | null;
+  /** The newest revision that hasn't failed. */
+  latestN: number | null;
+  /** Live links on this collection (FC1's rule); null when links are off or unknown. */
+  liveLinks: number | null;
 }
 export const OFFLINE_AFTER_MS = 2 * 60_000;
 /** Cloud-error row on Home (OW-06b replaces its use). */
