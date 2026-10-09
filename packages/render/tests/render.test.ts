@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { Worker } from "node:worker_threads";
 
+import { readingTokensCss } from "@waypoint/ui";
 import { describe, expect, it, vi } from "vitest";
 
 import { markdownRenderer, renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "../src/index.ts";
@@ -84,7 +85,7 @@ describe("markdown rendition", () => {
 
   it("renders only normalized Markdown MIME and strips the UTF-8 BOM", async () => {
     expect(RENDERER_NAME).toBe("markdown");
-    expect(RENDERER_VERSION).toBe(2);
+    expect(RENDERER_VERSION).toBe(3);
     expect(await markdownRenderer.render(new Uint8Array(), "text/plain")).toBeNull();
     const result = await markdownRenderer.render(
       new TextEncoder().encode("\uFEFF# Title"),
@@ -114,6 +115,45 @@ describe("markdown rendition", () => {
       expect(fallback).not.toMatch(/https?:/i);
       expect(fallback.match(/<script\b[^>]*>/g)).toEqual(["<script>"]);
     }
+  });
+
+  it("builds the reading palette from the frozen readingTokensCss (v3)", async () => {
+    const html = await renderMarkdown(
+      "# T\n\n[a](#x)\n\n| a |\n| - |\n| 1 |\n\n```js\nlet x = 1\n```\n\n## A\n## B\n## C\n## D",
+    );
+    expect(html).toContain(`<style>${readingTokensCss}`);
+    // Exactly one newline between the palette and the first template rule, either way round.
+    expect(html).toContain(
+      readingTokensCss.endsWith("\n")
+        ? `${readingTokensCss}*{box-sizing:border-box}`
+        : "}}\n*{box-sizing:border-box}",
+    );
+    expect(html).toContain(
+      ":focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}",
+    );
+    // A focused code well keeps its own 8px corners (decision d-1).
+    expect(html).toContain(
+      ":focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}\npre:focus-visible{border-radius:8px}\n",
+    );
+    expect(html).toContain(
+      ".table-wrap:focus-visible{outline:2px solid var(--focus);outline-offset:2px}",
+    );
+    expect(html).not.toContain("outline:2px solid var(--link)");
+    expect(html).not.toMatch(/--changed/);
+    expect(html).not.toMatch(/--mod/);
+    for (const cool of [
+      "--fg-2:#4b5563",
+      "--line:#e5e4e0",
+      "--line:#2b2c30",
+      "--subtle:#1e1f23",
+      "--code-bg:#1c1d21",
+      "--link:#1d5bd6",
+    ]) {
+      expect(html).not.toContain(cool);
+    }
+    // Alert hues are unchanged.
+    expect(html).toContain("--note:#1d5bd6");
+    expect(html.match(/:root\{/g)).toHaveLength(2);
   });
 
   it("frame reporter posts only the path and fragment to the parent", () => {

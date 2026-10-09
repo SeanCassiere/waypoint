@@ -166,10 +166,10 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
 - **Changes-page fragments** (`renderFragment` in `@waypoint/render`, run in `compare-worker.ts`) aren't renditions: they're rendered per request, never stored, so they don't bump `RENDERER_VERSION`; a separate fragment golden test pins their output, including GFM callouts and relative links resolved to the head revision's writer path.
 
-### The reading template (renderer version 2, "Folio")
+### The reading template (renderer version 3, "Folio")
 
 The template follows the Folio design spec (section 8). The CSS is inlined in every rendition.
-- **Typography:** the system sans stack at 17px/1.65 (16.5px under 600px) with a 68ch measure, warm paper and ink colours matching the viewer, light and dark via `prefers-color-scheme`. No webfonts.
+- **Typography:** the system sans stack at 17px/1.65 (16.5px under 600px) with a 68ch measure, light and dark via `prefers-color-scheme`. No webfonts. Colours come from the frozen `readingTokensCss` in `@waypoint/ui`: the viewer's warm paper, ink, rules and code wells, links in the public blue, and the chrome's 2 px ink focus ring (`--focus`). Chrome token edits can't change renditions; the reading palette changes only with a `RENDERER_VERSION` bump.
 - **Headings** keep their deterministic slug `id`s and get a hover anchor: `<a class="anchor" href="#id" aria-hidden="true" tabindex="-1">#</a>` as the first child. The rendition `<title>` and the contents block use the heading text without it.
 - **Contents:** when a document has 4 or more `h2`s (excluding the footnotes label), a `<details class="toc" open>` "Contents" list of them goes after the first `h1` (or after the front matter when there is no `h1`). The frame script collapses it when the frame is up to 600px wide, checked after layout (an iframe starts at its default 300px before the shell sizes it) and again whenever the width crosses 600px, until the reader toggles it; without JS it stays open.
 - **GitHub alerts:** a Markdown blockquote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` (any case), with content after it, becomes `<div class="markdown-alert markdown-alert-<kind>">` with a `p.markdown-alert-title`. Blockquotes written as raw HTML are left alone.
