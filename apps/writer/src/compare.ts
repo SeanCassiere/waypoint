@@ -383,7 +383,7 @@ export function toHunks(ops: DiffBlock[]): { hunks: Hunk[]; folded_after: number
   return { hunks, folded_after: folded };
 }
 
-const splitLines = (value: string) => value.replace(/\n$/, "").split("\n");
+export const splitLines = (value: string): string[] => value.replace(/\n$/, "").split("\n");
 
 /**
  * A unified line diff with word highlights inside changed line pairs.

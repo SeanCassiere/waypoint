@@ -203,7 +203,7 @@ body:has(#rev-menu:popover-open) .revbtn .caret {
   color: var(--add) !important;
 }
 .k.m {
-  color: var(--pending) !important;
+  color: var(--changed) !important;
 }
 .k.rm {
   color: var(--del) !important;

@@ -69,7 +69,7 @@
   white-space: nowrap;
 }
 .shot.mod {
-  border-color: var(--pending-line);
+  border-color: var(--changed-line);
 }
 .shot.add {
   border-color: var(--add-word);
