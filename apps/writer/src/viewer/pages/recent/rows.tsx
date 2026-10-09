@@ -1,9 +1,11 @@
 /** @jsxImportSource hono/jsx */
 import type { CollectionSearchResult } from "@waypoint/core";
 import type { Child } from "hono/jsx";
+import type { JSX } from "hono/jsx/jsx-runtime";
 
 import { Chg, Globe, Time } from "../../components.tsx";
 import { plural, projectAndTags } from "../../format.ts";
+import { dayLabel, trashDayLabel } from "../../timefmt.ts";
 
 /** Splits `text` around case-insensitive matches of `query` and wraps them in <mark>. */
 export function highlight(text: string, query: string): Child {
@@ -44,11 +46,73 @@ function metadataMatch(metadata: Record<string, unknown>, query: string): [strin
   return null;
 }
 
-export function CollectionRow(props: {
+export type RowVariant = "recent" | "search" | "trash";
+export interface ListRowProps {
+  variant: "recent" | "search";
   item: CollectionSearchResult;
   now: number;
+  /** Search: highlights the title and adds the match notes. */
   query?: string | undefined;
-}) {
+}
+export interface TrashRowProps {
+  variant: "trash";
+  /** The collection's public ID. */
+  pub: string;
+  /** Plain or highlighted title. */
+  title: Child;
+  /** data-at: deleted_at on /trash, updated_at in search. */
+  at: number;
+  /** The collection ID, as data-flash-target (FD3); /trash passes it, in:trash doesn't. */
+  flashTarget?: string | undefined;
+  now: number;
+  /** Search shows the time and #n; /trash doesn't. */
+  showWhen?: boolean | undefined;
+  n?: number | null | undefined;
+  msg: Child;
+  meta?: Child | undefined;
+  /** Buttons already carrying aria-describedby={rowTitleId(pub)}. */
+  actions?: Child | undefined;
+}
+
+/** The id of a row's title link, which describes the row's action buttons. */
+export function rowTitleId(pub: string): string {
+  return `it-${pub}`;
+}
+
+/** The row's only link: its title, named by its visible text, stretched over the row in CSS. */
+function TitleLink(props: { pub: string; title: Child }): JSX.Element {
+  return (
+    <span class="t">
+      <a class="tlink" id={rowTitleId(props.pub)} href={`/c/${props.pub}/`}>
+        <span class="tt">{props.title}</span>
+      </a>
+    </span>
+  );
+}
+
+/** One row for Recent, search and Trash (A11Y-04): an <li> whose only link is its title; anything
+ *  else interactive sits in .meta or .acts, raised above the stretched link. */
+export function RecentRow(props: ListRowProps | TrashRowProps): JSX.Element {
+  if (props.variant === "trash")
+    return (
+      <li
+        class="item trash"
+        data-pub={props.pub}
+        data-at={String(props.at)}
+        data-flash-target={props.flashTarget}
+      >
+        <TitleLink pub={props.pub} title={props.title} />
+        {props.showWhen ? (
+          <span class="when">
+            <Time at={props.at} now={props.now} />
+          </span>
+        ) : null}
+        <p class="msg">{props.msg}</p>
+        {props.showWhen && props.n != null ? <span class="rn">#{props.n}</span> : null}
+        {props.meta === undefined ? null : <p class="meta">{props.meta}</p>}
+        {props.actions === undefined ? null : <span class="acts">{props.actions}</span>}
+      </li>
+    );
   const { item, now } = props;
   const latest = item.latest_revision;
   const { project, tags } = projectAndTags(item.metadata);
@@ -56,28 +120,19 @@ export function CollectionRow(props: {
   const query = props.query ?? "";
   const metaHit = query && item.match === "metadata" ? metadataMatch(item.metadata, query) : null;
   return (
-    <a
+    <li
       class="item"
-      href={`/c/${item.public_id}/`}
-      aria-labelledby={`it-${item.public_id}`}
-      aria-describedby={`iw-${item.public_id} im-${item.public_id} ix-${item.public_id}`}
-      data-updated={String(item.updated_at)}
       data-pub={item.public_id}
       data-n={latest ? String(latest.display_number) : undefined}
+      data-at={String(item.updated_at)}
     >
-      <span class="t">
-        <span class="tt" id={`it-${item.public_id}`}>
-          {highlight(item.title, query)}
-        </span>
-      </span>
-      <span class="when" id={`iw-${item.public_id}`}>
+      <TitleLink pub={item.public_id} title={highlight(item.title, query)} />
+      <span class="when">
         <Time at={item.updated_at} now={now} />
       </span>
-      <span class="msg" id={`im-${item.public_id}`}>
-        {latest?.message ?? (latest ? "No message" : "No revision yet")}
-      </span>
+      <p class="msg">{latest?.message ?? (latest ? "No message" : "No revision yet")}</p>
       <span class="rn">{latest ? `#${latest.display_number}` : ""}</span>
-      <span class="meta" id={`ix-${item.public_id}`}>
+      <p class="meta">
         {latest?.source_host ? <span class="host">{latest.source_host}</span> : null}
         <Chg changes={latest?.changes} />
         {labels.length ? <span>{labels.join(" · ")}</span> : null}
@@ -104,7 +159,41 @@ export function CollectionRow(props: {
           </span>
         ) : null}
         <span class="more-new" data-new hidden />
-      </span>
-    </a>
+      </p>
+    </li>
+  );
+}
+
+/** One section per consecutive run of equal day labels (UTC on the server; client/day-groups.ts
+ *  relabels them for the browser's zone). Rows keep their input order. */
+export function DayGroups<T>(props: {
+  kind: "recent" | "search" | "trash";
+  items: readonly T[];
+  at: (item: T) => number;
+  now: number;
+  render: (item: T) => Child;
+}): JSX.Element {
+  const label = props.kind === "trash" ? trashDayLabel : dayLabel;
+  const groups: { label: string; items: T[] }[] = [];
+  for (const item of props.items) {
+    const text = label(props.at(item), props.now, true);
+    const last = groups.at(-1);
+    if (last?.label === text) last.items.push(item);
+    else groups.push({ label: text, items: [item] });
+  }
+  return (
+    <div class="groups" data-groups={props.kind}>
+      {groups.map((group, index) => {
+        const id = `${props.kind}-day-${index}`;
+        return (
+          <section aria-labelledby={id}>
+            <h2 class="day" id={id}>
+              {group.label}
+            </h2>
+            <ul class="list">{group.items.map((item) => props.render(item))}</ul>
+          </section>
+        );
+      })}
+    </div>
   );
 }

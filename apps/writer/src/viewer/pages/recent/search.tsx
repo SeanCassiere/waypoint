@@ -4,9 +4,8 @@ import { WaypointError, type CollectionSearchResult } from "@waypoint/core";
 import type { HttpServices } from "../../../http.ts";
 import { CANONICAL_TOKENS } from "../../../search-query.ts";
 import { shellPath } from "../../../viewer-paths.ts";
-import { Time } from "../../components.tsx";
 import type { Chrome } from "../../layout.tsx";
-import { highlight, CollectionRow } from "./rows.tsx";
+import { DayGroups, highlight, RecentRow } from "./rows.tsx";
 
 export function SearchBody(props: {
   chrome: Chrome;
@@ -52,22 +51,28 @@ export function SearchBody(props: {
         ))}
       </p>
       {items.length ? (
-        items.map((item) =>
-          props.trash ? (
-            <a class="item" href="/trash">
-              <span class="t">
-                <span class="tt">{highlight(item.title, props.freeText)}</span>
-              </span>
-              <span class="when">
-                <Time at={item.updated_at} now={chrome.now} />
-              </span>
-              <span class="msg">In Trash. Restore it from Trash to read it again.</span>
-              <span class="rn" />
-            </a>
-          ) : (
-            <CollectionRow item={item} now={chrome.now} query={props.freeText} />
-          ),
-        )
+        <DayGroups
+          kind="search"
+          items={items}
+          at={(item) => item.updated_at}
+          now={chrome.now}
+          render={(item) =>
+            props.trash ? (
+              <RecentRow
+                variant="trash"
+                pub={item.public_id}
+                title={highlight(item.title, props.freeText)}
+                at={item.updated_at}
+                now={chrome.now}
+                showWhen
+                n={item.latest_revision?.display_number ?? null}
+                msg="In Trash. Restore it from Trash to read it again."
+              />
+            ) : (
+              <RecentRow variant="search" item={item} now={chrome.now} query={props.freeText} />
+            )
+          }
+        />
       ) : (
         <p>
           <a class="btn" href="/">

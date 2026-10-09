@@ -81,7 +81,7 @@ export async function recentPage(s: HttpServices, c: Context): Promise<Response>
   );
 }
 
-export { highlight, CollectionRow } from "./rows.tsx";
+export { highlight, RecentRow } from "./rows.tsx";
 export { NeedsAttention } from "./attention.tsx";
 export { type Facet, type PublicNow, RecentBody, EmptyHome } from "./home.tsx";
 export { SearchBody, exactTarget } from "./search.tsx";

@@ -116,6 +116,12 @@ export function dayLabel(time: number, now: number, utc: boolean): string {
   return shortDate(p, parts(now, utc));
 }
 
+/** Day-group label for Trash: "In Trash · moved today", "… moved Monday", "… moved 3 Oct". */
+export function trashDayLabel(time: number, now: number, utc: boolean): string {
+  const label = dayLabel(time, now, utc);
+  return `In Trash · moved ${label === "Today" || label === "Yesterday" ? label.toLowerCase() : label}`;
+}
+
 /**
  * The last-visit mark on Recent, worded the same in the lede and the "New since" divider:
  * "21:15" today, "yesterday 23:30", "Wed 23:30" this week, otherwise "3 Oct".

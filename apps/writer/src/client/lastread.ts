@@ -1,5 +1,5 @@
 import { shellPath } from "../viewer-paths.ts";
-import { dayLabel, sinceText } from "../viewer/timefmt.ts";
+import { sinceText } from "../viewer/timefmt.ts";
 import { $, $$, el, shellRoot, storage } from "./dom.ts";
 import { refreshStatusLine } from "./status-line.ts";
 
@@ -31,7 +31,8 @@ function setRead(collection: string, mark: ReadMark): void {
   storage()?.setItem(`wp:read:${collection}`, JSON.stringify(mark));
 }
 
-/** Recent: "New since" divider, new dots, local day groups and the lede (spec §5.1). */
+/** Recent: new dots, the "N new since you read" slot and the lede (spec §5.1). Rows are marked in
+ *  place; client/day-groups.ts localises the day groups. */
 export function bindRecentMarks(): void {
   const recent = $("[data-recent]");
   const store = storage();
@@ -39,7 +40,7 @@ export function bindRecentMarks(): void {
   const now = Date.now();
   const lastVisit = Number(store?.getItem("wp:lastVisit") ?? Number.NaN);
   const known = Number.isFinite(lastVisit) && lastVisit > 0;
-  const items = $$(".item[data-updated]", HTMLAnchorElement, recent);
+  const items = $$("li.item[data-at]", HTMLLIElement, recent);
   const since = known ? sinceText(lastVisit, now, false) : "";
   for (const item of items) {
     const mark = item.dataset.pub ? readMark(item.dataset.pub) : null;
@@ -50,23 +51,11 @@ export function bindRecentMarks(): void {
       slot.textContent = `${n - mark.n} new since you read #${mark.n}`;
     }
   }
-  const groups = $("[data-groups]", recent);
   let fresh = 0;
-  if (groups) {
-    groups.replaceChildren();
-    let current = "";
-    for (const item of items) {
-      const updated = Number(item.dataset.updated);
-      const isNew = known && updated > lastVisit;
-      if (isNew) fresh++;
-      item.classList.toggle("new", isNew);
-      const label = isNew ? `New since ${since}` : dayLabel(updated, now, false);
-      if (label !== current) {
-        groups.append(el("div", { class: isNew ? "day since" : "day", text: label }));
-        current = label;
-      }
-      groups.append(item);
-    }
+  for (const item of items) {
+    const isNew = known && Number(item.dataset.at) > lastVisit;
+    item.classList.toggle("new", isNew);
+    if (isNew) fresh++;
   }
   const lede = $("[data-lede]", recent);
   if (lede && known)
