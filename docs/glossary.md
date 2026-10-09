@@ -24,7 +24,7 @@ The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (hom
 The viewer's share-link management: the **Links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all) and the global **Public links** page (`/links`, filtered by Active, Paused in Trash, Expired and Revoked).
 
 **Public preview**
-The writer showing a collection as a share viewer would see it (`?as=public`): the reader's public shell and the revision the reader would serve (the newest synced one, or the pinned one). It needs no share link and never leaves the tailnet.
+The writer showing a collection as a share viewer would see it (`?as=public`): the reader's public shell and the revision the reader would serve (the newest synced one, or the pinned one), with no share link needed and without leaving the tailnet. A band after the skip link names the revision a Latest or Only link shows and links back to the revision the owner came from; a failed or still-uploading target gets an explanation page instead.
 
 **Trash view**
 The part of the viewer that lists soft-deleted (tombstoned) collections and lets you undelete or purge them.

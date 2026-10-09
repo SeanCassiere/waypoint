@@ -73,6 +73,51 @@
 .hero.bad span {
   color: var(--ink-2);
 }
+/* ?as=public on a revision that isn't public: what Latest links show, the revision, the latest */
+.pv-facts {
+  margin: -6px 0 22px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.pv-facts li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 20px;
+}
+.pv-facts b {
+  flex: none;
+  min-width: 132px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.pv-facts .ic {
+  margin-top: 2px;
+}
+.pv-facts span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pv-facts .ok .ic {
+  color: var(--ok);
+}
+.pv-facts .bad .ic {
+  color: var(--failed);
+}
+.pv-facts .pend .ic {
+  color: var(--pending);
+}
+.pv-facts .wait .ic {
+  color: var(--muted);
+}
+[data-preview-disclosure] {
+  margin: 14px 0 0;
+  max-width: 64ch;
+}
 .grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

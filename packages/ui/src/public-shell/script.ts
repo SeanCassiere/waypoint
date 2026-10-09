@@ -135,7 +135,12 @@ export const locationScript: string = `(() => {
     for (const a of document.querySelectorAll("#files a[data-p]")) {
       a.toggleAttribute("autofocus", a === hit);
     }
-    if (hit.closest(".ptabs2")) hit.scrollIntoView({ inline: "center", block: "nearest" });
+    const strip = hit.closest(".ptabs2");
+    if (strip) {
+      const s = strip.getBoundingClientRect();
+      const r = hit.getBoundingClientRect();
+      strip.scrollLeft += r.left + r.width / 2 - (s.left + s.width / 2);
+    }
     frame.title = path;
     const shown = path.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
     const current = document.querySelector("#files-cur .t");
@@ -172,7 +177,9 @@ export const locationScript: string = `(() => {
  * Done already restore it natively) while no other popover opened, it returns to the popover's
  * invoker. The tab strip scrolls
  * its current tab into view on load and keeps `data-more` ("start", "end", "start end") for its
- * edge fades.
+ * edge fades. Both here and in `locationScript` the tab is centred by setting the strip's
+ * `scrollLeft`, never with `scrollIntoView`: in Chromium that moves the sequential focus starting
+ * point to the tab, so a first Tab from load would skip the skip link (RX-10, decision d-1).
  */
 export const filesMenuScript: string = `(() => {
   const scrim = document.querySelector(".pop-scrim");
@@ -228,7 +235,11 @@ export const filesMenuScript: string = `(() => {
     else delete strip.dataset.more;
   };
   const current = strip.querySelector("a[aria-current]");
-  if (current) current.scrollIntoView({ inline: "center", block: "nearest" });
+  if (current) {
+    const s = strip.getBoundingClientRect();
+    const r = current.getBoundingClientRect();
+    strip.scrollLeft += r.left + r.width / 2 - (s.left + s.width / 2);
+  }
   more();
   strip.addEventListener("scroll", more, { passive: true });
   addEventListener("resize", more);
