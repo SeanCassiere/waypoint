@@ -41,7 +41,7 @@ export function Layout(props: {
           now={props.chrome.now}
           host={props.chrome.host}
         />
-        <KeysDialog />
+        <KeysDialog page={props.page} />
         <ConfirmDialog />
         <div class="pop-scrim" aria-hidden="true" />
         <div class="toast" role="status" aria-live="polite" data-toast popover="manual" />

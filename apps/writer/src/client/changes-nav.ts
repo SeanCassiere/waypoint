@@ -1,13 +1,9 @@
+import { matchKey } from "../viewer/keymap.ts";
 import { $, $$, storage } from "./dom.ts";
+import { bindPageEscape, OPEN_LAYER, typing } from "./page-escape.ts";
 
-function typing(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-  );
-}
-
-/** Changes page (its own small bundle): j/k move between changes, Esc returns to the document. */
+/** Changes page (its own small bundle): j/k move between changes, Esc returns to the document
+ *  (page-escape.ts). */
 export function bindChangesNav(): void {
   const page = $(".cmp");
   if (!page) return;
@@ -29,19 +25,15 @@ export function bindChangesNav(): void {
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: "center" });
   };
+  if (done) bindPageEscape(done, "changes");
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-    if (typing(event.target) || document.querySelector("dialog[open], [popover]:popover-open"))
-      return;
-    if ($("#shell.open")) return;
-    if (event.key === "Escape") {
-      if (done) location.assign(done);
-      return;
-    }
+    if (typing(event.target) || document.querySelector(OPEN_LAYER)) return;
+    // Esc ("changes-done") is bindPageEscape's.
+    const command = matchKey(event, "changes")?.command;
+    if (command !== "next-change" && command !== "prev-change") return;
     if (storage()?.getItem("wp:keys") === "off") return;
-    if (event.key === "j" || event.key === "k") {
-      event.preventDefault();
-      step(event.key === "j" ? 1 : -1);
-    }
+    event.preventDefault();
+    step(command === "next-change" ? 1 : -1);
   });
 }

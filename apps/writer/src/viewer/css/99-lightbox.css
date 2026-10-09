@@ -1,45 +1,49 @@
-/* gallery lightbox: view modes are radio inputs styled as a segmented control (:has(), no script) */
+/* gallery lightbox: the view mode is #lightbox[data-mode], set by the Compare view buttons */
 #lightbox .slider {
   display: none;
 }
-#lightbox:has(input[value="slider"]:checked) .pair {
+#lightbox[data-mode="slider"] .pair {
   display: none;
 }
-#lightbox:has(input[value="slider"]:checked) .slider {
+#lightbox[data-mode="slider"] .slider {
   display: grid;
 }
-#lightbox:has(input[value="only"]:checked) [data-lbx-before],
+#lightbox[data-mode="only"] [data-lbx-before],
 #lightbox.single [data-lbx-before],
 #lightbox.single .seg {
   display: none;
 }
-#lightbox:has(input[value="only"]:checked) .pair,
+#lightbox[data-mode="only"] .pair,
 #lightbox.single .pair {
   grid-template-columns: 1fr;
 }
-.lbx .seg label {
-  padding: 4px 10px;
-  border-radius: 7px;
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-  position: relative;
+/* the Done form: no bottom margin, so Done stays on the header's centre line */
+.lbx header form {
+  margin: 0;
 }
-.lbx .seg label:has(input:checked) {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: var(--sh-1);
-  font-weight: 600;
+/* forced colours drop the pressed segment's background and shadow: keep an outline */
+@media (forced-colors: active) {
+  .lbx .seg [aria-pressed="true"] {
+    outline: 1px solid CanvasText;
+  }
 }
-.lbx .seg label:has(input:focus-visible) {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
-}
-.lbx .seg input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+.lbx-hint {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
 }
 .slider .stack img.after {
   clip-path: inset(0 0 0 var(--cut, 50%));
+}
+/* touch: no keycaps or key hint; every control is a full tap target */
+@media (hover: none) and (pointer: coarse) {
+  .lbx kbd,
+  .lbx-hint {
+    display: none;
+  }
+  .lbx .seg button,
+  .lbx footer .btn,
+  .lbx [data-lbx-done] {
+    min-height: var(--tap);
+  }
 }

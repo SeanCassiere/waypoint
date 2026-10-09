@@ -1,5 +1,7 @@
 /** @jsxImportSource hono/jsx */
+import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
+import { raw } from "hono/html";
 
 import type { HttpServices } from "../../http.ts";
 import { rawPath, shellPath } from "../../viewer-paths.ts";
@@ -55,18 +57,13 @@ export async function galleryPage(
     .join("/")}/`;
   const parentN = parentRow?.display_number ?? null;
   const n = revision.display_number ?? 0;
+  const done = shellPath(collection.public_id, revision.public_id, "", true);
   return noStore(
     c.html(
       <Layout
         title={`${dir} · ${collection.title}`}
         chrome={ctx.chrome}
-        bar={
-          <CollectionBar
-            ctx={ctx}
-            pill={`gallery · ${dir}`}
-            doneHref={shellPath(collection.public_id, revision.public_id, "", true)}
-          />
-        }
+        bar={<CollectionBar ctx={ctx} pill={`gallery · ${dir}`} doneHref={done} />}
         page="gallery"
       >
         <ShellRoot ctx={ctx} path={revision.head_path} mode="gallery">
@@ -80,6 +77,7 @@ export async function galleryPage(
             <div
               class="gallery"
               data-gallery
+              data-done={done}
               data-n={String(n)}
               data-parent-n={parentN === null ? "" : String(parentN)}
             >
@@ -113,6 +111,7 @@ export async function galleryPage(
                     class={`shot${glyph === "+" ? " add" : glyph === "~" ? " mod" : ""}`}
                     href={shellPath(collection.public_id, revision.public_id, file.path, true)}
                     data-shot
+                    data-dims
                     data-name={file.path.slice(dir.length)}
                     data-after={rawPath(revision.public_id, file.path)}
                     data-before={glyph === "~" ? before : undefined}
@@ -168,27 +167,25 @@ export async function galleryPage(
         <CopyMenu ctx={ctx} path={revision.head_path} />
         <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
-        <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title">
+        <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title" data-mode="side">
           <header>
             <b id="lbx-title" data-lbx-title />
             <span class="muted small" data-lbx-status />
             <span class="grow" />
-            <div class="seg" role="radiogroup" aria-label="Compare view">
-              <label>
-                <input type="radio" name="lbx-mode" value="side" checked />
+            <div class="seg" role="group" aria-label="Compare view" data-lbx-modes>
+              <button type="button" data-mode="side" aria-pressed="true">
                 Side by side
-              </label>
-              <label>
-                <input type="radio" name="lbx-mode" value="slider" />
+              </button>
+              <button type="button" data-mode="slider" aria-pressed="false">
                 Slider
-              </label>
-              <label>
-                <input type="radio" name="lbx-mode" value="only" />#{n} only
-              </label>
+              </button>
+              <button type="button" data-mode="only" aria-pressed="false">
+                #{n} only
+              </button>
             </div>
             <form method="dialog">
-              <button class="btn sm ghost" aria-label="Close">
-                ✕
+              <button class="btn sm" data-lbx-done aria-keyshortcuts="Escape">
+                Done <kbd aria-hidden="true">Esc</kbd>
               </button>
             </form>
           </header>
@@ -217,13 +214,16 @@ export async function galleryPage(
             />
           </div>
           <footer>
-            <button type="button" class="btn sm" data-lbx-prev aria-label="Previous image">
-              ←
+            <button type="button" class="btn sm" data-lbx-prev aria-keyshortcuts="ArrowLeft">
+              {raw(icon("chevronLeft"))} Previous
             </button>
             <span class="muted small" data-lbx-count />
-            <button type="button" class="btn sm" data-lbx-next aria-label="Next image">
-              →
+            <button type="button" class="btn sm" data-lbx-next aria-keyshortcuts="ArrowRight">
+              Next {raw(icon("chevronRight"))}
             </button>
+            <span class="lbx-hint muted small" aria-hidden="true">
+              <kbd>←</kbd> <kbd>→</kbd> images
+            </span>
             <span class="grow" />
             <a class="btn sm" data-lbx-open href="#">
               Open in collection
