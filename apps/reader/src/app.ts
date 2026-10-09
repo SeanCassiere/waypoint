@@ -4,6 +4,7 @@ import {
   isShareToken,
   isTextMime,
   parseShareUrl,
+  rawContentType,
   shareShellUrl,
   validatePath,
 } from "@waypoint/core";
@@ -484,7 +485,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       if (markdown && c.req.header("if-none-match") === `"${hash}"`) {
         const headers = new Headers({
           ...standard,
-          "Content-Type": isTextMime(mime) ? `${mime}; charset=utf-8` : mime,
+          "Content-Type": rawContentType(mime),
           "Content-Security-Policy": rawCsp,
           "Cache-Control": "private, no-cache",
           ETag: `"${hash}"`,
@@ -516,7 +517,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
       }
       const headers = new Headers({
         ...standard,
-        "Content-Type": isTextMime(mime) ? `${mime}; charset=utf-8` : mime,
+        "Content-Type": rawContentType(mime),
         "Content-Security-Policy": rawCsp,
         "Cache-Control": "private, no-cache",
       });
