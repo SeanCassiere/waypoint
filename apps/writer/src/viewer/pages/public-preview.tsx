@@ -30,7 +30,11 @@ export async function publicPreview(
     `${shellPath(ctx.collection.public_id, served.public_id, file, ctx.pinned, manifest.headPath)}?as=public`;
   const shell = renderPublicShell({
     title: ctx.collection.title,
-    files: paths.map((file) => ({ path: file })),
+    files: paths.map((file) => ({
+      path: file,
+      mime: manifest.files[file]?.mime,
+      size: manifest.files[file]?.size,
+    })),
     head: manifest.headPath,
     current,
     fileHref: href,
