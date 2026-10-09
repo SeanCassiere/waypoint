@@ -1007,10 +1007,21 @@ describe("share links for the Folio UI (B3, B4)", () => {
     const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
     const previewHtml = await preview.text();
     expect(previewHtml).toContain('popovertarget="about"');
+    // The owner's band: a region right after the skip link that says what a Latest link shows.
+    expect(previewHtml).toContain('role="region" aria-label="Public preview"');
     expect(previewHtml).toContain("data-preview-banner");
-    expect(previewHtml).toContain("Preview: this is what the public sees");
-    // The banner's own <style> has a dark variant, and the writer's CSP doesn't block it.
-    expect(previewHtml).toMatch(/<style>[^<]*\.wp-preview-banner[^<]*prefers-color-scheme:dark/);
+    expect(previewHtml.indexOf('class="skip"')).toBeLessThan(
+      previewHtml.indexOf("data-preview-banner"),
+    );
+    expect(previewHtml).not.toContain('role="note"');
+    expect(previewHtml).toContain("A Latest link shows <b>#1</b>, the latest.");
+    expect(previewHtml.replace(/<\/?b>/g, "")).toContain("A Latest link shows #1, the latest.");
+    // The band's own <style> uses the public tokens (which follow the colour scheme), isn't
+    // sticky, and the writer's CSP doesn't block it.
+    const bandStyle = /<style>([^<]*\.wp-pv\{[^<]*)<\/style>/.exec(previewHtml)?.[1] ?? "";
+    expect(bandStyle).toContain("var(--public-bg)");
+    expect(bandStyle).not.toContain("sticky");
+    expect(bandStyle).not.toContain("system-ui");
     expect(preview.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
     expect(previewHtml).toContain(
       'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
@@ -1041,12 +1052,52 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(onlyHtml).toContain('popovertarget="about"');
     expect(onlyHtml).toContain(`/raw/r/${revisionPublicId}/index.txt`);
     expect(onlyHtml).not.toContain("two.txt");
-    // A pinned preview of the unsynced revision explains instead of showing it.
+    // A pinned preview of the unsynced revision explains instead of showing it, and offers what
+    // Latest links show.
     const pinned = await app.request(`/c/${collectionPublicId}/r/${nextPub}/?as=public`);
     expect(pinned.status).toBe(200);
     const pinnedHtml = await pinned.text();
     expect(pinnedHtml).toContain("#2 isn&#39;t public yet.");
+    expect(pinnedHtml).toContain('data-preview="uploading"');
+    expect(pinnedHtml).toMatch(
+      new RegExp(
+        `<a class="btn primary" href="/c/${collectionPublicId}/\\?as=public">.*Preview #1, what the public sees</a>`,
+      ),
+    );
     expect(pinnedHtml).not.toContain(`/raw/r/${nextPub}/`);
+    // A failed revision: says no public link can show it, offers Retry and the Latest preview.
+    const failedId = mintRevisionId({ now: Date.now(), parentId: revisionId });
+    const failedPub = await publicIdFor(failedId);
+    await queue.run(
+      "INSERT INTO pending_revisions (id,public_id,collection_id,parent_revision_id,head_path,message,metadata,manifest_json,created_at,state,attempts,last_error) VALUES (?,?,?,?,?,?,?,?,?,'failed',1,?)",
+      [
+        failedId,
+        failedPub,
+        collectionId,
+        revisionId,
+        "index.txt",
+        null,
+        "{}",
+        JSON.stringify({
+          headPath: "index.txt",
+          files: { "index.txt": { hash, mime: "text/plain", size: 12 } },
+        }),
+        Date.now(),
+        "R2 PUT timed out",
+      ],
+    );
+    const failed = await app.request(`/c/${collectionPublicId}/r/${failedPub}/?as=public`);
+    expect(failed.status).toBe(200);
+    const failedHtml = await failed.text();
+    expect(failedHtml).toContain('data-preview="failed"');
+    expect(failedHtml).toContain("#3 failed to upload, so no public link can show it.");
+    expect(failedHtml).toMatch(
+      new RegExp(`<button[^>]*data-action="retry"[^>]*data-ids="${failedId}"[^>]*>Retry #3<`),
+    );
+    expect(failedHtml).toContain("failed · R2 PUT timed out");
+    expect(failedHtml).toContain(`href="/c/${collectionPublicId}/?as=public"`);
+    expect(failedHtml).toContain("Preview #1, what the public sees");
+    expect(failedHtml).not.toContain(`/raw/r/${failedPub}/`);
     // Nothing synced at all: no revision is presented as public.
     await queue.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
       revisionId,
