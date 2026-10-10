@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/SeanCassiere/waypoint/compare/v0.2.0...v0.2.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **viewer:** dialog footers sit flush with the dialog's bottom edge ([aa2516c](https://github.com/SeanCassiere/waypoint/commit/aa2516cceccbe227bca48c04fdfd343b5584ebef))
+
 ## [0.2.0](https://github.com/SeanCassiere/waypoint/compare/v0.1.2...v0.2.0) (2026-10-10)
 
 
