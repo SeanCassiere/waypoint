@@ -27,7 +27,8 @@ release's prebuilt reader; how releases are made: [docs/releasing.md](../docs/re
 A Linux host with Docker Engine and Docker Compose 2.24 or later, bash 4.4+ (`upgrade.sh` checks), `flock`, `curl`,
 `sha256sum` and Node.js 22 or later (`upgrade.sh` uses it for JSON, and Wrangler 4 refuses
 anything older; `upgrade.sh` checks before deploying a reader). Deploying a git checkout
-(`current-checkout`) also needs `git`, and with reader targets, Node.js 24 (the workspace's
+(`current-checkout`) also needs `git` and Docker Engine 25 or later (the writer image's health check
+uses `--start-interval`; older engines run released images and ignore it), and with reader targets, Node.js 24 (the workspace's
 minimum), pnpm and an installed workspace (`pnpm install --frozen-lockfile --filter @waypoint/reader...`).
 Verifying releases needs the [GitHub CLI](https://cli.github.com) 2.102.0 or later, logged in
 (`gh auth login`) or with `GH_TOKEN` set (see [Release provenance](#release-provenance)).

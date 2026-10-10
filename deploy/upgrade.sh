@@ -373,7 +373,7 @@ wait_writer_healthy() {
     fi
     [[ "$status" == healthy ]] && return 0
     [[ "$status" == unhealthy ]] && { log "writer container is unhealthy"; return 1; }
-    sleep 2
+    sleep 1
   done
   log "writer container didn't become healthy in time"
   return 1
@@ -388,7 +388,7 @@ check_writer_url() {
     if body="$(curl -fsS --max-time 5 "$health_url" 2>/dev/null)" && healthz_matches "$body" "$version" "$sha" 2>/dev/null; then
       return 0
     fi
-    sleep 5
+    sleep 2
   done
   log "$health_url didn't answer healthy${sha:+ with commit $sha}"
   return 1
@@ -1385,7 +1385,7 @@ cmd_rerender() {
       while (( SECONDS < deadline )); do
         pending="$(docker_run exec "$(writer_container)" node -e 'fetch("http://127.0.0.1:7410/api/status").then(r=>r.json()).then(s=>console.log(s.queue.rerender_pending)).catch(()=>process.exit(1))' 2>/dev/null || true)"
         [[ "$pending" == 0 ]] && break
-        sleep 10
+        sleep 2
       done
       [[ "$pending" == 0 ]] || die "renditions are still queued after the upload timeout; the writer keeps uploading them, rerun later"
       (( remaining > 0 )) || break

@@ -19,7 +19,9 @@ Every tier deploys with the same script, [deploy/upgrade.sh](../deploy/upgrade.s
 who can reach what is in the [trust model](trust-model.md).
 
 You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 22+
-(24+ to deploy from a git checkout with the public reader, which builds it). To verify releases,
+(24+ to deploy from a git checkout with the public reader, which builds it). Deploying from a git
+checkout builds the writer image, which needs Docker Engine 25+ (its health check's
+`--start-interval`). To verify releases,
 install the [GitHub CLI](https://cli.github.com) 2.102.0 or later and log in (`gh auth login`).
 
 ## Getting the deploy files
