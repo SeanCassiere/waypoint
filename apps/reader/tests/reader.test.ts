@@ -481,6 +481,35 @@ describe("public reader", () => {
     blobMissing = true;
     expect(await (await app.request(path, {}, bindings)).text()).toBe("source");
   });
+  it("serves only markdown renditions, and only for markdown files", async () => {
+    // A newer writer stored `text` and `csv` v1 renditions (withdrawn) for text, code, JSON and
+    // CSV files. This reader must keep serving those files as they were stored.
+    files = [
+      { path: "index.md", blob_hash: hash, mime: "text/markdown" },
+      { path: "notes.txt", blob_hash: hash, mime: "text/plain" },
+      { path: "data.json", blob_hash: hash, mime: "application/json" },
+      { path: "table.csv", blob_hash: hash, mime: "text/csv" },
+    ];
+    rendition = { output_hash: renditionHash, output_mime: "text/html", renderer_version: 1 };
+    const { app, bindings } = fixture();
+    for (const [path, mime] of [
+      ["notes.txt", "text/plain; charset=utf-8"],
+      ["data.json", "application/json; charset=utf-8"],
+      ["table.csv", "text/csv; charset=utf-8"],
+    ] as const) {
+      reads.length = 0;
+      const response = await app.request(await rawUrl(firstPub, path), {}, bindings);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("source");
+      expect(response.headers.get("content-type")).toBe(mime);
+      expect(reads.some((sql) => sql.includes("FROM renditions"))).toBe(false);
+    }
+    reads.length = 0;
+    await app.request(await rawUrl(firstPub, "index.md"), {}, bindings);
+    const lookups = reads.filter((sql) => sql.includes("FROM renditions"));
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]).toContain("renderer='markdown'");
+  });
   it("returns a large body as a stream before the source closes", async () => {
     rendition = null;
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined;

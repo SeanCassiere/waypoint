@@ -1288,6 +1288,71 @@ describe("reviewer regressions", () => {
     expect((await app.request(`/raw/r/${publicId}/cafe%CC%81.txt`)).status).toBe(200);
     expect((await app.request("/raw/r/doesnotexist/caf%C3%A9.txt")).status).toBe(404);
   });
+  it("ignores rendition kinds other than markdown when serving", async () => {
+    // A newer writer stored `text` and `csv` v1 renditions (withdrawn) for text and CSV files; the
+    // same bytes may also be a markdown file. Only markdown renditions are ever served.
+    const source = "# Same bytes\n\na,b\n1,2\n";
+    const md = await stored(source, "notes.md");
+    const created = await ingest.create({
+      title: "Kinds",
+      head_path: "notes.md",
+      files: [md, { path: "notes.txt", hash: md.hash }, { path: "table.csv", hash: md.hash }],
+    });
+    const publicId = (await reads.getRevision(created.revision_id)).public_id;
+    const textView = (await stored("<p>text view</p>")).hash;
+    const csvView = (await stored("<table>csv view</table>")).hash;
+    const insert =
+      "INSERT INTO %s (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)";
+    // Committed and queued, with versions above any markdown one, so only the kind can exclude them.
+    for (const [renderer, view] of [
+      ["text", textView],
+      ["csv", csvView],
+    ] as const) {
+      await waypoint.run(insert.replace("%s", "renditions"), [
+        md.hash,
+        renderer,
+        1,
+        view,
+        "text/html",
+        1,
+      ]);
+      await queue.run(insert.replace("%s", "pending_renditions"), [
+        md.hash,
+        renderer,
+        99,
+        view,
+        "text/html",
+        1,
+      ]);
+    }
+    const body = async (path: string) => {
+      const response = await app.request(`/raw/r/${publicId}/${path}`);
+      expect(response.status).toBe(200);
+      return { text: await response.text(), type: response.headers.get("content-type") };
+    };
+    expect(await reads.rendition(md.hash)).toBeUndefined();
+    expect(await body("notes.md")).toEqual({
+      text: source,
+      type: "text/markdown; charset=utf-8",
+    });
+    expect(await body("notes.txt")).toEqual({ text: source, type: "text/plain; charset=utf-8" });
+    expect(await body("table.csv")).toEqual({ text: source, type: "text/csv; charset=utf-8" });
+    const markdownView = (await stored("<p>markdown view</p>")).hash;
+    await waypoint.run(insert.replace("%s", "renditions"), [
+      md.hash,
+      "markdown",
+      2,
+      markdownView,
+      "text/html",
+      1,
+    ]);
+    expect(await reads.rendition(md.hash)).toEqual({ hash: markdownView, mime: "text/html" });
+    expect(await body("notes.md")).toEqual({
+      text: "<p>markdown view</p>",
+      type: "text/html; charset=utf-8",
+    });
+    expect((await body("notes.txt")).text).toBe(source);
+  });
   it("reuses renditions and renders carried-over markdown when a version is missing", async () => {
     let calls = 0;
     const renderer = {

@@ -1060,22 +1060,28 @@ export class ReadModel {
         .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
   }
+  /**
+   * The newest markdown rendition of a source blob. Only `renderer='markdown'` rows count: a newer
+   * writer may have stored other kinds for the same bytes (the withdrawn `text` and `csv` v1
+   * renditions), and this writer must never serve a rendition kind it doesn't produce.
+   */
   async rendition(hash: string): Promise<{ hash: string; mime: string } | undefined> {
     const pending = await this.queue.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
     }>(
-      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=?",
+      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=? AND renderer='markdown'",
       [hash],
     );
     const committed = await this.waypoint.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
-    }>("SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=?", [
-      hash,
-    ]);
+    }>(
+      "SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=? AND renderer='markdown'",
+      [hash],
+    );
     const newest = [...pending, ...committed].toSorted(
       (a, b) => b.renderer_version - a.renderer_version,
     )[0];
