@@ -1,9 +1,0 @@
-- banner:
-  - navigation "Breadcrumb":
-    - list:
-        - heading "Postgres 17 upgrade runbook" [level=1]
-- main:
-  - heading "Sync and sharing status" [level=2]
-  - 'heading "Changes in #7" [level=2]'
-  - region "pgbouncer.sh":
-- navigation "Collection":

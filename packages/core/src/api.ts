@@ -8,12 +8,7 @@ export interface ShareLink {
   revoked_at: number | null;
   created_at: number;
   mode: "latest" | "pinned";
-  /**
-   * "active" is live (the public reader serves it now); "paused" while the collection is in
-   * Trash; "waiting" until the target has synced. Precedence: revoked, expired, paused,
-   * waiting, active.
-   */
-  status: "active" | "paused" | "waiting" | "revoked" | "expired";
+  status: "active" | "revoked" | "expired";
   publicly_available: boolean;
   /**
    * Lifecycle as the public experiences it (B3): "activating" until the writer has pushed the
@@ -152,14 +147,8 @@ export interface CollectionSearchResult {
   match: "id" | "title" | "metadata" | null;
   /** Queue counts for the collection's revisions that haven't committed yet. */
   queue?: { pending: number; failed: number } | undefined;
-  /**
-   * Public links (B4): `active` live links, `paused` links paused while the collection is in
-   * Trash. Null when the collection has neither.
-   */
-  share?:
-    | { active: number; follows_latest: boolean; paused?: number | undefined }
-    | null
-    | undefined;
+  /** Active public links (B4). Null when the collection has none. */
+  share?: { active: number; follows_latest: boolean } | null | undefined;
 }
 export interface SearchCollectionsResponse {
   collections: CollectionSearchResult[];

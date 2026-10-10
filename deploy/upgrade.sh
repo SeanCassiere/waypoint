@@ -9,7 +9,7 @@
 #   upgrade.sh [options] image <ref>        deploy the writer from an image you built (no readers)
 #   upgrade.sh [options] status             what's deployed, and whether it's healthy
 #   upgrade.sh [options] validate           check instance.env and every file it names
-#   upgrade.sh [options] rerender           re-render markdown, text and CSV after a renderer upgrade
+#   upgrade.sh [options] rerender           re-render markdown after a renderer upgrade
 #   upgrade.sh [options] compose <args...>  run docker compose on this instance's project
 #
 # Options:
@@ -1333,12 +1333,11 @@ cmd_validate() {
   log "instance is valid: project $project, ${#reader_targets[@]} reader target(s)"
 }
 
-# Re-renders after a renderer upgrade (deploy/README.md): the markdown, text and CSV renderers,
-# in that order. `rerender` takes the data directory's lock, so each batch runs with the writer
-# stopped (agents' writes fail meanwhile); the writer then uploads what was queued, and the next
-# batch starts once it has. The writer is started again after every batch, and on any failure or
-# interruption. Only the writer container is stopped and started; the Tailscale sidecar, Docker
-# and the host are left alone.
+# Re-renders markdown after a renderer upgrade (deploy/README.md). `rerender` takes the data
+# directory's lock, so each batch runs with the writer stopped (agents' writes fail meanwhile);
+# the writer then uploads what was queued, and the next batch starts once it has. The writer is
+# started again after every batch, and on any failure or interruption. Only the writer container
+# is stopped and started; the Tailscale sidecar, Docker and the host are left alone.
 cmd_rerender() {
   compose_env
   docker_available || die "Docker is unavailable"
@@ -1346,55 +1345,41 @@ cmd_rerender() {
   # overlap a deploy or another rerender.
   lock_state
   [[ ! -f "$state_dir/deploying" ]] || die "an upgrade didn't finish; rerun it before re-rendering"
-  local args summary remaining version pending deadline renderer stopped
-  local -A versions=() todo=()
+  local args summary remaining version pending deadline
   [[ -n "$(writer_container)" ]] || die "no writer container"
   wait_writer_healthy || die "the writer isn't healthy"
   args=(--all)
   if [[ -n "$rerender_collection" ]]; then args=(--collection "$rerender_collection"); fi
 
-  # Dry runs first, all three in one stop: each reports the image's version of its renderer, which
-  # every batch then pins, so an image change mid-way fails instead of mixing versions.
+  # A dry run first: it reports the image's renderer version, which every batch then pins, so an
+  # image change mid-way fails instead of mixing versions.
   rerender_stop
-  for renderer in markdown text csv; do
-    compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer "$renderer" --dry-run > "$scratch/rerender.out"
-    summary="$(head -n1 "$scratch/rerender.out")"
-    versions[$renderer]="$(node -e 'console.log(JSON.parse(process.argv[1]).renderer_version)' "$summary")" || die "unexpected rerender output"
-    todo[$renderer]="$(node -e 'console.log(JSON.parse(process.argv[1]).queued)' "$summary")" || die "unexpected rerender output"
-    [[ "${versions[$renderer]}" =~ ^[0-9]+$ && "${todo[$renderer]}" =~ ^[0-9]+$ ]] || die "unexpected rerender output"
-    # shellcheck disable=SC2016 # JavaScript, not shell
-    # Without --limit, the dry run counts every source still to render as queued (and none remaining).
-    log "$renderer renderer v${versions[$renderer]}: $(node -e 'const s=JSON.parse(process.argv[1]);console.log(`${s.sources} sources, ${s.current} current, ${s.queued} to render`)' "$summary")"
-  done
+  compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer markdown --dry-run > "$scratch/rerender.out"
+  summary="$(head -n1 "$scratch/rerender.out")"
+  version="$(node -e 'console.log(JSON.parse(process.argv[1]).renderer_version)' "$summary")" || die "unexpected rerender output"
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  # Without --limit, the dry run counts every source still to render as queued (and none remaining).
+  log "markdown renderer v$version: $(node -e 'const s=JSON.parse(process.argv[1]);console.log(`${s.sources} sources, ${s.current} current, ${s.queued} to render`)' "$summary")"
   if (( dry_run )); then rerender_start; return 0; fi
-  stopped=1
-  for renderer in markdown text csv; do
-    (( todo[$renderer] > 0 )) || continue
-    version="${versions[$renderer]}"
-    if (( ! stopped )); then rerender_stop; stopped=1; fi
-    while :; do
-      compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer "$renderer" --version "$version" --limit "$rerender_limit" > "$scratch/rerender.out"
-      cat "$scratch/rerender.out" >&2
-      remaining="$(sed -n 's/^remaining: \([0-9]*\).*/\1/p' "$scratch/rerender.out" | tail -n1)"
-      [[ "$remaining" =~ ^[0-9]+$ ]] || die "unexpected rerender output"
-      rerender_start
-      stopped=0
-      log "waiting for the writer to upload the queued renditions"
-      deadline=$((SECONDS + ${RERENDER_UPLOAD_TIMEOUT:-3600}))
-      pending=""
-      while (( SECONDS < deadline )); do
-        pending="$(docker_run exec "$(writer_container)" node -e 'fetch("http://127.0.0.1:7410/api/status").then(r=>r.json()).then(s=>console.log(s.queue.rerender_pending)).catch(()=>process.exit(1))' 2>/dev/null || true)"
-        [[ "$pending" == 0 ]] && break
-        sleep 10
-      done
-      [[ "$pending" == 0 ]] || die "renditions are still queued after the upload timeout; the writer keeps uploading them, rerun later"
-      (( remaining > 0 )) || break
-      log "$remaining $renderer sources left; next batch"
-      rerender_stop
-      stopped=1
+  while :; do
+    compose run --rm --no-deps -T writer node dist/main.js rerender "${args[@]}" --renderer markdown --version "$version" --limit "$rerender_limit" > "$scratch/rerender.out"
+    cat "$scratch/rerender.out" >&2
+    remaining="$(sed -n 's/^remaining: \([0-9]*\).*/\1/p' "$scratch/rerender.out" | tail -n1)"
+    [[ "$remaining" =~ ^[0-9]+$ ]] || die "unexpected rerender output"
+    rerender_start
+    log "waiting for the writer to upload the queued renditions"
+    deadline=$((SECONDS + ${RERENDER_UPLOAD_TIMEOUT:-3600}))
+    pending=""
+    while (( SECONDS < deadline )); do
+      pending="$(docker_run exec "$(writer_container)" node -e 'fetch("http://127.0.0.1:7410/api/status").then(r=>r.json()).then(s=>console.log(s.queue.rerender_pending)).catch(()=>process.exit(1))' 2>/dev/null || true)"
+      [[ "$pending" == 0 ]] && break
+      sleep 10
     done
+    [[ "$pending" == 0 ]] || die "renditions are still queued after the upload timeout; the writer keeps uploading them, rerun later"
+    (( remaining > 0 )) || break
+    log "$remaining sources left; next batch"
+    rerender_stop
   done
-  if (( stopped )); then rerender_start; fi
   log "rerender done. Sources reported as missing or failed keep their previous rendition; see the JSON summaries above."
 }
 

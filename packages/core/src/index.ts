@@ -5,8 +5,6 @@ export * from "./ids.ts";
 export * from "./manifest.ts";
 export * from "./mime.ts";
 export * from "./paths.ts";
-export * from "./raw.ts";
-export * from "./renderers.ts";
 export * from "./share.ts";
 export * from "./urls.ts";
 export * from "./version.ts";

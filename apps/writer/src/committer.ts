@@ -6,10 +6,9 @@ import { z, ZodError } from "zod";
 
 import type { BlobStore } from "./blob-store.ts";
 import { type Bucket, BucketError } from "./bucket.ts";
-import { type Db, type DbHandle } from "./db.ts";
+import { type Db } from "./db.ts";
 import type { Committer, IngestService } from "./ingest.ts";
 import { SyncLoop } from "./sync-loop.ts";
-import { type QueuedRevision, readQueued, refreshSyncing, refreshSyncingFrom } from "./syncing.ts";
 
 type Revision = {
   id: string;
@@ -88,9 +87,6 @@ export type CommitterStep =
 
 export class WriterCommitter implements Committer {
   private running = false;
-  /** RX-11: the collection's queued revisions, read by `attempt()` just before its commit
-   *  transaction; consumed by `refreshSyncing` inside it. */
-  private commitQueued: { collectionId: string; queued: readonly QueuedRevision[] } | undefined;
   private stopping = false;
   private rerun = false;
   private active: Promise<void> | undefined;
@@ -210,7 +206,6 @@ export class WriterCommitter implements Committer {
     this.running = true;
     let passFailed = false;
     try {
-      await this.recoverSyncing();
       do {
         this.rerun = false;
         const rows = await this.queue.all<Revision>(
@@ -290,66 +285,7 @@ export class WriterCommitter implements Committer {
       ],
     );
     if (failed) await this.cascade(row.id);
-    if (failed)
-      await this.lock.withCollectionLock(row.collection_id, () =>
-        this.refreshSyncing(row.collection_id),
-      );
     this.notify();
-  }
-  /** RX-11: recompute the collection's syncing row. The caller holds the collection lock; pass the
-   *  commit's waypoint transaction as `tx` when called inside it. Triggers a push when it changed
-   *  (outside a transaction).
-   *
-   *  Inside the commit transaction, the queue facts come from `commitQueued`, which `attempt()`
-   *  reads before it opens the transaction: the transaction must never wait on the queue
-   *  connection, because a queue transaction (Drop's `prunePendingStorage`) may be waiting on the
-   *  waypoint one. Any other `tx` caller reads the queue inside its transaction and takes on that
-   *  risk. */
-  async refreshSyncing(collectionId: string, tx?: DbHandle): Promise<void> {
-    const preread = tx ? this.commitQueued : undefined;
-    if (tx && preread?.collectionId === collectionId) {
-      this.commitQueued = undefined;
-      await refreshSyncingFrom({
-        waypoint: tx,
-        queued: preread.queued,
-        collectionId,
-        giveUpHours: this.giveUpHours,
-      });
-      return;
-    }
-    const { changed } = await refreshSyncing({
-      waypoint: tx ?? this.waypoint,
-      queue: this.queue,
-      collectionId,
-      giveUpHours: this.giveUpHours,
-    });
-    if (changed && !tx) this.sync.triggerPush();
-  }
-  /**
-   * RX-11 crash recovery: refreshes every collection with queued revisions or a syncing row, so a
-   * write lost between a queue change and its refresh is corrected on the next pass.
-   */
-  private async recoverSyncing(): Promise<void> {
-    const ids = new Set([
-      ...(
-        await this.queue.all<{ collection_id: string }>(
-          "SELECT DISTINCT collection_id FROM pending_revisions",
-        )
-      ).map((row) => row.collection_id),
-      ...(
-        await this.waypoint.all<{ collection_id: string }>(
-          "SELECT collection_id FROM collection_syncing",
-        )
-      ).map((row) => row.collection_id),
-    ]);
-    // One collection's failure must not hold up every commit behind a cosmetic note; the next
-    // pass tries it again.
-    for (const id of ids)
-      await this.lock
-        .withCollectionLock(id, () => this.refreshSyncing(id))
-        .catch((error: unknown) => {
-          console.error(`Syncing row refresh failed for ${id}: ${reason(error)}`);
-        });
   }
   private async cascade(parentId: string): Promise<void> {
     const children = await this.queue.all<{ id: string }>(
@@ -558,12 +494,6 @@ export class WriterCommitter implements Committer {
           this.rerun = true;
           throw new AbortedAttempt("Collection changed during snapshot upload");
         }
-        // RX-11: the queue facts for the syncing row, read before the waypoint transaction opens
-        // (see `refreshSyncing`); the collection lock keeps them current until it commits.
-        this.commitQueued = {
-          collectionId: row.collection_id,
-          queued: await readQueued(this.queue, row.collection_id),
-        };
         await this.waypoint.transaction(async (tx) => {
           if (pendingCollection) {
             await tx.run(
@@ -651,14 +581,12 @@ export class WriterCommitter implements Committer {
             if (file?.blob_hash !== entry.hash)
               throw new CommitValidationError("Revision file INSERT OR IGNORE collision");
           }
-          await this.refreshSyncing(row.collection_id, tx);
         });
         await this.step("commit_after_rows");
         await this.cleanup(row);
         await this.step("commit_after_queue_cleanup");
       });
     } catch (error) {
-      this.commitQueued = undefined;
       if (error instanceof SimulatedCrash) throw error;
       if (
         error instanceof AbortedAttempt ||
@@ -1077,14 +1005,7 @@ export class WriterCommitter implements Committer {
       if (this.stopping || this.accountError) break;
       if (row.next_attempt_at !== null && row.next_attempt_at > this.now()) continue;
       try {
-        const wait = await this.lock.withCollectionLock(row.collection_id, () => this.purge(row));
-        // A grace wait is a scheduled retry, not a failure: attempts and
-        // last_error stay as they are.
-        if (wait)
-          await this.queue.run(
-            "UPDATE pending_purges SET next_attempt_at=? WHERE collection_id=? AND requested_at=?",
-            [wait.waitUntil, row.collection_id, row.requested_at],
-          );
+        await this.lock.withCollectionLock(row.collection_id, () => this.purge(row));
       } catch (error) {
         if (error instanceof SimulatedCrash) throw error;
         await this.otherFailure(
@@ -1185,16 +1106,7 @@ export class WriterCommitter implements Committer {
     else await remove();
     this.rerun = true;
   }
-  /**
-   * Runs the purge from its recorded step. Returns `{ waitUntil }` when blob GC
-   * deferred a file still inside the 15-minute grace window; the final push and
-   * the row's delete then wait for the next attempt.
-   */
-  private async purge(row: {
-    collection_id: string;
-    requested_at: number;
-    step: number;
-  }): Promise<{ waitUntil: number } | null> {
+  private async purge(row: { collection_id: string; step: number }): Promise<void> {
     const id = row.collection_id;
     if (row.step === 0) {
       await this.queue.run("DELETE FROM pending_snapshots WHERE collection_id=?", [id]);
@@ -1210,10 +1122,7 @@ export class WriterCommitter implements Committer {
         await this.bucket.delete(manifestKey(rev.id), this.abortController.signal);
       await this.bucket.delete(collectionKey(id), this.abortController.signal);
       await this.dropQueuedCollection(id);
-      await this.queue.run(
-        "UPDATE pending_purges SET step=1,attempts=0,last_error=NULL WHERE collection_id=?",
-        [id],
-      );
+      await this.queue.run("UPDATE pending_purges SET step=1 WHERE collection_id=?", [id]);
       await this.step("purge_after_bucket");
     }
     if (row.step <= 1) {
@@ -1224,7 +1133,6 @@ export class WriterCommitter implements Committer {
       for (const rev of purged)
         await this.queue.run("DELETE FROM unpushed WHERE revision_id=?", [rev.id]);
       await this.waypoint.transaction(async (tx) => {
-        await tx.run("DELETE FROM collection_syncing WHERE collection_id=?", [id]);
         await tx.run("DELETE FROM share_links WHERE collection_id=?", [id]);
         await tx.run(
           "DELETE FROM revision_files WHERE revision_id IN (SELECT id FROM revisions WHERE collection_id=?)",
@@ -1235,22 +1143,18 @@ export class WriterCommitter implements Committer {
         await tx.run("DELETE FROM collections WHERE id=?", [id]);
       });
       await this.sync.push();
-      await this.queue.run(
-        "UPDATE pending_purges SET step=2,attempts=0,last_error=NULL WHERE collection_id=?",
-        [id],
-      );
+      await this.queue.run("UPDATE pending_purges SET step=2 WHERE collection_id=?", [id]);
       await this.step("purge_after_rows");
     }
-    const gc = async (): Promise<number | null> => {
-      let youngest: number | null = null;
+    const gc = async () => {
+      let deferred = false;
       const needed = await this.neededHashes();
       for (const blob of await this.waypoint.all<{ hash: string }>("SELECT hash FROM blobs")) {
         if (needed.has(blob.hash)) continue;
         if (this.lock.isBlobInUse?.(blob.hash)) continue;
         try {
-          const { mtimeMs } = await stat(this.blobs.path(blob.hash));
-          if (this.now() - mtimeMs < 15 * 60_000) {
-            youngest = Math.max(youngest ?? mtimeMs, mtimeMs);
+          if (this.now() - (await stat(this.blobs.path(blob.hash))).mtimeMs < 15 * 60_000) {
+            deferred = true;
             continue;
           }
         } catch (error) {
@@ -1273,15 +1177,13 @@ export class WriterCommitter implements Committer {
         await this.blobs.delete(blob.hash);
         await this.step("purge_mid_gc");
       }
-      // mtimeMs is fractional; next_attempt_at is an INTEGER column.
-      return youngest === null ? null : Math.ceil(youngest) + 15 * 60_000;
+      if (deferred) throw new Error("Purge GC waiting for local blob grace period");
     };
-    const graceUntil = this.lock.withGcExclusive ? await this.lock.withGcExclusive(gc) : await gc();
-    if (graceUntil !== null) return { waitUntil: graceUntil };
+    if (this.lock.withGcExclusive) await this.lock.withGcExclusive(gc);
+    else await gc();
     await this.sync.push();
     await this.queue.run("DELETE FROM pending_purges WHERE collection_id=?", [id]);
     this.rerun = true;
-    return null;
   }
   stop(): void {
     this.stopping = true;

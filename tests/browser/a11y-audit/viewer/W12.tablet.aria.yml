@@ -1,8 +1,0 @@
-- banner:
-  - navigation "Breadcrumb":
-    - list:
-        - heading "Checkout flow screenshot audit" [level=1]
-- main:
-  - heading "shots/" [level=2]
-  - navigation "Filter images":
-- dialog "checkout.png":

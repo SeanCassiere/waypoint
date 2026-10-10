@@ -2,7 +2,6 @@ import { frameLocationHref } from "@waypoint/ui";
 
 import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.ts";
 import { $, $$, el, shellRoot } from "./dom.ts";
-import { loadingLine } from "./loading-line.ts";
 import { refreshStatusLine } from "./status-line.ts";
 
 /** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
@@ -35,67 +34,16 @@ function frameNotice(message: string | null, back?: { href: string; label: strin
   refreshStatusLine();
 }
 
-/** A section fragment (`#open-questions`) the bar may keep (RX-09): anything else becomes "". */
-const SECTION_HASH = /^#[\w.~%-]{1,256}$/;
-const sectionHash = (hash: string): string => (SECTION_HASH.test(hash) ? hash : "");
-/** Points the frame at a section of the document it has loaded, as a same-document navigation
- *  (no load, no request) that adds no history entry. */
-function openSection(frame: HTMLIFrameElement, target: string): void {
-  try {
-    if (!frame.contentWindow) throw new Error("no window");
-    frame.contentWindow.location.replace(target);
-  } catch {
-    frame.src = target;
-  }
-}
-
-/** An absolute URL without its fragment. */
-function withoutHash(href: string): string {
-  const url = new URL(href, location.href);
-  url.hash = "";
-  return url.href;
-}
-/** Whether pointing the frame at `next` loads a new document: a change only in the fragment
- *  fires no `load`, so it must not start the loading line (A11Y-08; RX-09 relies on this).
- *  Only a target with a fragment can be fragment-only; any other assignment loads, even back
- *  to the document the frame still shows while a slow switch is pending (A -> B -> A). */
-function loadsDocument(frame: HTMLIFrameElement, next: string): boolean {
-  if (!new URL(next, location.href).hash) return true;
-  let current: string;
-  try {
-    current = frame.contentWindow?.location.href ?? frame.src;
-  } catch {
-    return true;
-  }
-  return withoutHash(current) !== withoutHash(next);
-}
-
 export function bindFrameSync(): void {
   const root = shellRoot();
   const frame = $("[data-frame]", HTMLIFrameElement);
   if (!root || root.dataset.mode !== "document") return;
-  const loading = loadingLine();
-  if (frame) {
-    // A frame that loaded before this ran fires no further load. A cross-origin one counts as
-    // loaded: reading its location throws (read first, as its contentDocument is just null).
-    let loaded: boolean;
-    try {
-      const href = frame.contentWindow?.location.href;
-      loaded = frame.contentDocument?.readyState === "complete" && href !== "about:blank";
-    } catch {
-      loaded = true;
-    }
-    if (loaded) loading?.done();
-    else loading?.start(root.dataset.path ?? frame.title);
-  }
   const links = $$("#tp-files a[data-file]", HTMLAnchorElement);
   const collection = root.dataset.collection ?? "";
   const revision = root.dataset.revision ?? "";
   const pinned = root.dataset.pinned === "true";
   const head = root.dataset.head ?? "";
   let keyboardOpen = false;
-  // RX-09: the section the page was opened at, handed to the frame on its first load.
-  let initialHash = sectionHash(location.hash);
   function update(path: string, search: string, hash: string, fromFrame: boolean): void {
     root!.dataset.path = path;
     const matched = links.find((link) => link.dataset.file === path);
@@ -104,15 +52,8 @@ export function bindFrameSync(): void {
       else link.removeAttribute("aria-current");
     frameNotice(matched ? null : "This file isn't in this revision.");
     const raw = rawPath(revision, path) + search + hash;
-    for (const link of $$("[data-open-raw],[data-download]", HTMLAnchorElement)) link.href = raw;
-    // "Download runbook.md" saves the original bytes (RX-06), never the file's HTML rendition.
-    for (const link of $$("[data-download-raw]", HTMLAnchorElement))
-      link.href = rawPath(revision, path) + "?download";
-    // The raw items name the current file (NAV-09): its basename, with the full path as title.
-    for (const name of $$("[data-file-name]")) {
-      name.textContent = path.split("/").at(-1) ?? path;
-      name.closest("[data-open-raw],[data-download-raw]")?.setAttribute("title", path);
-    }
+    for (const link of $$("[data-open-raw],[data-download-raw],[data-download]", HTMLAnchorElement))
+      link.href = raw;
     const latest = $("[data-copy-preview=latest]");
     if (latest) latest.textContent = `…${shellPath(collection, revision, path, false, head)}`;
     const pinnedPreview = $("[data-copy-preview=pinned]");
@@ -120,10 +61,8 @@ export function bindFrameSync(): void {
       pinnedPreview.textContent = `…${shellPath(collection, revision, path, true)}`;
     if (frame) {
       frame.title = path;
-      if (!fromFrame && frame.contentWindow?.location.href !== new URL(raw, location.href).href) {
-        if (loadsDocument(frame, raw)) loading?.start(path);
+      if (!fromFrame && frame.contentWindow?.location.href !== new URL(raw, location.href).href)
         frame.src = raw;
-      }
     }
     history.replaceState(
       null,
@@ -131,7 +70,7 @@ export function bindFrameSync(): void {
       shellPath(collection, revision, path, pinned, head, withShellParams(search), hash),
     );
   }
-  function fromUrl(href: string, fallbackHash = ""): boolean {
+  function fromUrl(href: string): boolean {
     const url = new URL(href, location.href);
     if (url.origin !== location.origin) return false;
     const path = pathFromRaw(url.pathname, revision);
@@ -141,19 +80,13 @@ export function bindFrameSync(): void {
       location.assign(matched.href);
       return true;
     }
-    update(path, url.search, sectionHash(url.hash) || fallbackHash, true);
+    update(path, url.search, url.hash, true);
     return true;
   }
   frame?.addEventListener("load", () => {
-    loading?.done();
-    const hash = initialHash;
-    initialHash = "";
     try {
       const href = frame.contentWindow?.location.href ?? frame.src;
-      // The first load keeps the bar's section and scrolls the frame to it.
-      const opening = hash && !new URL(href).hash ? hash : "";
-      if (!fromUrl(href, opening)) throw new Error("left");
-      if (opening) openSection(frame, href + opening);
+      if (!fromUrl(href)) throw new Error("left");
       // Same-origin documents: Esc inside the document returns focus to the shell.
       frame.contentDocument?.addEventListener("keydown", (event) => {
         if (event.key === "Escape") $("#tp-files a[aria-current]")?.focus();
@@ -168,16 +101,6 @@ export function bindFrameSync(): void {
       });
     }
   });
-  // A frame that loaded before this ran fires no load (see above), so the bar is synced now: it
-  // keeps a valid opening section (and the frame scrolls to it) and drops an invalid one.
-  if (frame && frame.contentDocument?.readyState === "complete") {
-    const href = frame.contentWindow?.location.href ?? "";
-    const opening = initialHash && !new URL(href, location.href).hash ? initialHash : "";
-    if (fromUrl(href, opening)) {
-      if (opening) openSection(frame, href + opening);
-      initialHash = "";
-    }
-  }
   // Renditions also report their location by postMessage (needed for the public reader's
   // sandboxed frames; redundant but harmless here). Only the frame's own window is trusted,
   // and only while it shows a same-origin document: a page the frame navigated to elsewhere
@@ -201,8 +124,7 @@ export function bindFrameSync(): void {
     try {
       const encoded = location.pathname.slice(prefix.length);
       const path = encoded ? encoded.split("/").map(decodeURIComponent).join("/") : head;
-      initialHash = "";
-      update(path, location.search, sectionHash(location.hash), false);
+      update(path, location.search, location.hash, false);
     } catch {
       frameNotice("Invalid file URL.");
     }
@@ -216,11 +138,6 @@ export function bindFrameSync(): void {
         return;
       }
       keyboardOpen = event.detail === 0;
-      // A switch before the first load supersedes the opening section (RX-09).
-      initialHash = "";
-      const path = link.dataset.file ?? "";
-      const raw = rawPath(revision, path);
-      if (loadsDocument(frame, raw)) loading?.start(path);
-      frame.src = raw;
+      frame.src = rawPath(revision, link.dataset.file ?? "");
     });
 }

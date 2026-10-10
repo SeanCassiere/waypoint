@@ -49,7 +49,7 @@ Exactly one writer process owns a data directory. Within that process:
    - Apply `remove`, then `files`.
    - Resolve the head path: the explicit one, or the parent's if it still exists, or the inferred one. Otherwise return `head_path_missing` or `head_path_ambiguous`.
 6. **Skip no-op writes.** If the manifest and head path equal the parent's, return the parent with `unchanged: true` and create nothing.
-7. **Render.** Every markdown, text and CSV file gets a rendition from its type's renderer at that renderer's current version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows. (Older blobs get a new version's rendition from `waypoint-writer rerender`, through the same queue tables; see [Other queued work](#other-queued-work).)
+7. **Render.** Every markdown file gets a rendition at the current renderer version, reused if one already exists. Rendition outputs are ordinary blobs: they go into the local store and get `pending_blobs` rows. (Older blobs get a new version's rendition from `waypoint-writer rerender`, through the same queue tables; see [Other queued work](#other-queued-work).)
 8. **Queue.** In one `queue.db` transaction, insert:
    - the `pending_revisions` row
    - its `pending_renditions` rows
@@ -77,7 +77,7 @@ pending_blobs       (hash PRIMARY KEY, size)                     -- incl. rendit
 pending_renditions  (source_hash, renderer, renderer_version, output_hash, output_mime, created_at)
 pending_snapshots   (collection_id PRIMARY KEY, requested_at)    -- collections/<id>.json rewrites
 pending_r2_deletes  (key PRIMARY KEY, requested_at)              -- bucket objects to delete
-pending_purges      (collection_id PRIMARY KEY, requested_at, step, title, public_id)   -- title/public_id name a purge after its rows are gone
+pending_purges      (collection_id PRIMARY KEY, requested_at, step, title, public_id)   -- title/public_id: added by migration 0005, currently unused
 unpushed            (revision_id PRIMARY KEY, committed_at)      -- committed, not yet pushed
 last_push           (id = 1, started_at, finished_at)            -- the last successful push
 ```
@@ -118,8 +118,6 @@ The committer processes pending revisions in ID order (oldest first). For each o
    If the process dies between steps 5 and 6, the next pass finds the revision already in `waypoint.db` and only performs step 6.
 7. **Trigger a push.**
 
-**Syncing row (RX-11).** `refreshSyncing` (`apps/writer/src/syncing.ts`) keeps one `collection_syncing` row per collection while a non-failed queued revision is newer (by ID) than the collection's newest committed revision, with `since` the oldest such revision's `created_at` and `until = since + WAYPOINT_QUEUE_GIVE_UP_HOURS`; otherwise it deletes the row. A collection that was never committed gets no row. It writes only when the stored row differs, always under the collection lock, and runs after ingest queues a revision, inside the commit's step-5 transaction (so the revision and the removed row reach the cloud in the same push), when a revision fails (with its cascaded children), on Retry and Drop, and once at the start of every committer pass for every collection with queued revisions or a row (recovering a refresh lost to a crash; a collection whose refresh fails there is logged and tried again on the next pass, without holding up commits). Purge deletes the row in its rows transaction, before the collection. Outside a transaction, a change triggers a push. The commit reads the collection's queued revisions before it opens the step-5 transaction (the collection lock keeps them current) and never touches `queue.db` inside it: Drop's queue transaction reads `waypoint.db`, so a waypoint transaction waiting on the queue could deadlock both connections.
-
 ### Other queued work
 
 These are idempotent and **never give up**:
@@ -134,10 +132,10 @@ These are idempotent and **never give up**:
 - **Transient errors** (network failures, timeouts, 5xx, 429, R2's `RequestTimeout` and `ConditionalRequestConflict`, and local `EMFILE`/`EBUSY` and similar) are retried until 72 hours have passed since the first attempt. The limit is set by `WAYPOINT_QUEUE_GIVE_UP_HOURS`, default 72. After that the revision becomes `failed`.
 - **Permanent errors** mark the revision `failed` immediately. Examples: a blob missing from the local store, a purged collection, a failed parent, a validation error.
 - **Failed revisions** stay in `queue.db`, and their blobs stay on disk. You can still view them on the tailnet, and they appear in the revision picker marked as failed and in `/api/status`.
-  - **Retrying a failed revision** re-queues it along with its failed descendants. Retry sets `first_attempt_at` to the retry time, so the give-up clock restarts at Retry.
+  - **Retrying a failed revision** re-queues it along with its failed descendants.
   - **Dropping a failed revision** removes it and its descendants, and queues deletion of any DR manifests already written.
   - A bulk "retry all failed" operation is planned for later.
-- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`. A purge's blob-GC grace wait isn't an error: it only sets `next_attempt_at` (see [Purge](#purge)).
+- Snapshots, bucket deletes, and purges follow the same 5–10 minute schedule but are never marked failed. Each has its own `next_attempt_at`, `attempts`, and `last_error` (an additive `queue.db` migration). Their errors appear in `/api/status`.
 - **An account-level 403 from the bucket** (bad or revoked credentials) pauses the committer and is reported in status. It doesn't fail every queued revision.
 
 ### Sync state of a revision
@@ -165,12 +163,6 @@ GC also skips:
 - local blob files modified in the last 15 minutes
 
 GC runs under a writer-wide barrier that ingest also takes, as a shared lock. Purge also **drops the collection's queued revisions** and deletes their local blobs that nothing else references, so a leaked secret doesn't linger in the queue. Phase 1 assumes a single writer; see [data-model.md](data-model.md#deletion).
-
-How a purge is recorded while it runs:
-- **A GC grace deferral is a scheduled wait, not an error.** When GC skips a blob file modified in the last 15 minutes, the purge stops before step 3's push and sets `next_attempt_at` to the youngest deferred file's mtime, rounded up to the millisecond, plus 15 minutes. `attempts` and `last_error` stay as they are, and the committer wakes at that time.
-- **Finishing a step resets `attempts` and `last_error`**, so an old bucket error doesn't make a later wait look like a failure.
-- **`pending_purges` keeps the collection's `title` and `public_id`**, written when the purge is accepted, so the viewer can name the purge on Trash, Status and the purged 404 after step 2 deleted the collection's rows. Rows queued before those columns existed fall back to the live collection, then to its ID.
-- **Undelete answers `collection_purged` (410) while a purge is queued**: a collection being purged can't be restored.
 
 ## Turso Sync
 

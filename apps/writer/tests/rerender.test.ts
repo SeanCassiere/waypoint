@@ -14,13 +14,8 @@ import { createApp } from "../src/http.ts";
 import { IngestService, type Renderer } from "../src/ingest.ts";
 import { migrate, queueMigrations, waypointMigrations } from "../src/migrations.ts";
 import { ReadModel } from "../src/read-model.ts";
-import { writerRenderer, writerRenderers } from "../src/renderer.ts";
-import {
-  formatRerenderSummary,
-  parseRerenderArgs,
-  rerender,
-  rerenderRendererName,
-} from "../src/rerender.ts";
+import { writerRenderer } from "../src/renderer.ts";
+import { formatRerenderSummary, parseRerenderArgs, rerender } from "../src/rerender.ts";
 import { SyncLoop } from "../src/sync-loop.ts";
 
 class FakeRenderer implements Renderer {
@@ -654,114 +649,5 @@ describe("rerender", () => {
       "SELECT source_hash FROM renditions WHERE renderer_version=2 ORDER BY source_hash",
     );
     expect(committed.map((row) => row.source_hash)).toEqual(sources.toSorted());
-  });
-
-  it("picks the renderer from --renderer, markdown by default (RX-08)", () => {
-    const names = ["markdown", "text", "csv"];
-    expect(rerenderRendererName([], names)).toBe("markdown");
-    expect(rerenderRendererName(["--all"], names)).toBe("markdown");
-    expect(rerenderRendererName(["--all", "--renderer", "csv"], names)).toBe("csv");
-    expect(() => rerenderRendererName(["--all", "--renderer", "nope"], names)).toThrow(
-      "Unknown renderer nope; this writer has markdown, text, csv",
-    );
-    // A missing value is parseRerenderArgs's error.
-    expect(rerenderRendererName(["--all", "--renderer"], names)).toBe("markdown");
-    expect(() => parseRerenderArgs(["--all", "--renderer"], writerRenderer)).toThrow(
-      "--renderer needs a value",
-    );
-  });
-
-  it("re-renders the files of one renderer's types (RX-08)", async () => {
-    const text = writerRenderers.all.find((renderer) => renderer.rendererName === "text");
-    if (!text) throw new Error("No text renderer");
-    const script = await put("#!/bin/sh\necho ok\n");
-    const json = await put('{"a":1}\n');
-    await ingest.create({
-      title: "Kinds",
-      head_path: "a.md",
-      files: [
-        { path: "a.md", hash: await put("# A") },
-        { path: "b.sh", hash: script },
-        { path: "c.json", hash: json },
-        { path: "d.csv", hash: await put("a,b\n1,2\n") },
-      ],
-    });
-    await commitAll();
-    const first = await rerender(waypoint, queue, blobs, text, { dryRun: false });
-    expect(first).toMatchObject({
-      renderer: "text",
-      renderer_version: 1,
-      sources: 2,
-      current: 0,
-      queued: 2,
-      remaining: 0,
-    });
-    const rows = await queue.all<{ source_hash: string; renderer: string }>(
-      "SELECT source_hash,renderer FROM pending_renditions ORDER BY source_hash",
-    );
-    expect(rows).toEqual(
-      [script, json].toSorted().map((source_hash) => ({ source_hash, renderer: "text" })),
-    );
-    const again = await rerender(waypoint, queue, blobs, text, { dryRun: false });
-    expect(again).toMatchObject({ sources: 2, current: 2, queued: 0 });
-  });
-
-  it("renders a hash under several types once, as the smallest MIME type (RX-08)", async () => {
-    const shared = await put('{"same":"bytes"}\n');
-    await ingest.create({
-      title: "Twins",
-      head_path: "x.txt",
-      files: [
-        { path: "x.txt", hash: shared },
-        { path: "x.json", hash: shared },
-      ],
-    });
-    await commitAll();
-    // A pending revision lists it as text/plain too.
-    await ingest.create({ title: "Pending", files: [{ path: "y.txt", hash: shared }] });
-    const mimes: string[] = [];
-    const spy: Renderer = {
-      rendererName: "text",
-      rendererVersion: 1,
-      render: (_source, mime) => {
-        mimes.push(mime);
-        return Promise.resolve({ bytes: new TextEncoder().encode("<p>"), mime: "text/html" });
-      },
-    };
-    const summary = await rerender(waypoint, queue, blobs, spy, { dryRun: false });
-    expect(summary).toMatchObject({ sources: 1, queued: 1 });
-    expect(mimes).toEqual(["application/json"]);
-  });
-
-  it("fails only the source whose rendition is over the blob limit (RX-08)", async () => {
-    const big = await put("big\n");
-    const small = await put("small\n");
-    await ingest.create({
-      title: "Sizes",
-      head_path: "big.txt",
-      files: [
-        { path: "big.txt", hash: big },
-        { path: "small.txt", hash: small },
-      ],
-    });
-    await commitAll();
-    const sized: Renderer = {
-      rendererName: "text",
-      rendererVersion: 1,
-      render: (source) =>
-        Promise.resolve({
-          bytes: new TextDecoder().decode(source).startsWith("big")
-            ? new Uint8Array(blobs.maxBlobBytes + 1)
-            : new TextEncoder().encode("<p>"),
-          mime: "text/html",
-        }),
-    };
-    const summary = await rerender(waypoint, queue, blobs, sized, { dryRun: false });
-    expect(summary).toMatchObject({ sources: 2, queued: 1, failed: [big] });
-    expect(
-      (await queue.all<{ source_hash: string }>("SELECT source_hash FROM pending_renditions")).map(
-        (row) => row.source_hash,
-      ),
-    ).toEqual([small]);
   });
 });

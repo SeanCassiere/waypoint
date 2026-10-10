@@ -3,7 +3,7 @@
 // the writer's bundle (tests/built-renderer.test.ts at the repository root).
 
 /** SHA-256 of every golden input's rendered HTML, in order. */
-export const GOLDEN_HASH = "4f068b1c70f50d476ea406e130ffb71e5313b11cf8831ead2a7df68548bba7b8";
+export const GOLDEN_HASH = "7277152229f0f7c7aa8a1d1f4df263d2fd963ebab5b0dd014e22cbcc64a0d055";
 
 /** Markdown sources and title overrides (`null`: none) covering every renderer feature. */
 export function goldenInputs(): Array<[string, string | null]> {

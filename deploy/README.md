@@ -281,12 +281,6 @@ With the cache, RSS grows by about 0.16 KB per query and flattens over time, ins
 
 ## Re-rendering markdown after a renderer upgrade
 
-The subcommand covers the markdown, text and CSV renderers: it dry-runs all three in one stop of
-the writer (one `{renderer} renderer v{N}: …` line each), then runs the batches below for each
-renderer in turn (markdown, text, csv), pinning that renderer's version and skipping any with
-nothing to render. The release that introduces `text` v1 and `csv` v1 together with markdown v3
-needs exactly one run.
-
 Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
 content. Older documents keep their previous rendition (which is fine to serve) until they're
 re-rendered. After such a deploy, run once:
@@ -321,12 +315,7 @@ that starts meanwhile waits for the lock for at most 30 minutes (`LOCK_WAIT_SECO
 fails without changing anything; a long rerender can outlast that, so deploy again afterwards. Each
 batch's JSON summary lists `missing` sources (in neither the local blob cache nor the bucket) and
 `failed` ones (the renderer returned nothing or timed out, as at ingest); those keep their
-previous rendition, and a later run retries them. Text and CSV files over the renderers' bounds
-(over 2 MB; text also over 50,000 lines) never get a rendition and are served as they are: every
-dry run counts them as `to render` and every batch reports them as `failed`, so the text or csv
-line never reaches `0 to render`, and each later run still stops the writer for one batch that
-renders nothing. Once a renderer's `to render` count equals its last batch's `failed` count, and
-the failures are such files, its backfill is done. Every step is safe to repeat: sources with a
+previous rendition, and a later run retries them. Every step is safe to repeat: sources with a
 current-version rendition, committed or queued, are skipped. Only the writer container is stopped
 and started; the Tailscale sidecar, Docker and the host are left alone.
 

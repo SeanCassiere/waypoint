@@ -1,5 +1,3 @@
-import { errorToast } from "./toast.ts";
-
 type ElementType<T extends Element> = abstract new () => T;
 
 /** querySelector, optionally checked against an element type (no unchecked casts). */
@@ -51,13 +49,11 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   node.append(...children);
   return node;
 }
-/** Runs an async handler from an event listener. A failure shows an error toast, "Couldn't
- *  <onError>", or is passed to `onError` when that's a function (inline errors). */
-export function run(work: () => Promise<void>, onError: string | ((cause: unknown) => void)): void {
-  work().catch((cause: unknown) => {
-    if (typeof onError === "string") errorToast(onError, cause);
-    else onError(cause);
-  });
+/** Runs an async handler from an event listener and routes failures to `onError`. */
+export function run(work: () => Promise<void>, onError: (message: string) => void): void {
+  work().catch((cause: unknown) =>
+    onError(cause instanceof Error ? cause.message : "Request failed"),
+  );
 }
 export function storage(): Storage | null {
   try {

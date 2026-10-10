@@ -1,6 +1,0 @@
-- banner:
-  - navigation "Breadcrumb":
-    - list:
-        - heading "Postgres 17 upgrade runbook" [level=1]
-- main:
-  - heading "Not found" [level=2]

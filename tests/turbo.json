@@ -27,22 +27,11 @@
     },
     // Real Chromium against the built writer.
     "test:browser": {
-      "dependsOn": ["transit", "@waypoint/writer#build", "@waypoint/mcp#build"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/demo-writer.ts",
-        "$TURBO_ROOT$/scripts/demo-reader.ts"
-      ]
+      "dependsOn": ["transit", "@waypoint/writer#build", "@waypoint/mcp#build"]
     },
-    // Real Chromium against the reader app, run from source. FA3-demo-reader boots the demo
-    // writer from source, which reads the built viewer assets.
+    // Real Chromium against the reader app, run from source.
     "test:browser:reader": {
-      "dependsOn": ["transit", "@waypoint/writer#build:viewer"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/demo-writer.ts",
-        "$TURBO_ROOT$/scripts/demo-reader.ts"
-      ]
+      "dependsOn": ["transit"]
     }
   }
 }

@@ -9,7 +9,7 @@ import { $, $$ } from "./dom.ts";
 // - on phones, a scrim that takes the closing tap so it can't act on what's beneath;
 // - the entrance's transform-origin in browsers without anchored container queries.
 function items(menu: HTMLElement): HTMLElement[] {
-  return $$(".mi, .rv a, .acts .btn, .mnote [role=menuitem]", menu).filter(
+  return $$(".mi, .rv a, .acts .btn", menu).filter(
     (item) => item.offsetParent !== null && !item.hasAttribute("disabled"),
   );
 }
@@ -105,16 +105,9 @@ export function bindMenus(): void {
       const opener = $(`[popovertarget="${popover.id}"]:focus-visible`);
       if (
         opener &&
-        // The Copy menu's role is on its list inside the box (its Preview disclosure isn't an item).
-        (popover.matches("[role=menu]") ||
-          $(":scope > .mbox [role=menu]", popover) ||
-          popover.classList.contains("rmenu"))
-      ) {
-        const item = $("[aria-current] a", popover) ?? items(popover)[0];
-        item?.focus();
-        // A list menu scrolls inside its body; keep the focused item in view there.
-        item?.scrollIntoView({ block: "nearest" });
-      }
+        (popover.getAttribute("role") === "menu" || popover.classList.contains("rmenu"))
+      )
+        ($("[aria-current] a", popover) ?? items(popover)[0])?.focus();
     });
     popover.addEventListener("keydown", (event) => {
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -130,7 +123,6 @@ export function bindMenus(): void {
             ? list.length - 1
             : (index + (event.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
       list[next]?.focus();
-      list[next]?.scrollIntoView({ block: "nearest" });
     });
   }
   for (const frame of $$("iframe", HTMLIFrameElement)) watchFrame(frame);

@@ -248,25 +248,24 @@ describe("large-fixture guards", () => {
     expect(old.body).toContain("#21");
   });
 
-  it("pages /links in SQL and counts inactive links in their segments", async () => {
+  it("pages /links in SQL and keeps inactive links behind a control", async () => {
     const first = await measure("/links");
     expect(first.status).toBe(200);
-    expect(first.body.match(/class="lrow( dead)?"/g)).toHaveLength(50);
+    expect(first.body.match(/class="r( dead)?"/g)).toHaveLength(50);
     expect(first.body).toContain("Show 50 more of 250…");
-    // Expired and revoked links are counted in their segments (OW-05b), not listed here.
-    expect(first.body).toContain('<span class="n" data-count-of="expired">50</span>');
-    expect(first.body).toContain('<span class="n" data-count-of="revoked">50</span>');
+    expect(first.body).toContain('href="/links?state=inactive"');
+    expect(first.body).toContain("Show 100 inactive links");
     expect(first.body.length).toBeLessThan(120_000);
     expect(first.slowest?.ms).toBeLessThan(STATEMENT_MS);
     const next = first.body.match(/href="(\/links\?state=active&amp;after=[^"]+)"/)?.[1];
     expect(next).toBeDefined();
     const second = await measure(next!.replaceAll("&amp;", "&"));
-    expect(second.body.match(/class="lrow( dead)?"/g)).toHaveLength(50);
+    expect(second.body.match(/class="r( dead)?"/g)).toHaveLength(50);
     expect(second.body).not.toContain("link 399 ");
     // Constant statements per page, however many links there are.
     expect(second.statements.length).toBeLessThanOrEqual(first.statements.length + 1);
     const inactive = await measure("/links?state=inactive");
-    expect(inactive.body.match(/class="lrow dead"/g)).toHaveLength(50);
+    expect(inactive.body.match(/class="r dead"/g)).toHaveLength(50);
     expect(inactive.body).toContain("Show 50 more of 50…");
   });
 

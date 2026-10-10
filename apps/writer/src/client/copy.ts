@@ -1,8 +1,4 @@
-import { icon } from "@waypoint/ui";
-
 import { toast } from "./toast.ts";
-
-const CHECK = icon("check");
 
 function fallback(text: string): boolean {
   const area = document.createElement("textarea");
@@ -39,12 +35,10 @@ export function showCopied(button: HTMLElement, ms = 1600): void {
   const previous = restore.get(button);
   if (previous) clearTimeout(previous.timer);
   const nodes = previous?.nodes ?? [...button.childNodes];
-  // Keep the button's width while it shows the check and "Copied", so nothing next to it moves.
+  // Keep the button's width while it says "✓ Copied", so nothing next to it moves.
   if (!previous) button.style.minWidth = `${button.getBoundingClientRect().width}px`;
   button.dataset.copied = "";
-  button.replaceChildren();
-  button.insertAdjacentHTML("beforeend", CHECK);
-  button.append(" Copied");
+  button.replaceChildren("✓ Copied");
   restore.set(button, {
     nodes,
     timer: setTimeout(() => {

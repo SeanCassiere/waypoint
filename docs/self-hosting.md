@@ -260,8 +260,8 @@ repository only). Following upstream releases instead, start the workflow on a s
 
 ## Connecting agents
 
-Open `/mcp` on your writer (for example `https://waypoint.<tailnet>.ts.net/mcp`). It walks
-through adding the MCP server and the skill for Claude Code, Codex or another MCP client, and a
-prompt that checks it works. Agents start the MCP server with `npx`, from a launcher the writer
-serves, and fetch the current server from the writer on every start, so upgrading the writer
-upgrades every agent's next session; see [api-and-mcp.md](api-and-mcp.md).
+Open `/mcp` on your writer (for example `https://waypoint.<tailnet>.ts.net/mcp`). It has
+copy-paste snippets for Claude Code and Codex and the skill install commands. Agents start the
+MCP server with `npx`, from a launcher the writer serves, and fetch the current server from the
+writer on every start, so upgrading the writer upgrades every agent's next session; see
+[api-and-mcp.md](api-and-mcp.md).

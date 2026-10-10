@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -688,45 +688,6 @@ describe("committer", () => {
     expect(await bucket.head(collectionKey(collectionId))).toBe(false);
     expect(await bucket.head(blobKey(hash))).toBe(true);
     expect(await waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash])).toBeTruthy();
-  });
-  it("clears a finished step's error and waits out the blob grace without one (OW-14)", async () => {
-    await processed();
-    await queue.run("INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)", [
-      collectionId,
-      clock,
-    ]);
-    bucket.fail = new BucketError("offline", "transient");
-    worker.wake();
-    await worker.drain();
-    expect(
-      await queue.get("SELECT step,attempts,last_error FROM pending_purges WHERE collection_id=?", [
-        collectionId,
-      ]),
-    ).toEqual({ step: 0, attempts: 1, last_error: "offline" });
-    delete bucket.fail;
-    await queue.run("UPDATE pending_purges SET next_attempt_at=NULL");
-    worker.wake();
-    await worker.drain();
-    // The blob was written just now: GC defers it, and that is a wait, not a failure.
-    const { mtimeMs } = await stat(blobs.path(hash));
-    const waiting = await queue.get<{ next_attempt_at: number }>(
-      "SELECT step,attempts,last_error,next_attempt_at FROM pending_purges WHERE collection_id=?",
-      [collectionId],
-    );
-    expect(waiting).toEqual({
-      step: 2,
-      attempts: 0,
-      last_error: null,
-      next_attempt_at: Math.ceil(mtimeMs) + 15 * 60_000,
-    });
-    expect(await bucket.head(blobKey(hash))).toBe(true);
-    clock = (waiting?.next_attempt_at ?? 0) + 1;
-    worker.wake();
-    await worker.drain();
-    expect(
-      await queue.get("SELECT step FROM pending_purges WHERE collection_id=?", [collectionId]),
-    ).toBeUndefined();
-    expect(await waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash])).toBeUndefined();
   });
   it.each([1, 2])("resumes purge from completed step %i", async (step) => {
     await processed();

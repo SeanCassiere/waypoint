@@ -3,17 +3,15 @@ import { open, readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 
 import {
-  attachmentDisposition,
   buildInfo,
   isContentHash,
   isWaypointError,
   validatePath,
   validateClientId,
   isTextMime,
-  rawContentType,
-  rendererFor,
   MCP_LAUNCHER_API,
   WaypointError,
+  withBase,
   newId,
   deriveShareToken,
   hashShareToken,
@@ -35,7 +33,6 @@ import {
   DiffCache,
   DiffWorkers,
   MAX_SIDE_BYTES,
-  splitLines,
   type CompareFile,
   type FileDiff,
 } from "./compare.ts";
@@ -46,34 +43,27 @@ import { checkoutPath } from "./layout.ts";
 import { parseMultipart } from "./multipart.ts";
 import { ReadModel } from "./read-model.ts";
 import {
+  allLinks,
   API_LINKS_DEFAULT,
   API_LINKS_MAX,
   collectionLinks,
   extendLink,
+  inFilter,
   listLinks,
-  liveLinkWhere,
   requireLinks,
   requireSharing,
   URL_UNAVAILABLE,
   revokeAll,
-  revokeLinks,
   SHARE_COLUMNS,
   shareViews,
-  trashedPendingIds,
   withoutCollection,
-  type LinkFilter,
   type ShareRow,
 } from "./shares.ts";
 import { getStatus } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
-import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
-import {
-  FOLD_LINE_LIMIT,
-  foldLinesFragment,
-  fragmentLinks,
-} from "./viewer/pages/changes/units.tsx";
-import { mcpMarkdown as mcpNotes, mcpPage } from "./viewer/pages/mcp.tsx";
+import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes.tsx";
+import { mcpPage } from "./viewer/pages/mcp.tsx";
 export interface HttpServices {
   waypoint: Db;
   queue: Db;
@@ -349,10 +339,12 @@ export function createApp(s: HttpServices): Hono {
   // Deploy health gates read `ok`; version and sha are for operators and upgrade checks.
   const build = s.build ?? buildInfo(undefined);
   app.get("/healthz", (c) => c.json({ ok: true, version: build.version, sha: build.sha }));
-  const mcpMarkdown = () =>
-    new Response(mcpNotes(s.reads.baseUrl), {
-      headers: { "content-type": "text/markdown; charset=utf-8" },
-    });
+  const mcpMarkdown = () => {
+    const tarballUrl = withBase(s.reads.baseUrl, "/mcp/waypoint-mcp.tgz");
+    const skillUrl = withBase(s.reads.baseUrl, "/mcp/skill/SKILL.md");
+    const snippet = `# Waypoint MCP\n\nThe local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing. Set WAYPOINT_MCP_PIN=embedded for debugging.\n\nClaude Code:\n\n\`\`\`sh\nclaude mcp add waypoint --env WAYPOINT_URL=${s.reads.baseUrl} -- npx --prefer-offline -y ${tarballUrl}\n\`\`\`\n\n\`\`\`json\n{"mcpServers":{"waypoint":{"command":"npx","args":["--prefer-offline","-y","${tarballUrl}"],"env":{"WAYPOINT_URL":"${s.reads.baseUrl}"}}}}\n\`\`\`\n\nCodex:\n\n\`\`\`toml\n[mcp_servers.waypoint]\ncommand = "npx"\nargs = ["--prefer-offline", "-y", "${tarballUrl}"]\n[mcp_servers.waypoint.env]\nWAYPOINT_URL = "${s.reads.baseUrl}"\n\`\`\`\n\nInstall the Waypoint skill:\n\n\`\`\`sh\nmkdir -p ~/.codex/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.codex/skills/waypoint/SKILL.md\nmkdir -p ~/.claude/skills/waypoint && curl -fsSL ${skillUrl} -o ~/.claude/skills/waypoint/SKILL.md\n\`\`\`\n`;
+    return new Response(snippet, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+  };
   app.get("/mcp.md", () => mcpMarkdown());
   // Browsers get the Connect an agent page; agents and curl keep the markdown. The body depends
   // on Accept, so caches must key on it.
@@ -741,7 +733,7 @@ export function createApp(s: HttpServices): Hono {
         if (row.deleted_at == null)
           throw new WaypointError("conflict", "Collection is not deleted");
         if (await s.queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [id]))
-          throw new WaypointError("collection_purged", "Collection is being purged");
+          throw new WaypointError("conflict", "Collection purge is queued");
         const pending = await s.queue.get("SELECT id FROM pending_collections WHERE id=?", [id]);
         if (pending) {
           const result = await s.queue.run(
@@ -852,14 +844,12 @@ export function createApp(s: HttpServices): Hono {
       throw new WaypointError("collection_not_found", "Collection not found");
     return c.json({ share_links: (await collectionLinks(s, id)).map(withoutCollection) });
   });
-  // B3: links across collections, newest first, a page at a time, optionally one status
-  // (active is live only, OW-05). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
+  // B3: links across collections, newest first, a page at a time, optionally one filter
+  // (active includes activating). `limit` defaults to 50, at most 200; `cursor` is next_cursor.
   app.get("/api/share-links", async (c) => {
     requireLinks(s);
-    const raw = c.req.query("state");
-    const states: readonly LinkFilter[] = ["active", "paused", "waiting", "expired", "revoked"];
-    const state = states.find((value) => value === raw);
-    if (raw !== undefined && !state)
+    const state = c.req.query("state");
+    if (state !== undefined && state !== "active" && state !== "expired" && state !== "revoked")
       throw new WaypointError("validation_failed", "Invalid state filter");
     const limitText = c.req.query("limit");
     const limit = limitText === undefined ? API_LINKS_DEFAULT : Number(limitText);
@@ -899,21 +889,10 @@ export function createApp(s: HttpServices): Hono {
     await parseJson(c);
     if ((c.req.query("state") ?? "active") !== "active")
       throw new WaypointError("validation_failed", "Only state=active can be revoked in bulk");
-    // Live links only (OW-05): expired, paused and waiting links are left as they are.
-    const live = liveLinkWhere(Date.now(), await trashedPendingIds(s));
-    const rows = await s.waypoint.all<{ id: string; collection_id: string }>(
-      `SELECT s.id,s.collection_id FROM share_links s WHERE ${live.sql} ORDER BY s.collection_id,s.id`,
-      live.args,
-    );
-    const byCollection = new Map<string, string[]>();
-    for (const row of rows) {
-      const ids = byCollection.get(row.collection_id) ?? [];
-      ids.push(row.id);
-      byCollection.set(row.collection_id, ids);
-    }
+    const active = (await allLinks(s)).filter((view) => inFilter(view, "active"));
     let revoked = 0;
-    await inSeries(byCollection, async ([id, ids]) => {
-      revoked += await revokeLinks(s, id, ids);
+    await inSeries([...new Set(active.map((view) => view.collection_id))], async (id) => {
+      revoked += await revokeAll(s, id);
     });
     return c.json({ revoked });
   });
@@ -1020,10 +999,9 @@ export function createApp(s: HttpServices): Hono {
           [Date.now(), id],
         );
         s.syncLoop?.triggerPush();
-        // The title and public ID let the viewer name the purge after its rows are gone.
         await s.queue.run(
-          "INSERT INTO pending_purges (collection_id,requested_at,step,title,public_id) VALUES (?,?,0,?,?) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL,title=COALESCE(title,excluded.title),public_id=COALESCE(public_id,excluded.public_id)",
-          [id, Date.now(), row.title, row.public_id],
+          "INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0) ON CONFLICT(collection_id) DO UPDATE SET next_attempt_at=NULL,last_error=NULL",
+          [id, Date.now()],
         );
         s.ingest.committer.wake();
         return { queued: true };
@@ -1157,38 +1135,10 @@ export function createApp(s: HttpServices): Hono {
       throw new WaypointError("path_invalid", "Invalid file path");
     }
     const mode = c.req.query("mode") === "lines" ? "lines" : "blocks";
-    const { head, compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
+    const { compare } = await compareRevisions(c.req.param("id"), c.req.query("base"));
     const file = compare.files.find((item) => item.path === path);
     if (!file) throw new WaypointError("not_found", "File not in either revision");
     if (c.req.query("format") === "html") {
-      if (mode === "lines") {
-        // An opened source-view hunk: head lines [from, to), numbered from base line bfrom. The
-        // range is checked before the blob is read.
-        const from = Number(c.req.query("from"));
-        const to = Number(c.req.query("to"));
-        const bfrom = Number(c.req.query("bfrom"));
-        if (
-          !Number.isSafeInteger(from) ||
-          !Number.isSafeInteger(to) ||
-          !Number.isSafeInteger(bfrom) ||
-          from < 1 ||
-          bfrom < 1 ||
-          to <= from ||
-          to - from > FOLD_LINE_LIMIT
-        )
-          throw new WaypointError("validation_failed", "Invalid line range");
-        if (!file.head) throw new WaypointError("not_found", "File not in this revision");
-        const text = await blobText(file.head);
-        if (typeof text !== "string")
-          throw new WaypointError("validation_failed", "This file is too large to show");
-        // Split as diffTextLines does, so the numbers agree with the line diff's.
-        const lines = splitLines(text);
-        if (to - 1 > lines.length)
-          throw new WaypointError("validation_failed", "Invalid line range");
-        return c.html(foldLinesFragment(lines.slice(from - 1, to - 1), bfrom, from), 200, {
-          "cache-control": "private, max-age=3600",
-        });
-      }
       // A folded run of the Changes page, rendered: blocks [from, to) of the block diff.
       const diff = await fileDiff(file, "blocks");
       const from = Number(c.req.query("from"));
@@ -1203,17 +1153,12 @@ export function createApp(s: HttpServices): Hono {
         to > unitCount(diff.ops)
       )
         throw new WaypointError("validation_failed", "Invalid block range");
-      // Relative links resolve into the head revision, so the same content in two revisions
-      // renders differently: the cache key includes the root.
-      const collection = await s.reads.collection(head.collection_id);
-      if (!collection) throw new WaypointError("not_found", "Collection not found");
-      const links = fragmentLinks(collection.public_id, head.public_id, file.path);
       const html = await foldFragment(
         diff,
         from,
         to,
-        (sources) => diffWorkers.fragments(sources, links),
-        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}|${links.root}`,
+        (sources) => diffWorkers.fragments(sources),
+        `${file.base?.hash ?? "-"}|${file.head?.hash ?? "-"}|${file.path}`,
       );
       return c.html(html, 200, { "cache-control": "private, max-age=3600" });
     }
@@ -1226,7 +1171,6 @@ export function createApp(s: HttpServices): Hono {
     path: string,
     source: boolean,
     ifNoneMatch?: string,
-    mode: "api" | "raw" | "download" = "api",
   ): Promise<Response> {
     if (/%(?:2f|5c)/i.test(path))
       throw new WaypointError("path_invalid", "Encoded separator in file path");
@@ -1236,19 +1180,9 @@ export function createApp(s: HttpServices): Hono {
     } catch {
       throw new WaypointError("path_invalid", "Malformed file path encoding");
     }
-    const filePath = validatePath(decoded);
-    const entry = await s.reads.file(id, filePath);
-    // The raw route substitutes each type's rendition (rendererFor); the API only markdown's. A
-    // download (RX-06) and `?source` are always the stored file under its original type.
-    const renderer =
-      source || mode === "download"
-        ? null
-        : mode === "raw"
-          ? rendererFor(entry.mime)
-          : entry.mime === "text/markdown"
-            ? "markdown"
-            : null;
-    const rendition = renderer ? await s.reads.rendition(entry.hash, renderer) : undefined;
+    const entry = await s.reads.file(id, validatePath(decoded));
+    const rendition =
+      entry.mime === "text/markdown" && !source ? await s.reads.rendition(entry.hash) : undefined;
     if (rendition)
       try {
         await ensureBlob(rendition.hash);
@@ -1269,19 +1203,13 @@ export function createApp(s: HttpServices): Hono {
     await ensureBlob(served.hash);
     if (!(await s.blobs.has(served.hash)))
       throw new WaypointError("not_found", "Blob is unavailable locally");
-    const mime =
-      mode === "raw"
-        ? rawContentType(served.mime)
-        : isTextMime(served.mime)
-          ? `${served.mime}; charset=utf-8`
-          : served.mime;
-    const changeable = renderer !== null;
+    const mime = isTextMime(served.mime) ? `${served.mime}; charset=utf-8` : served.mime;
+    const changeable = entry.mime === "text/markdown" && !source;
     const headers = new Headers({
       "content-type": mime,
       "x-content-type-options": "nosniff",
       "cache-control": changeable ? "no-cache" : "public, max-age=31536000, immutable",
     });
-    if (mode === "download") headers.set("content-disposition", attachmentDisposition(filePath));
     if (changeable) {
       const etag = `"${served.hash}"`;
       headers.set("etag", etag);
@@ -1327,7 +1255,6 @@ export function createApp(s: HttpServices): Hono {
       pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "",
       new URL(c.req.raw.url).searchParams.has("source"),
       c.req.header("if-none-match"),
-      new URL(c.req.raw.url).searchParams.has("download") ? "download" : "raw",
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));
@@ -1351,15 +1278,13 @@ export function createApp(s: HttpServices): Hono {
           throw new WaypointError("conflict", "Revision is not failed");
         const descendants = await descendantsOf(s.queue, id);
         const retried: string[] = [];
-        const now = Date.now();
         await inSeries(descendants, async (revision) => {
           const result = await s.queue.run(
-            "UPDATE pending_revisions SET state='pending',attempts=0,first_attempt_at=?,next_attempt_at=NULL,last_error=NULL,error_kind=NULL WHERE id=? AND state='failed'",
-            [now, revision],
+            "UPDATE pending_revisions SET state='pending',attempts=0,first_attempt_at=NULL,next_attempt_at=NULL,last_error=NULL,error_kind=NULL WHERE id=? AND state='failed'",
+            [revision],
           );
           if (result.changes) retried.push(revision);
         });
-        await s.ingest.committer.refreshSyncing?.(root.collection_id);
         s.ingest.committer.wake();
         return { retried };
       }),
@@ -1413,7 +1338,6 @@ export function createApp(s: HttpServices): Hono {
             await tx.run("DELETE FROM pending_collections WHERE id=?", [root.collection_id]);
           return prunePendingStorage(tx, s.waypoint);
         });
-        await s.ingest.committer.refreshSyncing?.(root.collection_id);
         await s.ingest.withGcExclusive(() => deleteUnusedBlobs(s, unused));
         s.ingest.committer.wake();
         return { dropped: descendants };
@@ -1425,7 +1349,7 @@ export function createApp(s: HttpServices): Hono {
     viewerApp(s, {
       serverBundle: async () => (await serverBundle)?.hash.slice(0, 7) ?? null,
       fileDiff,
-      renderFragments: (sources, links) => diffWorkers.fragments(sources, links),
+      renderFragments: (sources) => diffWorkers.fragments(sources),
       watchers: () => [...watchers.values()],
     }),
   );

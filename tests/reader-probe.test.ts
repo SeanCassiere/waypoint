@@ -12,7 +12,7 @@ import {
   type ReaderDb,
   type ReaderEnv,
 } from "../apps/reader/src/app.ts";
-import { deniedPage, frameDeniedPage } from "../apps/reader/src/pages.ts";
+import { deniedPage } from "../apps/reader/src/pages.ts";
 import { waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 const env: ReaderEnv = {
@@ -276,26 +276,6 @@ describe("adversarial reader probes", () => {
     ).run("shl_" + "9".repeat(26), await hashShareToken(late), A.id, null, null, null);
     expect((await get(shell)).status).toBe(200);
   });
-  it("shows the syncing note from the real table and survives its absence", async () => {
-    const shell = `/s/${tokens.follow}/c/${A.pub}/`;
-    db.prepare("INSERT INTO collection_syncing (collection_id,since,until) VALUES (?,?,?)").run(
-      A.id,
-      clock - 1_000,
-      clock + 3_600_000,
-    );
-    const noted = await get(shell);
-    expect(noted.status).toBe(200);
-    expect(await noted.text()).toContain('class="sync"');
-    // A pinned link to the same collection never shows it.
-    const pinned = await get(`/s/${tokens.pinned}/c/${A.pub}/r/${A1.pub}/`);
-    expect(pinned.status).toBe(200);
-    expect(await pinned.text()).not.toContain('class="sync"');
-    // An older schema: the lookup fails, the shell is served without the note.
-    db.exec("DROP TABLE collection_syncing");
-    const plain = await get(shell);
-    expect(plain.status).toBe(200);
-    expect(await plain.text()).not.toContain('class="sync"');
-  });
   it("accepts normalized Unicode paths and rejects a tampered capability", async () => {
     const nfd = encodeURIComponent("café.txt".normalize("NFD"));
     expect((await get(raw(tokens.follow, A2.pub, nfd))).status).toBe(200);
@@ -340,25 +320,17 @@ describe("adversarial reader probes", () => {
       `/s/${tokens.revoked}/c/${A.pub}/`,
       `/s/${tokens.expired}/c/${A.pub}/`,
       `/s/${tokens.tomb}/c/cccccccccccc/`,
-      `/s/`,
-      `/index.html`,
-      `/assets/1/x.js`,
-    ];
-    // The raw route (`/x/`) has its own fixed denial: the framable card.
-    const rawCases = [
       raw(tokens.follow, A1.pub, "old-secret.html"),
       raw(tokens.follow, A2.pub, "missing.html"),
       raw(tokens.follow, A2.pub, "a%2Fb"),
+      `/s/`,
+      `/index.html`,
+      `/assets/1/x.js`,
     ];
     const reference = await snap(await get(cases[0]!));
     expect(reference.status).toBe(404);
     expect(reference.body).toBe(deniedPage);
     for (const path of cases) expect(await snap(await get(path))).toEqual(reference);
-    // The first raw case is its own reference, so the limiter count stays as before.
-    const rawReference = await snap(await get(rawCases[0]!));
-    expect(rawReference.status).toBe(404);
-    expect(rawReference.body).toBe(frameDeniedPage);
-    for (const path of rawCases.slice(1)) expect(await snap(await get(path))).toEqual(rawReference);
     expect(limiterCalls).toBe(9);
     // The bare root is the one non-share page: a 200 that differs from every denial.
     const root = await snap(await get("/"));
@@ -391,7 +363,6 @@ describe("adversarial reader probes", () => {
     const headers = { "cf-connecting-ip": "192.0.2.11" };
     const unknown = `/s/${tokens.unknown}/c/${A.pub}/`;
     const ordinary = await snap(await get(unknown, headers));
-    expect(ordinary.body).toBe(deniedPage);
     for (let i = 1; i < 31; i++) await get(unknown, headers);
     expect(limiterCalls).toBe(31);
     const priorQueries = queries.length;
@@ -399,20 +370,13 @@ describe("adversarial reader probes", () => {
     // An IP can lose access to a valid link for 60 seconds, but only after
     // more than 30 denials. The blocked check runs before the DB and R2.
     const blocked = await snap(await get(raw(tokens.follow, A2.pub, "index.html"), headers));
-    expect(blocked.status).toBe(404);
-    expect(blocked.body).toBe(frameDeniedPage);
+    expect(blocked).toEqual(ordinary);
     expect(queries.length).toBe(priorQueries);
     expect(blobFetches.length).toBe(priorBlobs);
     expect(limiterCalls).toBe(31);
     clock += 60_001;
     expect((await get(raw(tokens.follow, A2.pub, "index.html"), headers)).status).toBe(200);
     expect(limiterCalls).toBe(31);
-    // The blocked raw request got exactly the ordinary raw (`/x/`) denial.
-    expect(blocked).toEqual(
-      await snap(
-        await get(raw(tokens.follow, A2.pub, "missing.html"), { "cf-connecting-ip": "192.0.2.12" }),
-      ),
-    );
   });
   it("renders 2000 files with bounded shell overhead", async () => {
     const insert = db.prepare(
@@ -423,8 +387,7 @@ describe("adversarial reader probes", () => {
     const shell = await (await get(`/s/${tokens.follow}/c/${A.pub}/`)).text();
     expect((shell.match(/<a href=/g) ?? []).length).toBeGreaterThan(2000);
     // Large manifests collapse folders, so the shell stays one cheap pass over the paths.
-    expect(shell).toContain('popovertarget="files"');
-    expect(shell).toContain('Files <span class="n">2003</span>');
+    expect(shell).toContain('<summary>Files <span class="n">(2003)</span>');
     expect(shell).not.toContain("<details open><summary>dir");
     // Time the Worker CPU work that scales with file count: the whole shell document.
     // The end-to-end request includes fake SQLite and Hono/Vitest scheduling overhead.

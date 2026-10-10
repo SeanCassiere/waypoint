@@ -9,7 +9,7 @@ import { encodePathSegments, publicShellCss, publicShellScript } from "@waypoint
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.ts";
-import { deniedPage, frameDeniedPage, rootPage, staticCss } from "../apps/reader/src/pages.ts";
+import { deniedPage, rootPage, staticCss } from "../apps/reader/src/pages.ts";
 import { waypointMigrations } from "../apps/writer/src/migrations.ts";
 
 const env: ReaderEnv = {
@@ -99,14 +99,13 @@ async function seed(): Promise<void> {
     const id = "shl_" + String(++n).padStart(26, "0");
     if (token === pinned) linkId = id;
     ins(
-      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,label,created_at) VALUES (?,?,?,?,?,?,?,1)",
+      "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,1)",
       id,
       await hashShareToken(token),
       A.id,
       rev,
       null,
       revokedAt,
-      "PRIVATE-LABEL",
     );
   }
 }
@@ -172,20 +171,9 @@ beforeEach(async () => {
   app = makeApp();
 });
 
-const tampered = (path: string) => path.replace(/\.[^/]{22}\//, ".AAAAAAAAAAAAAAAAAAAAAA/");
-
 describe("uniform denial", () => {
-  it("is byte-identical in body and headers for every reason within its family, GET and HEAD", async () => {
-    // The raw route (`/x/`) gets the framable card; everything else gets the full page.
-    const xCases: [string, RequestInit?][] = [
-      [rawPath(A1.pub, "%2e%2e/index.html")],
-      [tampered(rawPath(A1.pub, "index.html"))],
-      [rawPath(A1.pub, "index.html") + "X"],
-      [rawPath(A2.pub, "index.html")],
-      [`/x/${linkId}.${cap(linkId, A1.pub)}/r/${A1.pub}X/index.html`],
-      ["/x/"],
-    ];
-    const sCases: [string, RequestInit?][] = [
+  it("is byte-identical in body and headers for every reason, GET and HEAD", async () => {
+    const cases: [string, RequestInit?][] = [
       [`/s/${newShareToken()}/c/${A.pub}/`],
       [`/s/${revoked}/c/${A.pub}/`],
       [`/s/${pinned}/c/zzzzzzzzzzzz/`],
@@ -194,11 +182,17 @@ describe("uniform denial", () => {
       [`/s/${pinned}/c/${A.pub}/r/${A1.pub}/missing.html`],
       [`/s/${pinned}/c/${A.pub}/r/${A1.pub}/a%2Fb.html`],
       [`/s/${pinned}/c/${A.pub}/r/${A1.pub}/%E0%A4%A`],
+      [rawPath(A1.pub, "%2e%2e/index.html")],
+      [rawPath(A1.pub, "index.html").replace(/\.[^/]{22}\//, ".AAAAAAAAAAAAAAAAAAAAAA/")],
+      [rawPath(A1.pub, "index.html") + "X"],
+      [rawPath(A2.pub, "index.html")],
+      [`/x/${linkId}.${cap(linkId, A1.pub)}/r/${A1.pub}X/index.html`],
       ["/index.html"],
       ["//"],
       ["/%2F"],
       ["/s"],
       ["/s/"],
+      ["/x/"],
       ["/favicon.ico"],
       ["/__internal/blob/" + h("1")],
       ["/", { method: "POST" }],
@@ -206,55 +200,37 @@ describe("uniform denial", () => {
       [`/s/${pinned}/c/${A.pub}/r/${A1.pub}/`, { method: "POST" }],
       ["/healthz", { method: "DELETE" }],
     ];
-    expect(xCases.length + sCases.length).toBe(25);
-    for (const [cases, page] of [
-      [xCases, frameDeniedPage],
-      [sCases, deniedPage],
-    ] as const) {
-      const reference = await snap(await req(cases[0]![0]));
-      expect(reference.status).toBe(404);
-      expect(reference.body).toBe(page);
-      for (const [path, init] of cases) {
-        const got = await snap(await req(path, init));
-        expect({ path, ...got }).toEqual({ path, ...reference });
-        // HEAD answers like GET, without a body; cases with their own method are done.
-        if (init?.method) continue;
-        const head = await snap(await req(path, { method: "HEAD" }));
-        expect({ path, ...head }).toEqual({ path, ...reference, body: "" });
-      }
+    const reference = await snap(await req(cases[0]![0]));
+    expect(reference.status).toBe(404);
+    expect(reference.body).toBe(deniedPage);
+    for (const [path, init] of cases) {
+      const got = await snap(await req(path, init));
+      expect({ path, ...got }).toEqual({ path, ...reference });
+      // HEAD answers like GET, without a body; cases with their own method are done.
+      if (init?.method) continue;
+      const head = await snap(await req(path, { method: "HEAD" }));
+      expect({ path, ...head }).toEqual({ path, ...reference, body: "" });
     }
   });
   it("is identical for DB failure, R2 failure, R2 404 and a blocked IP", async () => {
     const reference = await snap(await req(`/s/${newShareToken()}/c/${A.pub}/`));
-    const rawReference = await snap(await req(tampered(rawPath(A1.pub, "index.html"))));
-    expect(rawReference.body).toBe(frameDeniedPage);
     failDb = true;
     expect(await snap(await req(`/s/${pinned}/c/${A.pub}/r/${A1.pub}/`, {}, "2.2.2.2"))).toEqual(
       reference,
     );
-    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "2.2.2.3"))).toEqual(
-      rawReference,
-    );
     failDb = false;
     failBlob = "throw";
-    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "3.3.3.3"))).toEqual(
-      rawReference,
-    );
+    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "3.3.3.3"))).toEqual(reference);
     failBlob = "404";
-    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "3.3.3.4"))).toEqual(
-      rawReference,
-    );
+    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "3.3.3.4"))).toEqual(reference);
     failBlob = null;
-    // Block an IP, then a valid request from it gets its family's denial.
+    // Block an IP, then a valid request from it gets the same denial.
     limiterOk = false;
     await req(`/s/${newShareToken()}/c/${A.pub}/`, {}, "9.9.9.9");
     limiterOk = true;
     const before = queries.length;
     expect(await snap(await req(`/s/${pinned}/c/${A.pub}/r/${A1.pub}/`, {}, "9.9.9.9"))).toEqual(
       reference,
-    );
-    expect(await snap(await req(rawPath(A1.pub, "index.html"), {}, "9.9.9.9"))).toEqual(
-      rawReference,
     );
     expect(queries.length).toBe(before);
   });
@@ -321,26 +297,6 @@ describe("shell markup under hostile titles and paths", () => {
       expect(frame).not.toContain(pinned);
     });
   }
-  it("never shows a link's label", async () => {
-    // seed() gives the latest revision (A2) an out-of-range timestamp and no files, so the
-    // following link would deny. Make A2 servable here so both requests render a shell.
-    db.prepare("UPDATE revisions SET created_at = 2 WHERE id = ?").run(A2.id);
-    db.prepare(
-      "INSERT INTO revision_files (revision_id,path,blob_hash,mime,size) VALUES (?,?,?,?,1)",
-    ).run(A2.id, "index.html", h("1"), "text/html");
-    const paths = [`/s/${follow}/c/${A.pub}/`, `/s/${pinned}/c/${A.pub}/r/${A1.pub}/`];
-    const responses = await Promise.all(
-      paths.map(async (path) => {
-        const res = await req(path);
-        return { path, status: res.status, body: await res.text() };
-      }),
-    );
-    for (const { path, status, body } of responses) {
-      expect({ path, status }).toEqual({ path, status: 200 });
-      expect(body).toContain('popovertarget="about"');
-      expect(body).not.toContain("PRIVATE-LABEL");
-    }
-  });
   it("latest link with an out-of-range timestamp denies instead of 500", async () => {
     const res = await req(`/s/${follow}/c/${A.pub}/`);
     expect(res.status).toBe(404);

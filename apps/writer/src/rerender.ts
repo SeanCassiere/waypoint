@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 
-import { isContentHash, rendererFor } from "@waypoint/core";
+import { isContentHash } from "@waypoint/core";
 import { z } from "zod";
 
 import type { BlobStore } from "./blob-store.ts";
@@ -11,10 +11,9 @@ import { inSeries, type Db } from "./db.ts";
 import type { Renderer } from "./ingest.ts";
 
 /**
- * `waypoint-writer rerender`: give existing files a rendition at one renderer's current version
- * (`--renderer markdown|text|csv`, default markdown). Ingest renders only new content, so after a
- * renderer's version bump older revisions keep showing their old rendition until this runs. The
- * scope is every file whose type picks that renderer (`rendererFor`), one renderer per run.
+ * `waypoint-writer rerender`: give existing markdown blobs a rendition at the current renderer
+ * version. Ingest renders only new content, so after a RENDERER_VERSION bump older revisions
+ * keep showing their old rendition until this runs.
  *
  * It only enqueues: outputs go into the local blob store with `pending_blobs` and
  * `pending_renditions` rows, and the server's committer uploads each output before inserting its
@@ -40,7 +39,7 @@ export type RerenderSummary = {
   renderer_version: number;
   collection: string | null;
   dry_run: boolean;
-  /** Distinct source blobs in scope (files whose type picks this renderer). */
+  /** Distinct markdown source blobs in scope. */
   sources: number;
   /** Sources that already have a current-version rendition, committed or queued. */
   current: number;
@@ -73,18 +72,7 @@ export function formatRerenderSummary(summary: RerenderSummary): string {
 }
 
 export const RERENDER_USAGE =
-  "Usage: waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>] [--renderer markdown|text|csv] [--version <n>]";
-
-/** The renderer a rerender run uses: `--renderer`'s value, or markdown. Throws on an unknown name. */
-export function rerenderRendererName(args: readonly string[], names: readonly string[]): string {
-  const index = args.indexOf("--renderer");
-  const name = index >= 0 ? args[index + 1] : "markdown";
-  // A missing value is left to parseRerenderArgs ("--renderer needs a value").
-  if (name === undefined || name.startsWith("--")) return "markdown";
-  if (!names.includes(name))
-    throw new Error(`Unknown renderer ${name}; this writer has ${names.join(", ")}`);
-  return name;
-}
+  "Usage: waypoint-writer rerender (--all | --collection <id>) [--dry-run] [--limit <n>] [--renderer markdown] [--version <n>]";
 
 export function parseRerenderArgs(
   args: readonly string[],
@@ -147,47 +135,39 @@ async function resolveCollection(waypoint: Db, queue: Db, value: string): Promis
 const manifestFiles = z.object({
   files: z.record(z.string(), z.object({ hash: z.string(), mime: z.string() })),
 });
-function manifestEntries(manifestJson: string): { hash: string; mime: string }[] {
+function markdownHashes(manifestJson: string): string[] {
   const parsed = manifestFiles.safeParse(JSON.parse(manifestJson));
   if (!parsed.success) return [];
-  return Object.values(parsed.data.files).filter((entry) => isContentHash(entry.hash));
+  return Object.values(parsed.data.files)
+    .filter((entry) => entry.mime === "text/markdown" && isContentHash(entry.hash))
+    .map((entry) => entry.hash);
 }
 
-/**
- * Source hashes in scope, sorted, each with the MIME type it is rendered as: committed files plus
- * files of pending (not failed) revisions whose type picks `renderer`. A hash stored under several
- * such types is rendered once, as the lexicographically smallest of them.
- */
+/** Markdown source hashes in scope: committed files plus files of pending (not failed) revisions. */
 async function sources(
   waypoint: Db,
   queue: Db,
   collectionId: string | undefined,
-  renderer: string,
-): Promise<[hash: string, mime: string][]> {
+): Promise<string[]> {
   const purging = new Set(
     (await queue.all<{ collection_id: string }>("SELECT collection_id FROM pending_purges")).map(
       (row) => row.collection_id,
     ),
   );
-  const hashes = new Map<string, string>();
-  const add = (hash: string, mime: string): void => {
-    if (rendererFor(mime) !== renderer) return;
-    const known = hashes.get(hash);
-    if (known === undefined || mime < known) hashes.set(hash, mime);
-  };
-  const committed = await waypoint.all<{ collection_id: string; blob_hash: string; mime: string }>(
-    `SELECT DISTINCT r.collection_id, f.blob_hash, f.mime FROM revision_files f JOIN revisions r ON r.id=f.revision_id${collectionId ? " WHERE r.collection_id=?" : ""}`,
+  const hashes = new Set<string>();
+  const committed = await waypoint.all<{ collection_id: string; blob_hash: string }>(
+    `SELECT DISTINCT r.collection_id, f.blob_hash FROM revision_files f JOIN revisions r ON r.id=f.revision_id WHERE f.mime='text/markdown'${collectionId ? " AND r.collection_id=?" : ""}`,
     collectionId ? [collectionId] : [],
   );
-  for (const row of committed) if (!purging.has(row.collection_id)) add(row.blob_hash, row.mime);
+  for (const row of committed) if (!purging.has(row.collection_id)) hashes.add(row.blob_hash);
   const pending = await queue.all<{ collection_id: string; manifest_json: string }>(
     `SELECT collection_id, manifest_json FROM pending_revisions WHERE state='pending'${collectionId ? " AND collection_id=?" : ""}`,
     collectionId ? [collectionId] : [],
   );
   for (const row of pending)
     if (!purging.has(row.collection_id))
-      for (const entry of manifestEntries(row.manifest_json)) add(entry.hash, entry.mime);
-  return [...hashes].toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+      for (const hash of markdownHashes(row.manifest_json)) hashes.add(hash);
+  return [...hashes].toSorted();
 }
 
 export async function rerender(
@@ -204,10 +184,9 @@ export async function rerender(
     options.collection === undefined
       ? undefined
       : await resolveCollection(waypoint, queue, options.collection);
-  const all = await sources(waypoint, queue, collectionId, renderer.rendererName);
-  const mimes = new Map(all);
+  const all = await sources(waypoint, queue, collectionId);
   const needed: string[] = [];
-  await inSeries(all, async ([hash]) => {
+  await inSeries(all, async (hash) => {
     const existing =
       (await queue.get(
         "SELECT 1 FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
@@ -265,7 +244,7 @@ export async function rerender(
     let rendered: Awaited<ReturnType<Renderer["render"]>>;
     try {
       rendered = await Promise.race([
-        renderer.render(source, mimes.get(hash) ?? ""),
+        renderer.render(source, "text/markdown"),
         new Promise<null>((_, reject) => {
           timer = setTimeout(() => reject(new Error("Renderer timeout")), timeoutMs);
         }),
@@ -275,8 +254,7 @@ export async function rerender(
     } finally {
       if (timer) clearTimeout(timer);
     }
-    // A rendition the blob store can't hold fails this source only, not the run.
-    if (!rendered || rendered.bytes.byteLength > blobs.maxBlobBytes) {
+    if (!rendered) {
       summary.failed.push(hash);
       return;
     }

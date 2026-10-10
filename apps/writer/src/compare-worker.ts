@@ -7,15 +7,11 @@ import { DIFF_TIME_BUDGET_MS, diffFile, type WorkerJob } from "./compare.ts";
 if (!parentPort) throw new Error("The diff worker requires a parent port");
 const port = parentPort;
 // Loaded only here: the fragment renderer is heavy, and only workers render fragments.
-const { relativeLinkResolver, renderFragments } = await import("@waypoint/render");
+const { renderFragments } = await import("@waypoint/render");
 port.on("message", (job: WorkerJob) => {
   const result =
     job.kind === "diff"
       ? diffFile(job.file, job.base, job.head, job.mode)
-      : renderFragments(
-          job.sources,
-          DIFF_TIME_BUDGET_MS,
-          job.links ? relativeLinkResolver(job.links) : undefined,
-        );
+      : renderFragments(job.sources, DIFF_TIME_BUDGET_MS);
   port.postMessage(result, []);
 });

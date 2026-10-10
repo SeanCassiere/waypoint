@@ -6,10 +6,8 @@ import {
   type ShareLink,
 } from "@waypoint/core";
 
-import { inSeries } from "./db.ts";
 import type { HttpServices } from "./http.ts";
 import type { RevisionRow } from "./read-model.ts";
-import { projectAndTags } from "./viewer/format.ts";
 
 type SharingServices = Pick<HttpServices, "publicBaseUrl" | "shareTokenKey">;
 /**
@@ -90,10 +88,6 @@ export interface ShareCollection {
   public_id: string;
   title: string;
   deleted: boolean;
-  /** The metadata's project, or null (OW-05b: /links group headers). */
-  project: string | null;
-  /** The newest non-failed revision's number ("now #3"), or null when it has none. */
-  latest_display_number: number | null;
 }
 export type ShareView = ShareLink & { collection: ShareCollection };
 
@@ -117,7 +111,6 @@ export function shareState(
 
 /** Link IDs per token-hash query, well under SQLite's bound-parameter limit. */
 const HASH_CHUNK = 500;
-const marks = (items: readonly unknown[]): string => items.map(() => "?").join(",");
 /** The stored token hashes of these links only (never every link of a collection). */
 async function tokenHashesOf(
   s: HttpServices,
@@ -137,72 +130,15 @@ async function tokenHashesOf(
 }
 
 /**
- * The facts a link's status is derived from, beyond its own columns: whether its collection is
- * in Trash (tombstoned, or trashed while still pending), and whether its target is in
- * waypoint.db's `revisions` (sync state committed or synced): the pinned revision, in the same
- * collection, or for Latest any revision of the collection.
- */
-export interface LinkFacts {
-  tombstoned: boolean;
-  pendingTrashed: boolean;
-  targetCommitted: boolean;
-}
-/**
- * The live rule's JS form, the reader's own (OW-05): one status per link, the first matching
- * row wins. revoked, then expired (expiring at exactly `now` is expired), then paused (the
- * collection is in Trash), then waiting (the target hasn't committed), else active (live: the
- * reader serves it). liveLinkWhere and friends are the same table in SQL.
- */
-export function linkStatus(
-  row: Pick<ShareRow, "revoked_at" | "expires_at">,
-  facts: LinkFacts,
-  now: number,
-): ShareLink["status"] {
-  if (row.revoked_at !== null) return "revoked";
-  if (row.expires_at !== null && row.expires_at <= now) return "expired";
-  if (facts.tombstoned || facts.pendingTrashed) return "paused";
-  if (!facts.targetCommitted) return "waiting";
-  return "active";
-}
-/** Whether the public reader serves the link right now. */
-export function isLive(view: Pick<ShareLink, "status">): boolean {
-  return view.status === "active";
-}
-/** Unrevoked and unexpired, on a collection in Trash: a restore can turn it back on. */
-export function isPaused(view: Pick<ShareLink, "status">): boolean {
-  return view.status === "paused";
-}
-/** Unrevoked and unexpired (live, waiting or paused): the link keeps its actions. */
-export function isOpen(view: Pick<ShareLink, "status">): boolean {
-  return view.status === "active" || view.status === "waiting" || view.status === "paused";
-}
-/** `project` from a collection's metadata JSON, or null. */
-function projectOf(metadata: string | undefined): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(metadata);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? projectAndTags(Object.fromEntries(Object.entries(parsed))).project
-      : null;
-  } catch {
-    return null;
-  }
-}
-/** A revision in waypoint.db (the SQL form's `revisions` table): committed or synced. */
-const inWaypointDb = (row: RevisionRow): boolean =>
-  row.sync_state === "committed" || row.sync_state === "synced";
-
-/**
  * Views for any number of links in six queries (B3): five for revisions and collections, and
  * one per 500 links for the stored token hashes that decide whether each link's URL is
  * recoverable. The hashes never leave this function. Callers that don't show URLs (bulk
- * revoke, Trash) pass `urls: false` and skip the hashes and HMACs (url is then null). Status
- * facts come from the revisions and collections already loaded (no extra queries).
+ * revoke, Trash) pass `urls: false` and skip the hashes and HMACs (url is then null).
  */
 export async function shareViews(
   s: HttpServices,
   rows: readonly ShareRow[],
-  options: { urls?: boolean; now?: number } = {},
+  options: { urls?: boolean } = {},
 ): Promise<ShareView[]> {
   if (!rows.length) return [];
   const ids = [...new Set(rows.map((row) => row.collection_id))];
@@ -213,30 +149,24 @@ export async function shareViews(
     sharing ? tokenHashesOf(s, rows) : Promise.resolve([]),
   ]);
   const tokenHashes = new Map(hashes.map((row) => [row.id, row.token_hash]));
-  const now = options.now ?? Date.now();
+  const now = Date.now();
   const pushes = s.syncLoop;
   return Promise.all(
     rows.map(async (row): Promise<ShareView> => {
       const revisions: RevisionRow[] = index.get(row.collection_id) ?? [];
       const collection = collections.get(row.collection_id);
+      const deleted = collection?.deleted ?? true;
       const pinned = row.revision_id
         ? revisions.find((item) => item.id === row.revision_id)
         : undefined;
       const latest = revisions.findLast((item) => item.sync_state !== "failed");
       const newestSynced = revisions.findLast((item) => item.sync_state === "synced");
-      // The two Trash facts stay apart (a pending row doesn't hide a tombstone), as in SQL. A
-      // missing collection isn't paused (the SQL form has no clause for it): it ends up waiting.
-      const status = linkStatus(
-        row,
-        {
-          tombstoned: collection?.tombstoned === true,
-          pendingTrashed: collection?.pendingTrashed === true,
-          targetCommitted: row.revision_id
-            ? pinned !== undefined && inWaypointDb(pinned)
-            : revisions.some(inWaypointDb),
-        },
-        now,
-      );
+      const status: ShareLink["status"] =
+        row.revoked_at !== null
+          ? "revoked"
+          : row.expires_at !== null && row.expires_at <= now
+            ? "expired"
+            : "active";
       const target = row.revision_id ? pinned : latest;
       const sees = row.revision_id
         ? pinned?.sync_state === "synced"
@@ -247,13 +177,13 @@ export async function shareViews(
         ...row,
         mode: row.revision_id ? "pinned" : "latest",
         status,
-        publicly_available: status === "active" && target?.sync_state === "synced",
+        publicly_available: status === "active" && !deleted && target?.sync_state === "synced",
         state: shareState(row, pushes, now),
         revocation_pushed:
           row.revoked_at === null ? null : (pushes?.pushedAt(row.revoked_at) ?? null) !== null,
         revision_display_number: pinned?.display_number ?? null,
         public_sees:
-          status === "active" && sees
+          status === "active" && !deleted && sees
             ? { revision_id: sees.id, display_number: sees.display_number ?? 0 }
             : null,
         url: sharing
@@ -265,24 +195,12 @@ export async function shareViews(
               pinned?.public_id,
             )
           : null,
-        // A missing collection isn't in Trash (its link is waiting, not paused).
-        collection: collection
-          ? {
-              id: collection.id,
-              public_id: collection.public_id,
-              title: collection.title,
-              deleted: collection.deleted,
-              project: projectOf(collection.metadata),
-              latest_display_number: latest?.display_number ?? null,
-            }
-          : {
-              id: row.collection_id,
-              public_id: "",
-              title: "",
-              deleted: false,
-              project: null,
-              latest_display_number: null,
-            },
+        collection: collection ?? {
+          id: row.collection_id,
+          public_id: "",
+          title: "",
+          deleted: true,
+        },
       };
     }),
   );
@@ -300,126 +218,33 @@ export async function collectionLinks(s: HttpServices, collectionId: string): Pr
   );
   return shareViews(s, rows);
 }
-/** A boolean SQL expression and its bound arguments. */
-export interface SqlWhere {
-  sql: string;
-  args: (string | number)[];
+export type LinkFilter = "active" | "expired" | "revoked" | "inactive";
+export const inFilter = (view: ShareLink, filter: LinkFilter): boolean =>
+  filter === "active"
+    ? view.state === "active" || view.state === "activating"
+    : filter === "expired"
+      ? view.state === "expired"
+      : filter === "revoked"
+        ? view.state === "revoked" || view.state === "revoking"
+        : view.state !== "active" && view.state !== "activating";
+/** The same filters in SQL, at `now` (inFilter's states are derived from these columns). */
+function filterSql(filter: LinkFilter): string {
+  return filter === "active"
+    ? "revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)"
+    : filter === "expired"
+      ? "revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at<=?"
+      : filter === "revoked"
+        ? "revoked_at IS NOT NULL AND ?=?"
+        : "(revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at<=?))";
 }
-const OPEN_SQL = "s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?)";
-const TOMBSTONED_SQL =
-  "EXISTS (SELECT 1 FROM collection_tombstones t WHERE t.collection_id = s.collection_id)";
-/** The reader's revision clause: the pinned revision in the same collection, or any for Latest. */
-const TARGET_SQL =
-  "CASE WHEN s.revision_id IS NULL THEN EXISTS (SELECT 1 FROM revisions r WHERE r.collection_id = s.collection_id) ELSE EXISTS (SELECT 1 FROM revisions r WHERE r.id = s.revision_id AND r.collection_id = s.collection_id) END";
-/**
- * `s.collection_id [NOT] IN (…)` over the pending-trashed IDs, chunked under SQLite's bound
- * parameter limit. Undefined for an empty list: never `IN ()`, the caller omits the clause.
- */
-function pendingClause(trashedPending: readonly string[], negate: boolean): SqlWhere | undefined {
-  if (!trashedPending.length) return undefined;
-  const parts: string[] = [];
-  for (let at = 0; at < trashedPending.length; at += HASH_CHUNK) {
-    const chunk = trashedPending.slice(at, at + HASH_CHUNK);
-    parts.push(`s.collection_id ${negate ? "NOT IN" : "IN"} (${marks(chunk)})`);
-  }
-  return { sql: parts.join(negate ? " AND " : " OR "), args: [...trashedPending] };
-}
-/** Unrevoked, unexpired, and not in Trash: the shared start of live and waiting. */
-function openOutsideTrash(now: number, trashedPending: readonly string[]): SqlWhere {
-  const pending = pendingClause(trashedPending, true);
-  return {
-    sql: `${OPEN_SQL} AND NOT ${TOMBSTONED_SQL}${pending ? ` AND ${pending.sql}` : ""}`,
-    args: [now, ...(pending?.args ?? [])],
-  };
-}
-/**
- * The live rule's SQL form (linkStatus is the JS form): boolean SQL over the alias `s`
- * (share_links) in waypoint.db, true exactly for the links the public reader serves.
- * trashedPending: ids from trashedPendingIds().
- */
-export function liveLinkWhere(now: number, trashedPending: readonly string[]): SqlWhere {
-  const open = openOutsideTrash(now, trashedPending);
-  return { sql: `${open.sql} AND ${TARGET_SQL}`, args: open.args };
-}
-/** Status paused in SQL: unrevoked, unexpired, and the collection is in Trash. */
-export function pausedLinkWhere(now: number, trashedPending: readonly string[]): SqlWhere {
-  const pending = pendingClause(trashedPending, false);
-  return {
-    sql: `${OPEN_SQL} AND (${TOMBSTONED_SQL}${pending ? ` OR ${pending.sql}` : ""})`,
-    args: [now, ...(pending?.args ?? [])],
-  };
-}
-/** Status waiting in SQL: unrevoked, unexpired, not in Trash, and the target isn't committed. */
-export function waitingLinkWhere(now: number, trashedPending: readonly string[]): SqlWhere {
-  const open = openOutsideTrash(now, trashedPending);
-  return { sql: `${open.sql} AND NOT ${TARGET_SQL}`, args: open.args };
-}
-/** Collections trashed while still pending (queue.db); usually none. */
-export async function trashedPendingIds(s: Pick<HttpServices, "queue">): Promise<string[]> {
-  const rows = await s.queue.all<{ id: string }>(
-    "SELECT id FROM pending_collections WHERE deleted_at IS NOT NULL ORDER BY id",
-  );
-  return rows.map((row) => row.id);
-}
-const EXPIRED_SQL = "s.revoked_at IS NULL AND s.expires_at IS NOT NULL AND s.expires_at <= ?";
-const REVOKED_SQL = "s.revoked_at IS NOT NULL";
-/** Expires within a day of `now` (bound as now + DAY), as the rows' clock shows it. */
-const SOON_SQL = "s.expires_at IS NOT NULL AND s.expires_at < ?";
-const DAY = 86_400_000;
-/** `SUM(CASE WHEN … THEN 1 ELSE 0 END) AS name` for each named condition. */
-function sums(parts: [name: string, where: SqlWhere][]): SqlWhere {
-  return {
-    sql: parts
-      .map(([name, where]) => `SUM(CASE WHEN ${where.sql} THEN 1 ELSE 0 END) AS ${name}`)
-      .join(","),
-    args: parts.flatMap(([, where]) => where.args),
-  };
-}
-/** One query: live, paused and waiting counts across all links. */
-export async function linkCounts(
-  s: HttpServices,
-  now: number,
-  trashedPending: readonly string[],
-): Promise<{ live: number; paused: number; waiting: number }> {
-  const select = sums([
-    ["live", liveLinkWhere(now, trashedPending)],
-    ["paused", pausedLinkWhere(now, trashedPending)],
-    ["waiting", waitingLinkWhere(now, trashedPending)],
-  ]);
-  const row = await s.waypoint.get<{
-    live: number | null;
-    paused: number | null;
-    waiting: number | null;
-  }>(`SELECT ${select.sql} FROM share_links s`, select.args);
-  return { live: row?.live ?? 0, paused: row?.paused ?? 0, waiting: row?.waiting ?? 0 };
-}
-/** /links and GET /api/share-links filters; `active` means live. */
-export type LinkFilter = "active" | "paused" | "waiting" | "expired" | "revoked" | "inactive";
-/** A filter in SQL over the alias `s`, at `now`. */
-function filterWhere(filter: LinkFilter, now: number, trashedPending: readonly string[]): SqlWhere {
-  if (filter === "active") return liveLinkWhere(now, trashedPending);
-  if (filter === "paused") return pausedLinkWhere(now, trashedPending);
-  if (filter === "waiting") return waitingLinkWhere(now, trashedPending);
-  if (filter === "expired") return { sql: EXPIRED_SQL, args: [now] };
-  if (filter === "revoked") return { sql: REVOKED_SQL, args: [] };
-  return {
-    sql: "(s.revoked_at IS NOT NULL OR (s.expires_at IS NOT NULL AND s.expires_at <= ?))",
-    args: [now],
-  };
-}
+const filterArgs = (filter: LinkFilter, now: number): number[] =>
+  filter === "revoked" ? [now, now] : [now];
 /** Links per /links page. */
 export const LINKS_PAGE = 50;
 export interface LinkPage {
   views: ShareView[];
-  /**
-   * Every status's count; `active` counts live links only. `collections` counts the distinct
-   * collections with a live link, `soon` the live links that expire within a day (OW-05b).
-   */
-  counts: Record<"active" | "paused" | "waiting" | "expired" | "revoked", number> & {
-    collections: number;
-    soon: number;
-  };
-  /** Links of this listing after this page, and the cursor that shows them. */
+  counts: Record<"active" | "expired" | "revoked", number>;
+  /** Links of this filter after this page, and the cursor that shows them. */
   remaining: number;
   next: string | null;
 }
@@ -441,78 +266,47 @@ function decodeLinkCursor(cursor: string): [number, string] | undefined {
   }
   return undefined;
 }
-/** The page's keyset over the alias `s`: rows after the cursor, newest first. */
-function keysetWhere(after: [number, string] | undefined): SqlWhere {
-  return after
-    ? { sql: " AND (s.created_at<? OR (s.created_at=? AND s.id<?))", args: [after[0], ...after] }
-    : { sql: "", args: [] };
-}
-/** The /links Active listing: live and waiting links. */
-function openListing(now: number, trashedPending: readonly string[]): SqlWhere {
-  const live = liveLinkWhere(now, trashedPending);
-  const waiting = waitingLinkWhere(now, trashedPending);
-  return { sql: `((${live.sql}) OR (${waiting.sql}))`, args: [...live.args, ...waiting.args] };
-}
 /**
- * One page of links in a filter, newest first, with every status's count (and the live links'
- * collections and expiring-soon count, OW-05b, in the same query): up to four queries
- * plus shareViews' six for the page, whatever the number of links. The `active` listing shows
- * live and waiting links (a waiting link sits with the live ones until it opens) while
- * `counts.active` counts live links only; `remaining` and `next` follow the listing.
+ * One page of links in a filter, newest first, with every filter's count: four queries plus
+ * shareViews' six for the page, whatever the number of links.
  */
 export async function linkPage(
   s: HttpServices,
   filter: LinkFilter,
   cursor: string | undefined,
-  now: number = Date.now(),
-  trashedPending?: readonly string[],
+  now = Date.now(),
 ): Promise<LinkPage> {
-  const pending = trashedPending ?? (await trashedPendingIds(s));
   const after = cursor ? decodeLinkCursor(cursor) : undefined;
-  const where = filter === "active" ? openListing(now, pending) : filterWhere(filter, now, pending);
-  const keyset = keysetWhere(after);
-  const live = liveLinkWhere(now, pending);
-  const select = sums([
-    ["active", live],
-    ["paused", pausedLinkWhere(now, pending)],
-    ["waiting", waitingLinkWhere(now, pending)],
-    ["expired", { sql: EXPIRED_SQL, args: [now] }],
-    ["revoked", { sql: REVOKED_SQL, args: [] }],
-    ["soon", { sql: `(${live.sql}) AND ${SOON_SQL}`, args: [...live.args, now + DAY] }],
-  ]);
-  // In the same query: the collections with a live link.
-  const collections = `COUNT(DISTINCT CASE WHEN (${live.sql}) THEN s.collection_id END) AS collections`;
+  const where = filterSql(filter);
+  const args = filterArgs(filter, now);
+  const keyset = after ? " AND (created_at<? OR (created_at=? AND id<?))" : "";
+  const keyArgs = after ? [after[0], after[0], after[1]] : [];
   const [counts, rows] = await Promise.all([
-    s.waypoint.get<Record<keyof LinkPage["counts"], number | null>>(
-      `SELECT ${select.sql},${collections} FROM share_links s`,
-      [...select.args, ...live.args],
+    s.waypoint.get<{ active: number | null; expired: number | null; revoked: number | null }>(
+      "SELECT SUM(CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?) THEN 1 ELSE 0 END) AS active,SUM(CASE WHEN revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at<=? THEN 1 ELSE 0 END) AS expired,SUM(CASE WHEN revoked_at IS NOT NULL THEN 1 ELSE 0 END) AS revoked FROM share_links",
+      [now, now],
     ),
     s.waypoint.all<ShareRow>(
-      `SELECT ${SHARE_COLUMNS} FROM share_links s WHERE ${where.sql}${keyset.sql} ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
-      [...where.args, ...keyset.args, LINKS_PAGE],
+      `SELECT ${SHARE_COLUMNS} FROM share_links WHERE ${where}${keyset} ORDER BY created_at DESC,id DESC LIMIT ?`,
+      [...args, ...keyArgs, LINKS_PAGE],
     ),
   ]);
   const last = rows.at(-1);
-  const rest = last ? keysetWhere([last.created_at, last.id]) : keyset;
   const remaining =
     rows.length === LINKS_PAGE && last
       ? ((
           await s.waypoint.get<{ n: number }>(
-            `SELECT COUNT(*) AS n FROM share_links s WHERE ${where.sql}${rest.sql}`,
-            [...where.args, ...rest.args],
+            `SELECT COUNT(*) AS n FROM share_links WHERE ${where} AND (created_at<? OR (created_at=? AND id<?))`,
+            [...args, last.created_at, last.created_at, last.id],
           )
         )?.n ?? 0)
       : 0;
   return {
-    views: await shareViews(s, rows, { now }),
+    views: await shareViews(s, rows),
     counts: {
       active: counts?.active ?? 0,
-      paused: counts?.paused ?? 0,
-      waiting: counts?.waiting ?? 0,
       expired: counts?.expired ?? 0,
       revoked: counts?.revoked ?? 0,
-      collections: counts?.collections ?? 0,
-      soon: counts?.soon ?? 0,
     },
     remaining,
     next: remaining && last ? encodeLinkCursor(last) : null,
@@ -522,76 +316,42 @@ export async function linkPage(
 export const API_LINKS_DEFAULT = 50;
 export const API_LINKS_MAX = 200;
 /**
- * One page of links for the API, newest first, optionally in one filter (the same SQL as
- * /links; `active` is live only): two queries plus shareViews' six, whatever the number of
- * links. An unreadable cursor is a validation error.
+ * One page of links for the API, newest first, optionally in one filter: two queries plus
+ * shareViews' six, whatever the number of links. An unreadable cursor is a validation error.
  */
 export async function listLinks(
   s: HttpServices,
   options: { filter?: LinkFilter | undefined; cursor?: string | undefined; limit: number },
-  now: number = Date.now(),
+  now = Date.now(),
 ): Promise<{ views: ShareView[]; next: string | null }> {
   const after = options.cursor === undefined ? undefined : decodeLinkCursor(options.cursor);
   if (options.cursor !== undefined && !after)
     throw new WaypointError("validation_failed", "Invalid cursor");
-  const where: SqlWhere = options.filter
-    ? filterWhere(options.filter, now, await trashedPendingIds(s))
-    : { sql: "1=1", args: [] };
-  const keyset = keysetWhere(after);
+  const where = options.filter ? filterSql(options.filter) : "1=1";
+  const args = options.filter ? filterArgs(options.filter, now) : [];
+  const keyset = after ? " AND (created_at<? OR (created_at=? AND id<?))" : "";
+  const keyArgs = after ? [after[0], after[0], after[1]] : [];
   // One extra row says whether another page follows.
   const rows = await s.waypoint.all<ShareRow>(
-    `SELECT ${SHARE_COLUMNS} FROM share_links s WHERE ${where.sql}${keyset.sql} ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
-    [...where.args, ...keyset.args, options.limit + 1],
+    `SELECT ${SHARE_COLUMNS} FROM share_links WHERE ${where}${keyset} ORDER BY created_at DESC,id DESC LIMIT ?`,
+    [...args, ...keyArgs, options.limit + 1],
   );
   const page = rows.slice(0, options.limit);
   const last = page.at(-1);
   return {
-    views: await shareViews(s, page, { now }),
+    views: await shareViews(s, page),
     next: rows.length > options.limit && last ? encodeLinkCursor(last) : null,
   };
 }
-
-/**
- * Revokes exactly these IDs of one collection (still unrevoked and unexpired at `now`), under
- * its lock, with a snapshot rewrite, committer wake and push trigger; returns rows changed.
- * Global revoke-all passes the live links only (OW-05).
- */
-export async function revokeLinks(
-  s: HttpServices,
-  collectionId: string,
-  ids: readonly string[],
-): Promise<number> {
-  if (!ids.length) return 0;
-  return s.ingest.withCollectionLock(collectionId, async () => {
-    const chunks: string[][] = [];
-    for (let at = 0; at < ids.length; at += HASH_CHUNK) chunks.push(ids.slice(at, at + HASH_CHUNK));
-    const open = "collection_id=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)";
-    const now = Date.now();
-    const found = await Promise.all(
-      chunks.map((chunk) =>
-        s.waypoint.get<{ n: number }>(
-          `SELECT COUNT(*) AS n FROM share_links WHERE ${open} AND id IN (${marks(chunk)})`,
-          [collectionId, now, ...chunk],
-        ),
-      ),
-    );
-    if (!found.some((row) => (row?.n ?? 0) > 0)) return 0;
-    await s.queue.run(
-      "INSERT OR REPLACE INTO pending_snapshots (collection_id,requested_at) VALUES (?,?)",
-      [collectionId, now],
-    );
-    let changes = 0;
-    await inSeries(chunks, async (chunk) => {
-      const result = await s.waypoint.run(
-        `UPDATE share_links SET revoked_at=? WHERE ${open} AND id IN (${marks(chunk)})`,
-        [now, collectionId, now, ...chunk],
-      );
-      changes += result.changes;
-    });
-    s.ingest.committer.wake();
-    s.syncLoop?.triggerPush();
-    return changes;
-  });
+/** Every link without URLs (bulk revoke only needs states and collections). */
+export async function allLinks(s: HttpServices): Promise<ShareView[]> {
+  return shareViews(
+    s,
+    await s.waypoint.all<ShareRow>(
+      `SELECT ${SHARE_COLUMNS} FROM share_links ORDER BY created_at DESC`,
+    ),
+    { urls: false },
+  );
 }
 
 /** Revokes every unrevoked link of a collection, under its lock, with a snapshot rewrite. */

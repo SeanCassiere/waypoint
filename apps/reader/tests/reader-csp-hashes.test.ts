@@ -5,7 +5,7 @@ import { publicShellCss, publicShellScript } from "@waypoint/ui";
 import { expect, it } from "vitest";
 
 import * as hashes from "../src/csp-hashes.ts";
-import { deniedPage, frameDeniedPage, rootPage, staticCss } from "../src/pages.ts";
+import { staticCss } from "../src/pages.ts";
 
 const sha256 = (text: string): string =>
   `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
@@ -30,9 +30,6 @@ ${Object.entries(expected)
   if (process.env.UPDATE_CSP_HASHES === "1" && readFileSync(file, "utf8") !== source)
     writeFileSync(file, source);
   expect({ ...hashes }).toEqual(expected);
-  expect(staticCss).toMatchSnapshot();
-});
-// The exact bytes of the three static pages that embed staticCss (root, denial, `/x/` card).
-it("pins the static pages' bytes", () => {
-  expect({ rootPage, deniedPage, frameDeniedPage }).toMatchSnapshot();
+  // The static pages' hash is the one the design generator printed (spec §9.2).
+  expect(hashes.staticStyleHash).toBe("'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='");
 });

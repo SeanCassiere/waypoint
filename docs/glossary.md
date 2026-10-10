@@ -18,19 +18,16 @@ A Waypoint instance running on the tailnet in *write mode*. It accepts writes fr
 An instance's Cloudflare Worker on its own public domain (one per environment), running in *read mode*. It's optional. It faces the public internet, is read-only forever, and serves only what a [share link](#access) permits.
 
 **Viewer**
-The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home), the **collection shell** (top bar, a Files / History / Public links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. Every page outside a collection shares one bar with Recent, Public links and Trash tabs. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
+The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home, with Needs attention and search), the **collection shell** (top bar, a Files / History / Links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
 
-**Public links**
-The viewer's share-link management, named **public links** in the UI: the **Public links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all, and **New public link**, the only place that phrase appears) and the global **Public links** page (`/links`, filtered by Live, Paused in Trash, Expired and Revoked; Live counts only links the reader would serve, and lists waiting links without counting them). The action that makes one is **Share** ("Share…" in menus).
+**Links**
+The viewer's share-link management: the **Links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all) and the global **Public links** page (`/links`, filtered by Active, Expired and Revoked).
 
 **Public preview**
-The writer showing a collection as a share viewer would see it (`?as=public`): the reader's public shell and the revision the reader would serve (the newest synced one, or the pinned one), with no share link needed and without leaving the tailnet. A band after the skip link says which revision a Latest or Only link shows (for example "A Latest link shows #3, the latest.") and links back to the revision the owner came from; a failed or still-uploading target gets an explanation page instead.
+The writer showing a collection as a share viewer would see it (`?as=public`): the reader's public shell and the revision the reader would serve (the newest synced one, or the pinned one). It needs no share link and never leaves the tailnet.
 
 **Trash view**
-The part of the viewer that lists soft-deleted (tombstoned) collections and lets you undelete or purge them. It has two lists: **Being purged** first (purges still erasing, with their step) and then **In Trash** (the collections you can restore or purge).
-
-**Read mark**
-What this browser remembers about a collection you read: the newest revision you opened (localStorage `wp:read:<public ID>`). Recent marks a collection unread when it has newer revisions, and links to the changes since then. Mark all read sets every mark on the page. Read marks never leave the browser.
+The part of the viewer that lists soft-deleted (tombstoned) collections and lets you undelete or purge them.
 
 **Cloud DB**
 The Turso database that holds every collection's metadata rows. It is the durable source of truth for rows.
@@ -49,26 +46,11 @@ A writer's check, made at startup and before every push, that its config, its lo
 **Collection**
 The unit you create, view, and share. It is a named, growing history of revisions, for example "Auth refactor plan" or "Run 2026-10-07 screenshot audit". The collection itself holds very little: an ID, a public ID, a title, free-form metadata, and a creation time. Its content lives in its revisions.
 
-**Project**
-A collection's group name, set in metadata as `project`. Recent groups and filters by it; search with `project:`.
-
-**Tag**
-A label in the collection's `tags` metadata. A collection can have several; search with `tag:`.
-
-**Written on**
-The host the agent published from (`source_host`), set automatically and read-only in the writer; search with `host:`.
-
 **Revision**
 An immutable snapshot of a collection's files at one point in time. Every write (`create_collection`, `add_revision`) creates exactly one new revision. The exception is a write that changes nothing: then the parent revision is returned and nothing is created. Revisions are never edited, never deleted individually, and kept forever.
 
 **Latest revision**
 The newest revision in a collection that is not `failed`, meaning the one with the highest ID. Collection URLs show the latest revision by default.
-
-**Older**
-A revision that isn't the latest, shown as `#5 older`.
-
-**Public sees**
-The newest synced revision, which Latest links show; shown as "public sees #5" wherever it differs from Latest (History marks its row "public sees").
 
 **Pinned revision**
 A specific revision addressed explicitly in a URL. It never changes.
@@ -80,13 +62,7 @@ A specific revision addressed explicitly in a URL. It never changes.
 The revision a new revision was built from. In merge mode, the parent's files are the starting point. A collection's first revision has no parent.
 
 **Fork**
-Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and History draws the branch in its own lane beside the latest line ('Branch off #4 · not in latest').
-
-**Latest line**
-The latest revision and its ancestors.
-
-**Branch off #N**
-A revision built on #N that isn't on the latest line; History draws it in its own lane.
+Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and the revision picker shows the branch.
 
 **Display number (`#N`)**
 The human-friendly position of a revision in its collection (#1, #2, …). It is computed each time it's shown, never stored, and never used in URLs, because it can shift if a fork arrives out of order.
@@ -113,13 +89,13 @@ A blob's identity: `sha256:<64 lowercase hex chars>`. The algorithm prefix leave
 A writer's on-disk, content-addressed copy of blobs. It holds newly ingested content before upload and also serves as the read cache, filled from the bucket on demand.
 
 **Rendition**
-A derived blob that a renderer produces from a source blob, for example a markdown file rendered to self-contained HTML. Renditions are keyed by `(source hash, renderer, renderer version)` and generated by the writer at ingest. Neither the viewer nor the reader ever renders on request. A renderer upgrade adds new renditions and never changes revisions. Markdown, text and CSV files have renderers (`markdown`, `text`, `csv`), each with its own version.
+A derived blob that a renderer produces from a source blob, for example a markdown file rendered to self-contained HTML. Renditions are keyed by `(source hash, renderer, renderer version)` and generated by the writer at ingest. Neither the viewer nor the reader ever renders on request. A renderer upgrade adds new renditions and never changes revisions.
 
-**Rendition v3**
-The current markdown renderer version (`RENDERER_VERSION = 3`): the Folio reading template on the frozen `readingTokensCss` palette, plus a small inline script that reports the frame's location to the embedding shell. Older versions remain in storage; the newest version wins when serving.
+**Rendition v2**
+The current renderer version (`RENDERER_VERSION = 2`): the Folio reading template, plus a small inline script that reports the frame's location to the embedding shell. Version 1 renditions remain in storage; the newest version wins when serving.
 
 **Rerender**
-`waypoint-writer rerender`: the operator subcommand that gives existing files a rendition at a renderer's current version (`--renderer`, default markdown) after a version bump. Run with the writer stopped; see [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
+`waypoint-writer rerender`: the operator subcommand that gives existing markdown a rendition at the current renderer version after a version bump. Run with the writer stopped; see [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
 
 **DR manifest**
 A JSON copy of one revision (its row, files, and renditions) written to the bucket at `manifests/<revision id>.json`. Together with collection snapshots, these let the cloud DB be rebuilt from the bucket alone.
@@ -168,8 +144,6 @@ Where a revision is in its lifecycle:
 - `synced`: pushed to the cloud DB. Fully durable and visible to other writers and the reader.
 - `failed`: retries ran out or the error is permanent. Stays in the queue and stays viewable on this writer.
 
-The viewer also tells queued revisions apart: **waiting** (its parent is still queued), **stalled** (no progress for 10 minutes: an error is recorded, or the committer hasn't picked it up), and **uploading** (anything else that is pending). A failed revision is **failed**.
-
 ## Lifecycle
 
 **Tombstone**
@@ -178,28 +152,13 @@ A row marking a collection as deleted (soft delete). Tombstoned collections disa
 **Purge**
 Permanent deletion of a collection: all its revisions, files, DR manifests, snapshot, and any blobs no longer referenced elsewhere, both in the cloud and locally. It is the one exception to "nothing is ever deleted", meant for content that should never have been stored, such as a leaked secret.
 
-**Being purged**
-A collection whose purge was accepted and is still erasing. It is listed first on Trash and under In progress on Status, with its step (bucket › database › files); it can't be restored. Its links were revoked when the purge was confirmed.
-
 **Restore**
 Rebuilding state from durable storage. A new writer bootstraps from the cloud DB. If the cloud DB is lost, it is rebuilt from the bucket's DR manifests and collection snapshots. Restore is an operator subcommand of the writer (`waypoint-writer restore`), not an agent-facing CLI.
 
 ## Access
 
-**Tailnet link**
-A Waypoint URL that opens only on your tailnet: the Copy link menu's links. Not a share link.
-
 **Share link**
-A database row granting the public reader access to one collection. It either follows the latest revision or pins one revision. It can be revoked and can expire. Share links are created only from the tailnet. They are the first and simplest kind of grant. The UI calls it a **public link**; "share link" stays the API and data term.
-
-**Live link**
-A link the public reader serves right now.
-
-**Paused link**
-Unrevoked and unexpired, on a collection in Trash; Restore asks whether to turn it back on.
-
-**Waiting link**
-Unrevoked and unexpired, but its target hasn't synced: Only #N while #N uploads, or Latest with nothing synced; it opens once the revision syncs.
+A database row granting the public reader access to one collection. It either follows the latest revision or pins one revision. It can be revoked and can expire. Share links are created only from the tailnet. They are the first and simplest kind of grant.
 
 **Share token**
 The secret inside a share link's URL: `wps_` plus 32 bytes in base64url, derived from the link's ID with the writer's share token key (D50), as in `https://share.example.com/s/<token>/c/<public id>/`. Only its hash is stored.
@@ -218,14 +177,3 @@ The general idea of "this credential may see this content". Share links are gran
 
 **Audience** (future)
 A named group, such as "work" or "client-acme", that collections can be shared with. Each person gets their own grant, so access can be revoked individually.
-
-## Search tokens
-
-The tokens Recent's search, its filter chips, hints and the Find dialog's token row use. Aliases parse but are never shown.
-
-- `is:public` (alias `is:shared`), shown as "Public": at least one live public link.
-- `is:failed`, shown as "Failed".
-- `is:uploading` (alias `is:pending`), shown as "Uploading".
-- `is:unsynced`, shown as "Not synced yet".
-- `in:trash`, shown as "In Trash".
-- `project:`, `tag:`, `host:`: a collection's project, a tag, or the machine it was written on.

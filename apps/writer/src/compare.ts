@@ -8,7 +8,6 @@
 import { Worker } from "node:worker_threads";
 
 import { isMarkdown, isTextMime, type Manifest } from "@waypoint/core";
-import type { FragmentLinks } from "@waypoint/render";
 import { diffArrays, diffLines, diffWordsWithSpace } from "diff";
 
 import { workerEntry } from "./layout.ts";
@@ -384,7 +383,7 @@ export function toHunks(ops: DiffBlock[]): { hunks: Hunk[]; folded_after: number
   return { hunks, folded_after: folded };
 }
 
-export const splitLines = (value: string): string[] => value.replace(/\n$/, "").split("\n");
+const splitLines = (value: string) => value.replace(/\n$/, "").split("\n");
 
 /**
  * A unified line diff with word highlights inside changed line pairs.
@@ -588,10 +587,7 @@ type DiffJob = {
   head: string | null | undefined;
   mode: "blocks" | "lines";
 };
-// The fragments job carries link data, not a resolver: a function can't be posted to a worker.
-export type WorkerJob =
-  | ({ kind: "diff" } & DiffJob)
-  | { kind: "fragments"; sources: string[]; links?: FragmentLinks };
+export type WorkerJob = ({ kind: "diff" } & DiffJob) | { kind: "fragments"; sources: string[] };
 /** Inputs up to this size (both sides, UTF-16 units) are diffed inline; larger go to a worker. */
 export const INLINE_DIFF_MAX = 32 * 1024;
 
@@ -640,11 +636,10 @@ export class DiffWorkers {
         };
   }
 
-  /** Renders Markdown fragments in a worker; `null` entries weren't rendered (show source).
-   * With `links`, relative links resolve into that revision. */
-  async fragments(sources: string[], links?: FragmentLinks): Promise<(string | null)[]> {
+  /** Renders Markdown fragments in a worker; `null` entries weren't rendered (show source). */
+  async fragments(sources: string[]): Promise<(string | null)[]> {
     if (!sources.length) return [];
-    const result = await this.run({ kind: "fragments", sources, ...(links ? { links } : {}) });
+    const result = await this.run({ kind: "fragments", sources });
     return Array.isArray(result) && result.length === sources.length
       ? result.map((item) => (typeof item === "string" ? item : null))
       : sources.map(() => null);

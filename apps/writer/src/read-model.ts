@@ -25,7 +25,6 @@ import {
 import { z } from "zod";
 
 import type { Db } from "./db.ts";
-import { liveLinkWhere, pausedLinkWhere, trashedPendingIds } from "./shares.ts";
 function parseManifest(json: string): Manifest {
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== "object" || !("headPath" in parsed) || !("files" in parsed))
@@ -107,7 +106,6 @@ export interface SearchOptions {
   shared?: boolean | undefined;
   unsynced?: boolean | undefined;
   pending?: boolean | undefined;
-  failed?: boolean | undefined;
 }
 function containsValue(value: unknown, query: string): boolean {
   if (typeof value === "string") return value.toLowerCase().includes(query);
@@ -218,47 +216,6 @@ export interface Facets {
   tags: { value: string; count: number }[];
   hosts: { value: string; count: number; last_written_at: number }[];
 }
-/** collectionsById's entry: display fields plus the live rule's two Trash facts (OW-05). */
-export interface CollectionFacts {
-  id: string;
-  public_id: string;
-  title: string;
-  /** The collection's metadata JSON (OW-05b: /links shows its project). */
-  metadata: string;
-  deleted: boolean;
-  tombstoned: boolean;
-  pendingTrashed: boolean;
-}
-/** A collection's public links (B4, OW-05): `active` live links, `paused` links in Trash. */
-export interface ShareSummary {
-  active: number;
-  follows_latest: boolean;
-  paused: number;
-}
-/** A queued purge as the viewer shows it (OW-14). */
-export interface PurgingCollection {
-  collection_id: string;
-  /** null for rows queued before the public_id column existed and whose collection row is gone. */
-  public_id: string | null;
-  /** pending_purges.title ?? the live collection title ?? collection_id. */
-  title: string;
-  /** pending_purges.step: 0 bucket, 1 database, 2 files. */
-  step: number;
-  attempts: number;
-  next_attempt_at: number | null;
-  last_error: string | null;
-  requested_at: number;
-}
-interface PendingPurgeRow {
-  collection_id: string;
-  requested_at: number;
-  step: number;
-  next_attempt_at: number | null;
-  attempts: number;
-  last_error: string | null;
-  title: string | null;
-  public_id: string | null;
-}
 /** About 150 bytes each: a few MB at most. */
 export const CHANGE_CACHE_SIZE = 20_000;
 export class ReadModel {
@@ -316,67 +273,16 @@ export class ReadModel {
       ]));
     return row ? this.collection(row.id) : undefined;
   }
-  /** Trashed collections, newest deletion first; a collection with a queued purge isn't one. */
   async deletedCollections(): Promise<CollectionRow[]> {
-    const [pending, committed, purging] = await Promise.all([
+    const [pending, committed] = await Promise.all([
       this.queue.all<CollectionRow>(
         "SELECT * FROM pending_collections WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
       ),
       this.waypoint.all<CollectionRow>(
         "SELECT c.*,t.deleted_at FROM collections c JOIN collection_tombstones t ON t.collection_id=c.id ORDER BY t.deleted_at DESC",
       ),
-      this.queue.all<{ collection_id: string }>("SELECT collection_id FROM pending_purges"),
     ]);
-    const purged = new Set(purging.map((row) => row.collection_id));
-    return [...pending, ...committed]
-      .filter((row) => !purged.has(row.id))
-      .toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
-  }
-  /** Names queued purges; rows queued before FD4's columns fall back to the live collection. */
-  private async namePurges(rows: PendingPurgeRow[]): Promise<PurgingCollection[]> {
-    const unnamed = rows
-      .filter((row) => row.title == null || row.public_id == null)
-      .map((row) => row.collection_id);
-    const live = await this.collectionsById(unnamed);
-    return rows.map((row) => {
-      const found = live.get(row.collection_id);
-      return {
-        collection_id: row.collection_id,
-        public_id: row.public_id ?? found?.public_id ?? null,
-        title: row.title ?? found?.title ?? row.collection_id,
-        step: row.step,
-        attempts: row.attempts,
-        next_attempt_at: row.next_attempt_at,
-        last_error: row.last_error,
-        requested_at: row.requested_at,
-      };
-    });
-  }
-  /** Every queued purge, newest request first; constant query count. */
-  async purgingCollections(): Promise<PurgingCollection[]> {
-    return this.namePurges(
-      await this.queue.all<PendingPurgeRow>(
-        "SELECT * FROM pending_purges ORDER BY requested_at DESC, collection_id",
-      ),
-    );
-  }
-  async purgingCollection(collectionId: string): Promise<PurgingCollection | undefined> {
-    const row = await this.queue.get<PendingPurgeRow>(
-      "SELECT * FROM pending_purges WHERE collection_id=?",
-      [collectionId],
-    );
-    return row ? (await this.namePurges([row]))[0] : undefined;
-  }
-  async purgingByPublicId(publicId: string): Promise<PurgingCollection | undefined> {
-    const normalized = publicId.toLowerCase();
-    const row = await this.queue.get<PendingPurgeRow>(
-      "SELECT * FROM pending_purges WHERE public_id=?",
-      [normalized],
-    );
-    if (row) return (await this.namePurges([row]))[0];
-    // Rows queued before the public_id column: the live collection row names them.
-    const live = await this.collectionByPublicId(normalized);
-    return live ? this.purgingCollection(live.id) : undefined;
+    return [...pending, ...committed].toSorted((a, b) => (b.deleted_at ?? 0) - (a.deleted_at ?? 0));
   }
   /** Revisions (with sync state and display numbers) for many collections in three queries. */
   async revisionIndex(collectionIds: string[]): Promise<Map<string, RevisionRow[]>> {
@@ -416,14 +322,14 @@ export class ReadModel {
     }
     return index;
   }
-  /**
-   * Title, public ID, metadata and Trash state for many collections in two queries. `deleted` is the
-   * displayed state (a pending row wins over the committed one); `tombstoned` and
-   * `pendingTrashed` are the live rule's two Trash facts, kept apart (OW-05): a tombstone still
-   * hides the collection from the reader while a pending row says it's restored.
-   */
-  async collectionsById(collectionIds: string[]): Promise<Map<string, CollectionFacts>> {
-    const found = new Map<string, CollectionFacts>();
+  /** Title, public ID and Trash state for many collections in two queries. */
+  async collectionsById(
+    collectionIds: string[],
+  ): Promise<Map<string, { id: string; public_id: string; title: string; deleted: boolean }>> {
+    const found = new Map<
+      string,
+      { id: string; public_id: string; title: string; deleted: boolean }
+    >();
     if (!collectionIds.length) return found;
     const marks = placeholders(collectionIds);
     const [committed, pending] = await Promise.all([
@@ -431,42 +337,22 @@ export class ReadModel {
         id: string;
         public_id: string;
         title: string;
-        metadata: string;
         deleted_at: number | null;
       }>(
-        `SELECT c.id,c.public_id,c.title,c.metadata,t.deleted_at FROM collections c LEFT JOIN collection_tombstones t ON t.collection_id=c.id WHERE c.id IN (${marks})`,
+        `SELECT c.id,c.public_id,c.title,t.deleted_at FROM collections c LEFT JOIN collection_tombstones t ON t.collection_id=c.id WHERE c.id IN (${marks})`,
         collectionIds,
       ),
-      this.queue.all<{
-        id: string;
-        public_id: string;
-        title: string;
-        metadata: string;
-        deleted_at: number | null;
-      }>(
-        `SELECT id,public_id,title,metadata,deleted_at FROM pending_collections WHERE id IN (${marks})`,
+      this.queue.all<{ id: string; public_id: string; title: string; deleted_at: number | null }>(
+        `SELECT id,public_id,title,deleted_at FROM pending_collections WHERE id IN (${marks})`,
         collectionIds,
       ),
     ]);
-    for (const row of committed)
+    for (const row of [...committed, ...pending])
       found.set(row.id, {
         id: row.id,
         public_id: row.public_id,
         title: row.title,
-        metadata: row.metadata,
         deleted: row.deleted_at != null,
-        tombstoned: row.deleted_at != null,
-        pendingTrashed: false,
-      });
-    for (const row of pending)
-      found.set(row.id, {
-        id: row.id,
-        public_id: row.public_id,
-        title: row.title,
-        metadata: row.metadata,
-        deleted: row.deleted_at != null,
-        tombstoned: found.get(row.id)?.tombstoned ?? false,
-        pendingTrashed: row.deleted_at != null,
       });
     return found;
   }
@@ -527,39 +413,20 @@ export class ReadModel {
     this.facetCache = { at: now, value: result };
     return result;
   }
-  /**
-   * Live and paused link counts per collection (B4, OW-05), under the reader's rule: one query,
-   * plus the pending-trashed query when `trashedPending` isn't passed. Entries only where a
-   * count is above 0; `follows_latest` when a live Latest link exists.
-   */
+  /** Active (unrevoked, unexpired) link counts per collection (B4); one query. */
   async shareSummary(
     collectionIds?: string[],
-    options: { now?: number; trashedPending?: readonly string[] | undefined } = {},
-  ): Promise<Map<string, ShareSummary>> {
-    const summary = new Map<string, ShareSummary>();
+  ): Promise<Map<string, { active: number; follows_latest: boolean }>> {
+    const summary = new Map<string, { active: number; follows_latest: boolean }>();
     if (collectionIds && !collectionIds.length) return summary;
-    const now = options.now ?? Date.now();
-    const pending = options.trashedPending ?? (await trashedPendingIds({ queue: this.queue }));
-    const live = liveLinkWhere(now, pending);
-    const paused = pausedLinkWhere(now, pending);
-    const rows = await this.waypoint.all<{
-      collection_id: string;
-      revision_id: string | null;
-      live: number;
-    }>(
-      `SELECT s.collection_id,s.revision_id,CASE WHEN ${live.sql} THEN 1 ELSE 0 END AS live FROM share_links s WHERE ((${live.sql}) OR (${paused.sql}))${collectionIds ? ` AND s.collection_id IN (${placeholders(collectionIds)})` : ""}`,
-      [...live.args, ...live.args, ...paused.args, ...(collectionIds ?? [])],
+    const rows = await this.waypoint.all<{ collection_id: string; revision_id: string | null }>(
+      `SELECT collection_id,revision_id FROM share_links WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)${collectionIds ? ` AND collection_id IN (${placeholders(collectionIds)})` : ""}`,
+      [Date.now(), ...(collectionIds ?? [])],
     );
     for (const row of rows) {
-      const current = summary.get(row.collection_id) ?? {
-        active: 0,
-        follows_latest: false,
-        paused: 0,
-      };
-      if (row.live) {
-        current.active++;
-        if (row.revision_id === null) current.follows_latest = true;
-      } else current.paused++;
+      const current = summary.get(row.collection_id) ?? { active: 0, follows_latest: false };
+      current.active++;
+      if (row.revision_id === null) current.follows_latest = true;
       summary.set(row.collection_id, current);
     }
     return summary;
@@ -965,11 +832,7 @@ export class ReadModel {
           ...row,
           sync_state: pendingIds.has(row.id) || unpushedIds.has(row.id) ? "committed" : "synced",
         });
-    const shared = options.shared
-      ? new Set(
-          [...(await this.shareSummary())].flatMap(([id, share]) => (share.active > 0 ? [id] : [])),
-        )
-      : null;
+    const shared = options.shared ? new Set((await this.shareSummary()).keys()) : null;
     const grouped = new Map<string, RevisionRow[]>();
     for (const row of revisions.values()) {
       const group = grouped.get(row.collection_id) ?? [];
@@ -1024,7 +887,6 @@ export class ReadModel {
         continue;
       if (options.pending && !history.some((revision) => revision.sync_state === "pending"))
         continue;
-      if (options.failed && !history.some((revision) => revision.sync_state === "failed")) continue;
       if (options.updated_after !== undefined && (!latest || updatedAt <= options.updated_after))
         continue;
       const numbers = displayNumbers(history.map((revision) => parseId(revision.id, "rev")));
@@ -1198,27 +1060,22 @@ export class ReadModel {
         .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
   }
-  /** The newest rendition of `hash` by one renderer (queued or committed). */
-  async rendition(
-    hash: string,
-    renderer: string = "markdown",
-  ): Promise<{ hash: string; mime: string } | undefined> {
+  async rendition(hash: string): Promise<{ hash: string; mime: string } | undefined> {
     const pending = await this.queue.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
     }>(
-      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=? AND renderer=?",
-      [hash, renderer],
+      "SELECT output_hash,output_mime,renderer_version FROM pending_renditions WHERE source_hash=?",
+      [hash],
     );
     const committed = await this.waypoint.all<{
       output_hash: string;
       output_mime: string;
       renderer_version: number;
-    }>(
-      "SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=? AND renderer=?",
-      [hash, renderer],
-    );
+    }>("SELECT output_hash,output_mime,renderer_version FROM renditions WHERE source_hash=?", [
+      hash,
+    ]);
     const newest = [...pending, ...committed].toSorted(
       (a, b) => b.renderer_version - a.renderer_version,
     )[0];

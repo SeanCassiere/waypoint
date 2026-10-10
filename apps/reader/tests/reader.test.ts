@@ -1,10 +1,9 @@
 import { hashShareToken, newShareToken, shareShellUrl, WAYPOINT_VERSION } from "@waypoint/core";
-import { iconUse, publicShellCss, publicShellScript } from "@waypoint/ui";
+import { publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
-import { staticStyleHash } from "../src/csp-hashes.ts";
-import { deniedPage, frameDeniedPage, rootPage, staticCss } from "../src/pages.ts";
+import { deniedPage, rootPage, staticCss } from "../src/pages.ts";
 
 const collection = "0123456789ab";
 const firstPub = "bcdefghjkmnp";
@@ -82,10 +81,9 @@ async function sha256(text: string): Promise<string> {
   );
   return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }
-/** Exact policy for the root and denial pages (spec §9.2). */
-const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
-/** The `/x/` denial card's policy: the same, but framable by the shell. */
-const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+/** Exact policy for the two static pages (spec §9.2); the hash is the design generator's. */
+const staticPolicy =
+  "default-src 'none'; style-src 'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
@@ -125,8 +123,7 @@ function fixture(body?: ReadableStream<Uint8Array>) {
       else if (sql.includes("FROM revision_files") && sql.includes("path=?"))
         rows = files.filter((item) => item.path === args[1]);
       else if (sql.includes("FROM revision_files")) rows = files;
-      else if (sql.includes("FROM renditions"))
-        rows = rendition && args[0] === hash && args[1] === "markdown" ? [rendition] : [];
+      else if (sql.includes("FROM renditions")) rows = rendition ? [rendition] : [];
       // This fake is intentionally the trust boundary for typed SQL rows.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       return rows.map((row) => row as T);
@@ -243,28 +240,11 @@ describe("public reader", () => {
     );
     const shell = await app.request(shareShellUrl(base, token, collection, firstPub), {}, bindings);
     const html = await shell.text();
-    expect(html).toContain("Taken <time");
+    expect(html).toContain("Snapshot from <time");
     expect(html).not.toContain("Updated <time");
     expect((await app.request(await rawUrl(secondPub, "index.md"), {}, bindings)).status).toBe(404);
   });
-  it("passes the link's expiry to the letterhead", async () => {
-    link.expires_at = Date.now() + 6 * 86_400_000;
-    const { app, bindings } = fixture();
-    const expiring = await (
-      await app.request(shareShellUrl(base, token, collection), {}, bindings)
-    ).text();
-    expect(expiring).toContain('class="f exp"');
-    expect(expiring).toContain("Works until");
-    // A new app: the first one caches the link for a few seconds.
-    link.expires_at = null;
-    const { app: openApp } = fixture();
-    const open = await (
-      await openApp.request(shareShellUrl(base, token, collection), {}, bindings)
-    ).text();
-    expect(open).toContain("No end date");
-    expect(open).not.toContain('class="f exp');
-  });
-  it("uses identical denials for every reason within each route family", async () => {
+  it("uses identical denials for every reason", async () => {
     const { app, bindings } = fixture();
     const path = await rawUrl(firstPub, "index.md");
     link.revoked_at = 1;
@@ -293,40 +273,34 @@ describe("public reader", () => {
       bindings,
     );
     const others = await Promise.all(
-      ["/index.html", "/s", "/s/", "//", "/assets/1/x.js", "/s/wps_short/c/x/"].map(async (url) =>
-        app.request(url, {}, bindings),
+      ["/index.html", "/s", "/s/", "//", "/assets/1/x.js", "/x/", "/s/wps_short/c/x/"].map(
+        async (url) => app.request(url, {}, bindings),
       ),
     );
-    const bareRaw = await app.request("/x/", {}, bindings);
     const post = await app.request("/", { method: "POST" }, bindings);
-    // The raw route (`/x/`) gets the framable card; everything else the full page.
-    const families = [
-      {
-        page: frameDeniedPage,
-        policy: framePolicy,
-        all: [revoked, expired, tombstoned, missing, bareRaw],
-      },
-      {
-        page: deniedPage,
-        policy: staticPolicy,
-        all: [unknown, wrongCollection, missingShellPath, post, ...others],
-      },
+    const all = [
+      revoked,
+      expired,
+      tombstoned,
+      missing,
+      unknown,
+      wrongCollection,
+      missingShellPath,
+      post,
+      ...others,
     ];
-    for (const { page, policy, all } of families) {
-      const bodies = await Promise.all(all.map(async (response) => response.text()));
-      expect(bodies).toEqual(all.map(() => page));
-      for (const response of all) {
-        expect(response.status).toBe(404);
-        expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-        expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-        expect(response.headers.get("cache-control")).toBe("no-store");
-        expect(response.headers.get("content-security-policy")).toBe(policy);
-        expect(response.headers.get("x-frame-options")).toBeNull();
-        expect([...response.headers]).toEqual([...all[0]!.headers]);
-      }
-      expect([...all[0]!.headers.keys()].toSorted()).toEqual(staticHeaderNames);
+    const bodies = await Promise.all(all.map(async (response) => response.text()));
+    expect(bodies).toEqual(all.map(() => deniedPage));
+    for (const response of all) {
+      expect(response.status).toBe(404);
+      expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("content-security-policy")).toBe(staticPolicy);
+      expect([...response.headers]).toEqual([...revoked.headers]);
     }
+    expect([...revoked.headers.keys()].toSorted()).toEqual(staticHeaderNames);
   });
   it("serves the bare root only at /, as a 200 with no data", async () => {
     const { app, bindings } = fixture();
@@ -349,16 +323,16 @@ describe("public reader", () => {
     expect(limiter).not.toHaveBeenCalled();
     expect(rootPage).toContain("<title>Waypoint</title>");
     expect(rootPage).toContain("<h1>This address is for shared Waypoint documents</h1>");
-    expect(deniedPage).toContain("<title>Link not available · Waypoint</title>");
+    expect(deniedPage).toContain("<title>Not available</title>");
     expect(deniedPage).toContain("<h1>This link isn't available</h1>");
     // No data, links, inputs, scripts or style attributes; one <style> covered by one hash.
-    for (const page of [rootPage, deniedPage, frameDeniedPage]) {
+    for (const page of [rootPage, deniedPage]) {
       expect(page).not.toMatch(/<(?:a|input|form|button|script|select|textarea|link|img)\b/i);
       expect(page).not.toMatch(/\sstyle=|\son[a-z]+=/i);
       expect(page.match(/<style>/g)).toHaveLength(1);
       expect(page).toContain(`<style>${staticCss}</style>`);
     }
-    expect(await sha256(staticCss)).toBe(staticStyleHash);
+    expect(await sha256(staticCss)).toBe("'sha256-puxCkcnX16g7OZlEkUWCCAy95boy87FcErdstp2mL7s='");
   });
   it("hashes the shell's only inline style and script in a strict CSP", async () => {
     const { app, bindings } = fixture();
@@ -392,8 +366,8 @@ describe("public reader", () => {
     expect(shell.headers.get("referrer-policy")).toBe("no-referrer");
     expect(shell.headers.get("x-content-type-options")).toBe("nosniff");
     // The listener trusts only the frame's own window and re-checks the payload.
-    expect(publicShellScript).toContain("e.source !== frame.contentWindow");
-    expect(publicShellScript).toContain('m.type !== "waypoint:location"');
+    expect(publicShellScript).toContain("e.source!==f.contentWindow");
+    expect(publicShellScript).toContain('m.type!=="waypoint:location"');
   });
   it("has no revision picker and keeps every link on the served revision", async () => {
     revisions.push({
@@ -412,10 +386,7 @@ describe("public reader", () => {
       await pinnedApp.request(shareShellUrl(base, token, collection, firstPub), {}, bindings)
     ).text();
     for (const html of [latest, pinned]) {
-      // The letterhead's About button (RX-01) is the shell's only button.
-      const markup = html
-        .replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "")
-        .replace(/<button type="button" class="abt" popovertarget="about">[\s\S]*?<\/button>/, "");
+      const markup = html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "");
       expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
       expect(html).not.toContain("rev_");
     }
@@ -443,7 +414,7 @@ describe("public reader", () => {
     const tabs = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tabs).toContain('<nav class="prow" aria-label="Files"><div class="ptabs2">');
+    expect(tabs).toContain('<nav class="ptabs2" aria-label="Files">');
     expect([...tabs.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
       "index.md",
       "data/a.bin",
@@ -462,7 +433,7 @@ describe("public reader", () => {
       "2.0 KB · application/octet-stream · can&#39;t be previewed in the browser",
     );
     expect(binary).toMatch(
-      /<a id="doc" class="btn primary" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,
+      /<a id="doc" class="btn" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,
     );
     expect(binary).not.toContain(`${token}/data`);
     files = Array.from({ length: 9 }, (_, i) => ({
@@ -473,12 +444,10 @@ describe("public reader", () => {
     const tree = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tree).not.toContain('class="ptabs2"');
-    expect(tree).toContain('<nav class="prow" aria-label="Files"><div class="pfiles">');
-    expect(tree).toContain('Files <span class="n">9</span>');
-    expect(tree).toContain(
-      '<details open><summary dir="auto">' + iconUse("folder") + "docs/</summary>",
-    );
+    expect(tree).not.toContain('<nav class="ptabs2"');
+    expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
+    expect(tree).toContain('<summary>Files <span class="n">(9)</span>');
+    expect(tree).toContain('<details open><summary dir="auto">docs/</summary>');
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)

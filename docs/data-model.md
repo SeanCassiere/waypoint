@@ -108,7 +108,7 @@ CREATE TABLE blobs (                       -- insert-only, idempotent
 
 CREATE TABLE renditions (                  -- insert-only, idempotent
   source_hash      TEXT NOT NULL REFERENCES blobs(hash),
-  renderer         TEXT NOT NULL,          -- 'markdown', 'text' or 'csv'
+  renderer         TEXT NOT NULL,          -- e.g. 'markdown'
   renderer_version INTEGER NOT NULL,       -- 1, 2, ... (integer so MAX() orders correctly)
   output_hash      TEXT NOT NULL REFERENCES blobs(hash),
   output_mime      TEXT NOT NULL,          -- e.g. 'text/html'
@@ -129,10 +129,10 @@ CREATE TABLE share_links (                 -- added in migration 0003
 CREATE INDEX share_links_by_collection ON share_links (collection_id);
 CREATE INDEX share_links_by_token_hash ON share_links (token_hash);
 
-CREATE TABLE collection_syncing (          -- added in migration 0004; a transient signal, not in snapshots
+CREATE TABLE collection_syncing (          -- added in migration 0004; currently unused (see below)
   collection_id TEXT PRIMARY KEY REFERENCES collections(id),
-  since         INTEGER NOT NULL,          -- created_at of the oldest queued revision newer than the newest committed one
-  until         INTEGER NOT NULL           -- since + WAYPOINT_QUEUE_GIVE_UP_HOURS; the reader ignores the row after this
+  since         INTEGER NOT NULL,
+  until         INTEGER NOT NULL
 );
 
 CREATE TABLE schema_migrations (
@@ -141,7 +141,7 @@ CREATE TABLE schema_migrations (
 );
 ```
 
-**`collection_syncing`:** RX-11: one row while a collection has a non-failed queued revision newer than its newest committed one; `until = since + queue give-up hours`; written only by the writer's `refreshSyncing` ([commit procedure](write-path-and-sync.md#commit-procedure)). It lets the public reader tell Latest-link recipients that a newer version is on its way; a reader that finds no table, no row, or `until` in the past shows nothing.
+**`collection_syncing`:** Added for a "newer version is being synced" note on public Latest links. That feature was withdrawn, but the migration stays (migrations are additive only, so the table is never dropped). Nothing reads or writes it now; rows a newer writer left behind are ignored, and a purge may leave one orphaned, which is harmless.
 
 ### Derived values (never stored)
 
@@ -155,7 +155,7 @@ CREATE TABLE schema_migrations (
 ## Invariants
 
 1. **Blob before row.** A `blobs` row exists only once the object is in the bucket. A `revision_files` or `renditions` row is inserted only together with, or after, the `blobs` rows it references. As a result, the cloud DB never references a missing object.
-2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion). `collection_syncing` is a transient signal, not history: its single row per collection is rewritten and deleted freely (RX-11).
+2. **Insert-only.** The only `UPDATE`s allowed are to `collections.title` and `collections.metadata`, and on `share_links`, setting `revoked_at` and moving a non-null `expires_at` later (extend; D48). The only `DELETE`s allowed are undelete (removing a tombstone) and [purge](#deletion).
 3. **Every revision's head path is in its manifest.**
 4. **Paths** in a revision must be:
    - relative, using `/` separators, with no leading `/` and no empty, `.`, or `..` segments

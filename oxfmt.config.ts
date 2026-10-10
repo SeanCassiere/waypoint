@@ -14,8 +14,5 @@ export default defineConfig({
     "THIRD_PARTY_NOTICES.md",
     // Written by release-please, in its own style.
     "CHANGELOG.md",
-    // Accessibility-tree skeletons written by the A11Y-AUDIT browser scenarios (UPDATE_ARIA=1) and
-    // compared byte for byte, so they keep the indentation of the snapshot they were cut from.
-    "tests/browser/a11y-audit/**",
   ],
 });

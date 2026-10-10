@@ -7,8 +7,6 @@ import { newId, mintRevisionId, publicIdFor } from "@waypoint/core";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { BlobStore } from "../src/blob-store.ts";
-import { MemoryBucket } from "../src/bucket.ts";
-import { WriterCommitter } from "../src/committer.ts";
 import type { Config } from "../src/config.ts";
 import { openDatabases } from "../src/db.ts";
 import type { Db } from "../src/db.ts";
@@ -22,7 +20,6 @@ import {
 } from "../src/migrations.ts";
 import { ReadModel } from "../src/read-model.ts";
 import { writerRenderer } from "../src/renderer.ts";
-import { SyncLoop } from "../src/sync-loop.ts";
 function noop(): void {}
 let dir: string;
 let close: () => Promise<void>;
@@ -255,56 +252,6 @@ describe("ingest and read model", () => {
         .status,
     ).toBe(200);
     expect((await reads.searchCollections()).collections).toHaveLength(1);
-  });
-  it("answers collection_purged to undelete while a purge is queued (OW-14)", async () => {
-    const first = await ingest.create({ title: "Purging", files: [await stored("one")] });
-    expect(
-      (await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" })).status,
-    ).toBe(200);
-    await queue.run("INSERT INTO pending_purges (collection_id,requested_at,step) VALUES (?,?,0)", [
-      first.collection_id,
-      Date.now(),
-    ]);
-    const response = await app.request(`/api/collections/${first.collection_id}/undelete`, {
-      method: "POST",
-    });
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "collection_purged" } });
-  });
-  it("stores the title and public ID with a queued purge (OW-14)", async () => {
-    const first = await ingest.create({ title: "Named purge", files: [await stored("one")] });
-    const committer = new WriterCommitter(
-      waypoint,
-      queue,
-      blobs,
-      new MemoryBucket(),
-      new SyncLoop(queue, ingest.sync, Date.now, waypoint),
-      ingest,
-    );
-    for (let pass = 0; pass < 20; pass++) {
-      committer.wake();
-      await committer.drain();
-      if (!(await queue.get("SELECT 1 FROM pending_collections WHERE id=?", [first.collection_id])))
-        break;
-    }
-    committer.stop();
-    await committer.drain();
-    const collection = await waypoint.get<{ title: string; public_id: string }>(
-      "SELECT title,public_id FROM collections WHERE id=?",
-      [first.collection_id],
-    );
-    expect(collection?.title).toBe("Named purge");
-    expect(
-      (await app.request(`/api/collections/${first.collection_id}`, { method: "DELETE" })).status,
-    ).toBe(200);
-    const response = await app.request(`/api/collections/${first.collection_id}/purge`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ confirm: first.collection_id }),
-    });
-    expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ queued: true });
-    expect(await queue.get("SELECT title,public_id FROM pending_purges")).toEqual(collection);
   });
   it("searches titles and nested metadata, filters, identifiers, and paginates", async () => {
     const file = await stored("head");

@@ -19,7 +19,6 @@ import typescript from "@shikijs/langs/typescript";
 import yaml from "@shikijs/langs/yaml";
 import githubDark from "@shikijs/themes/github-dark";
 import githubLight from "@shikijs/themes/github-light";
-import { readingTokensCss } from "@waypoint/ui";
 import type { Element, Root, RootContent } from "hast";
 import type { Root as MdastRoot } from "mdast";
 import rehypeRaw from "rehype-raw";
@@ -38,10 +37,8 @@ export const RENDERER_NAME = "markdown";
 // would leave two different outputs claiming the same key. Existing blobs get the new version
 // through `waypoint-writer rerender`.
 // v1: GitHub-like template. v2: Folio reading template (headings anchors, alerts, contents,
-// table wrap, figures, code labels, frame reporter, dir="auto" on text blocks). v3: Folio tokens
-// (readingTokensCss from @waypoint/ui): warm rules, Contents box and code wells, links in the
-// public blue, and the chrome's 2px ink focus ring.
-export const RENDERER_VERSION = 3;
+// table wrap, figures, code labels, frame reporter, dir="auto" on text blocks).
+export const RENDERER_VERSION = 2;
 
 const languages = [
   "typescript",
@@ -73,13 +70,12 @@ const aliases = new Map<string, (typeof languages)[number]>([
   ["docker", "dockerfile"],
   ["htm", "html"],
 ]);
-export type ShikiLanguage = (typeof languages)[number];
-export function isSupportedLanguage(value: string): value is ShikiLanguage {
+function isSupportedLanguage(value: string): value is (typeof languages)[number] {
   return languages.some((language) => language === value);
 }
 
 let highlighter: ReturnType<typeof createHighlighterCore> | undefined;
-export function getHighlighter(): ReturnType<typeof createHighlighterCore> {
+function getHighlighter(): ReturnType<typeof createHighlighterCore> {
   highlighter ??= createHighlighterCore({
     themes: [githubLight, githubDark],
     langs: [
@@ -134,7 +130,7 @@ function element(
  * `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]` (any case) and that has content after it.
  * Runs before rehype-raw, so blockquotes written as raw HTML are left alone.
  */
-export function alertVisit(parent: Root | Element): void {
+function alertVisit(parent: Root | Element): void {
   for (let index = 0; index < parent.children.length; index++) {
     const node = parent.children[index];
     if (node?.type !== "element") continue;
@@ -193,16 +189,15 @@ export const processor: Processor<MdastRoot, MdastRoot, Root, Root, string> = un
 // images inside running text stay inline; alerts get the block margin; and on wide screens a
 // table wrap grows only as wide as its table needs (at least the measure, at most
 // min(100vw - 64px, 1120px)), centred, instead of every table spanning the full breakout.
-// The colours come from the frozen `readingTokensCss` in @waypoint/ui (VS-07): changing them
-// means a RENDERER_VERSION bump.
-const css = `${readingTokensCss}*{box-sizing:border-box}
+const css = `:root{color-scheme:light dark;--fg:#1b1a17;--fg-2:#4b5563;--muted:#66615a;--bg:#fcfbf9;--line:#e5e4e0;--line-2:#d4d2cc;--subtle:#f5f4f1;--code-bg:#f6f5f2;--link:#1d5bd6;--link-u:#9db7ef;--mark:#fff1a8;--note:#1d5bd6;--tip:#18794e;--warn:#9a6700;--caution:#c4320a;--measure:68ch}
+@media(prefers-color-scheme:dark){:root{--fg:#ebe8e2;--fg-2:#bdb9b1;--muted:#958f86;--bg:#151514;--line:#2b2c30;--line-2:#3a3b40;--subtle:#1e1f23;--code-bg:#1c1d21;--link:#8db4ff;--link-u:#3d5a91;--mark:#5a4a00;--note:#8db4ff;--tip:#5fd39a;--warn:#e3b341;--caution:#ff8a65}}
+*{box-sizing:border-box}
 html{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{margin:0 auto;max-width:calc(var(--measure) + 64px);padding:40px 32px 96px;font:17px/1.65 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;font-feature-settings:"kern","liga","calt";overflow-wrap:break-word;hyphens:manual;text-rendering:optimizeLegibility}
 ::selection{background:var(--mark)}
 a{color:var(--link);text-decoration:underline;text-decoration-color:var(--link-u);text-decoration-thickness:1px;text-underline-offset:.18em}
 a:hover{text-decoration-color:currentColor}
-:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
-pre:focus-visible{border-radius:8px}
+a:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:2px}
 h1,h2,h3,h4,h5,h6{line-height:1.25;font-weight:650;letter-spacing:-.011em;margin:2em 0 .6em;scroll-margin-top:16px;position:relative;text-wrap:balance}
 h1{font-size:2.05rem;letter-spacing:-.022em;margin-top:0;line-height:1.15}
 h2{font-size:1.45rem;padding-top:1.1em;border-top:1px solid var(--line)}
@@ -225,7 +220,7 @@ blockquote>:last-child{margin-bottom:0}
 .markdown-alert-warning{border-color:var(--warn)}.markdown-alert-warning .markdown-alert-title{color:var(--warn)}
 .markdown-alert-caution{border-color:var(--caution)}.markdown-alert-caution .markdown-alert-title{color:var(--caution)}
 .table-wrap{margin:0 0 1.4em;overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:linear-gradient(to right,var(--bg) 30%,transparent) left/40px 100% no-repeat local,linear-gradient(to left,var(--bg) 30%,transparent) right/40px 100% no-repeat local,radial-gradient(farthest-side at 0 50%,rgba(0,0,0,.16),transparent) left/12px 100% no-repeat scroll,radial-gradient(farthest-side at 100% 50%,rgba(0,0,0,.16),transparent) right/12px 100% no-repeat scroll}
-.table-wrap:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.table-wrap:focus-visible{outline:2px solid var(--link);outline-offset:2px}
 @media(min-width:900px){.table-wrap{width:max-content;min-width:100%;max-width:min(100vw - 64px,1120px);position:relative;left:50%;transform:translateX(-50%)}}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.9em;line-height:1.5;font-variant-numeric:tabular-nums}
 th,td{padding:.55em .85em;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;min-width:9ch}
@@ -250,8 +245,6 @@ details.toc ol{margin:.5em 0 .2em;padding-left:1.2em}details.toc li{margin:.15em
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:600px){:not(pre)>code{white-space:normal;overflow-wrap:anywhere}body{font-size:16.5px;padding:24px 18px 72px}h1{font-size:1.7rem}h2{font-size:1.3rem}.anchor{display:none}}
 @media print{body{max-width:none;padding:0;font-size:11pt}a{color:inherit}pre,.table-wrap{break-inside:avoid}details.toc,.anchor{display:none}}`;
-/** The reading template's CSS (palette and rules), shared by the text and CSV views. */
-export const readingCss: string = css;
 
 /**
  * The frame reporter (spec section 8). It tells the embedding shell which document is showing,
@@ -265,7 +258,7 @@ export const readingCss: string = css;
  */
 export const FRAME_REPORTER = `(()=>{const d=document,t=d.querySelector("details.toc"),r=f=>d.readyState=="complete"?f():addEventListener("load",f);if(t){const q=matchMedia("(max-width:600px)");let u;const f=()=>{u||d.documentElement.clientWidth&&(t.open=!q.matches)};t.onclick=()=>u=1;q.onchange=f;r(()=>requestAnimationFrame(f))}const p=parent;if(p==window)return;const s=()=>{try{p.postMessage({type:"waypoint:location",href:location.pathname+location.hash},"*")}catch{}};addEventListener("hashchange",s);r(s)})();`;
 
-export function escapeHtml(value: string): string {
+function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

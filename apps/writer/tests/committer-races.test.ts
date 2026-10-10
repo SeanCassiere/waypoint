@@ -578,24 +578,8 @@ describe("GC protection", () => {
     await settle();
     expect(bucket.objects.has(blobKey(h))).toBe(true);
     expect(await waypoint.get("SELECT hash FROM blobs WHERE hash=?", [h])).toBeTruthy();
-    // The grace is a scheduled wait, not an error (OW-14): no last_error, no attempt counted, and
-    // the next try is the youngest deferred blob's mtime, rounded up, plus 15 minutes.
-    const { mtimeMs } = await stat(blobs.path(h));
-    const row = z
-      .object({
-        step: z.number(),
-        last_error: z.string().nullable(),
-        attempts: z.number(),
-        next_attempt_at: z.number(),
-      })
-      .parse(
-        await queue.get(
-          "SELECT step,last_error,attempts,next_attempt_at FROM pending_purges WHERE collection_id=?",
-          [id],
-        ),
-      );
-    expect(row).toMatchObject({ step: 2, last_error: null, attempts: 0 });
-    expect(Number.isInteger(row.next_attempt_at)).toBe(true);
-    expect(row.next_attempt_at).toBe(Math.ceil(mtimeMs) + 900_000);
+    expect(
+      await queue.get("SELECT step,last_error FROM pending_purges WHERE collection_id=?", [id]),
+    ).toMatchObject({ step: 2, last_error: "Purge GC waiting for local blob grace period" });
   });
 });

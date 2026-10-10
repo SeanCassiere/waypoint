@@ -19,7 +19,6 @@
     "@waypoint/render": "workspace:*",
     "@waypoint/ui": "workspace:*",
     "@waypoint/writer": "workspace:*",
-    "axe-core": "^4.14.0",
     "zod": "^4.6.5"
   }
 }

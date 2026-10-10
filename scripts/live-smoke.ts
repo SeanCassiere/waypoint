@@ -1,5 +1,5 @@
 // Usage: pnpm live-smoke /path/to/dev.env (tsx runs the writer modules from source).
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
@@ -62,7 +62,6 @@ const files = [
     ),
   },
 ];
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let collectionId: string | undefined;
 try {
   const entries = [];
@@ -120,103 +119,6 @@ try {
   if (!(await bucket.head(`manifests/${revisionId}.json`))) throw new Error("Missing DR manifest");
   if (!(await bucket.head(`collections/${collectionId}.json`)))
     throw new Error("Missing collection snapshot");
-  // RX-11: a Latest link says a newer version is being synced while one uploads, and stops once it
-  // has synced. Four 40 MiB incompressible files keep the upload busy long enough to see the note.
-  const shareResponse = await fetch(`${base}/api/collections/${collectionId}/share-links`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  });
-  const share: unknown = shareResponse.ok ? await shareResponse.json() : null;
-  const linkUrl =
-    share && typeof share === "object" && "url" in share && typeof share.url === "string"
-      ? share.url
-      : null;
-  if (!linkUrl) console.log("RX-11 step skipped: sharing is not configured");
-  else {
-    const note = "A newer version is being synced.";
-    const syncState = async (id: string): Promise<unknown> => {
-      const stateResponse = await fetch(`${base}/api/revisions/${id}`);
-      if (!stateResponse.ok) throw new Error(`Revision lookup failed (${stateResponse.status})`);
-      const state: unknown = await stateResponse.json();
-      return state && typeof state === "object" && "sync_state" in state
-        ? state.sync_state
-        : undefined;
-    };
-    // The new link reaches the reader with the writer's next push.
-    let shell: Response | undefined;
-    for (let attempt = 0; attempt < 60; attempt++) {
-      shell = await fetch(linkUrl);
-      if (shell.status === 200) break;
-      await sleep(1000);
-    }
-    if (shell?.status !== 200) throw new Error(`RX-11: share link failed (${shell?.status})`);
-    if ((await shell.text()).includes(note))
-      throw new Error("RX-11: the note shows with nothing newer queued");
-    const big = [];
-    for (let i = 1; i <= 4; i++) {
-      const body = randomBytes(40 * 1024 * 1024);
-      const hash = `sha256:${createHash("sha256").update(body).digest("hex")}`;
-      const upload = await fetch(`${base}/api/blobs/${hash}`, { method: "PUT", body });
-      if (!upload.ok) throw new Error(`Blob upload failed (${upload.status})`);
-      big.push({ path: `big-${i}.bin`, hash, mime: "application/octet-stream" });
-    }
-    let bigId: string | undefined;
-    const started = Date.now();
-    const adding = fetch(`${base}/api/collections/${collectionId}/revisions`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ files: big }),
-    }).then(async (addResponse) => {
-      if (!addResponse.ok) throw new Error(`Revision add failed (${addResponse.status})`);
-      const added: unknown = await addResponse.json();
-      if (
-        !added ||
-        typeof added !== "object" ||
-        !("revision_id" in added) ||
-        typeof added.revision_id !== "string"
-      )
-        throw new Error("Invalid writer response");
-      bigId = added.revision_id;
-      return added.revision_id;
-    });
-    // Awaited below; this only keeps an early failure from being unhandled meanwhile.
-    adding.catch(() => undefined);
-    let seenAfter: number | undefined;
-    while (seenAfter === undefined) {
-      if (Date.now() - started > 120_000)
-        throw new Error("RX-11: the note didn't appear within 120 seconds");
-      const page = await fetch(linkUrl);
-      if (page.status !== 200) throw new Error(`RX-11: share link failed (${page.status})`);
-      if ((await page.text()).includes(note)) seenAfter = Date.now() - started;
-      else if (bigId && (await syncState(bigId)) === "synced")
-        throw new Error(
-          "RX-11: the note was never observed before the new revision synced; rerun (the upload finished before the push)",
-        );
-      else await sleep(250);
-    }
-    const revision = await adding;
-    let committedAt: number | undefined;
-    for (let attempt = 0; attempt < 180 && committedAt === undefined; attempt++) {
-      if ((await syncState(revision)) === "synced") committedAt = Date.now();
-      else await sleep(1000);
-    }
-    if (committedAt === undefined)
-      throw new Error("RX-11: the new revision did not reach synced within 180 seconds");
-    let goneAfter: number | undefined;
-    for (let attempt = 0; attempt < 30 && goneAfter === undefined; attempt++) {
-      const page = await fetch(linkUrl);
-      const html = page.status === 200 ? await page.text() : "";
-      if (html && !html.includes(note) && html.includes('data-p="big-1.bin"'))
-        goneAfter = Date.now() - committedAt;
-      else await sleep(1000);
-    }
-    if (goneAfter === undefined)
-      throw new Error(
-        "RX-11: the note stayed, or the new revision wasn't served, after 30 seconds",
-      );
-    console.log(`RX-11 note: seen after ${seenAfter} ms, gone ${goneAfter} ms after the commit`);
-  }
   console.log(created.url);
   console.log(`${base}/api/revisions/${revisionId}`);
 } finally {

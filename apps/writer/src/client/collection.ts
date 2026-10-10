@@ -13,10 +13,9 @@ function revisionUrl(rpub: string): string {
   return `${shellPath(root?.dataset.collection ?? "", rpub, path, true)}${withShellParams(path ? "?fallback=head" : "")}`;
 }
 
-/** At an end, `end` is the server's text (data-older-end / data-newer-end), shown verbatim. */
-function goRevision(rpub: string | undefined, end?: string): void {
+function goRevision(rpub: string | undefined): void {
   if (!shellRoot() || !rpub) {
-    toast(end ?? "No revision in that direction");
+    toast("No revision in that direction");
     return;
   }
   rememberSheet(false);
@@ -27,11 +26,11 @@ function goRevision(rpub: string | undefined, end?: string): void {
 export function bindCollection(): void {
   const root = shellRoot();
   if (!root) return;
-  onCommand("copy-latest", () => run(copyLatest, "copy the link to latest"));
-  onCommand("copy-pinned", () => run(copyPinned, "copy the link to this revision"));
-  onCommand("copy-handoff", () => run(copyHandoff, "copy the handoff block"));
-  onCommand("older", () => goRevision(root.dataset.older, root.dataset.olderEnd));
-  onCommand("newer", () => goRevision(root.dataset.newer, root.dataset.newerEnd));
+  onCommand("copy-latest", () => run(copyLatest, toast));
+  onCommand("copy-pinned", () => run(copyPinned, toast));
+  onCommand("copy-handoff", () => run(copyHandoff, toast));
+  onCommand("older", () => goRevision(root.dataset.older));
+  onCommand("newer", () => goRevision(root.dataset.newer));
   onCommand("changes", () => {
     const target = $("[data-changes-link]", HTMLAnchorElement);
     if (target) location.assign(target.href);

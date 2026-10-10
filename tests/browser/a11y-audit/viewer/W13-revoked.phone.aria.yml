@@ -1,7 +1,0 @@
-- banner:
-- main:
-  - heading "Public links" [level=1]
-  - navigation "Link state":
-  - region "Webhook idempotency research":
-    - heading "Webhook idempotency research" [level=2]:
-    - list:

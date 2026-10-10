@@ -3,14 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 
-import { newId } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { BlobStore } from "../apps/writer/src/blob-store.ts";
-import { MemoryBucket } from "../apps/writer/src/bucket.ts";
-import { WriterCommitter } from "../apps/writer/src/committer.ts";
 import type { Config } from "../apps/writer/src/config.ts";
-import { LocalSyncClient, openDatabases, type Db } from "../apps/writer/src/db.ts";
+import { openDatabases, type Db } from "../apps/writer/src/db.ts";
 import { createApp } from "../apps/writer/src/http.ts";
 import { IngestService } from "../apps/writer/src/ingest.ts";
 import {
@@ -21,7 +18,6 @@ import {
 } from "../apps/writer/src/migrations.ts";
 import { ReadModel } from "../apps/writer/src/read-model.ts";
 import { parseSearch } from "../apps/writer/src/search-query.ts";
-import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 import { WaypointClient } from "../packages/mcp/src/client.ts";
 
 let dir: string;
@@ -111,36 +107,24 @@ afterEach(async () => {
 
 describe("search tokens and redirects (B6)", () => {
   it("parses tokens, quoted values and free text", () => {
-    const parsed = parseSearch(
-      'rate project:"api team" tag:plan host:devbox is:shared is:failed is:unsynced is:pending in:trash',
-    );
-    expect(parsed).toMatchObject({
+    expect(
+      parseSearch(
+        'rate project:"api team" tag:plan host:devbox is:shared is:unsynced is:pending in:trash',
+      ),
+    ).toEqual({
       text: "rate",
       project: "api team",
       tags: ["plan"],
       host: "devbox",
-      public: true,
-      failed: true,
-      uploading: true,
+      shared: true,
       unsynced: true,
+      pending: true,
       trash: true,
       tokens: true,
     });
-    // Aliases parse as their canonical token; the typed spelling stays in `raw`.
-    expect(parsed.list.map((token) => [token.text, token.raw])).toEqual([
-      ['project:"api team"', 'project:"api team"'],
-      ["tag:plan", "tag:plan"],
-      ["host:devbox", "host:devbox"],
-      ["is:public", "is:shared"],
-      ["is:failed", "is:failed"],
-      ["is:unsynced", "is:unsynced"],
-      ["is:uploading", "is:pending"],
-      ["in:trash", "in:trash"],
-    ]);
     expect(parseSearch("plain words color:red")).toMatchObject({
       text: "plain words color:red",
       tokens: false,
-      list: [],
     });
   });
   it("filters by tokens, redirects exact IDs and URLs, and serves facets", async () => {
@@ -149,7 +133,7 @@ describe("search tokens and redirects (B6)", () => {
       metadata: { project: "api", tags: ["plan", "q4"], source_host: "devbox" },
       files: [await upload("index.md", "# Rate")],
     });
-    const hooks = await write("/api/collections", {
+    await write("/api/collections", {
       title: "Webhooks",
       metadata: { project: "webhooks", source_host: "macbook-air" },
       files: [await upload("index.md", "# Hooks")],
@@ -161,63 +145,6 @@ describe("search tokens and redirects (B6)", () => {
     expect(await search("tag:missing")).toContain("No collections match");
     expect(await search("host:macbook-air")).toContain("Webhooks");
     expect(await search("is:pending")).toContain("Rate plan");
-    // NAV-09a: is:failed is new; a never-committed revision marked failed is failed, not uploading.
-    const broken = await write("/api/collections", {
-      title: "Broken upload",
-      files: [await upload("index.md", "# Broken")],
-    });
-    await queue.run("UPDATE pending_revisions SET state='failed' WHERE id=?", [
-      broken.revision_id ?? "",
-    ]);
-    // Row titles only: the header's health popover names the failed revision on every page.
-    const results = async (q: string) =>
-      [...(await search(q)).matchAll(/<span class="tt"[^>]*>(.*?)<\/span>/g)].map(
-        (match) => match[1],
-      );
-    expect(await results("is:failed")).toEqual(["Broken upload"]);
-    expect(await results("IS:Failed")).toEqual(["Broken upload"]);
-    expect(
-      (await results("is:uploading")).toSorted((a = "", b = "") => a.localeCompare(b)),
-    ).toEqual(["Rate plan", "Webhooks"]);
-    // Aliases list exactly what their canonical token lists.
-    expect(await results("is:pending")).toEqual(await results("is:uploading"));
-    // is:public needs a live link, so commit what is queued (the failed revision stays failed),
-    // then give Rate plan a live Latest link and Webhooks only a revoked one (the control).
-    const blobs = new BlobStore(dir, 1024 * 1024);
-    const reads = new ReadModel(waypoint, queue, "http://localhost:7410");
-    const syncClient = new LocalSyncClient();
-    const committer = new WriterCommitter(
-      waypoint,
-      queue,
-      blobs,
-      new MemoryBucket(),
-      new SyncLoop(queue, syncClient, Date.now, waypoint),
-      new IngestService(waypoint, queue, blobs, reads, syncClient),
-    );
-    committer.wake();
-    await committer.drain();
-    committer.stop();
-    const link = async (collectionId: string, revokedAt: number | null) =>
-      waypoint.run(
-        "INSERT INTO share_links (id,token_hash,collection_id,revision_id,label,expires_at,revoked_at,created_at) VALUES (?,?,?,NULL,NULL,NULL,?,?)",
-        [newId("shl"), newId("shl"), collectionId, revokedAt, Date.now()],
-      );
-    await link(one.collection_id ?? "", null);
-    await link(hooks.collection_id ?? "", Date.now());
-    expect(await results("is:public")).toEqual(["Rate plan"]);
-    expect(await results("is:shared")).toEqual(["Rate plan"]);
-    expect(await results("IS:Shared")).toEqual(["Rate plan"]);
-    // NAV-03: one hint line, and filters show as chips in canonical words (never the alias).
-    const plain = await search("x");
-    expect(plain).toContain(
-      'Add a filter by typing <span class="mono">is:</span>, <span class="mono">project:</span> or <span class="mono">in:trash</span>.',
-    );
-    expect(plain).not.toContain("data-token-hint");
-    const chips = [
-      ...(await search("x is:shared")).matchAll(/<li class="fchip[^"]*">([\s\S]*?)<\/li>/g),
-    ].map((match) => (match[1] ?? "").replace(/<[^>]*>/g, ""));
-    expect(chips).toContain("Only Public");
-    expect(chips.filter((chip) => chip.includes("is:shared"))).toEqual([]);
     const pub = new URL(one.latest_url ?? "").pathname;
     const rev = new URL(one.url ?? "").pathname;
     const go = async (q: string) => {

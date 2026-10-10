@@ -1,10 +1,7 @@
 /** @jsxImportSource hono/jsx */
-import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
-import { raw } from "hono/html";
 
 import type { HttpServices } from "../../http.ts";
-import { isLive } from "../../shares.ts";
 import { rawPath, shellPath } from "../../viewer-paths.ts";
 import { bytes, plural } from "../format.ts";
 import { Layout } from "../layout.tsx";
@@ -18,11 +15,11 @@ import {
   HistoryPanel,
   MoreMenu,
   Panel,
+  RevisionMenu,
   ShellRoot,
   TabBar,
   type CollectionContext,
-} from "./collection/index.tsx";
-import { LinksPanel, previewHref, ShareDialog, shareDisclosure } from "./share.tsx";
+} from "./collection.tsx";
 
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
 
@@ -58,13 +55,6 @@ export async function galleryPage(
     .join("/")}/`;
   const parentN = parentRow?.display_number ?? null;
   const n = revision.display_number ?? 0;
-  const done = shellPath(collection.public_id, revision.public_id, "", true);
-  // The bar's Share, More's "Share…" and the Copy menu's footer Share all open #share, so the
-  // gallery renders it the way the collection page does (NAV-09b, standing ruling 4).
-  const disclosure = ctx.sharing ? await shareDisclosure(ctx, revision.head_path) : null;
-  // Closing the share dialog after a link is made reloads with ?panel=links ("You can copy it
-  // again any time from the Public links tab"), so the gallery's panel has that tab too.
-  const tab = c.req.query("panel") === "links" && ctx.links.length ? "links" : "files";
   return noStore(
     c.html(
       <Layout
@@ -73,42 +63,23 @@ export async function galleryPage(
         bar={
           <CollectionBar
             ctx={ctx}
-            mode="gallery"
             pill={`gallery · ${dir}`}
-            doneHref={done}
-            menus={
-              <>
-                <CopyMenu ctx={ctx} path={revision.head_path} />
-                <MoreMenu ctx={ctx} path={revision.head_path} />
-              </>
-            }
+            doneHref={shellPath(collection.public_id, revision.public_id, "", true)}
           />
         }
         page="gallery"
-        findIn={collection.title}
       >
         <ShellRoot ctx={ctx} path={revision.head_path} mode="gallery">
           <Panel
             ctx={ctx}
-            tab={tab}
+            tab="files"
             files={<FilesPanel ctx={ctx} path={null} glyphs={glyphs} />}
             history={<HistoryPanel ctx={ctx} path="" all={false} />}
-            links={
-              ctx.links.length ? (
-                <LinksPanel
-                  ctx={ctx}
-                  links={ctx.links}
-                  previewHref={previewHref(ctx, revision.head_path)}
-                />
-              ) : undefined
-            }
-            linkCount={ctx.links.filter(isLive).length}
           />
           <main class="main" id="main" tabindex={-1}>
             <div
               class="gallery"
               data-gallery
-              data-done={done}
               data-n={String(n)}
               data-parent-n={parentN === null ? "" : String(parentN)}
             >
@@ -142,7 +113,6 @@ export async function galleryPage(
                     class={`shot${glyph === "+" ? " add" : glyph === "~" ? " mod" : ""}`}
                     href={shellPath(collection.public_id, revision.public_id, file.path, true)}
                     data-shot
-                    data-dims
                     data-name={file.path.slice(dir.length)}
                     data-after={rawPath(revision.public_id, file.path)}
                     data-before={glyph === "~" ? before : undefined}
@@ -194,28 +164,31 @@ export async function galleryPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
+        <RevisionMenu ctx={ctx} path="" />
+        <CopyMenu ctx={ctx} path={revision.head_path} />
+        <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
-        {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
-        <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title" data-mode="side">
-          {/* The dialog's own header and footer aren't the page's banner and contentinfo. */}
-          <header role="none">
+        <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title">
+          <header>
             <b id="lbx-title" data-lbx-title />
             <span class="muted small" data-lbx-status />
             <span class="grow" />
-            <div class="seg" role="group" aria-label="Compare view" data-lbx-modes>
-              <button type="button" data-mode="side" aria-pressed="true">
+            <div class="seg" role="radiogroup" aria-label="Compare view">
+              <label>
+                <input type="radio" name="lbx-mode" value="side" checked />
                 Side by side
-              </button>
-              <button type="button" data-mode="slider" aria-pressed="false">
+              </label>
+              <label>
+                <input type="radio" name="lbx-mode" value="slider" />
                 Slider
-              </button>
-              <button type="button" data-mode="only" aria-pressed="false">
-                #{n} only
-              </button>
+              </label>
+              <label>
+                <input type="radio" name="lbx-mode" value="only" />#{n} only
+              </label>
             </div>
             <form method="dialog">
-              <button class="btn sm" data-lbx-done aria-keyshortcuts="Escape">
-                Done <kbd aria-hidden="true">Esc</kbd>
+              <button class="btn sm ghost" aria-label="Close">
+                ✕
               </button>
             </form>
           </header>
@@ -243,17 +216,14 @@ export async function galleryPage(
               data-lbx-range
             />
           </div>
-          <footer role="none">
-            <button type="button" class="btn sm" data-lbx-prev aria-keyshortcuts="ArrowLeft">
-              {raw(icon("chevronLeft"))} Previous
+          <footer>
+            <button type="button" class="btn sm" data-lbx-prev aria-label="Previous image">
+              ←
             </button>
             <span class="muted small" data-lbx-count />
-            <button type="button" class="btn sm" data-lbx-next aria-keyshortcuts="ArrowRight">
-              Next {raw(icon("chevronRight"))}
+            <button type="button" class="btn sm" data-lbx-next aria-label="Next image">
+              →
             </button>
-            <span class="lbx-hint muted small" aria-hidden="true">
-              <kbd>←</kbd> <kbd>→</kbd> images
-            </span>
             <span class="grow" />
             <a class="btn sm" data-lbx-open href="#">
               Open in collection

@@ -4,10 +4,10 @@
 // A turbo task of its own (`build:viewer`): the writer's tests serve these files too, so it reads
 // workspace packages from source (`@waypoint/source`, also for this script's own import of
 // @waypoint/ui) and needs no library build. Run it with `node --conditions=@waypoint/source`.
-import { sharedTokensCss, stageCss, writerTokensCss } from "@waypoint/ui";
-import { build } from "esbuild";
+import { readFile } from "node:fs/promises";
 
-import { viewerCssSource } from "./src/viewer/css.ts";
+import { tokensCss } from "@waypoint/ui";
+import { build } from "esbuild";
 
 const at = (path: string): string => new URL(path, import.meta.url).pathname;
 const conditions = ["@waypoint/source"];
@@ -36,12 +36,10 @@ await build({
   logLevel: "info",
 });
 
-// The shared Folio tokens come first, then the writer-only roles, so the shell and the public
-// reader can't drift apart; only the writer gets writerTokensCss. The reader's image stage
-// (RX-04) comes before the viewer's own rules, so the writer's image pages use the same stage.
+// The shared Folio tokens come first so the shell and the public reader can't drift apart.
 await build({
   stdin: {
-    contents: sharedTokensCss + writerTokensCss + stageCss + viewerCssSource(),
+    contents: tokensCss + (await readFile(at("src/viewer/viewer.css"), "utf8")),
     loader: "css",
     resolveDir: at("src/viewer"),
     sourcefile: "viewer.css",

@@ -1,7 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`Folio tokens > freezes the reading palette (changes only with a RENDERER_VERSION bump) 1`] = `
-":root{color-scheme:light dark;--fg:#1b1a17;--fg-2:#46433d;--muted:#66615a;--bg:#fcfbf9;--line:#e7e3dc;--line-2:#d6d1c7;--subtle:#f4f2ee;--code-bg:#f4f2ee;--link:#1f5fd1;--link-u:#9dbcf3;--focus:#1b1a17;--mark:#fff1a8;--note:#1d5bd6;--tip:#18794e;--warn:#9a6700;--caution:#c4320a;--measure:68ch}
-@media(prefers-color-scheme:dark){:root{--fg:#ebe8e2;--fg-2:#c6c1b8;--muted:#958f86;--bg:#151514;--line:#2b2a27;--line-2:#3a3935;--subtle:#1e1d1a;--code-bg:#1e1d1a;--link:#82adff;--link-u:#2f4f8a;--focus:#ebe8e2;--mark:#5a4a00;--note:#8db4ff;--tip:#5fd39a;--warn:#e3b341;--caution:#ff8a65}}
-"
-`;
