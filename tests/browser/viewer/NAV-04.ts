@@ -379,7 +379,7 @@ const scenario: ViewerScenario = {
       assert.equal(await file.getAttribute("aria-expanded"), "false");
       // Copy link is in ⋯ here.
       assert.equal(await page.locator("header.cbar button.copyl").isVisible(), false);
-      await page.locator('header.cbar [popovertarget="more-menu"]').tap();
+      await page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').tap();
       await page.locator("#more-menu").waitFor({ state: "visible" });
       const copyItems = await Promise.all(
         [/^Link to latest/, /^Link to this revision \(#1\)/, /^Handoff block/].map((name) =>

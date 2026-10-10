@@ -23,7 +23,7 @@ const scenario: ViewerScenario = {
       await legacyPage.waitForFunction(`${expression} !== ""`);
       return legacyPage.evaluate(expression);
     };
-    await legacyPage.locator('header [popovertarget="copy-menu"]').click();
+    await legacyPage.locator('header [popovertarget="copy-menu"][aria-haspopup]').click();
     assert.equal(await origin("copy-menu"), "top right");
     await legacy.close();
     assert.deepEqual(pageErrors, [], "no script errors");

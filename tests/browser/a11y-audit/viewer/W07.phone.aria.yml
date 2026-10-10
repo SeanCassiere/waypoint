@@ -1,0 +1,14 @@
+- banner:
+  - navigation "Breadcrumb":
+    - list:
+        - heading "Webhook idempotency research" [level=1]
+- complementary "Collection panel":
+  - heading "Files and history" [level=2]
+  - tablist "Panel":
+    - tab "Files 3"
+    - tab "History 3"
+    - tab "Public links 2" [selected]
+- main:
+  - heading "Sync and sharing status" [level=2]
+  - 'heading "Document: index.md" [level=2]'
+- navigation "Collection":

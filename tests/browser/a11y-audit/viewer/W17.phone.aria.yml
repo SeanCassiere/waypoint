@@ -1,0 +1,10 @@
+- banner:
+- main:
+  - heading "Connect an agent" [level=1]
+  - list:
+      - heading "Add the Waypoint MCP server" [level=2]
+      - navigation "Agent":
+      - heading "Add the Waypoint skill, so Claude Code knows how to publish" [level=2]
+      - heading "Check that it works" [level=2]
+  - heading "Machines that have published" [level=2]
+  - list:

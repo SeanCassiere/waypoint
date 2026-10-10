@@ -105,7 +105,10 @@ export function bindMenus(): void {
       const opener = $(`[popovertarget="${popover.id}"]:focus-visible`);
       if (
         opener &&
-        (popover.getAttribute("role") === "menu" || popover.classList.contains("rmenu"))
+        // The Copy menu's role is on its list inside the box (its Preview disclosure isn't an item).
+        (popover.matches("[role=menu]") ||
+          $(":scope > .mbox [role=menu]", popover) ||
+          popover.classList.contains("rmenu"))
       ) {
         const item = $("[aria-current] a", popover) ?? items(popover)[0];
         item?.focus();

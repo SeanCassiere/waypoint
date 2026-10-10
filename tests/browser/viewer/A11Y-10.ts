@@ -280,7 +280,7 @@ const scenario: ViewerScenario = {
 
       // The Copy menu takes the contract from NAV-04; until then there's nothing to check.
       if ((await page.locator("#copy-menu > .mbox.has-list").count()) > 0) {
-        await page.locator('header [popovertarget="copy-menu"]').click();
+        await page.locator('header [popovertarget="copy-menu"][aria-haspopup]').click();
         await page.locator("#copy-menu").waitFor({ state: "visible" });
         await page.evaluate(
           '[...document.querySelectorAll("#copy-menu .mi")].at(-1).setAttribute("data-t-last", "")',
@@ -351,7 +351,7 @@ const scenario: ViewerScenario = {
     {
       const { page } = await ctx.newPage({ width: 1280, height: 560, ...still });
       await page.goto(collection);
-      const copy = page.locator('header [popovertarget="copy-menu"]');
+      const copy = page.locator('header [popovertarget="copy-menu"][aria-haspopup]');
       await copy.focus();
       await page.keyboard.press("Enter");
       await page.locator("#copy-menu").waitFor({ state: "visible" });

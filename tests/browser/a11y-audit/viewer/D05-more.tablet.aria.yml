@@ -1,0 +1,7 @@
+- banner:
+  - navigation "Breadcrumb":
+    - list:
+        - heading "Postgres 17 upgrade runbook" [level=1]
+- main:
+  - heading "Sync and sharing status" [level=2]
+  - 'heading "Document: runbook.md" [level=2]'

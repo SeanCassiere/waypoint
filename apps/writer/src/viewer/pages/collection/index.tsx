@@ -191,7 +191,18 @@ export async function collectionPage(
       <Layout
         title={collection.title}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} path={path} />}
+        bar={
+          <CollectionBar
+            ctx={ctx}
+            path={path}
+            menus={
+              <>
+                <CopyMenu ctx={ctx} path={path} />
+                <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
+              </>
+            }
+          />
+        }
         page="collection"
         findIn={collection.title}
       >
@@ -237,8 +248,6 @@ export async function collectionPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <CopyMenu ctx={ctx} path={path} />
-        <MoreMenu ctx={ctx} path={path} previewPublic={ctx.links.length > 0} />
         <CollectionDialogs ctx={ctx} />
         {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
       </Layout>,

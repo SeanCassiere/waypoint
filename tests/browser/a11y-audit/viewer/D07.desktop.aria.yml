@@ -1,0 +1,10 @@
+- banner:
+  - navigation "Main":
+  - search:
+- main:
+  - heading "Trash" [level=1]
+  - region "In Trash · 2":
+    - heading "In Trash · 2" [level=2]
+    - list:
+- alertdialog "Restore “Leaked .env in run output (do not share)”?":
+  - heading "Restore “Leaked .env in run output (do not share)”?" [level=2]

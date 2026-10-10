@@ -1,0 +1,15 @@
+- banner:
+  - navigation "Main":
+  - search:
+- main "Recent":
+  - heading "Recent" [level=1]
+  - region "Needs attention 1 collection":
+    - heading "Needs attention 1 collection" [level=2]
+  - region "Day":
+    - heading "Day" [level=2]
+    - list:
+- complementary "Browse":
+  - heading "Projects" [level=2]
+  - list:
+  - heading "Public now" [level=2]
+  - list:

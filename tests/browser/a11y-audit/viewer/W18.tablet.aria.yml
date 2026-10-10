@@ -1,0 +1,5 @@
+- banner:
+  - navigation "Main":
+  - search:
+- main:
+  - heading "Not found" [level=1]

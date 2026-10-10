@@ -513,8 +513,9 @@ export function isEmbeddable(mime: string): boolean {
 export type Glyph = "+" | "~" | "·";
 export const glyphClass = (glyph: Glyph): string =>
   glyph === "+" ? "k a" : glyph === "~" ? "k m" : "k";
+/** The word a tree mark reads as (NAV-09's vocabulary). */
 const glyphLabel = (glyph: Glyph): string =>
-  glyph === "+" ? "added" : glyph === "~" ? "modified" : "unchanged";
+  glyph === "+" ? "added" : glyph === "~" ? "changed" : "unchanged";
 
 export interface TreeOptions {
   files: readonly ManifestFileEntry[];
@@ -571,8 +572,11 @@ export function FileTree(props: TreeOptions) {
         href={shellPath(props.pub, props.rpub, file.path, props.pinned, props.head)}
         title={file.path}
       >
-        <span class={glyphClass(glyph)} aria-label={props.glyphs ? glyphLabel(glyph) : undefined}>
-          {props.glyphs ? glyph : "·"}
+        {/* The mark is shown, its word is read (OW-12a's FileCard pattern); with no compare base
+            the "·" is decoration only. */}
+        <span class={glyphClass(glyph)}>
+          <span aria-hidden="true">{props.glyphs ? glyph : "·"}</span>
+          {props.glyphs ? <span class="vh">{glyphLabel(glyph)}</span> : null}
         </span>
         <span class="nm">{file.path.slice(prefix.length)}</span>
         {file.path === props.head ? <span class="hd">head</span> : null}
@@ -624,7 +628,7 @@ export function FileTree(props: TreeOptions) {
           data-filter
         />
       ) : null}
-      <div class="tree" aria-label="Files">
+      <div class="tree" role="group" aria-label="Files">
         {render(root, "")}
       </div>
     </>

@@ -1,0 +1,14 @@
+- banner:
+  - navigation "Main":
+  - search:
+- main "2 collections in Trash":
+  - heading "2 collections in Trash" [level=1]
+  - list "Active filters":
+  - region "Day":
+    - heading "Day" [level=2]
+    - list:
+- complementary "Browse":
+  - heading "Projects" [level=2]
+  - list:
+  - heading "Public now" [level=2]
+  - list:

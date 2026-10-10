@@ -443,7 +443,7 @@ describe("public reader", () => {
     const tabs = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tabs).toContain('<nav class="ptabs2" aria-label="Files">');
+    expect(tabs).toContain('<nav class="prow" aria-label="Files"><div class="ptabs2">');
     expect([...tabs.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
       "index.md",
       "data/a.bin",
@@ -473,8 +473,8 @@ describe("public reader", () => {
     const tree = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tree).not.toContain('<nav class="ptabs2"');
-    expect(tree).toContain('<nav class="pfiles" aria-label="Files">');
+    expect(tree).not.toContain('class="ptabs2"');
+    expect(tree).toContain('<nav class="prow" aria-label="Files"><div class="pfiles">');
     expect(tree).toContain('Files <span class="n">9</span>');
     expect(tree).toContain(
       '<details open><summary dir="auto">' + iconUse("folder") + "docs/</summary>",

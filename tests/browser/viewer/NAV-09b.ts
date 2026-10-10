@@ -76,18 +76,6 @@ async function noForkLabel(page: Page, selector: string, where: string): Promise
   assert.equal(hit(texts, FORK), null, `${where}: a fork label "on #N"`);
 }
 
-/**
- * axe's aria-required-children on the open Copy menu, as failure summaries. Narrow filter
- * (standing ruling 3): a node whose every failing child is NAV-04's handoff Preview `<summary>`
- * passes, as that summary's semantics are A11Y-AUDIT B3's fix, which removes this filter. The
- * footer's Share is a menuitem inside a generic div, so it is never filtered.
- */
-const MENU_CHILDREN = `axe.run("#copy-menu", { runOnly: { type: "rule", values: ["aria-required-children"] } }).then((result) => JSON.stringify(result.violations.flatMap((violation) => violation.nodes.flatMap((node) => {
-  const checks = [...node.any, ...node.all, ...node.none];
-  const handoffOnly = checks.length > 0 && checks.every((check) => check.data?.values === "summary" && check.relatedNodes.length > 0 && check.relatedNodes.every((related) => document.querySelector(related.target[0])?.matches("#copy-menu details.handoff-d > summary") ?? false));
-  return handoffOnly ? [] : [node.failureSummary ?? violation.id];
-}))))`;
-
 /** Opens the panel where it's a sheet: the file crumb at 820, the tab bar's History at 390. */
 async function openPanel(page: Page, width: number): Promise<void> {
   if (width > 1099) return;
@@ -173,10 +161,10 @@ async function footerShare(page: Page, where: string): Promise<void> {
     true,
     `${where}: ArrowDown from the last item reaches Share`,
   );
-  // Injects axe-core; MENU_CHILDREN then reads the checks' related nodes.
-  await axe(page, { include: "#copy-menu", rules: ["aria-required-children"] });
+  // The handoff Preview disclosure follows the menu (A11Y-AUDIT), so nothing is filtered.
+  const children = await axe(page, { include: "#copy-menu", rules: ["aria-required-children"] });
   assert.deepEqual(
-    strings.parse(JSON.parse(z.string().parse(await page.evaluate(MENU_CHILDREN)))),
+    children.flatMap((violation) => violation.nodes.map((node) => node.target.join(" "))),
     [],
     `${where}: the menu's children`,
   );
@@ -252,7 +240,7 @@ const scenario: ViewerScenario = {
     );
     // History → #2 → More → Preview as public.
     await page.goto(await revision(page, webhook, 2));
-    await page.locator('header.cbar [popovertarget="more-menu"]').click();
+    await page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
     const preview = page.locator("#more-menu").getByRole("menuitem", { name: "Preview as public" });
     const previewHref = await preview.getAttribute("href");
     assert.ok(previewHref, "More has Preview as public");
@@ -264,7 +252,7 @@ const scenario: ViewerScenario = {
     );
     // OW-03's Latest track.
     await page.goto(postgres);
-    await page.locator("header.cbar button[commandfor=share]").click();
+    await page.locator("header.cbar button.share[commandfor=share]").click();
     await page.locator("#share").waitFor({ state: "visible" });
     await page.locator("#share label.opt", { hasText: "Latest revision" }).click();
     assert.ok(
@@ -367,7 +355,7 @@ const scenario: ViewerScenario = {
     );
     await noOldWords(page, "Postgres Copy menu");
     await page.keyboard.press("Escape");
-    await page.locator('header.cbar [popovertarget="more-menu"]').click();
+    await page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
     await page.locator("#more-menu").waitFor({ state: "visible" });
     await noOldWords(page, "Postgres More menu");
     await page.keyboard.press("Escape");
@@ -412,7 +400,7 @@ const scenario: ViewerScenario = {
     {
       const mid = await open({ width: 900, height: 1000 });
       await mid.goto(pg5);
-      await mid.locator('header.cbar [popovertarget="more-menu"]').click();
+      await mid.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
       await mid.locator("#more-menu").waitFor({ state: "visible" });
       assert.equal(norm(await mid.locator("#more-menu .lbl.midonly").innerText()), "COPY LINK");
       assert.equal(
@@ -480,7 +468,7 @@ const scenario: ViewerScenario = {
     // §2: the raw items name the current file, also after in-frame navigation ----------------------
 
     {
-      const more = page.locator('header.cbar [popovertarget="more-menu"]');
+      const more = page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]');
       const rawItem = page.locator("#more-menu [data-open-raw]");
       const download = page.locator("#more-menu [data-download-raw]");
       await more.click();

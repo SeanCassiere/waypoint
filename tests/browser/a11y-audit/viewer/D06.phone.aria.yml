@@ -1,0 +1,15 @@
+- banner:
+  - navigation "Breadcrumb":
+    - list:
+        - heading "Postgres 17 upgrade runbook" [level=1]
+- main:
+  - heading "Sync and sharing status" [level=2]
+  - 'heading "Document: runbook.md" [level=2]'
+- navigation "Collection":
+- dialog "Writer status":
+  - region "This collection":
+    - heading "This collection" [level=3]
+    - list:
+  - region "Elsewhere on this writer":
+    - heading "Elsewhere on this writer" [level=3]
+    - list:

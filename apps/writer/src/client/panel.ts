@@ -1,5 +1,6 @@
 import { rawPath } from "../viewer-paths.ts";
 import { $, $$, storage } from "./dom.ts";
+import { nearestDelta } from "./scroll-nearest.ts";
 
 // The panel docks at ≥ 1100px (spec §3.3) and is an overlay sheet below that.
 const WIDE = "(min-width: 1100px)";
@@ -81,10 +82,20 @@ export function selectTab(id: string, focus = false): boolean {
   syncToggle();
   return true;
 }
-/** Scrolls the current revision into view in the History tab, if the panel shows it. */
+/**
+ * Scrolls the current revision into view in the History tab, if the panel shows it. It sets the
+ * panel body's `scrollTop` (the "nearest" arithmetic), never `scrollIntoView`: in Chromium that
+ * moves the sequential focus starting point to the row, so the first Tab would skip the skip link.
+ */
 function revealRevision(): void {
   if (!panelOpen()) return;
-  $('#tp-history:not([hidden]) .rv[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+  const row = $('#tp-history:not([hidden]) .rv[aria-current="true"]');
+  const body = row?.closest<HTMLElement>(".pbody");
+  if (!row || !body) return;
+  const top = body.getBoundingClientRect().top + body.clientTop;
+  const bottom = top + body.clientHeight;
+  const at = row.getBoundingClientRect();
+  body.scrollTop += nearestDelta(top, bottom, at.top, at.bottom);
 }
 
 const SHEET = "wp:sheet";

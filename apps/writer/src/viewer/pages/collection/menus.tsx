@@ -41,57 +41,62 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
   );
   const pinnedUrl = pinnedRevisionUrl(base, ctx.collection.public_id, ctx.revision.public_id, path);
   return (
-    <div id="copy-menu" class="menu" popover="auto" role="menu" aria-label="Copy">
+    <div id="copy-menu" class="menu" popover="auto">
       <div class="mbox has-list">
         <div class="mbody">
-          <div class="lbl">
-            <span class="lbl-ic">{raw(icon("lock", "sm"))}Tailnet links</span>
-            <span class="lbl-note"> · open only on your tailnet</span>
+          {/* A menu holds only menu items (axe aria-required-children), so the menu is the list
+              and the pinned footer (owned, as the footer sits outside the scrolling body), and
+              the handoff Preview disclosure follows it in the body, with its own native keys. */}
+          <div role="menu" aria-label="Copy" aria-owns="copy-menu-foot">
+            <div class="lbl">
+              <span class="lbl-ic">{raw(icon("lock", "sm"))}Tailnet links</span>
+              <span class="lbl-note"> · open only on your tailnet</span>
+            </div>
+            <button
+              type="button"
+              class="mi"
+              role="menuitem"
+              popovertarget="copy-menu"
+              popovertargetaction="hide"
+              data-action="copy-link"
+              data-kind="latest"
+            >
+              <span>Link to latest</span>
+              <kbd>c</kbd>
+              <small class="mono" data-copy-preview="latest">
+                {shortUrl(latestUrl)}
+              </small>
+            </button>
+            <button
+              type="button"
+              class="mi"
+              role="menuitem"
+              popovertarget="copy-menu"
+              popovertargetaction="hide"
+              data-action="copy-link"
+              data-kind="pinned"
+            >
+              <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
+              <kbd>⇧C</kbd>
+              <small class="mono" data-copy-preview="pinned">
+                {shortUrl(pinnedUrl)}
+              </small>
+            </button>
+            <hr />
+            <div class="lbl">For another agent</div>
+            <button
+              type="button"
+              class="mi"
+              role="menuitem"
+              popovertarget="copy-menu"
+              popovertargetaction="hide"
+              data-action="copy-handoff"
+            >
+              <span>Handoff block</span>
+              <kbd>a</kbd>
+              <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
+            </button>
           </div>
-          <button
-            type="button"
-            class="mi"
-            role="menuitem"
-            popovertarget="copy-menu"
-            popovertargetaction="hide"
-            data-action="copy-link"
-            data-kind="latest"
-          >
-            <span>Link to latest</span>
-            <kbd>c</kbd>
-            <small class="mono" data-copy-preview="latest">
-              {shortUrl(latestUrl)}
-            </small>
-          </button>
-          <button
-            type="button"
-            class="mi"
-            role="menuitem"
-            popovertarget="copy-menu"
-            popovertargetaction="hide"
-            data-action="copy-link"
-            data-kind="pinned"
-          >
-            <span>Link to this revision (#{ctx.revision.display_number ?? "?"})</span>
-            <kbd>⇧C</kbd>
-            <small class="mono" data-copy-preview="pinned">
-              {shortUrl(pinnedUrl)}
-            </small>
-          </button>
-          <hr />
-          <div class="lbl">For another agent</div>
-          <button
-            type="button"
-            class="mi"
-            role="menuitem"
-            popovertarget="copy-menu"
-            popovertargetaction="hide"
-            data-action="copy-handoff"
-          >
-            <span>Handoff block</span>
-            <kbd>a</kbd>
-            <small>Paste into an agent prompt. It has everything needed to read and watch.</small>
-          </button>
           <details class="handoff-d">
             <summary>Preview</summary>
             <pre class="handoff" data-handoff>
@@ -99,7 +104,7 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
             </pre>
           </details>
         </div>
-        <div class="mfoot">
+        <div class="mfoot" id="copy-menu-foot">
           <button
             type="button"
             class="mi"

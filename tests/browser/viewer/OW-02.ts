@@ -306,7 +306,7 @@ const scenario: ViewerScenario = {
     await page.evaluate(`document.querySelector("dialog#ow02-modal").remove()`);
 
     // A toast inside a modal: the host moves into the open share dialog, then back to body.
-    await page.locator("header.bar [commandfor=share]").click();
+    await page.locator("header.bar .share[commandfor=share]").click();
     const share = page.locator("dialog#share");
     await share.waitFor({ state: "visible" });
     await share.locator("[data-share-submit]").click();
@@ -365,7 +365,7 @@ const scenario: ViewerScenario = {
     // dialog's footer actions (at the viewport's bottom edge) stay clickable.
     await origin.click();
     await page.locator(error).getByRole("button", { name: "Dismiss" }).waitFor();
-    await page.locator("header.bar [commandfor=share]").click();
+    await page.locator("header.bar .share[commandfor=share]").click();
     await page.locator("dialog#share[open] [data-toast]").waitFor({ state: "attached" });
     // Let the dialog finish its open transition.
     await page.waitForTimeout(400);

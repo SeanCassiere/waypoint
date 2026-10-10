@@ -327,7 +327,21 @@ export async function changesPage(
       <Layout
         title={`Changes in #${headN} · ${collection.title}`}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} mode="changes" pill={pill} crumb={crumb} doneHref={done} />}
+        bar={
+          <CollectionBar
+            ctx={ctx}
+            mode="changes"
+            pill={pill}
+            crumb={crumb}
+            doneHref={done}
+            menus={
+              <>
+                <CopyMenu ctx={ctx} path={revision.head_path} />
+                <MoreMenu ctx={ctx} path={revision.head_path} />
+              </>
+            }
+          />
+        }
         page="changes"
         findIn={collection.title}
       >
@@ -509,8 +523,6 @@ export async function changesPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <CopyMenu ctx={ctx} path={revision.head_path} />
-        <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
         {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
       </Layout>,

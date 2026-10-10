@@ -395,14 +395,17 @@ function ConfirmDialog() {
   );
 }
 
+/** The 404 body. `level` "h2" is for a page whose bar already holds the h1 (the collection bar's
+ *  title); the H1 rule styles `.notfound > :is(h1, h2)` alike. */
 export function NotFoundBody(props: {
   path: string;
   latestHref?: string | undefined;
   message?: Child;
+  level?: "h1" | "h2";
 }) {
   return (
     <main class="wrap narrow notfound" id="main">
-      <h1>Not found</h1>
+      {props.level === "h2" ? <h2>Not found</h2> : <h1>Not found</h1>}
       <p class="muted">
         {props.message ?? (
           <>

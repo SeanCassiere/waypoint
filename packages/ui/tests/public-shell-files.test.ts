@@ -76,7 +76,8 @@ describe("Files popover", () => {
   });
   it("uses tabs in a .prow row for 2–8 files, without popover or autofocus", () => {
     const html = markup(shell(three));
-    expect(html).toContain('<div class="prow"><nav class="ptabs2" aria-label="Files">');
+    // The row is the Files landmark, so its Download control is inside one too (A11Y-AUDIT).
+    expect(html).toContain('<nav class="prow" aria-label="Files"><div class="ptabs2">');
     // The letterhead's About popover (RX-01) is not part of the Files row.
     expect(html.slice(html.indexOf("</header>"))).not.toContain("popover");
     expect(html).not.toContain("autofocus");
