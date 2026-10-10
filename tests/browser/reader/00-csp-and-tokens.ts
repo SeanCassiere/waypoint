@@ -1,3 +1,5 @@
+import { WAYPOINT_VERSION } from "@waypoint/core";
+
 import { assert, type ReaderScenario } from "../harness.ts";
 import { FILES, fixture } from "./_fixture.ts";
 
@@ -17,6 +19,7 @@ const scenario: ReaderScenario = {
       /^(?:just now|\d+ (?:minute|hour|day)s? ago|in \d+ (?:minute|hour|day)s?|on \d{1,2} [A-Z][a-z]{2}(?: \d{4})?)$/,
     );
     assert.equal(await json(page, `"pwned" in window`), false);
+    assert.equal(await json(page, "window._WAYPOINT_VERSION"), WAYPOINT_VERSION);
     assert.equal(
       await page.textContent("h1"),
       `Evil </title><script>window.pwned=1</script>�Title "'`,

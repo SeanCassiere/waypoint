@@ -1,3 +1,5 @@
+import { WAYPOINT_VERSION } from "@waypoint/core";
+
 import { assert, type ViewerScenario } from "../harness.ts";
 import { baseline } from "./_baseline.ts";
 
@@ -12,6 +14,7 @@ const scenario: ViewerScenario = {
     assert.equal(await page.locator("aside#panel").count(), 1);
     assert.equal(await page.locator("main#main").count(), 1);
     assert.equal(await page.locator("a.skip").getAttribute("href"), "#main");
+    assert.equal(await page.evaluate("window._WAYPOINT_VERSION"), WAYPOINT_VERSION);
     // Share: the dialog opens natively, the checklist follows the form, the link shows once.
     await page.getByRole("button", { name: "Share", exact: true }).click();
     await page.locator("#share").waitFor({ state: "visible" });

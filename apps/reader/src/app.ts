@@ -9,6 +9,7 @@ import {
   rendererFor,
   shareShellUrl,
   validatePath,
+  WAYPOINT_VERSION,
 } from "@waypoint/core";
 import { encodeLinkPath, isStageImage, renderPublicShell } from "@waypoint/ui";
 import { Hono, type Context } from "hono";
@@ -471,6 +472,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         syncing: newer,
         download: previewable(file.mime) ? null : { mime: file.mime, size: file.size ?? null },
         image: image ? { mime: file.mime, size: file.size ?? null } : null,
+        version: WAYPOINT_VERSION,
       });
       response = new Response(html, {
         headers: {

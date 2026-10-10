@@ -122,3 +122,4 @@ Secrets are uploaded with `wrangler secret bulk`; bindings come from the Wrangle
 | Writer `GET /api/status`, `waypoint_status` | `version`, `sha` and `warnings` alongside the queue data; `waypoint_status` adds `mcp.version`, the running MCP server's version. |
 | Writer `/status` page | Version and short commit in the header. |
 | Reader `GET /healthz`, `GET /healthz/deep` | Body stays exactly `ok` (or `fail` with 503 for the deep check); headers `X-Waypoint-Version` and, when recorded, `X-Waypoint-Sha`. |
+| Writer viewer pages, the reader's shell and the writer's `?as=public` preview | `<html data-waypoint-version="0.0.0">`, which the page's script copies to `window._WAYPOINT_VERSION` (for the browser console; no UI shows it yet). The version only, never the commit. |

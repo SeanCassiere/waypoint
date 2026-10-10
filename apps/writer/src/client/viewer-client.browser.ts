@@ -16,7 +16,9 @@ import { bindFind, bindSearch } from "./search.ts";
 import { bindShare } from "./share.ts";
 import { localizeTimes } from "./time.ts";
 import { showFlash } from "./toast.ts";
+import { exposeVersion } from "./version.ts";
 
+exposeVersion();
 localizeTimes();
 bindCommandFallback();
 showFlash();

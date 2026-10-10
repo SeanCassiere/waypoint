@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { WAYPOINT_VERSION } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -177,7 +178,9 @@ describe("image stage (RX-04)", () => {
     expect(head).not.toContain("frame img");
 
     // The public preview shows the reader's stage, and the download card for an archive.
-    expect(await page(`/c/${pub}/shots/a.png?as=public`)).toContain('class="imgmain"');
+    const preview = await page(`/c/${pub}/shots/a.png?as=public`);
+    expect(preview).toContain('class="imgmain"');
+    expect(preview).toContain(`<html lang="en" data-waypoint-version="${WAYPOINT_VERSION}">`);
     expect(await page(`/c/${pub}/build.zip?as=public`)).toContain('class="dl"');
 
     const second = await post(`/api/collections/${first.collection_id}/revisions`, {

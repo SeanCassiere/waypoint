@@ -368,6 +368,8 @@ describe("public reader", () => {
     expect(html.match(/<script>/g)).toHaveLength(1);
     expect(html).toContain(`<style>${publicShellCss}</style>`);
     expect(html).toContain(`<script>${publicShellScript}</script>`);
+    // The version is markup, not script, so a release doesn't change the script's hash.
+    expect(html).toContain(`<html lang="en" data-waypoint-version="${WAYPOINT_VERSION}">`);
     // No inline handlers, external resources or absolute URLs except the reader's own origin.
     expect(html).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
     const foreign = (html.match(/https?:\/\/[^"'\s<>]*/gi) ?? []).filter(

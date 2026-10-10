@@ -20,11 +20,13 @@ import {
   publicShellScript,
   stageScript,
   timeScript,
+  versionScript,
 } from "../src/public-shell/script.ts";
 import { sharedTokensCss } from "../src/tokens.ts";
 
 const cssSegments = { skipCss, letterheadCss, filesCss, menuCss, documentCss, stageCss, buttonCss };
 const scriptSegments = [
+  versionScript,
   timeScript,
   locationScript,
   filesMenuScript,

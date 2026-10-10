@@ -25,6 +25,8 @@ export default defineConfig({
     "typescript/no-unsafe-argument": "error",
     "typescript/prefer-promise-reject-errors": "error",
     "typescript/require-await": "error",
+    // The page global that exposes the release version (named by the owner).
+    "no-underscore-dangle": ["error", { allow: ["_WAYPOINT_VERSION"] }],
   },
   overrides: [
     {

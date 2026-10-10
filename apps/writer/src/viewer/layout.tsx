@@ -1,4 +1,5 @@
 /** @jsxImportSource hono/jsx */
+import { WAYPOINT_VERSION } from "@waypoint/core";
 import { icon } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
@@ -36,7 +37,8 @@ export function Layout(props: {
 }) {
   const pageScript = props.page === "changes" || props.page === "gallery";
   return (
-    <html lang="en">
+    // The client copies data-waypoint-version to window._WAYPOINT_VERSION (version.ts).
+    <html lang="en" data-waypoint-version={WAYPOINT_VERSION}>
       <head>
         <meta charset="utf-8" />
         <meta

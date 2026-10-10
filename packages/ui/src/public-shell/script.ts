@@ -331,8 +331,19 @@ export const stageScript: string = `(() => {
   else img.addEventListener("error", swap, { once: true });
 })();`;
 
+/**
+ * Exposes the release version to the browser console as `window._WAYPOINT_VERSION`. It reads
+ * `<html data-waypoint-version>` instead of embedding the version, so the script's CSP hash
+ * doesn't change with every release.
+ */
+export const versionScript: string = `(() => {
+  const version = document.documentElement.dataset.waypointVersion;
+  if (version) window._WAYPOINT_VERSION = version;
+})();`;
+
 /** The shell's only script: the non-empty segments, in this order, one per line group. */
 export const publicShellScript: string = [
+  versionScript,
   timeScript,
   locationScript,
   filesMenuScript,
