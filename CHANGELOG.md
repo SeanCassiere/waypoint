@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/SeanCassiere/waypoint/compare/v0.2.1...v0.2.2) (2026-10-10)
+
+
+### Performance
+
+* **deploy:** writer health checks every second while it starts, and faster polls ([#98](https://github.com/SeanCassiere/waypoint/issues/98)) ([4d28f5b](https://github.com/SeanCassiere/waypoint/commit/4d28f5bf76502636e0b2a45cc309dbcffdb27390))
+
 ## [0.2.1](https://github.com/SeanCassiere/waypoint/compare/v0.2.0...v0.2.1) (2026-10-10)
 
 
