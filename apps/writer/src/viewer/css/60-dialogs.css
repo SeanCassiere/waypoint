@@ -17,6 +17,12 @@ dialog.dlg.narrow {
 dialog.dlg::backdrop {
   background: var(--scrim);
 }
+/* Pages render without a doctype, and in that mode a form gets a 1em bottom margin, which left a
+   gap between a dialog's footer strip and its bottom edge. Forms in a dialog take no margin, so
+   the footer sits flush. */
+dialog form {
+  margin: 0;
+}
 .dlg .band {
   display: flex;
   gap: 12px;
