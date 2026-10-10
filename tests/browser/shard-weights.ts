@@ -1,4 +1,5 @@
-// Recent CI durations of each browser scenario, in ms (CI run 38034481806, 2026-10-10), rounded.
+// Recent CI durations of each browser scenario, in ms (CI run 38034481806, 2026-10-10; 03-light-dismiss
+// and OW-02 from a local run after their toast waits moved to a fake clock), rounded.
 // shards.ts balances BROWSER_SHARD jobs with them. Refresh them from a CI log when the shards drift
 // apart; a scenario missing here gets DEFAULT_WEIGHT_MS.
 export const SHARD_WEIGHTS: Readonly<
@@ -8,7 +9,7 @@ export const SHARD_WEIGHTS: Readonly<
     "00-share-and-links": 2100,
     "01-copy-menu-and-frame": 400,
     "02-revisions-and-keys": 1700,
-    "03-light-dismiss": 51100,
+    "03-light-dismiss": 26100,
     "04-history-sheet-744": 500,
     "05-popover-origins": 200,
     "A11Y-04": 1500,
@@ -26,7 +27,7 @@ export const SHARD_WEIGHTS: Readonly<
     "NAV-10": 6000,
     "NAV-11": 6300,
     "NAV-13": 800,
-    "OW-02": 40900,
+    "OW-02": 23200,
     "OW-03": 18000,
     "OW-04": 28500,
     "OW-05b": 14300,
