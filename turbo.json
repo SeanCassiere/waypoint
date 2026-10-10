@@ -44,13 +44,14 @@
       "passThroughEnv": ["GITHUB_ACTIONS"],
       "outputs": []
     },
+    // BROWSER_SHARD=i/n runs one CI shard of the suite (tests/browser/shards.ts).
     "test:browser": {
-      "env": ["CHROME_PATH"],
+      "env": ["CHROME_PATH", "BROWSER_SHARD"],
       "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"],
       "outputs": []
     },
     "test:browser:reader": {
-      "env": ["CHROME_PATH"],
+      "env": ["CHROME_PATH", "BROWSER_SHARD"],
       "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"],
       "outputs": []
     },

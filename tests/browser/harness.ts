@@ -20,6 +20,8 @@ import { z } from "zod";
 
 import { createReaderApp, type ReaderEnv } from "../../apps/reader/src/app.ts";
 import { waypointMigrations } from "../../apps/writer/src/migrations.ts";
+import { SHARD_WEIGHTS } from "./shard-weights.ts";
+import { assignShards, parseShard } from "./shards.ts";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -540,15 +542,23 @@ export async function runSuite(kind: "viewer" | "reader", args: string[]): Promi
     process.exit(2);
   }
   const baseline = /^\d\d-/;
+  // BROWSER_SHARD=i/n runs one CI shard of the suite (shards.ts): the baseline stays together.
+  const shard = parseShard(process.env.BROWSER_SHARD);
+  if (shard && args.length > 0) {
+    console.error("BROWSER_SHARD and scenario names don't combine: pass one or the other");
+    process.exit(2);
+  }
   // A baseline file runs after every baseline file before it (they share state); an item alone.
-  const selected =
-    args.length === 0
+  const selected = shard
+    ? (assignShards(stems, SHARD_WEIGHTS[kind], shard.count)[shard.index - 1] ?? [])
+    : args.length === 0
       ? stems
       : stems.filter((stem) =>
           args.some(
             (arg) => arg === stem || (baseline.test(arg) && baseline.test(stem) && stem < arg),
           ),
         );
+  if (shard) console.log(`Shard ${shard.index}/${shard.count}: ${selected.join(", ") || "(none)"}`);
   const scenarios: { stem: string; scenario: Scenario<ViewerContext> }[] = [];
   const pageErrors: string[] = [];
   let writer: WriterHandle | undefined;
