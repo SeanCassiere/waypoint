@@ -70,7 +70,20 @@ export async function galleryPage(
       <Layout
         title={`${dir} · ${collection.title}`}
         chrome={ctx.chrome}
-        bar={<CollectionBar ctx={ctx} mode="gallery" pill={`gallery · ${dir}`} doneHref={done} />}
+        bar={
+          <CollectionBar
+            ctx={ctx}
+            mode="gallery"
+            pill={`gallery · ${dir}`}
+            doneHref={done}
+            menus={
+              <>
+                <CopyMenu ctx={ctx} path={revision.head_path} />
+                <MoreMenu ctx={ctx} path={revision.head_path} />
+              </>
+            }
+          />
+        }
         page="gallery"
         findIn={collection.title}
       >
@@ -181,12 +194,11 @@ export async function galleryPage(
         </ShellRoot>
         <div class="panel-scrim" data-action="panel-close" />
         <TabBar />
-        <CopyMenu ctx={ctx} path={revision.head_path} />
-        <MoreMenu ctx={ctx} path={revision.head_path} />
         <CollectionDialogs ctx={ctx} />
         {disclosure ? <ShareDialog ctx={ctx} links={ctx.links} disclosure={disclosure} /> : null}
         <dialog class="lbx" id="lightbox" aria-labelledby="lbx-title" data-mode="side">
-          <header>
+          {/* The dialog's own header and footer aren't the page's banner and contentinfo. */}
+          <header role="none">
             <b id="lbx-title" data-lbx-title />
             <span class="muted small" data-lbx-status />
             <span class="grow" />
@@ -231,7 +243,7 @@ export async function galleryPage(
               data-lbx-range
             />
           </div>
-          <footer>
+          <footer role="none">
             <button type="button" class="btn sm" data-lbx-prev aria-keyshortcuts="ArrowLeft">
               {raw(icon("chevronLeft"))} Previous
             </button>

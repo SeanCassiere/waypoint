@@ -32,12 +32,12 @@ const controls = (html: string): string[] =>
   markup(html).match(/<a class="btn dlb[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
 const attribute = (tag: string, name: string): string | undefined =>
   new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
-/** The `.prow` row's markup, up to its matching `</div>`. */
+/** The `.prow` row's markup, up to its matching `</nav>`. */
 function row(html: string): string {
-  const start = html.indexOf('<div class="prow">');
+  const start = html.indexOf('<nav class="prow" aria-label="Files">');
   expect(start).toBeGreaterThanOrEqual(0);
   let depth = 0;
-  const tags = /<\/?div\b[^>]*>/g;
+  const tags = /<\/?nav\b[^>]*>/g;
   tags.lastIndex = start;
   for (let match = tags.exec(html); match; match = tags.exec(html)) {
     depth += match[0].startsWith("</") ? -1 : 1;
@@ -55,7 +55,7 @@ describe("Download control (RX-06)", () => {
     expect(found).toHaveLength(1);
     const control = found[0]!;
     const prow = row(html);
-    expect(prow.endsWith(`</nav>${control}</div>`)).toBe(true);
+    expect(prow.endsWith(`</div>${control}</nav>`)).toBe(true);
     expect(attribute(control, "href")).toBe(
       `${base.frameBase}${encodePathSegments("docs/a b.md")}?download`,
     );
@@ -74,7 +74,7 @@ describe("Download control (RX-06)", () => {
     const found = controls(html);
     expect(found).toHaveLength(1);
     const control = found[0]!;
-    expect(row(html).endsWith(`</div></div></nav>${control}</div>`)).toBe(true);
+    expect(row(html).endsWith(`</div></div></div>${control}</nav>`)).toBe(true);
     expect(attribute(control, "href")).toBe(`${base.frameBase}a/b3.md?download`);
     expect(attribute(control, "download")).toBe("b3.md");
     expect(attribute(control, "aria-label")).toBe("Download a/b3.md");

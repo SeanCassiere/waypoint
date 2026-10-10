@@ -1,0 +1,16 @@
+- banner:
+  - navigation "Breadcrumb":
+    - list:
+        - heading "Postgres 17 upgrade runbook" [level=1]
+- complementary "Collection panel":
+  - heading "Files and history" [level=2]
+  - tablist "Panel":
+    - tab "Files 3"
+    - tab "History 7" [selected]
+    - heading "Latest line newest first" [level=3]
+      - list "Latest line newest first":
+- main:
+  - heading "Sync and sharing status" [level=2]
+  - 'heading "Document: runbook.md" [level=2]'
+- 'alertdialog "Drop #6 from “Postgres 17 upgrade runbook”?"':
+  - 'heading "Drop #6 from “Postgres 17 upgrade runbook”?" [level=2]'

@@ -119,10 +119,10 @@ async function revisionPath(page: Page, base: string, collection: string, n: num
 }
 /** Opens the share dialog: the bar's Share, or More → Share… where the bar has none. */
 async function openShare(page: Page): Promise<void> {
-  const share = page.locator("header.cbar button[commandfor=share]");
+  const share = page.locator("header.cbar button.share[commandfor=share]");
   if (await share.isVisible()) await share.click();
   else {
-    await page.locator('header.cbar [popovertarget="more-menu"]').click();
+    await page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
     await page
       .locator("#more-menu")
       .getByRole("menuitem", { name: /^Share/ })

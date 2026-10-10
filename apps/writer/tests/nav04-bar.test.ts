@@ -19,7 +19,9 @@ import {
 } from "../src/migrations.ts";
 import { ReadModel } from "../src/read-model.ts";
 import { SyncLoop } from "../src/sync-loop.ts";
+import { FileTree } from "../src/viewer/components.tsx";
 import { bindingFor, keyTitle } from "../src/viewer/keymap.ts";
+import { NotFoundBody } from "../src/viewer/layout.tsx";
 
 // NAV-04: the collection bar as a breadcrumb (collection › revision › file), the pill contract,
 // the Copy and More menus, the 404 that keeps the bar, and A11Y-04's hidden headings. Setup as in
@@ -93,6 +95,10 @@ function region(html: string, marker: string, end: string): string {
 const header = (html: string) => region(html, "<header", "</header>");
 const breadcrumb = (html: string) => region(html, '<nav class="bc"', "</nav>");
 const text = (markup: string) => markup.replace(/<[^>]*>/g, "");
+/** A component rendered on its own, as a string. */
+async function rendered(node: unknown): Promise<string> {
+  return String(await node);
+}
 /** The opening tag of the first element matching `marker` (a class or attribute snippet). */
 function tagOf(html: string, marker: string): string {
   const at = html.indexOf(marker);
@@ -344,8 +350,9 @@ describe("NAV-04 collection bar", () => {
     expect(menu).toContain('<div class="mbox has-list"><div class="mbody">');
     const body = menu.slice(menu.indexOf('class="mbody"'), menu.indexOf('class="mfoot"'));
     const foot = menu.slice(menu.indexOf('class="mfoot"'));
+    // A11Y-AUDIT: the Preview disclosure follows the menu (its list), not inside it.
     expect(body).toMatch(
-      /<details class="handoff-d"><summary>Preview<\/summary><pre class="handoff" data-handoff="true">/,
+      /<\/button><\/div><details class="handoff-d"><summary>Preview<\/summary><pre class="handoff" data-handoff="true">/,
     );
     expect(body).toContain('data-kind="latest"');
     expect(body).toContain('data-kind="pinned"');
@@ -413,5 +420,53 @@ describe("NAV-04 collection bar", () => {
     expect(nowhere.status).toBe(404);
     expect(nowhere.html).not.toContain("in latest");
     expect(nowhere.html).toContain("Open its head file");
+  });
+
+  // A11Y-AUDIT: the residual semantics the audit's browser scenarios rely on.
+  it("reads the Files tree's change marks as words, never as aria-label on a span", async () => {
+    const files = region((await get(doc(5))).html, 'id="tp-files"', 'id="tp-history"');
+    expect(files).toContain(
+      '<span class="k m"><span aria-hidden="true">~</span><span class="vh">changed</span></span>',
+    );
+    expect(files).toContain(
+      '<span class="k a"><span aria-hidden="true">+</span><span class="vh">added</span></span>',
+    );
+    expect(files).not.toMatch(/<span[^>]*aria-label=/);
+    expect(files).not.toContain("modified");
+    // No compare base (glyphs: null): the dot is decoration only, with no word.
+    const bare = await rendered(
+      FileTree({
+        files: [{ path: "a.md", hash: "sha256:a", mime: "text/markdown", size: 1, url: "" }],
+        head: "a.md",
+        pub: "c",
+        rpub: "r",
+        pinned: false,
+        current: "a.md",
+        glyphs: null,
+      }),
+    );
+    expect(bare).toContain('<span class="k"><span aria-hidden="true">·</span></span>');
+    expect(bare).not.toContain('class="vh"');
+  });
+
+  it("keeps the Copy and More menus inside the bar's banner", async () => {
+    for (const path of [doc(5), `/c/${col}/r/${pub[4]}/changes`]) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Two pages, one at a time.
+      const bar = header((await get(path)).html);
+      // The Copy menu's role is on its list, which owns the pinned footer (A11Y-AUDIT).
+      expect(bar).toContain(
+        '<div id="copy-menu" class="menu" popover="auto"><div class="mbox has-list"><div class="mbody"><div role="menu" aria-label="Copy" aria-owns="copy-menu-foot">',
+      );
+      expect(bar).toContain('<div class="mfoot" id="copy-menu-foot">');
+      expect(bar).toContain('<div id="more-menu" class="menu" popover="auto" role="menu"');
+    }
+  });
+
+  it("renders NotFoundBody's heading as an h1 unless asked for an h2", async () => {
+    expect((await get("/nope")).html).toContain("<h1>Not found</h1>");
+    expect(await rendered(NotFoundBody({ path: "x" }))).toContain("<h1>Not found</h1>");
+    const h2 = await rendered(NotFoundBody({ path: "x", level: "h2" }));
+    expect(h2).toContain("<h2>Not found</h2>");
+    expect(h2).not.toContain("<h1>");
   });
 });

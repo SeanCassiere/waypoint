@@ -1,0 +1,9 @@
+- banner:
+  - navigation "Breadcrumb":
+    - list:
+        - heading "Webhook idempotency research" [level=1]
+- main:
+  - heading "Sync and sharing status" [level=2]
+  - 'heading "Document: index.md" [level=2]'
+- dialog "Collection details":
+  - heading "Collection details" [level=2]

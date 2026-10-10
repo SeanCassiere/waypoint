@@ -35,26 +35,30 @@ export function Panel(props: {
   return (
     <aside class="panel" id="panel" aria-label="Collection panel">
       <h2 class="vh">Files and history</h2>
-      <nav class="ptabs" role="tablist" aria-label="Panel">
-        {tabs.map((tab) => (
-          <a
-            href={`?panel=${tab.id}`}
-            role="tab"
-            id={`tab-${tab.id}`}
-            class={tab.id === "links" ? "pub" : undefined}
-            aria-selected={tab.id === props.tab ? "true" : "false"}
-            aria-controls={`tp-${tab.id}`}
-            tabindex={tab.id === props.tab ? 0 : -1}
-            data-tab={tab.id}
-          >
-            {tab.label}
-            <span class="n">{tab.count}</span>
-          </a>
-        ))}
+      {/* The tablist holds only the tabs (axe aria-required-children); Close sits beside it in the
+          strip, whose wrapper is layout only (.ptl is display: contents). */}
+      <div class="ptabs">
+        <div role="tablist" aria-label="Panel" class="ptl">
+          {tabs.map((tab) => (
+            <a
+              href={`?panel=${tab.id}`}
+              role="tab"
+              id={`tab-${tab.id}`}
+              class={tab.id === "links" ? "pub" : undefined}
+              aria-selected={tab.id === props.tab ? "true" : "false"}
+              aria-controls={`tp-${tab.id}`}
+              tabindex={tab.id === props.tab ? 0 : -1}
+              data-tab={tab.id}
+            >
+              {tab.label}
+              <span class="n">{tab.count}</span>
+            </a>
+          ))}
+        </div>
         <button type="button" class="iconbtn x" data-action="panel-close" aria-label="Close panel">
           {raw(icon("close", "lg"))}
         </button>
-      </nav>
+      </div>
       {tabs.map((tab) => (
         <div
           class="pbody"

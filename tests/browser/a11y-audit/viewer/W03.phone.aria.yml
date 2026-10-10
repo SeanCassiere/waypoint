@@ -1,0 +1,11 @@
+- banner:
+- main "1 collection":
+  - search:
+  - heading "1 collection" [level=1]
+  - list "Active filters":
+  - navigation "Browse":
+    - heading "Browse" [level=2]
+    - list:
+  - region "Day":
+    - heading "Day" [level=2]
+    - list:

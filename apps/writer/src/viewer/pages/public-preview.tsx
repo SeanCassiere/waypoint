@@ -257,6 +257,7 @@ function notPublicYet(
           bar={<HomeBarLite chrome={ctx.chrome} />}
           page="not-public"
         >
+          {/* The hero's bold sentence is the page's heading (role="heading" level 1, unstyled). */}
           <main class="wrap narrow" id="main" tabindex={-1}>
             {body}
           </main>
@@ -276,7 +277,9 @@ function notPublicYet(
         <div class="hero warn" data-preview="not-public">
           {raw(icon("clock"))}
           <div>
-            <b>Nothing is public yet.</b>
+            <b role="heading" aria-level={1}>
+              Nothing is public yet.
+            </b>
             <span>
               {`The public sees a revision only once it has synced to the cloud, and no revision of “${ctx.collection.title}” has yet. Its public links show “This link isn't available” until one does.`}
             </span>
@@ -348,7 +351,10 @@ function notPublicYet(
         <div class="hero bad" data-preview="failed">
           {raw(icon("alert"))}
           <div>
-            <b>{`#${n} failed to upload, so no public link can show it.`}</b>
+            <b
+              role="heading"
+              aria-level={1}
+            >{`#${n} failed to upload, so no public link can show it.`}</b>
             <span>
               {`The public reader only has revisions that reached the cloud. An “Only #${n}” link would show “This link isn't available” until #${n} uploads; Retry may fix it.`}
             </span>
@@ -396,7 +402,7 @@ function notPublicYet(
       <div class="hero warn" data-preview={stalled ? "stalled" : "uploading"}>
         {raw(icon("clock"))}
         <div>
-          <b>{`#${n} isn't public yet.`}</b>
+          <b role="heading" aria-level={1}>{`#${n} isn't public yet.`}</b>
           <span>{`${body}${until}`}</span>
         </div>
       </div>

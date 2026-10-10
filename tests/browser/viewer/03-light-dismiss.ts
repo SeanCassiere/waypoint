@@ -52,11 +52,15 @@ const scenario: ViewerScenario = {
       const triggers: [string, string][] = [
         [
           "copy-menu",
-          tabbar ? '.tabbar [popovertarget="copy-menu"]' : 'header [popovertarget="copy-menu"]',
+          tabbar
+            ? '.tabbar [popovertarget="copy-menu"]'
+            : 'header [popovertarget="copy-menu"][aria-haspopup]',
         ],
         [
           "more-menu",
-          tabbar ? '.tabbar [popovertarget="more-menu"]' : 'header [popovertarget="more-menu"]',
+          tabbar
+            ? '.tabbar [popovertarget="more-menu"]'
+            : 'header [popovertarget="more-menu"][aria-haspopup]',
         ],
         ["health-pop", "header .health"],
       ];

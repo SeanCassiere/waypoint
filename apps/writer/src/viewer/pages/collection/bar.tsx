@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { icon } from "@waypoint/ui";
 import { raw } from "hono/html";
+import type { Child } from "hono/jsx";
 
 import { shellPath } from "../../../viewer-paths.ts";
 import { LogoMark, HealthPill } from "../../components.tsx";
@@ -40,6 +41,9 @@ export function CollectionBar(props: {
   /** Replaces the revision pill's visible content (no #N, no state word): "#2 → #7 changes". */
   crumb?: string | undefined;
   doneHref?: string | undefined;
+  /** The Copy and More menus: popovers drawn in the top layer, but kept in the banner, as their
+   *  triggers are, so no page content sits outside a landmark (axe region). */
+  menus?: Child;
 }) {
   const { ctx } = props;
   const { collection, revision, chrome } = ctx;
@@ -207,6 +211,7 @@ export function CollectionBar(props: {
           {raw(icon("more", "lg"))}
         </button>
       )}
+      {props.menus}
     </header>
   );
 }

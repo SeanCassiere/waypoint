@@ -1,0 +1,11 @@
+- banner:
+- main "Recent":
+  - heading "Recent" [level=1]
+  - region "Needs attention 1 collection":
+    - heading "Needs attention 1 collection" [level=2]
+  - navigation "Browse":
+    - heading "Browse" [level=2]
+    - list:
+  - region "Day":
+    - heading "Day" [level=2]
+    - list:

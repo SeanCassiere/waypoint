@@ -100,10 +100,10 @@ async function revisionPath(page: Page, base: string, collection: string, n: num
 
 /** Opens the share dialog: the bar's Share, or More → Share… where the bar has none. */
 async function openShare(page: Page): Promise<void> {
-  const share = page.locator("header.cbar button[commandfor=share]");
+  const share = page.locator("header.cbar button.share[commandfor=share]");
   if (await share.isVisible()) await share.click();
   else {
-    await page.locator('header.cbar [popovertarget="more-menu"]').click();
+    await page.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
     await page
       .locator("#more-menu")
       .getByRole("menuitem", { name: /^Share/ })
@@ -247,8 +247,8 @@ const scenario: ViewerScenario = {
     // Menus (1280): no item has an icon or a glyph.
     await desk.goto(`${base}${postgres}`);
     for (const [button, menu] of [
-      ['header.cbar [popovertarget="copy-menu"]', "#copy-menu"],
-      ['header.cbar [popovertarget="more-menu"]', "#more-menu"],
+      ['header.cbar [popovertarget="copy-menu"][aria-haspopup]', "#copy-menu"],
+      ['header.cbar [popovertarget="more-menu"][aria-haspopup]', "#more-menu"],
     ] as const) {
       await desk.locator(button).first().click();
       await desk.locator(menu).waitFor({ state: "visible" });
@@ -271,7 +271,7 @@ const scenario: ViewerScenario = {
 
     // Copy → Link to latest still copies (clipboard granted).
     await desk.evaluate("navigator.clipboard.writeText('')");
-    await desk.locator('header.cbar [popovertarget="copy-menu"]').first().click();
+    await desk.locator('header.cbar [popovertarget="copy-menu"][aria-haspopup]').first().click();
     await desk
       .locator("#copy-menu")
       .getByRole("menuitem", { name: /^Link to latest/ })
