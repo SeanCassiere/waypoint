@@ -37,8 +37,11 @@ export const RENDERER_NAME = "markdown";
 // would leave two different outputs claiming the same key. Existing blobs get the new version
 // through `waypoint-writer rerender`.
 // v1: GitHub-like template. v2: Folio reading template (headings anchors, alerts, contents,
-// table wrap, figures, code labels, frame reporter, dir="auto" on text blocks).
-export const RENDERER_VERSION = 2;
+// table wrap, figures, code labels, frame reporter, dir="auto" on text blocks). v3: Folio tokens
+// (warm rules, Contents box and code wells, public-blue links, 2px ink focus ring); withdrawn.
+// v4: the v2 template again (byte-identical output), numbered forward so that readers, which serve
+// the highest version, stop serving v3 once `waypoint-writer rerender` has run. Versions only go up.
+export const RENDERER_VERSION = 4;
 
 const languages = [
   "typescript",

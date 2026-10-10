@@ -84,7 +84,7 @@ describe("markdown rendition", () => {
 
   it("renders only normalized Markdown MIME and strips the UTF-8 BOM", async () => {
     expect(RENDERER_NAME).toBe("markdown");
-    expect(RENDERER_VERSION).toBe(2);
+    expect(RENDERER_VERSION).toBe(4);
     expect(await markdownRenderer.render(new Uint8Array(), "text/plain")).toBeNull();
     const result = await markdownRenderer.render(
       new TextEncoder().encode("\uFEFF# Title"),
