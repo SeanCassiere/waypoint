@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { isTextMime } from "@waypoint/core";
+import { isTextMime, WAYPOINT_VERSION } from "@waypoint/core";
 import { icon, isStageImage, PHONE_MAX, renderPublicShell } from "@waypoint/ui";
 import type { Context } from "hono";
 import { raw } from "hono/html";
@@ -123,6 +123,7 @@ export async function publicPreview(
     snapshotAt: ctx.pinned ? served.created_at : null,
     download: !shown || isTextMime(shown.mime) || shown.mime.startsWith("image/") ? null : shown,
     image: shown && isStageImage(shown.mime) ? shown : null,
+    version: WAYPOINT_VERSION,
   });
   // Owner-only band, injected on the writer right after the skip link; the reader's own output
   // never contains it. Back goes to the revision the owner came from, not the served one.

@@ -66,6 +66,13 @@ describe("public shell", () => {
       `src="https://reader.example/x/shl_a.cap/r/rpub/${`${evil}.md`.split("/").map(encodeURIComponent).join("/")}"`,
     );
   });
+  it("puts an escaped version on <html> for the script to expose, or none when omitted", () => {
+    expect(renderPublicShell(base)).toContain('<!doctype html><html lang="en"><head>');
+    expect(renderPublicShell({ ...base, version: '1.2.3"><x' })).toContain(
+      '<html lang="en" data-waypoint-version="1.2.3&quot;&gt;&lt;x"><head>',
+    );
+    expect(publicShellScript).toContain("window._WAYPOINT_VERSION = version;");
+  });
   it("has no style attributes, handlers, or external assets by default", () => {
     const html = renderPublicShell({
       ...base,

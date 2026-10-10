@@ -764,6 +764,8 @@ describe("Folio shell", () => {
       expect(html).toContain('id="main"');
       expect(html).toContain('popovertarget="health-pop"');
       expect(html).toContain('id="health-pop"');
+      // The client copies it to window._WAYPOINT_VERSION.
+      expect(html).toContain(`<html lang="en" data-waypoint-version="${WAYPOINT_VERSION}">`);
     }
     const shell = await (await app.request(new URL(first.latest_url).pathname)).text();
     expect(shell).toContain('<nav class="bc" aria-label="Breadcrumb">');

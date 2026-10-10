@@ -70,6 +70,11 @@ export interface PublicShellOptions {
   download?: { mime: string; size: number | null } | null;
   /** RX-04: show the image on the stage instead of the iframe. `download` wins over it. */
   image?: { mime: string; size: number | null } | null;
+  /**
+   * The release version, put on `<html data-waypoint-version>`; the script copies it to
+   * `window._WAYPOINT_VERSION`. Omitted, the page carries no version.
+   */
+  version?: string | undefined;
   /** Serve CSS and script as external files instead of inline elements. */
   assets?: { cssHref: string; scriptHref: string } | null;
 }
@@ -115,5 +120,6 @@ export function renderPublicShell(options: PublicShellOptions): string {
   const script = options.assets
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options, options.files.length <= 1 ? downloadLink(options, "letterhead") : "")}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
+  const version = options.version ? ` data-waypoint-version="${escapeHtml(options.version)}"` : "";
+  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options, options.files.length <= 1 ? downloadLink(options, "letterhead") : "")}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
 }
