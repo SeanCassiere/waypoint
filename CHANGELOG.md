@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/SeanCassiere/waypoint/compare/v0.2.2...v0.3.0) (2026-10-10)
+
+
+### Features
+
+* expose the release version as window._WAYPOINT_VERSION ([#101](https://github.com/SeanCassiere/waypoint/issues/101)) ([b6c81c9](https://github.com/SeanCassiere/waypoint/commit/b6c81c9a8c2d27963cc0799b8431caa75559e922))
+
 ## [0.2.2](https://github.com/SeanCassiere/waypoint/compare/v0.2.1...v0.2.2) (2026-10-10)
 
 
