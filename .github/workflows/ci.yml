@@ -132,16 +132,35 @@ jobs:
       - uses: ./.github/actions/setup
       # Builds the MCP package and its dependencies, then runs the launcher smoke test.
       - run: pnpm turbo run smoke --filter=@waypoint/mcp
-  # Real-Chromium checks of the writer viewer (against the built writer) and the public reader
-  # shell (from source): CSP, sandboxing, navigation. Neither depends on the test suite.
-  browser:
+  # Real-Chromium checks of the writer viewer (against the built writer): CSP, sandboxing,
+  # navigation, the UI items and the accessibility audit. They run in parallel shards:
+  # BROWSER_SHARD=i/n runs shard i of n (tests/browser/shards.ts keeps the baseline scenarios
+  # together and balances the items by their recent durations, tests/browser/shard-weights.ts).
+  # Each shard starts its own writer. The shard count is in the matrix and in BROWSER_SHARD.
+  browser-viewer:
+    name: browser-viewer (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm test:browser
+        env:
+          BROWSER_SHARD: ${{ matrix.shard }}/4
+  # Real-Chromium checks of the public reader shell (from source). Neither browser job depends on
+  # the test suite.
+  browser-reader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm test:browser:reader
   # The release pipeline, without publishing anything: actionlint on every workflow and the ops
   # template, the release-please config, the release bundle (scripts/build-release-bundle.sh) and
@@ -168,7 +187,8 @@ jobs:
         build-writer-image,
         install-test,
         mcp-smoke,
-        browser,
+        browser-viewer,
+        browser-reader,
         release-dry-run,
       ]
     runs-on: ubuntu-latest
