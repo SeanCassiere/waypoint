@@ -50,6 +50,8 @@ const scenario: ViewerScenario = {
     // An error toast is sticky, an alert, and says what to do (no mutation: the retry is blocked).
     {
       const { page } = await ctx.newPage(VIEWPORTS.desktop);
+      // Toast lifetimes are setTimeouts: the fake clock skips them instead of waiting them out.
+      await page.clock.install();
       // A slow failure: Retry is disabled while it runs, so focus falls to <body> meanwhile.
       await page.route("**/api/queue/**/retry", async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -76,7 +78,7 @@ const scenario: ViewerScenario = {
       assert.equal(await toast.locator("svg.ic").count(), 2, "alert and close icons");
       const edge = await shadowOf(page, error);
       assert.ok(edge.includes("inset"), `a red left edge: ${edge}`);
-      await page.waitForTimeout(6000);
+      await page.clock.fastForward(6000);
       assert.ok(await toast.isVisible(), "the error toast is still there after 6 s");
       await toast.getByRole("button", { name: "Dismiss" }).click();
       assert.equal(await children(page, error), 0);
@@ -240,6 +242,7 @@ const scenario: ViewerScenario = {
     }
 
     const { page } = await ctx.newPage(VIEWPORTS.desktop);
+    await page.clock.install();
 
     // Drop's confirmation names the revision and the collection (Cancel: nothing changes).
     await page.goto(`${base}/status`);
@@ -294,6 +297,7 @@ const scenario: ViewerScenario = {
       dialog.showModal();
     })()`);
     await page.locator("dialog#ow02-modal [data-toast]").waitFor({ state: "attached" });
+    await page.clock.fastForward(3000);
     await page.waitForFunction(
       `!document.querySelector(${JSON.stringify(success)}).hasChildNodes()`,
       undefined,
@@ -349,6 +353,7 @@ const scenario: ViewerScenario = {
       await page.evaluate(`document.activeElement.matches('${error} [data-toast-close]')`),
       "Tab reaches the error's Dismiss",
     );
+    await page.clock.fastForward(3000);
     await page.waitForFunction(
       `!document.querySelector(${JSON.stringify(success)}).hasChildNodes()`,
       undefined,
@@ -416,9 +421,10 @@ const scenario: ViewerScenario = {
     // Focus and the pointer hold a success toast past its 3 s; it hides once they leave.
     await page.evaluate(`document.activeElement.blur()`);
     await flashed.hover();
-    await page.waitForTimeout(3500);
+    await page.clock.fastForward(3500);
     assert.ok(await flashed.isVisible(), "a hovered success toast stays up");
     await page.mouse.move(0, 0);
+    await page.clock.fastForward(3000);
     await page.waitForFunction(
       `!document.querySelector(${JSON.stringify(success)}).hasChildNodes()`,
       undefined,

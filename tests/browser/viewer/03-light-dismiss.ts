@@ -40,6 +40,8 @@ const scenario: ViewerScenario = {
         hasTouch: touch,
         permissions: ["clipboard-read", "clipboard-write"],
       });
+      // The toast's 3 s lifetime is a setTimeout: the fake clock skips it instead of waiting.
+      await sized.clock.install();
       const view = await sized.newPage();
       view.on("pageerror", (error) => pageErrors.push(`${width}px: ${error.message}`));
       await view.goto(`${base}${latest}`);
@@ -181,6 +183,7 @@ const scenario: ViewerScenario = {
       await closed(menuId);
       assert.equal(await isOpen(menuId), false, `a menu item closes its menu at ${width}px`);
       await view.locator("[data-toast]").waitFor({ state: "visible", timeout: 4000 });
+      await view.clock.fastForward(3000);
       await view.locator("[data-toast]").waitFor({ state: "hidden", timeout: 4000 });
       assert.equal(
         await view.evaluate(
