@@ -51,6 +51,6 @@ ENV WAYPOINT_BUILD_SHA=$WAYPOINT_BUILD_SHA
 ENV NODE_ENV=production WAYPOINT_MCP_TARBALL=/app/static/waypoint-mcp.tgz WAYPOINT_MCP_LAUNCHER=/app/static/launcher.mjs WAYPOINT_MCP_SERVER=/app/static/waypoint-mcp-server.mjs WAYPOINT_MCP_SKILL=/app/static/skills/waypoint/SKILL.md
 USER 1000:1000
 EXPOSE 7410
-HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 CMD node -e 'fetch("http://127.0.0.1:7410/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --start-interval=1s --retries=3 CMD node -e 'fetch("http://127.0.0.1:7410/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/main.js", "serve"]

@@ -132,6 +132,9 @@ up current-checkout
 expect_build "$new_sha" "$new_version"
 expect_data
 curl -fsS "http://127.0.0.1:$port/healthz" | grep -q "$new_sha" || fail "the published port doesn't reach the writer"
+# The image's 1 s start interval reaches the container, though Compose sets its own health check.
+start_interval="$(docker_ inspect --format '{{.Config.Healthcheck.StartInterval}}' "$(container)")"
+[[ "$start_interval" == 1s ]] || fail "the writer's health check start interval is $start_interval, not 1s"
 
 step "the same version again is a no-op"
 before="$(container)"
