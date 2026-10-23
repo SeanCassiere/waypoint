@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/SeanCassiere/waypoint/compare/v0.3.0...v0.3.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update dependencies, base images and actions ([#111](https://github.com/SeanCassiere/waypoint/issues/111)) ([cbbbddf](https://github.com/SeanCassiere/waypoint/commit/cbbbddfde1de123bcbd6fbf803b975c576a36c7b))
+* **viewer:** close Find on a backdrop tap in Chromium 156+ ([cbbbddf](https://github.com/SeanCassiere/waypoint/commit/cbbbddfde1de123bcbd6fbf803b975c576a36c7b))
+
 ## [0.3.0](https://github.com/SeanCassiere/waypoint/compare/v0.2.2...v0.3.0) (2026-10-10)
 
 
