@@ -175,7 +175,7 @@ How a purge is recorded while it runs:
 ## Turso Sync
 
 - `waypoint.db` is opened with `@tursodatabase/sync` (`connect({ path, url, authToken })`) against the environment's cloud DB. `queue.db` is opened with `@tursodatabase/database`, the same engine without sync, as a separate file and connection in the same process (confirmed in spike S2; see [Turso Sync notes](turso-sync-notes.md)).
-- **First start needs the cloud.** In 0.8.2, `bootstrapIfEmpty: false` is ignored (S1), so a writer with an empty data directory must reach the cloud DB to start. After that it works offline.
+- **First start needs the cloud.** Through 0.8.3, `bootstrapIfEmpty: false` is ignored (S1), so a writer with an empty data directory must reach the cloud DB to start. After that it works offline.
 - **Push:** after every commit, and on a 60 s timer that also retries failed pushes. Turso Sync doesn't retry on its own. Committed data stays durable locally and recoverable from the bucket, so a failed push is harmless. An offline push rejects cleanly, and local writes made during the outage are pushed later (S1).
 - **Push failure caused by a constraint** (for example a `UNIQUE` violation; S1 saw `BATCH_STEP_ERROR`) blocks the whole push. The writer pulls and then retries the push. If it fails again with the same constraint error, the writer reports it in `/api/status` and keeps the affected revisions out of `synced`. A pull can replace the conflicting local row with the remote one, so this must never be ignored. With derived public IDs it should only happen on a true hash collision.
 - **Pull:** on a 30 s timer, and opportunistically during ingest (see step 2).

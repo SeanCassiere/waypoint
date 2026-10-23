@@ -10,7 +10,7 @@ What's done, what's next, and what's deliberately deferred. Why things are the w
 Four throwaway spikes (S1–S4) checked Turso Sync, the Turso clients and R2 before any product code was written. The spike code has since been removed. Findings, in short (details in [turso-sync-notes.md](turso-sync-notes.md)):
 - **Turso Sync merges per column**, last push wins; a `UNIQUE` violation fails the whole push and a pull replaces the local row (so constraint failures are surfaced, D35).
 - **Pulls bypass foreign keys**, so FKs are off on `waypoint.db` and the committer enforces invariants (D33). A purge can race an unpushed child row, so purge stays single-writer.
-- **Offline pushes fail cleanly** and succeed later; `checkpoint()` after a push keeps the WAL bounded; `bootstrapIfEmpty: false` is ignored in 0.8.2, so a first start needs the cloud.
+- **Offline pushes fail cleanly** and succeed later; `checkpoint()` after a push keeps the WAL bounded; `bootstrapIfEmpty: false` is ignored (through 0.8.3), so a first start needs the cloud.
 - **`queue.db` uses `@tursodatabase/database`** alongside the sync DB (D34); the serverless client reads a Sync DB and accepts `turso://` URLs.
 - **R2 conditional PUT** (`If-None-Match: *`) returns 412 for an existing key.
 - **Additive migrations** converge across two replicas when rolled out one writer at a time.

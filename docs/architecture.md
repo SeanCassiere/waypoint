@@ -52,7 +52,7 @@
 
 #### Prepared statements and native memory
 
-The Turso engine (`@tursodatabase/database` 0.8.2) leaks native memory for every statement it prepares: about 12.5 KB when the statement is never closed and about 2.5 KB even when it's closed. Preparing a statement per query, as the writer did until October 2026, grew RSS by 1.9 GB per 150,000 reads.
+The Turso engine (`@tursodatabase/database` 0.8.2, and still 0.8.3) leaks native memory for every statement it prepares: about 12.5 KB when the statement is never closed and about 2.5 KB even when it's closed (0.8.3: about 8 KB and 2.5 KB). Preparing a statement per query, as the writer did until October 2026, grew RSS by 1.9 GB per 150,000 reads.
 
 The `Db` wrapper therefore keeps a bounded LRU cache of prepared statements keyed by SQL text (256 per connection) and reuses them. Measured on a Linux x64 host with 200,000 reads of one statement: RSS grows about 0.16 KB per query (32 MB in total, flattening as the run goes on), and each query takes about 4 µs instead of about 30 µs. Each distinct SQL string still costs one prepare, so evictions (SQL with variable `IN (…)` lists) leak about 2.5 KB each.
 
