@@ -302,13 +302,14 @@ export function bindFind(): void {
     });
   // A tap on the dimmed page closes Find, and the click the tap synthesises afterwards would land
   // on whatever lies under it (a Recent row, say) once the page is no longer inert. Cancel that
-  // click; without closedby the fallback above never sees it, so close here instead.
+  // click and close here: without closedby the fallback above never sees it, and Chromium 156+
+  // light-dismisses on that click rather than on the pointer (before 156, Find is closed already).
   dialog.addEventListener(
     "touchend",
     (event) => {
       if (event.target !== dialog) return;
       event.preventDefault();
-      if (!lightDismiss) dialog.close();
+      dialog.close();
     },
     { passive: false },
   );
