@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/SeanCassiere/waypoint/compare/v0.3.1...v0.4.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* the MCP server needs Node.js 26 or later on the agent's machine, and development and current-checkout deploys with a reader need Node 26. The writer image runs Node 26. Release deploys still need only Node 22+ on the host.
+
+### Build System
+
+* move to Node 26 ([#113](https://github.com/SeanCassiere/waypoint/issues/113)) ([ce21745](https://github.com/SeanCassiere/waypoint/commit/ce21745857b44b80a700e146e1dc0d9d6dbf758a))
+
 ## [0.3.1](https://github.com/SeanCassiere/waypoint/compare/v0.3.0...v0.3.1) (2026-10-23)
 
 
