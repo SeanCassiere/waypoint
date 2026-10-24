@@ -4,7 +4,7 @@ Before any product code, four throwaway spikes checked how Turso Sync, the Turso
 
 Versions tested (2026-10-07, Linux x64, Node 24): `@tursodatabase/sync` and `@tursodatabase/database` 0.8.2, `@tursodatabase/serverless` 1.4.1, `tursodb` 0.8.2. Re-check anything below after upgrading these packages.
 
-Re-checked on 0.8.3 (2026-10-24, Linux x64, Node 24): the writer's sync tests pass against `tursodb` 0.8.3, a writer syncs with the dev cloud DB, the API shape is unchanged and `bootstrapIfEmpty: false` is still ignored. The spikes themselves weren't re-run.
+Re-checked on 0.8.3 (2026-10-24, Linux x64, Node 24): the writer's sync tests pass against `tursodb` 0.8.3, a writer syncs with the dev cloud DB, the API shape is unchanged and `bootstrapIfEmpty: false` is still ignored. The spikes themselves weren't re-run. On Node 26 (2026-10-24, 26.12.1): the same sync tests pass and a writer syncs with the dev cloud DB.
 
 | Spike | Question |
 |---|---|
@@ -27,7 +27,7 @@ Re-checked on 0.8.3 (2026-10-24, Linux x64, Node 24): the writer's sync tests pa
 
 ## Clients and platform (S2)
 
-- **Node 24 on Linux x64** installs and runs the native sync package with pnpm 11, against both a local sync server and the dev cloud DB. Turso Sync on macOS arm64 is still untested; it matters only if the Mac ever runs a writer.
+- **Node 24 and Node 26 on Linux x64** install and run the native sync package with pnpm 11, against both a local sync server and the dev cloud DB. Turso Sync on macOS arm64 is still untested; it matters only if the Mac ever runs a writer.
 - **`queue.db` uses `@tursodatabase/database`**, the same engine without sync, in its own file and connection in the same process as the synced `waypoint.db` (D34). `node:sqlite` also worked and is the fallback.
 - **The serverless client reads a Sync DB.** `@tursodatabase/serverless` accepts the `turso://` URL directly (it normalizes to HTTPS) or an explicit `https://` URL. The reader depends on this; read-only tokens and the Workers runtime were verified later, in phase 2.
 - **API shape** (0.8.2, unchanged in 0.8.3): `connect({ path, url, authToken })`, `await db.prepare(sql)`, `push()`, `pull()` (returns whether anything changed), `checkpoint()`, `close()`.
