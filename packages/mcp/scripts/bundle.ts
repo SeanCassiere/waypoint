@@ -24,7 +24,7 @@ await writeFile(
       version: manifest.version,
       license: "MIT",
       type: "module",
-      engines: { node: ">=24" },
+      engines: { node: ">=26" },
       bin: { "waypoint-mcp": "bin/launcher.mjs" },
     },
     null,

@@ -5,7 +5,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: ["src/index.ts", "src/render-worker.ts"],
   platform: "node",
-  target: "node24",
+  target: "node26",
   fixedExtension: false,
   // One output module per source module, so consumers' bundlers drop unused modules
   // (`sideEffects: false`) as precisely as they did with tsc's output.

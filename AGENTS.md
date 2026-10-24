@@ -54,7 +54,7 @@ No workflow in this repository runs on a self-hosted runner, and CI fails if one
 
 ## The MCP server and how it updates
 
-Agents use Waypoint through a stdio MCP server started with `npx`. It's configured **once** per machine with the writer's stable URL (`<writer>` is the writer's base URL, for example `https://waypoint.<tailnet>.ts.net` or `http://127.0.0.1:7410`):
+Agents use Waypoint through a stdio MCP server started with `npx` (Node 26 or later on the agent's machine). It's configured **once** per machine with the writer's stable URL (`<writer>` is the writer's base URL, for example `https://waypoint.<tailnet>.ts.net` or `http://127.0.0.1:7410`):
 
 ```
 npx --prefer-offline -y <writer>/mcp/waypoint-mcp.tgz      (env WAYPOINT_URL=<writer>)
