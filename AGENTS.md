@@ -54,7 +54,7 @@ No workflow in this repository runs on a self-hosted runner, and CI fails if one
 
 ## The MCP server and how it updates
 
-Agents use Waypoint through a stdio MCP server started with `npx`. It's configured **once** per machine with the writer's stable URL (`<writer>` is the writer's base URL, for example `https://waypoint.<tailnet>.ts.net` or `http://127.0.0.1:7410`):
+Agents use Waypoint through a stdio MCP server started with `npx` (Node 26 or later on the agent's machine). It's configured **once** per machine with the writer's stable URL (`<writer>` is the writer's base URL, for example `https://waypoint.<tailnet>.ts.net` or `http://127.0.0.1:7410`):
 
 ```
 npx --prefer-offline -y <writer>/mcp/waypoint-mcp.tgz      (env WAYPOINT_URL=<writer>)
@@ -82,7 +82,7 @@ Agent-facing usage guidance lives in the skill [skills/waypoint/SKILL.md](skills
 
 ## Developing
 
-- Node 24, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
+- Node 26, pnpm 11. Run `pnpm install`, `pnpm check` (oxfmt, type-aware oxlint, typecheck, tests), and `pnpm build`.
 - [Turborepo](https://turborepo.dev) (pinned in the root `package.json`, configured in [turbo.json](turbo.json) and per-package `turbo.json` files) runs every task. The root scripts are thin `turbo run` wrappers, and each task builds what it needs first:
   - `pnpm build` runs each package's `build` script. tsdown builds the libraries (`core`, `ui`, `render`: ESM plus `.d.ts` from oxc, so exports need explicit types under `isolatedDeclarations`), the writer bundle (`dist/main.js` and its worker entries, with `@waypoint/*` inlined) and the MCP server bundle; esbuild builds the MCP launcher (keep it unchanged) and the viewer assets (`build:viewer`); Wrangler bundles the reader. See [docs/architecture.md](docs/architecture.md#builds).
   - Typecheck, lint and tests read workspace packages from source through the `@waypoint/source` export condition, so they need no build. Relative imports name the `.ts` file (`./x.ts`), so Node runs source directly (worker threads in tests).

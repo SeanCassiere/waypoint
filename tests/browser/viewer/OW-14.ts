@@ -81,7 +81,10 @@ const scenario: ViewerScenario = {
       );
       assert.equal(when.length, 3);
       assert.equal(when[0], "Now: the link is revoked and the collection can't be restored.");
-      assert.ok(when[1]?.startsWith("In the background: the bucket, then the database"), when[1]);
+      assert.ok(
+        when[1]?.startsWith("In the background: the bucket, then the database"),
+        String(when[1]),
+      );
       assert.ok(when[2]?.startsWith("Until it finishes it stays in Trash under Being purged"));
       assert.equal(
         await text(confirm.locator("label[for=confirm-input]")),
@@ -109,7 +112,7 @@ const scenario: ViewerScenario = {
       const pressed = box.parse(await copyPub.boundingBox());
       assert.ok(Math.abs(pressed.width - before.width) < 0.5, `pressed ${pressed.width}`);
       await page.mouse.up();
-      assert.ok((await text(copyPub))?.includes("Copied"), await text(copyPub));
+      assert.ok((await text(copyPub))?.includes("Copied"), String(await text(copyPub)));
       const copied = box.parse(await copyPub.boundingBox());
       assert.ok(Math.abs(copied.width - before.width) < 0.5, `copied ${copied.width}`);
       assert.equal(await page.evaluate("navigator.clipboard.readText()"), p);

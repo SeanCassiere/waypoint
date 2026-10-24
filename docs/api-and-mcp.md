@@ -103,7 +103,7 @@ Related writer routes:
 - `GET /mcp/skill/SKILL.md`: the agent skill
 - Legacy hashed URLs `/mcp/waypoint-mcp-<hash>.tgz` serve the current launcher instead of returning 404. A machine that already installed an old hashed tarball keeps it until its npx cache entry is cleared, so switch such configs to the stable URL once.
 
-Always configure with `npx --prefer-offline`. Otherwise npx retries the tarball URL for about 70 s when the writer is down, exceeding MCP startup timeouts. The launcher does its own update check regardless.
+The agent's machine needs Node.js 26 or later (the launcher package's `engines`). Always configure with `npx --prefer-offline`. Otherwise npx retries the tarball URL for about 70 s when the writer is down, exceeding MCP startup timeouts. The launcher does its own update check regardless.
 
 For each write it:
 1. reads files from the agent's local disk and hashes them

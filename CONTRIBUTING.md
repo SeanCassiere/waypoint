@@ -10,7 +10,7 @@ By contributing, you agree that your contributions are licensed under the projec
 
 ## Getting set up
 
-You need Node 24 and pnpm 11 (the exact versions: `.node-version` and `packageManager` in
+You need Node 26 and pnpm 11 (the exact versions: `.node-version` and `packageManager` in
 `package.json`). No secrets or cloud accounts are needed for development.
 
 ```bash

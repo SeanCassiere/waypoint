@@ -183,9 +183,9 @@ const scenario: ViewerScenario = {
         .waitFor();
       const labels = await page.locator(".pv-facts li > b").allTextContents();
       assert.equal(labels.length, 3);
-      assert.ok(labels[0]?.startsWith("Latest links show"), labels[0]);
-      assert.ok(labels[1]?.startsWith("#6 · Branch off #4"), labels[1]);
-      assert.ok(labels[2]?.startsWith("#7 · latest"), labels[2]);
+      assert.ok(labels[0]?.startsWith("Latest links show"), String(labels[0]));
+      assert.ok(labels[1]?.startsWith("#6 · Branch off #4"), String(labels[1]));
+      assert.ok(labels[2]?.startsWith("#7 · latest"), String(labels[2]));
       const retry = page.getByRole("button", { name: "Retry #6" });
       assert.equal(await retry.getAttribute("data-action"), "retry");
       assert.equal(await retry.getAttribute("data-ids"), rev(6).id);

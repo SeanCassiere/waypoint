@@ -64,7 +64,7 @@ export function mcpMarkdown(baseUrl: string): string {
   const sections = [
     "# Waypoint MCP",
     "The local server reads files from this machine and writes them to Waypoint. Updates take effect the next time the agent starts the MCP server; configs never need changing.",
-    `The agent's machine must be able to reach ${baseUrl}. If that address is on your tailnet, the machine must be on it too.`,
+    `The agent's machine needs Node.js 26 or later and must be able to reach ${baseUrl}. If that address is on your tailnet, the machine must be on it too.`,
     "## 1. Add the Waypoint MCP server",
     "Claude Code:",
     fence("sh", c.claude.server),
@@ -195,8 +195,9 @@ export function McpBody(props: {
         </div>
       </div>
       <p class="req">
-        The agent's machine must be able to reach <span class="mono">{props.baseUrl}</span>. If that
-        address is on your tailnet, the machine must be on it too.
+        The agent's machine needs Node.js 26 or later and must be able to reach{" "}
+        <span class="mono">{props.baseUrl}</span>. If that address is on your tailnet, the machine
+        must be on it too.
       </p>
       <ol class="steps">
         <li>

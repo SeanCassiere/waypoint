@@ -75,7 +75,7 @@ afterEach(async () => {
 
 const text = (value: string) => new TextEncoder().encode(value);
 async function upload(bytes: Uint8Array): Promise<string> {
-  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex")}`;
+  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))).toString("hex")}`;
   const res = await app.request(`/api/blobs/${hash}`, { method: "PUT", body: bytes });
   expect(res.status).toBe(200);
   return hash;

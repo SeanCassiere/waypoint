@@ -44,7 +44,7 @@ if (onlyBundle.length === 0 || onlyBundle.includes(""))
 export default defineConfig({
   entry: { "waypoint-mcp-server": "src/cli.ts" },
   platform: "node",
-  target: "node24",
+  target: "node26",
   minify: true,
   dts: false,
   banner: `/*!\n${notices}\n*/`,

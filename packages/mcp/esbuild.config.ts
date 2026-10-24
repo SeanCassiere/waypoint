@@ -8,7 +8,7 @@ await build({
   outfile: "dist/launcher.mjs",
   bundle: true,
   platform: "node",
-  target: "node24",
+  target: "node26",
   format: "esm",
   external: ["node:*"],
   minify: true,

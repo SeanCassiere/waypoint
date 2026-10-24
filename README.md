@@ -135,7 +135,7 @@ public reader when you want them: [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Contributing
 
-Development needs Node 24 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format,
+Development needs Node 26 and pnpm 11, and no secrets: `pnpm install`, `pnpm check` (format,
 lint, typecheck, tests) and `pnpm build`. [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup,
 the rules and how PRs and releases work; [AGENTS.md](AGENTS.md) is the detailed guide to the
 codebase. Please report security issues privately: [SECURITY.md](SECURITY.md).
