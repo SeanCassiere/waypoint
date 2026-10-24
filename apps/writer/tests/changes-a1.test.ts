@@ -66,7 +66,7 @@ const json = (value: unknown) => ({
 });
 async function upload(path: string, content: string | Uint8Array) {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex")}`;
+  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))).toString("hex")}`;
   expect((await app.request(`/api/blobs/${hash}`, { method: "PUT", body: bytes })).status).toBe(
     200,
   );

@@ -229,11 +229,11 @@ const scenario: ViewerScenario = {
     const rows = own.rows[0] ?? [];
     assert.ok(
       rows[0]?.startsWith("#6 failed to sync | Branch off #4. The bucket didn't accept"),
-      rows[0],
+      String(rows[0]),
     );
     assert.ok(
       /^#7 (uploading \| Started |stalled \| No upload progress for )/.test(rows[1] ?? ""),
-      rows[1],
+      String(rows[1]),
     );
     assert.equal(rows[2], "#5 synced | Other machines see #5. No public links.");
     assert.deepEqual(own.rows[1], ["Everything else is synced"]);

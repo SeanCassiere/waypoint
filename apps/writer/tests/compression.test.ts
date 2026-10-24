@@ -27,7 +27,7 @@ let app: ReturnType<typeof createApp>;
 let rpub: string;
 
 async function upload(bytes: Uint8Array): Promise<string> {
-  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex")}`;
+  const hash = `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))).toString("hex")}`;
   expect((await app.request(`/api/blobs/${hash}`, { method: "PUT", body: bytes })).status).toBe(
     200,
   );
