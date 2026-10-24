@@ -19,7 +19,7 @@ Every tier deploys with the same script, [deploy/upgrade.sh](../deploy/upgrade.s
 who can reach what is in the [trust model](trust-model.md).
 
 You need a Linux host with Docker Engine and Docker Compose 2.24+, bash 4.4+, `curl` and Node.js 22+
-(24+ to deploy from a git checkout with the public reader, which builds it). Deploying from a git
+(26+ to deploy from a git checkout with the public reader, which builds it). Deploying from a git
 checkout builds the writer image, which needs Docker Engine 25+ (its health check's
 `--start-interval`). To verify releases,
 install the [GitHub CLI](https://cli.github.com) 2.102.0 or later and log in (`gh auth login`).
@@ -221,7 +221,10 @@ safe: [deploy/README.md](../deploy/README.md#automatic-deploys-on-release).
    `waypoint-deploy`. Runners of a private repository never run anything from forks. Run it as a
    service that survives logouts, for example a systemd user unit with linger enabled
    (`loginctl enable-linger`), with `KillMode=process` so stopping the runner never kills a deploy
-   in progress, and a low priority (`Nice=10`) so deploys don't starve the host's other work:
+   in progress, a low priority (`Nice=10`) so deploys don't starve the host's other work, and a
+   `PATH` that has `node` and `gh` (`upgrade.sh` needs both; a job gets the unit's `PATH`, not your
+   login shell's, so a Node installed in your home directory, or by a version manager, isn't found
+   without it):
 
    ```ini
    [Unit]
@@ -230,6 +233,7 @@ safe: [deploy/README.md](../deploy/README.md#automatic-deploys-on-release).
 
    [Service]
    WorkingDirectory=%h/actions-runner-waypoint
+   Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
    ExecStart=%h/actions-runner-waypoint/run.sh
    Restart=always
    RestartSec=10

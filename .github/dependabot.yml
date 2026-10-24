@@ -8,7 +8,7 @@
 #
 # Node majors are left alone (the base image's `node` and `@types/node`): moving to one is a
 # deliberate change that also updates .node-version, the `engines` fields and the docs, which say
-# Node 24. Patch and minor updates, and the image's digest, still come through.
+# Node 26. Patch and minor updates, and the image's digest, still come through.
 version: 2
 updates:
   # The pnpm workspace: the root package.json, every workspace package and the catalog in

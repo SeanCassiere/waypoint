@@ -1,5 +1,7 @@
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS base
-RUN corepack enable
+FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS base
+# Node 25+ no longer ships corepack: install it pinned, and it provides the pnpm that package.json's
+# packageManager pins.
+RUN npm install -g --no-audit --no-fund corepack@0.36.0 && corepack enable
 ENV TURBO_TELEMETRY_DISABLED=1
 
 # The writer, the MCP bundles and the workspace packages they use, with the lockfile cut down to
@@ -29,7 +31,7 @@ COPY scripts/inlined-packages.json ./scripts/
 RUN pnpm exec turbo run build --filter=@waypoint/writer --filter=@waypoint/mcp --cache=local:,remote: \
     && pnpm --filter @waypoint/writer deploy --prod --legacy /out
 
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 # The base image's `node` user is uid/gid 1000, which must own the bind-mounted data dir.

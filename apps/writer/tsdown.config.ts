@@ -40,7 +40,7 @@ export default defineConfig({
     "render-worker": "src/render-worker.ts",
   },
   platform: "node",
-  target: "node24",
+  target: "node26",
   fixedExtension: false,
   dts: false,
   clean: ["dist/*", "!dist/viewer"],
