@@ -4,7 +4,7 @@ packages:
   - "tests"
 # Build tools pinned once for every package that uses them.
 catalog:
-  tsdown: 0.23.1
+  tsdown: 0.23.2
 allowBuilds:
   esbuild: true
   workerd: true
