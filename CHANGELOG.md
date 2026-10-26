@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/SeanCassiere/waypoint/compare/v0.4.0...v0.4.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** bump tsdown from 0.23.1 to 0.23.2 in the production-dependencies group ([#117](https://github.com/SeanCassiere/waypoint/issues/117)) ([05f9123](https://github.com/SeanCassiere/waypoint/commit/05f9123b50537aa660fd9645bd2a9fecb927cc5f))
+
 ## [0.4.0](https://github.com/SeanCassiere/waypoint/compare/v0.3.1...v0.4.0) (2026-10-24)
 
 
