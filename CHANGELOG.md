@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.2](https://github.com/SeanCassiere/waypoint/compare/v0.4.1...v0.4.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** bump node from `2814715` to `bc0a2af` in /apps/writer in the docker group ([#120](https://github.com/SeanCassiere/waypoint/issues/120)) ([6558748](https://github.com/SeanCassiere/waypoint/commit/6558748a68ecff6509b7469d3e35ae44287b5b77))
+* **deps:** bump tailscale/tailscale from v1.104.2 to v1.104.4 in /deploy in the compose group ([#119](https://github.com/SeanCassiere/waypoint/issues/119)) ([f2289dd](https://github.com/SeanCassiere/waypoint/commit/f2289ddbaefaf9942165f773ec5b22c9714040c5))
+* **deps:** bump the production-dependencies group across 1 directory with 5 updates ([#122](https://github.com/SeanCassiere/waypoint/issues/122)) ([3f9b0fa](https://github.com/SeanCassiere/waypoint/commit/3f9b0fa13e1db1e29d35bdb024d3268d50dbeb7a))
+
 ## [0.4.1](https://github.com/SeanCassiere/waypoint/compare/v0.4.0...v0.4.1) (2026-10-26)
 
 
