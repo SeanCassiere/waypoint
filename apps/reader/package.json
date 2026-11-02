@@ -15,7 +15,7 @@
     "@waypoint/core": "workspace:*",
     "@waypoint/ui": "workspace:*",
     "aws4fetch": "^1.0.20",
-    "hono": "^4.13.13"
+    "hono": "^4.13.14"
   },
   "devDependencies": {
     "wrangler": "4.156.0"
