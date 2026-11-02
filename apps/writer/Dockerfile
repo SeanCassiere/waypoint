@@ -1,4 +1,4 @@
-FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS base
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS base
 # Node 25+ no longer ships corepack: install it pinned, and it provides the pnpm that package.json's
 # packageManager pins.
 RUN npm install -g --no-audit --no-fund corepack@0.36.0 && corepack enable
@@ -31,7 +31,7 @@ COPY scripts/inlined-packages.json ./scripts/
 RUN pnpm exec turbo run build --filter=@waypoint/writer --filter=@waypoint/mcp --cache=local:,remote: \
     && pnpm --filter @waypoint/writer deploy --prod --legacy /out
 
-FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 # The base image's `node` user is uid/gid 1000, which must own the bind-mounted data dir.
