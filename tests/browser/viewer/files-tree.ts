@@ -149,6 +149,36 @@ const scenario: ViewerScenario = {
     await page.reload();
     assert.deepEqual(await opened(page), before, "the filter's opened folders aren't saved");
 
+    // A gallery keeps its own folder open over a saved Collapse all, and with no root-level
+    // files, f lands on the first folder's row.
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const gallery = await writer.api("/api/collections", {
+      title: "Tree gallery",
+      head_path: "docs/readme.md",
+      files: [
+        await writer.write("docs/readme.md", "# Readme\n"),
+        ...(await Promise.all(
+          ["a", "b", "c", "d"].map((name) => writer.write(`shots/${name}.png`, png, "image/png")),
+        )),
+      ],
+    });
+    await page.goto(`${writer.base}${at(gallery)}`);
+    assert.deepEqual(await opened(page), ["docs/"]);
+    await all.click();
+    await all.click();
+    await settle(page);
+    await page.goto(`${writer.base}${new URL(gallery.url).pathname}gallery/shots/`);
+    assert.deepEqual(await opened(page), ["shots/"], "the gallery's folder stays open");
+    await page.locator("#main").focus();
+    await page.keyboard.press("f");
+    assert.equal(
+      await page.evaluate(
+        `document.activeElement === document.querySelector('#tp-files details[data-dir="docs/"] > summary')`,
+      ),
+      true,
+      "f focuses the first folder's row",
+    );
+
     // Without script the folders still toggle natively, and there's no button.
     const plain = await ctx.browser.newContext({ javaScriptEnabled: false });
     try {
