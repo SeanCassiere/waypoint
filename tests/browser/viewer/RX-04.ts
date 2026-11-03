@@ -6,7 +6,7 @@ import { deflateSync } from "node:zlib";
 import { sharedTokensCss } from "@waypoint/ui";
 import type { Page } from "playwright";
 
-import { assert, VIEWPORTS, type ViewerScenario } from "../harness.ts";
+import { assert, openFile, VIEWPORTS, type ViewerScenario } from "../harness.ts";
 
 /** A solid-colour RGB PNG of the given size. */
 function png(width: number, height: number, rgb: [number, number, number]): Uint8Array {
@@ -103,7 +103,7 @@ const scenario: ViewerScenario = {
       const { page } = await ctx.newPage(VIEWPORTS.desktop);
       await page.goto(`${base}${latest}`);
       await page.locator("iframe.frame").waitFor();
-      await page.locator('.tree a[data-file="shots/b.png"]').click();
+      await openFile(page, "shots/b.png");
       await page.waitForURL((url) => url.pathname.endsWith("shots/b.png"));
       await page.locator("figure.stage").waitFor();
       assert.equal(await page.locator("iframe").count(), 0, "no frame after the click");

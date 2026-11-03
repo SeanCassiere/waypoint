@@ -3,7 +3,7 @@
 // entry; a Contents link updates it, a file switch drops it, and an invalid fragment is dropped.
 import type { Frame, Page } from "playwright";
 
-import { assert, VIEWPORTS, type ViewerScenario } from "../harness.ts";
+import { assert, openFile, VIEWPORTS, type ViewerScenario } from "../harness.ts";
 
 const para = (n: number) =>
   Array.from(
@@ -91,7 +91,7 @@ const scenario: ViewerScenario = {
         .getByRole("link", { name: "Recommendation", exact: true })
         .click();
       await page.waitForFunction(`location.hash === "#recommendation"`);
-      await page.locator('#tp-files a[data-file="notes/b.md"]').click();
+      await openFile(page, "notes/b.md");
       await page.waitForURL(`**${latest}notes/b.md`);
       await docFrame(page, "notes/b.md");
       assert.equal(await hashOf(page), "", "a file switch drops the fragment");
@@ -166,7 +166,7 @@ const scenario: ViewerScenario = {
         await route.continue().catch(() => undefined);
       });
       await page.goto(`${base}${latest}index.md#${HEADING}`, { waitUntil: "domcontentloaded" });
-      await page.locator('#tp-files a[data-file="notes/b.md"]').click();
+      await openFile(page, "notes/b.md");
       const frame = await docFrame(page, "notes/b.md");
       await pause(300);
       assert.ok(

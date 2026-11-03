@@ -466,6 +466,13 @@
   font-size: 13.5px;
   min-width: 0;
 }
+/* Touch: folders start collapsed (D72), so their rows are the tree's main target; 44 px rows. */
+@media (pointer: coarse) {
+  .tree a,
+  .tree summary {
+    min-height: var(--tap);
+  }
+}
 .tree a span.nm {
   overflow: hidden;
   text-overflow: ellipsis;

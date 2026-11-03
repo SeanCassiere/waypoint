@@ -10,6 +10,8 @@ function session(): Storage | null {
   }
 }
 
+const dir = (folder: HTMLDetailsElement): string => folder.dataset.dir ?? "";
+
 /** Opens every folder holding `row`, so it can be seen and focused. */
 export function revealRow(row: Element | null): void {
   for (let folder = row?.parentElement?.closest("#tp-files details"); folder;) {
@@ -26,14 +28,15 @@ export function focusFilesStart(): void {
   (
     $("#tp-files [data-filter]") ??
     current ??
-    $("#tp-files .tree > :is(a, details > summary)")
+    $("#tp-files .tree > a, #tp-files .tree > details > summary")
   )?.focus();
 }
 
 /**
- * The Files tree's folders (D72): restores the folders opened earlier in this tab for this
- * collection (the current file's stay open), names and runs Expand all / Collapse all, and filters
- * large trees (every folder opens while a query is typed; clearing it puts them back).
+ * The Files tree's folders (D72): reopens the folders the reader opened earlier in this tab for
+ * this collection, names and runs Expand all / Collapse all, and filters large trees (every folder
+ * opens while a query is typed; clearing it puts them back). Only the reader's own choices are
+ * kept (a folder's row, the button), never the folders opened to show a file or a query's matches.
  */
 export function bindTree(): void {
   const panel = $("#tp-files");
@@ -45,55 +48,66 @@ export function bindTree(): void {
   const store = collection ? session() : null;
   const key = `${KEY}${collection ?? ""}`;
   const query = () => filter?.value.trim().toLowerCase() ?? "";
-  const openDirs = () =>
-    folders.filter((folder) => folder.open).map((folder) => folder.dataset.dir);
 
-  const raw = store?.getItem(key);
-  if (raw) {
-    let saved: unknown;
-    try {
-      saved = JSON.parse(raw);
-    } catch {
-      saved = null;
-    }
-    if (Array.isArray(saved)) {
-      const open = new Set(saved);
-      for (const folder of folders) folder.open = open.has(folder.dataset.dir);
-    }
+  const chosen = new Set<string>();
+  try {
+    const saved: unknown = JSON.parse(store?.getItem(key) ?? "[]");
+    if (Array.isArray(saved))
+      for (const entry of saved) if (typeof entry === "string") chosen.add(entry);
+  } catch {
+    // A damaged entry is the same as none.
   }
-  revealRow($("a[aria-current]", panel));
+  // Additive: the server already opened the current file's folders (or the gallery's).
+  for (const folder of folders) if (chosen.has(dir(folder))) folder.open = true;
+  const save = () => store?.setItem(key, JSON.stringify([...chosen]));
 
   const label = () => {
     if (button)
       button.textContent = folders.every((folder) => folder.open) ? "Collapse all" : "Expand all";
   };
   label();
-  // toggle doesn't bubble and fires a task after the change, so this reads the live state: the
-  // folders a query opened are never saved.
+  // A press on a folder's row (or Enter or Space on it, which clicks it) marks the folder; its
+  // toggle, a task later, records the choice. toggle doesn't bubble, hence the capture.
+  const pressed = new WeakSet<HTMLDetailsElement>();
+  panel.addEventListener("click", (event) => {
+    const summary = event.target instanceof Element ? event.target.closest("summary") : null;
+    if (summary?.parentElement instanceof HTMLDetailsElement) pressed.add(summary.parentElement);
+  });
   panel.addEventListener(
     "toggle",
     (event) => {
-      if (!(event.target instanceof HTMLDetailsElement)) return;
+      const folder = event.target;
+      if (!(folder instanceof HTMLDetailsElement)) return;
       label();
-      if (!query()) store?.setItem(key, JSON.stringify(openDirs()));
+      if (!pressed.has(folder)) return;
+      pressed.delete(folder);
+      if (query()) return;
+      if (folder.open) chosen.add(dir(folder));
+      else chosen.delete(dir(folder));
+      save();
     },
     true,
   );
   button?.addEventListener("click", () => {
     const open = !folders.every((folder) => folder.open);
-    for (const folder of folders) folder.open = open;
+    chosen.clear();
+    for (const folder of folders) {
+      folder.open = open;
+      if (open) chosen.add(dir(folder));
+    }
+    save();
     label();
   });
 
-  let before: Set<string | undefined> | null = null;
+  let before: Set<string> | null = null;
   filter?.addEventListener("input", () => {
     const text = query();
-    if (text && !before) before = new Set(openDirs());
+    if (text && !before) before = new Set(folders.filter((f) => f.open).map(dir));
     for (const link of $$("a[data-file]", HTMLAnchorElement, panel))
       link.hidden = Boolean(text) && !(link.dataset.file ?? "").toLowerCase().includes(text);
     for (const folder of folders) {
       if (text) folder.open = true;
-      else if (before) folder.open = before.has(folder.dataset.dir);
+      else if (before) folder.open = before.has(dir(folder));
       folder.hidden =
         Boolean(text) &&
         !$$("a[data-file]", HTMLAnchorElement, folder).some((link) => !link.hidden);

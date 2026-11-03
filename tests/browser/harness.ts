@@ -421,6 +421,21 @@ export function openState(id: string): string {
   return `document.getElementById(${JSON.stringify(id)})?.matches(":popover-open") === true`;
 }
 
+/** Clicks a file in the Files tree, first opening its closed folders by their rows, as a reader
+ *  would: folders start collapsed except the current file's (D72). */
+export async function openFile(page: Page, path: string): Promise<void> {
+  const dirs = path
+    .split("/")
+    .slice(0, -1)
+    .map((_, i, parts) => `${parts.slice(0, i + 1).join("/")}/`);
+  for (const dir of dirs) {
+    const folder = page.locator(`#tp-files details[data-dir="${dir}"]`);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- Outer folders open first.
+    if ((await folder.getAttribute("open")) === null) await folder.locator("> summary").click();
+  }
+  await page.locator(`#tp-files a[data-file="${path}"]`).click();
+}
+
 /** Collects "<type>: <text>" console lines and "pageerror: <message>" from a page. */
 export function collectConsole(page: Page): string[] {
   const log: string[] = [];

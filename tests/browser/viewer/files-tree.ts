@@ -95,11 +95,25 @@ const scenario: ViewerScenario = {
     assert.deepEqual(await opened(page), ["notes/", "notes/deep/"]);
     assert.ok(await page.locator('#tp-files a[aria-current="page"]').isVisible());
 
-    // Remembered for the tab: open Beta/ by hand, reload, and it is still open, as are the
-    // current file's folders; a new tab (context) starts collapsed again.
+    // Remembered for the tab: open Beta/ by hand and it is still open at the head, while the
+    // folders opened only to show notes/deep/x.md are not kept; a new tab starts collapsed.
     await page.locator('#tp-files details[data-dir="Beta/"] > summary').click();
     await settle(page);
     await page.goto(`${writer.base}${at(small)}`);
+    assert.deepEqual(await opened(page), ["Beta/"]);
+    // Collapse all is a choice too: nothing reopens at the head after it.
+    await all.click();
+    await all.click();
+    await settle(page);
+    await page.reload();
+    assert.deepEqual(await opened(page), []);
+    await page.locator('#tp-files details[data-dir="Beta/"] > summary').press("Enter");
+    await settle(page);
+    // The keyboard's Enter on a folder row counts as the reader's choice as well.
+    await page.reload();
+    assert.deepEqual(await opened(page), ["Beta/"]);
+    // A saved folder doesn't close the current file's folders.
+    await page.goto(`${writer.base}${at(small)}notes/deep/x.md`);
     assert.deepEqual(await opened(page), ["Beta/", "notes/", "notes/deep/"]);
     const fresh = await ctx.newPage(VIEWPORTS.desktop);
     await fresh.page.goto(`${writer.base}${at(small)}`);
