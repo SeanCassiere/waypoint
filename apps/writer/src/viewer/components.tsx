@@ -19,6 +19,7 @@ import {
 import { chipText, seesLine, type StripModel, type StripStep } from "./health-words.ts";
 import type { Lineage } from "./lineage.ts";
 import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
+import { treeOf, type TreeNode } from "./tree-order.ts";
 
 export function LogoMark(props: { size?: number }) {
   const size = props.size ?? 22;
@@ -526,6 +527,8 @@ export interface TreeOptions {
   current: string | null;
   glyphs: ReadonlyMap<string, Glyph> | null;
   galleryHref?: ((dir: string) => string) | undefined;
+  /** A folder ("dir/") to open on load in place of the current file's (the gallery page). */
+  reveal?: string | undefined;
 }
 const IMAGE = /^image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)$/;
 /** RX-04: the folder ("dir/") whose gallery shows this file or folder, with its image count, or
@@ -543,25 +546,16 @@ export function galleryDirFor(
       images++;
   return images >= 4 ? { dir, images } : null;
 }
-/** File tree (spec §4.9). Folders are <details>; large manifests start collapsed. */
+/**
+ * File tree (spec §4.9, D72). Folders are <details>, listed before files at every level (the head
+ * file stays first in its folder), and start collapsed except the ones holding the current file
+ * (or `reveal`). Expand all is a script-only button; large manifests also get a filter.
+ */
 export function FileTree(props: TreeOptions) {
-  type Node = { folders: Map<string, Node>; files: ManifestFileEntry[] };
-  const root: Node = { folders: new Map(), files: [] };
-  for (const file of props.files) {
-    const parts = file.path.split("/");
-    let node = root;
-    for (const part of parts.slice(0, -1)) {
-      let next = node.folders.get(part);
-      if (!next) {
-        next = { folders: new Map(), files: [] };
-        node.folders.set(part, next);
-      }
-      node = next;
-    }
-    node.files.push(file);
-  }
+  const root = treeOf(props.files, props.head);
   const large = props.files.length > 200;
   const current = props.current ?? "";
+  const reveal = props.reveal ?? current;
   const fileRow = (file: ManifestFileEntry, prefix: string): Child => {
     const glyph = props.glyphs?.get(file.path) ?? "·";
     return (
@@ -583,11 +577,11 @@ export function FileTree(props: TreeOptions) {
       </a>
     );
   };
-  const render = (node: Node, prefix: string): Child => {
+  const render = (node: TreeNode, prefix: string): Child => {
     // The folder's own files are exactly the ones galleryDirFor counts, so it scans only those.
     const gallery = prefix ? galleryDirFor(prefix, node.files) : null;
     // The head file is pinned first, above its siblings' folders (as in every mockup).
-    const head = node.files.find((file) => file.path === props.head);
+    const head = node.files[0]?.path === props.head ? node.files[0] : undefined;
     return (
       <>
         {props.galleryHref && gallery ? (
@@ -599,20 +593,18 @@ export function FileTree(props: TreeOptions) {
           </a>
         ) : null}
         {head ? fileRow(head, prefix) : null}
-        {[...node.folders]
-          .toSorted(([a], [b]) => a.localeCompare(b))
-          .map(([name, child]) => {
-            const path = `${prefix}${name}/`;
-            return (
-              <details open={!large || current.startsWith(path)} data-dir={path}>
-                <summary>
-                  {raw(icon("chevronDown", "sm"))}
-                  {name}
-                </summary>
-                <div>{render(child, path)}</div>
-              </details>
-            );
-          })}
+        {node.folders.map(([name, child]) => {
+          const path = `${prefix}${name}/`;
+          return (
+            <details open={reveal.startsWith(path)} data-dir={path}>
+              <summary>
+                {raw(icon("chevronDown", "sm"))}
+                {name}
+              </summary>
+              <div>{render(child, path)}</div>
+            </details>
+          );
+        })}
         {node.files.filter((file) => file !== head).map((file) => fileRow(file, prefix))}
       </>
     );
@@ -627,6 +619,14 @@ export function FileTree(props: TreeOptions) {
           aria-label="Filter files"
           data-filter
         />
+      ) : null}
+      {root.folders.length ? (
+        <div class="ttools">
+          {/* Script names it for the folders' state (Expand all / Collapse all) and shows it. */}
+          <button type="button" class="txtbtn" data-tree-all hidden data-needs-js>
+            Expand all
+          </button>
+        </div>
       ) : null}
       <div class="tree" role="group" aria-label="Files">
         {render(root, "")}

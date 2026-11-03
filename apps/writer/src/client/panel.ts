@@ -1,6 +1,7 @@
 import { rawPath } from "../viewer-paths.ts";
 import { $, $$, storage } from "./dom.ts";
 import { nearestDelta } from "./scroll-nearest.ts";
+import { revealRow } from "./tree.ts";
 
 // The panel docks at ≥ 1100px (spec §3.3) and is an overlay sheet below that.
 const WIDE = "(min-width: 1100px)";
@@ -144,6 +145,7 @@ function focusCurrent(id: string): void {
       : id === "files"
         ? $("#tp-files a[aria-current]")
         : null;
+  if (id === "files") revealRow(current);
   current?.focus();
   if (!current || document.activeElement !== current)
     $(`#panel [role=tab][data-tab="${id}"]`)?.focus();
@@ -184,18 +186,6 @@ export function bindPanel(): void {
       selectTab(tabs[next]?.dataset.tab ?? "files", true);
     });
   }
-  const filter = $("[data-filter]", HTMLInputElement);
-  filter?.addEventListener("input", () => {
-    const query = filter.value.trim().toLowerCase();
-    for (const link of $$("#tp-files a[data-file]", HTMLAnchorElement))
-      link.hidden = Boolean(query) && !(link.dataset.file ?? "").toLowerCase().includes(query);
-    for (const folder of $$("#tp-files details", HTMLDetailsElement)) {
-      if (query) folder.open = true;
-      folder.hidden =
-        Boolean(query) &&
-        !$$("a[data-file]", HTMLAnchorElement, folder).some((link) => !link.hidden);
-    }
-  });
   if (!wide()) {
     // Panels on narrow screens start closed; the bar's panel button, the phone tab bar or "."
     // opens them.

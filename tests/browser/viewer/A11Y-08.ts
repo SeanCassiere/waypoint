@@ -76,8 +76,15 @@ const loadedPath = (page: Page, path: string) =>
       return w.hasAttribute("data-loaded") && f.contentWindow.location.pathname.endsWith(${JSON.stringify(`/${path}`)}); })()`,
   );
 
-const click = (page: Page, path: string) =>
-  page.locator(`#tp-files a[data-file="${path}"]`).click();
+// Folders start collapsed (D72): open the file's folders first, as a reader would.
+const click = async (page: Page, path: string) => {
+  await page.evaluate(`(() => {
+    const link = document.querySelector('#tp-files a[data-file=${JSON.stringify(path)}]');
+    for (let d = link.parentElement.closest("details"); d; d = d.parentElement.closest("details"))
+      d.open = true;
+  })()`);
+  await page.locator(`#tp-files a[data-file="${path}"]`).click();
+};
 // The 300 ms step, with room for a busy machine: never sooner, and well before the 1.5 s load.
 const STEP_MAX_MS = 900;
 // A valid file name with no break opportunity: the line must wrap it, not run off the screen.

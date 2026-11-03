@@ -1,6 +1,7 @@
 import { matchKey, scopesFor, type KeyCommand } from "../viewer/keymap.ts";
 import { $, $$, shellRoot, storage } from "./dom.ts";
 import { setPanel, showTab, togglePanel, panelOpen, wide } from "./panel.ts";
+import { focusFilesStart } from "./tree.ts";
 
 // Every key is a viewer/keymap.ts entry. This listener handles the "all" and "collection" scopes;
 // the Changes and gallery pages match their own entries in the pages bundle.
@@ -100,7 +101,7 @@ function runBuiltIn(command: KeyCommand, event: KeyboardEvent): boolean {
       if (!inShell) return false;
       event.preventDefault();
       showTab("files");
-      ($("[data-filter]") ?? $("#tp-files a[aria-current], #tp-files a"))?.focus();
+      focusFilesStart();
       return true;
     case "history":
       if (!inShell) return false;
