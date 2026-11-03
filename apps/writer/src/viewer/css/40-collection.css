@@ -444,6 +444,15 @@
   padding: 0 10px;
   font-size: 13px;
 }
+/* Expand all / Collapse all (D72), at the end of the row above the tree. */
+.ttools {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 4px 2px;
+}
+.ttools:has(> [hidden]) {
+  display: none;
+}
 .tree a,
 .tree .dir,
 .tree summary {
@@ -456,6 +465,13 @@
   color: var(--ink-2);
   font-size: 13.5px;
   min-width: 0;
+}
+/* Touch: folders start collapsed (D72), so their rows are the tree's main target; 44 px rows. */
+@media (pointer: coarse) {
+  .tree a,
+  .tree summary {
+    min-height: var(--tap);
+  }
 }
 .tree a span.nm {
   overflow: hidden;

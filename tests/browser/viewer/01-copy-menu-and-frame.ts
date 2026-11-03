@@ -1,4 +1,4 @@
-import { assert, type ViewerScenario } from "../harness.ts";
+import { assert, openFile, type ViewerScenario } from "../harness.ts";
 import { baseline } from "./_baseline.ts";
 
 const scenario: ViewerScenario = {
@@ -27,7 +27,7 @@ const scenario: ViewerScenario = {
     );
     await page.goto(`${base}${latest}`);
     const beforeHistory = Number(await page.evaluate("history.length"));
-    await page.locator('[data-file="notes/b.md"]').click();
+    await openFile(page, "notes/b.md");
     await page.waitForURL(`**${latest}notes/b.md`);
     assert.equal(await page.evaluate("history.length"), beforeHistory + 1);
     await page.goBack();

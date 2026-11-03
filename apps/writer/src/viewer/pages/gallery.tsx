@@ -91,7 +91,7 @@ export async function galleryPage(
           <Panel
             ctx={ctx}
             tab={tab}
-            files={<FilesPanel ctx={ctx} path={null} glyphs={glyphs} />}
+            files={<FilesPanel ctx={ctx} path={null} glyphs={glyphs} reveal={dir} />}
             history={<HistoryPanel ctx={ctx} path="" all={false} />}
             links={
               ctx.links.length ? (

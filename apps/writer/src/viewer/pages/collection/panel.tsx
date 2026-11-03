@@ -272,6 +272,8 @@ export function FilesPanel(props: {
   ctx: CollectionContext;
   path: string | null;
   glyphs: Map<string, Glyph> | null;
+  /** The folder to open in the tree when no file is current (the gallery's). */
+  reveal?: string;
 }) {
   const { ctx } = props;
   const parent = ctx.revision.parent_revision_id
@@ -288,6 +290,7 @@ export function FilesPanel(props: {
         pinned={ctx.pinned}
         current={props.path}
         glyphs={props.glyphs}
+        reveal={props.reveal}
         galleryHref={(dir) =>
           `${shellPath(ctx.collection.public_id, ctx.revision.public_id, "", true)}gallery/${dir.split("/").filter(Boolean).map(encodeURIComponent).join("/")}/`
         }

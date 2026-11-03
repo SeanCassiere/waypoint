@@ -2,6 +2,7 @@ import { matchKey } from "../viewer/keymap.ts";
 import { api, field } from "./api.ts";
 import { $, $$, el } from "./dom.ts";
 import { showTab } from "./panel.ts";
+import { focusFilesStart } from "./tree.ts";
 
 interface Suggestion {
   title: string;
@@ -318,6 +319,6 @@ export function bindFind(): void {
     event.preventDefault();
     dialog.close();
     showTab("files");
-    ($("[data-filter]") ?? $("#tp-files a[aria-current], #tp-files a"))?.focus();
+    focusFilesStart();
   });
 }

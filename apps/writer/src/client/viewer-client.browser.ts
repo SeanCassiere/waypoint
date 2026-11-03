@@ -16,6 +16,7 @@ import { bindFind, bindSearch } from "./search.ts";
 import { bindShare } from "./share.ts";
 import { localizeTimes } from "./time.ts";
 import { showFlash } from "./toast.ts";
+import { bindTree } from "./tree.ts";
 import { exposeVersion } from "./version.ts";
 
 exposeVersion();
@@ -31,6 +32,7 @@ bindKeysDialog();
 bindSearch();
 bindFind();
 bindPanel();
+bindTree();
 localizeDayGroups();
 bindRecentMarks();
 bindCollection();

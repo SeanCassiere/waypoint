@@ -5,7 +5,7 @@
 import type { Page } from "playwright";
 import { z } from "zod";
 
-import { assert, VIEWPORTS, type ViewerScenario } from "../harness.ts";
+import { assert, openFile, VIEWPORTS, type ViewerScenario } from "../harness.ts";
 
 // Records, from document start, every change of the line's text, the wrap's data-opening and
 // #main's aria-busy (with performance.now(), one time per observer callback, so changes made in
@@ -76,8 +76,6 @@ const loadedPath = (page: Page, path: string) =>
       return w.hasAttribute("data-loaded") && f.contentWindow.location.pathname.endsWith(${JSON.stringify(`/${path}`)}); })()`,
   );
 
-const click = (page: Page, path: string) =>
-  page.locator(`#tp-files a[data-file="${path}"]`).click();
 // The 300 ms step, with room for a busy machine: never sooner, and well before the 1.5 s load.
 const STEP_MAX_MS = 900;
 // A valid file name with no break opportunity: the line must wrap it, not run off the screen.
@@ -162,7 +160,7 @@ const scenario: ViewerScenario = {
       await page.goto(`${base}${latest}`);
       await loadedPath(page, "index.md");
       slow = true;
-      await click(page, "notes/b.md");
+      await openFile(page, "notes/b.md");
       await page.waitForTimeout(150);
       const early = await json(
         page,
@@ -217,7 +215,7 @@ const scenario: ViewerScenario = {
       slow = false;
       await page.goto(`${base}${latest}`);
       await loadedPath(page, "index.md");
-      await click(page, "notes/b.md");
+      await openFile(page, "notes/b.md");
       await loadedPath(page, "notes/b.md");
       assert.deepEqual(await values(page, "text"), [], "no line");
       assert.deepEqual(await values(page, "opening"), [], "never hidden");
@@ -232,9 +230,9 @@ const scenario: ViewerScenario = {
       await page.goto(`${base}${latest}`);
       await loadedPath(page, "index.md");
       slow = true;
-      await click(page, "notes/b.md");
+      await openFile(page, "notes/b.md");
       await shown(page);
-      await click(page, "notes/c.md");
+      await openFile(page, "notes/c.md");
       const now = await state(page);
       assert.equal(now.text, "Opening notes/c.md…", "the new path at once");
       assert.equal(now.opening, true, "still hidden");
@@ -257,11 +255,11 @@ const scenario: ViewerScenario = {
       await page.goto(`${base}${latest}`);
       await loadedPath(page, "index.md");
       slow = true;
-      await click(page, "notes/b.md");
+      await openFile(page, "notes/b.md");
       if (wait === "before") await page.waitForTimeout(100);
       else await shown(page);
       const backAt = Number(await json(page, "performance.now()"));
-      await click(page, "index.md");
+      await openFile(page, "index.md");
       if (wait === "after") {
         const now = await state(page);
         assert.equal(now.text, "Opening index.md…", "after the step: the new path at once");

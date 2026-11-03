@@ -4,6 +4,7 @@ import { pathFromRaw, rawPath, shellPath } from "../viewer-paths.ts";
 import { $, $$, el, shellRoot } from "./dom.ts";
 import { loadingLine } from "./loading-line.ts";
 import { refreshStatusLine } from "./status-line.ts";
+import { revealRow } from "./tree.ts";
 
 /** Shell-only parameters (panel tab, full history) survive the frame's own query string. */
 const SHELL_PARAMS = ["panel", "history"];
@@ -102,6 +103,8 @@ export function bindFrameSync(): void {
     for (const link of links)
       if (link === matched) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
+    // A link inside the document can open a file in a collapsed folder.
+    revealRow(matched ?? null);
     frameNotice(matched ? null : "This file isn't in this revision.");
     const raw = rawPath(revision, path) + search + hash;
     for (const link of $$("[data-open-raw],[data-download]", HTMLAnchorElement)) link.href = raw;
@@ -156,7 +159,10 @@ export function bindFrameSync(): void {
       if (opening) openSection(frame, href + opening);
       // Same-origin documents: Esc inside the document returns focus to the shell.
       frame.contentDocument?.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") $("#tp-files a[aria-current]")?.focus();
+        if (event.key !== "Escape") return;
+        const current = $("#tp-files a[aria-current]");
+        revealRow(current);
+        current?.focus();
       });
       if (keyboardOpen) frame.focus();
       keyboardOpen = false;
