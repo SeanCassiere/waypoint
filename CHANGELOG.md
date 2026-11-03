@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/SeanCassiere/waypoint/compare/v0.4.2...v0.5.0) (2026-11-03)
+
+
+### Features
+
+* **viewer:** collapse Files tree folders by default, folders before files, Expand all ([#124](https://github.com/SeanCassiere/waypoint/issues/124)) ([b8a9648](https://github.com/SeanCassiere/waypoint/commit/b8a9648e6bc7d577a641d27ce92726b632ab6200))
+
 ## [0.4.2](https://github.com/SeanCassiere/waypoint/compare/v0.4.1...v0.4.2) (2026-11-02)
 
 
