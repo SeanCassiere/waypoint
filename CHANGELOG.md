@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/SeanCassiere/waypoint/compare/v0.5.0...v0.6.0) (2026-11-07)
+
+
+### Features
+
+* **viewer:** peek the collapsed panel from the left edge ([#126](https://github.com/SeanCassiere/waypoint/issues/126)) ([80aafa1](https://github.com/SeanCassiere/waypoint/commit/80aafa11f4c4b327bc6f9aefbda9d0592de414c3))
+
 ## [0.5.0](https://github.com/SeanCassiere/waypoint/compare/v0.4.2...v0.5.0) (2026-11-03)
 
 
