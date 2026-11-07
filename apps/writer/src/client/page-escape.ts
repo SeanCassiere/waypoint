@@ -1,8 +1,10 @@
 import { matchKey } from "../viewer/keymap.ts";
 
-/** Open things an Esc closes before the page's own Esc. The toast host is a manual popover that
- *  stays open while a toast shows (sticky errors too), so it doesn't count. */
-export const OPEN_LAYER = "dialog[open], [popover]:popover-open:not([data-toast]), #shell.open";
+/** Open things an Esc closes before the page's own Esc: dialogs, menus, the panel sheet and the
+ *  panel's peek (D73). The toast host is a manual popover that stays open while a toast shows
+ *  (sticky errors too), so it doesn't count. */
+export const OPEN_LAYER =
+  "dialog[open], [popover]:popover-open:not([data-toast]), #shell.open, #shell.peek";
 
 /** True when the key goes to a text field, select or editable region. */
 export function typing(target: EventTarget | null): boolean {

@@ -1,10 +1,29 @@
-/* Motion (owner feedback): only popovers, dialogs and the panel sheet open and close, and
-   controls show state changes (hover, pressed, toggled, Copied). Pages, navigation and
-   document content never animate. CSS transitions with @starting-style, at most 150 ms,
+/* Motion (owner feedback): only popovers, dialogs, the panel sheet and the panel's peek open and
+   close, and controls show state changes (hover, pressed, toggled, Copied). Pages, navigation
+   and document content never animate. CSS transitions with @starting-style, at most 150 ms,
    and none under reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .panel {
     transition: transform 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  /* The peek (D73) slides in from the left edge in 100 ms and back out in 100 ms. Only a close
+     from a peek animates (.peek-out): collapsing or docking the panel stays instant. */
+  @media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+    .shell.closed:not(.peek) .panel {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+    .shell.closed.peek .panel {
+      transition:
+        opacity 100ms ease-out,
+        transform 100ms cubic-bezier(0.2, 0, 0, 1);
+    }
+    .shell.closed.peek-out .panel {
+      transition:
+        opacity 100ms ease-out,
+        transform 100ms cubic-bezier(0.2, 0, 0, 1),
+        visibility 0s linear 100ms;
+    }
   }
   .menu,
   .pop2 {

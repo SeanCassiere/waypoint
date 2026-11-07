@@ -1,5 +1,6 @@
 import { matchKey, scopesFor, type KeyCommand } from "../viewer/keymap.ts";
 import { $, $$, shellRoot, storage } from "./dom.ts";
+import { closePeek, peeking } from "./panel-peek.ts";
 import { setPanel, showTab, togglePanel, panelOpen, wide } from "./panel.ts";
 import { focusFilesStart } from "./tree.ts";
 
@@ -70,8 +71,15 @@ function runBuiltIn(command: KeyCommand, event: KeyboardEvent): boolean {
       return true;
     case "escape":
       // An open menu closes first: the browser's own Esc closes it (so no preventDefault here),
-      // and the sheet behind it waits for the next press.
-      if (wide() || !panelOpen() || menuOpen()) return false;
+      // and the sheet or peek behind it waits for the next press.
+      if (menuOpen()) return false;
+      if (peeking()) {
+        // Closing the peek consumes the press, so the page's own Esc doesn't also run.
+        event.preventDefault();
+        closePeek(true);
+        return true;
+      }
+      if (wide() || !panelOpen()) return false;
       // Closing the sheet consumes the press, so the page's own Esc doesn't also run.
       event.preventDefault();
       setPanel(false);

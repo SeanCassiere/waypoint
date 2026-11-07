@@ -49,6 +49,7 @@ export const SHARD_WEIGHTS: Readonly<
     "VS-05c": 17600,
     "VS-07": 500,
     "dialog-footer-flush": 13300,
+    "panel-peek": 3300,
   },
   reader: {
     "00-csp-and-tokens": 500,

@@ -1,5 +1,6 @@
 import { rawPath } from "../viewer-paths.ts";
 import { $, $$, storage } from "./dom.ts";
+import { bindPeek, collapsedUnderPointer, peeking, stopPeek } from "./panel-peek.ts";
 import { nearestDelta } from "./scroll-nearest.ts";
 import { revealRow } from "./tree.ts";
 
@@ -15,11 +16,11 @@ export function panelOpen(): boolean {
   if (!root) return false;
   return wide() ? !root.classList.contains("closed") : root.classList.contains("open");
 }
-/** The panel toggle says whether the panel is open; the pills and the tab bar's Files and
- *  History say whether it's open on their tab (the status line's tap target has no
- *  aria-controls and is left alone). */
+/** The panel toggle says whether the panel is open (docked, or out as a peek); the pills and the
+ *  tab bar's Files and History say whether it's open on their tab (the status line's tap target
+ *  has no aria-controls and is left alone). */
 function syncToggle(): void {
-  const open = panelOpen();
+  const open = panelOpen() || peeking();
   for (const toggle of $$("[data-action=panel-toggle]"))
     toggle.setAttribute("aria-expanded", String(open));
   const tab = $('#panel [role=tab][aria-selected="true"]')?.dataset.tab;
@@ -35,7 +36,10 @@ export function setPanel(open: boolean): void {
   const root = shell();
   if (!root) return;
   if (wide()) {
+    // Docking a peek keeps the card where it is: the peek ends in the same frame, unanimated.
+    stopPeek();
     root.classList.toggle("closed", !open);
+    if (!open) collapsedUnderPointer();
     storage()?.setItem("wp:panel", open ? "open" : "closed");
     syncToggle();
     if (open) revealRevision();
@@ -89,7 +93,7 @@ export function selectTab(id: string, focus = false): boolean {
  * moves the sequential focus starting point to the row, so the first Tab would skip the skip link.
  */
 function revealRevision(): void {
-  if (!panelOpen()) return;
+  if (!panelOpen() && !peeking()) return;
   const row = $('#tp-history:not([hidden]) .rv[aria-current="true"]');
   const body = row?.closest<HTMLElement>(".pbody");
   if (!row || !body) return;
@@ -217,6 +221,10 @@ export function bindPanel(): void {
       if (path && revision)
         for (const link of downloads) link.href = `${rawPath(revision, path)}?download`;
     }).observe(root, { attributeFilter: ["data-path"] });
+  bindPeek(() => {
+    syncToggle();
+    revealRevision();
+  });
   restoreSheet();
   // The current revision is in view in the History tab after stepping to it.
   revealRevision();
