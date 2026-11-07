@@ -367,6 +367,43 @@
 .shell.closed .panel {
   visibility: hidden;
 }
+/* Peek (D73): with the docked panel collapsed, a mouse resting on the window's left edge (the
+   .peek-edge strip) or on the bar's panel button brings the panel out as a floating card over
+   the document (#shell.peek, client/panel-peek.ts). The panel leaves the grid while collapsed,
+   so #main keeps the whole row and nothing reflows. Touch and narrow windows keep the plain
+   toggle. */
+.peek-edge {
+  display: none;
+}
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .shell.closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell.closed > .peek-edge {
+    display: block;
+    position: fixed;
+    left: 0;
+    top: var(--bar-h);
+    bottom: 0;
+    width: 16px;
+    z-index: 31;
+  }
+  .shell.closed .panel {
+    position: fixed;
+    left: 0;
+    top: calc(var(--bar-h) + 32px);
+    bottom: 24px;
+    width: var(--panel-w);
+    z-index: 32;
+    border: 1px solid var(--rule);
+    border-left: 0;
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+    box-shadow: var(--sh-2);
+  }
+  .shell.closed.peek .panel {
+    visibility: visible;
+  }
+}
 .panel {
   border-right: 1px solid var(--rule);
   background: var(--paper);

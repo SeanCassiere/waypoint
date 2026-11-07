@@ -235,6 +235,9 @@ export function ShellRoot(props: {
       data-links={String(ctx.links.filter(isLive).length)}
     >
       {props.children}
+      {/* The left-edge strip a resting mouse peeks the collapsed panel from (D73). It sits above
+          the document frame, whose own pointer events never reach the shell. */}
+      <div class="peek-edge" aria-hidden="true" data-peek-edge />
     </div>
   );
 }
