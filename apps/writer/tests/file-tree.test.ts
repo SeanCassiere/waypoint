@@ -136,22 +136,16 @@ describe("FileTree", () => {
     ]);
   });
 
-  it("renders Expand all for script only, and only when there are folders", async () => {
-    const html = await tree();
-    expect(html).toContain(
-      '<div class="ttools"><button type="button" class="txtbtn" data-tree-all="true" hidden="" data-needs-js="true">Expand all</button></div>',
-    );
-    expect(html.indexOf('class="ttools"')).toBeLessThan(html.indexOf('class="tree"'));
-    const flat = await tree({ files: files.slice(0, 6), head: "readme.md", current: "readme.md" });
-    expect(flat).not.toContain("data-tree-all");
+  it("leaves Expand all to the Files tab's tools row", async () => {
+    expect(await tree()).not.toContain("data-tree-all");
   });
 
-  it("keeps the filter for large trees only, above the button", async () => {
+  it("keeps the filter for large trees only, above the tree", async () => {
     expect(await tree()).not.toContain("data-filter");
     const many = Array.from({ length: 201 }, (_, i) => entry(`d/f${i}.md`));
     const html = await tree({ files: many, head: "d/f0.md", current: "d/f0.md" });
     expect(html).toContain('placeholder="Filter 201 files"');
-    expect(html.indexOf("data-filter")).toBeLessThan(html.indexOf("data-tree-all"));
+    expect(html.indexOf("data-filter")).toBeLessThan(html.indexOf('class="tree"'));
     // Numeric order: f2 before f10 before f100.
     const order = rows(html);
     expect(order.indexOf("d/f2.md")).toBeLessThan(order.indexOf("d/f10.md"));

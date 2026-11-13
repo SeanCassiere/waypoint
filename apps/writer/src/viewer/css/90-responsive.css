@@ -121,7 +121,7 @@
     bottom: 0;
     height: calc(58px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--surface);
     z-index: 25;
     justify-content: space-around;
     align-items: flex-start;
@@ -133,7 +133,7 @@
     justify-items: center;
     gap: 2px;
     font-size: 11px;
-    color: var(--muted);
+    color: var(--ink-2);
     text-decoration: none;
     min-width: 64px;
     min-height: 44px;
@@ -164,11 +164,7 @@
   .cmp {
     padding: 14px 10px 130px;
   }
-  /* The status line wraps (NAV-04): markers first, then what the ≤ 1099 px rule keeps, and the
-     actions at the end, 44 px tall. */
-  .status1 {
-    padding: 6px 10px;
-  }
+  /* The notice wraps (NAV-04): its segments first, and the actions at the end, 44 px tall. */
   .status1 > .grow + * {
     margin-left: auto;
   }

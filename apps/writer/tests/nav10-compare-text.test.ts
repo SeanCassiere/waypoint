@@ -86,7 +86,7 @@ describe("pickSummary", () => {
   it("describes a range on the latest line and the branch it skips, in either tick order", () => {
     const summary = pickSummary(demo, picks(demo, 2, 7));
     expect(summary.status).toBe(
-      "#2 → #7 · 4 steps on the latest line. #6 is a branch off #4, so it isn't included.",
+      "#2 → #7, 4 steps on the latest line. #6 is a branch off #4, so it isn't included.",
     );
     expect(summary.button).toBe("Compare #2 → #7");
     expect(summary.ready).toBe(true);
@@ -100,7 +100,7 @@ describe("pickSummary", () => {
   it("says when a step is off the latest line and a skipped revision is on it", () => {
     const summary = pickSummary(demo, picks(demo, 1, 6));
     expect(summary.status).toBe(
-      "#1 → #6 · 4 steps. #5 is on the latest line, not under #6, so it isn't included.",
+      "#1 → #6, 4 steps. #5 is on the latest line, not under #6, so it isn't included.",
     );
     expect(summary.button).toBe("Compare #1 → #6");
     expect([...summary.notes]).toEqual([["r5", "Not included: not under #6"]]);
@@ -108,7 +108,7 @@ describe("pickSummary", () => {
 
   it("counts one step", () => {
     const summary = pickSummary(demo, picks(demo, 4, 5));
-    expect(summary.status).toBe("#4 → #5 · 1 step on the latest line.");
+    expect(summary.status).toBe("#4 → #5, 1 step on the latest line.");
     expect(summary.button).toBe("Compare #4 → #5");
     expect(summary.inRange.size).toBe(0);
     expect(summary.notes.size).toBe(0);
@@ -141,7 +141,7 @@ describe("pickSummary", () => {
     });
     const summary = pickSummary(lin, picks(lin, 4, 2));
     expect(summary.status).toBe(
-      "#2 → #4 · 1 step on the latest line. #3 is a branch off #1, so it isn't included.",
+      "#2 → #4, 1 step on the latest line. #3 is a branch off #1, so it isn't included.",
     );
     expect([...summary.notes]).toEqual([["r3", "Not included: a branch"]]);
     expect(summary.inRange.size).toBe(0);
@@ -150,7 +150,7 @@ describe("pickSummary", () => {
   it("lists two skipped revisions and counts the rest", () => {
     const summary = pickSummary(wide, picks(wide, 2, 8));
     expect(summary.status).toBe(
-      "#2 → #8 · 2 steps on the latest line. #3 is a branch off #1, so it isn't included. #4 is a branch off #1, so it isn't included. 2 more revisions aren't included.",
+      "#2 → #8, 2 steps on the latest line. #3 is a branch off #1, so it isn't included. #4 is a branch off #1, so it isn't included. 2 more revisions aren't included.",
     );
     expect(summary.notes.size).toBe(4);
   });

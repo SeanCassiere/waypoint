@@ -4,7 +4,7 @@ import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
 import { shellPath } from "../../../viewer-paths.ts";
-import { LogoMark, HealthPill } from "../../components.tsx";
+import { LogoMark, HealthPill, StateGlyph } from "../../components.tsx";
 import { projectAndTags } from "../../format.ts";
 import { bindingFor, keyTitle } from "../../keymap.ts";
 import { FindButton, type Chrome } from "../../layout.tsx";
@@ -18,7 +18,7 @@ function revisionLabel(ctx: Pick<CollectionContext, "revision" | "latest">): {
   if (revision.sync_state === "failed") return { text: "failed", tone: "failed" };
   if (revision.id === latest?.id)
     return revision.sync_state === "pending"
-      ? { text: "latest · uploading", tone: "pending" }
+      ? { text: "latest, uploading", tone: "pending" }
       : { text: "latest", tone: "" };
   if (revision.sync_state === "pending") return { text: "uploading", tone: "pending" };
   return { text: "older", tone: "" };
@@ -65,9 +65,17 @@ export function CollectionBar(props: {
         : asked === "links" && ctx.links.length
           ? "links"
           : "files";
+  // The revision's state glyph, as on its History node; a crumb names two revisions, so it keeps
+  // the history icon.
+  const glyph =
+    revision.sync_state === "failed"
+      ? "failed"
+      : revision.sync_state === "pending"
+        ? "pending"
+        : "done";
   const pillBody = (
     <>
-      {raw(icon("history", "sm"))}
+      {props.crumb ? raw(icon("history", "sm")) : <StateGlyph kind={glyph} />}
       {props.crumb ?? (
         <>
           <b>#{n}</b> <span class={label.tone ? `l ${label.tone}` : "l"}>{word}</span>
@@ -122,8 +130,7 @@ export function CollectionBar(props: {
               {pillText}
               {file ? (
                 <>
-                  {" · "}
-                  <span class="mono">{file}</span>
+                  , <span class="fp">{file}</span>
                 </>
               ) : null}
             </span>
@@ -169,7 +176,7 @@ export function CollectionBar(props: {
                 title={keyTitle("files")}
               >
                 {raw(icon("doc", "sm"))}
-                <span class="mono">{file}</span>
+                <span class="fp">{file}</span>
               </a>
             </li>
           ) : null}

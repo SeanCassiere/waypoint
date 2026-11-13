@@ -37,7 +37,7 @@ export interface CollectionContext {
   changes: Map<string, RevisionChanges>;
   timeline: TimelineRow[];
   byId: Map<string, TimelineRow>;
-  /** The timeline's lineage (latest line, [ and ] stepping, History lanes), built once. */
+  /** The timeline's lineage (latest line, [ and ] stepping, how revisions relate), built once. */
   lineage: Lineage<TimelineRow>;
   publicSees: RevisionRow | undefined;
   url: URL;
@@ -174,7 +174,7 @@ export function DownloadCard(props: { path: string; size: number; mime: string; 
         </div>
         <h2>{props.path}</h2>
         <p class="muted">
-          {bytes(props.size)} · {props.mime} · can't be previewed in the browser
+          {bytes(props.size)}, {props.mime}, can't be previewed in the browser
         </p>
         <div class="btns center">
           <a class="btn primary" href={props.raw} download data-download>

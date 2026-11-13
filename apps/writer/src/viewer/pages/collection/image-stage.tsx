@@ -45,13 +45,11 @@ export function ImageStage(props: {
         <span class="ty">{imageTypeLabel(file.mime)}</span>
         {chip === "~" ? (
           <span class="ichg m">
-            {`~ Changed in #${n} · `}
-            <a href={changes}>See changes</a>
+            {`~ Changed in #${n}`} <a href={changes}>See changes</a>
           </span>
         ) : chip === "+" ? (
           <span class="ichg a">
-            {`+ Added in #${n} · `}
-            <a href={changes}>See changes</a>
+            {`+ Added in #${n}`} <a href={changes}>See changes</a>
           </span>
         ) : null}
         <span class="sp"></span>

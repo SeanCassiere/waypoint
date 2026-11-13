@@ -16,7 +16,7 @@ const scenario: ViewerScenario = {
     // The panel's History tab lists both revisions, newest first.
     await page.locator("body").press("h");
     await page.locator("#tp-history").waitFor({ state: "visible" });
-    assert.deepEqual(await page.locator("#tp-history .rv .h b").allTextContents(), ["#2", "#1"]);
+    assert.deepEqual(await page.locator("#tp-history .rv .lb-t b").allTextContents(), ["#2", "#1"]);
     const third = await api(`/api/collections/${first.collection_id}/revisions`, {
       message: "Third",
       mode: "replace",
@@ -71,14 +71,14 @@ const scenario: ViewerScenario = {
     assert.equal(await page.locator("#tab-history").getAttribute("aria-selected"), "true");
     assert.equal(await page.locator("#tp-history").isVisible(), true);
     assert.equal(
-      await page.locator('#tp-history .rv[aria-current="true"] .h b').textContent(),
+      await page.locator('#tp-history .rv[aria-current="true"] .lb-t b').textContent(),
       "#2",
     );
     await page.locator("body").press("[");
     await page.waitForURL((url) => url.pathname === `${pinned}index.md`);
     assert.equal(await page.locator("#tab-history").getAttribute("aria-selected"), "true");
     assert.equal(
-      await page.locator('#tp-history .rv[aria-current="true"] .h b').textContent(),
+      await page.locator('#tp-history .rv[aria-current="true"] .lb-t b').textContent(),
       "#1",
     );
     await page.locator("body").press("]");

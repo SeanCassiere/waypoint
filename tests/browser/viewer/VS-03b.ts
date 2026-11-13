@@ -2,7 +2,7 @@
 // four sizes (12, 16, 18, 20) and aria-hidden. On the seeded demo writer (Postgres: #6 failed on
 // #4, #7 uploading on #5; Webhook synced and shared; the checkout audit has a shots/ gallery):
 // every page at 1280 and on a phone, the share and danger dialog bands (20 px icons, no bang),
-// the Copy and More menus (no item icons), the status line's alert and clock, the health pill
+// the Copy and More menus (no item icons), the status line's state glyphs (D83), the health pill
 // in forced colours (and OW-10b's elsewhere ring), Copied on a Copy URL button and the Files
 // tree's folder chevron.
 import type { Page } from "playwright";
@@ -214,23 +214,25 @@ const scenario: ViewerScenario = {
       await page.locator("dialog#confirm [data-confirm-cancel]").click();
       await page.locator("dialog#confirm").waitFor({ state: "hidden" });
 
-      // The status line on #5: alert before "#6 failed", clock before "#7 …uploading", 16 px.
+      // The status line on #5: the failed glyph before "#6 failed", the uploading glyph before
+      // "#7 …uploading", 10 px state glyphs (D83), no icon.
       await page.goto(`${base}${five}`);
-      await isSquare(page, ".status1 .f svg.ic", 16, `${label} #5`);
-      await isSquare(page, ".status1 .p svg.ic", 16, `${label} #5`);
-      const tone = z.object({ stroke: z.string(), color: z.string(), tap: z.string() }).parse(
+      await isSquare(page, ".status1 .f .lb-g.failed", 10, `${label} #5`);
+      await isSquare(page, ".status1 .p .lb-g.pending", 10, `${label} #5`);
+      assert.equal(
+        await page.locator(".status1 svg").count(),
+        0,
+        `${label} #5: no icon in the line`,
+      );
+      const tone = z.object({ fill: z.string(), color: z.string(), tap: z.string() }).parse(
         await page.evaluate(`(() => {
           const f = document.querySelector(".status1 .f");
-          return { stroke: getComputedStyle(f.querySelector("svg.ic")).stroke,
+          return { fill: getComputedStyle(f.querySelector(".lb-g")).backgroundColor,
             color: getComputedStyle(f).color,
             tap: document.querySelector(".status1 .stap").textContent };
         })()`),
       );
-      assert.equal(
-        tone.stroke,
-        tone.color,
-        `${label} #5: the alert's stroke is the segment colour`,
-      );
+      assert.equal(tone.fill, tone.color, `${label} #5: the failed glyph is the segment colour`);
       assert.ok(!/[!\u25CC\u25CF]/.test(tone.tap), `${label} #5: the tap target has no glyph`);
       assert.ok(
         !new RegExp(`[${BANNED}]`).test(tone.tap),
@@ -383,8 +385,15 @@ const scenario: ViewerScenario = {
         );
         assert.equal(adjust, "none", "forced colours: the pill's glyph keeps its colours");
       }
-      await isSquare(page, ".status1 .f svg.ic", 16, "forced colours");
-      await isSquare(page, ".status1 .p svg.ic", 16, "forced colours");
+      await isSquare(page, ".status1 .f .lb-g", 10, "forced colours");
+      await isSquare(page, ".status1 .p .lb-g", 10, "forced colours");
+      assert.equal(
+        await page.evaluate(
+          `getComputedStyle(document.querySelector(".status1 .f .lb-g")).forcedColorAdjust`,
+        ),
+        "none",
+        "forced colours: the line's glyphs keep their colours",
+      );
     }
     {
       const { page } = await ctx.newPage({ ...VIEWPORTS.tablet, ...still, forcedColors: "active" });

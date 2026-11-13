@@ -50,7 +50,7 @@ export function CopyMenu(props: { ctx: CollectionContext; path: string }) {
           <div role="menu" aria-label="Copy" aria-owns="copy-menu-foot">
             <div class="lbl">
               <span class="lbl-ic">{raw(icon("lock", "sm"))}Tailnet links</span>
-              <span class="lbl-note"> · open only on your tailnet</span>
+              <span class="lbl-note">, open only on your tailnet</span>
             </div>
             <button
               type="button"

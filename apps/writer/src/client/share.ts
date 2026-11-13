@@ -293,24 +293,17 @@ function watchSheetClose(line: HTMLElement): void {
   watch.observe(root, { attributes: true, attributeFilter: ["class"] });
 }
 
-const separator = () =>
-  el("span", { class: "sepdot", text: "·", attrs: { "aria-hidden": "true" } });
 /**
  * A public segment the current line lacks (a link went live meanwhile): in spec order, after
  * failed and uploading, before "new since you last read" and the older revision.
  */
 function insertPublic(line: HTMLElement, added: Element): void {
-  const segments = $$(":scope > .seg1", line);
   const anchor =
     $(":scope > .seg1[data-newsince]", line) ??
     $("[data-older-segment]", line)?.closest(".seg1") ??
     $(":scope > .grow", line);
-  if (anchor?.classList.contains("seg1")) anchor.before(added, separator());
-  else {
-    const parts = segments.length > 0 ? [separator(), added] : [added];
-    if (anchor) anchor.before(...parts);
-    else line.append(...parts);
-  }
+  if (anchor) anchor.before(added);
+  else line.append(added);
 }
 
 /** The status line's public segment (and its tone), then the phone tap text. */
@@ -325,10 +318,6 @@ function swapStatus(fresh: Document): void {
   if (current && next) current.replaceWith(adopt(next));
   else if (next) insertPublic(line, adopt(next));
   else if (current) {
-    const before = current.previousElementSibling;
-    const after = current.nextElementSibling;
-    if (before?.classList.contains("sepdot")) before.remove();
-    else if (after?.classList.contains("sepdot")) after.remove();
     current.remove();
   }
   // Script-added segments (new since you last read, the frame notice) set no tone of their own.

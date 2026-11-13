@@ -1,28 +1,33 @@
-/* timeline: an <ol> of rows in display order; each row's one link (#n) is stretched over it */
+/* History (Logbook): a log on one spine. Each row is a time and #n column (the #n is the row's one
+   link, stretched over it), a node on the spine, then the message and one meta line; a day row
+   starts each calendar day, the rows after the first under a full-width rule. */
+.hist {
+  --tcol: 52px;
+  --scol: 22px;
+}
 .tl {
+  position: relative;
   list-style: none;
   margin: 0;
-  padding: 4px 4px;
-  --lgw: 30px;
+  padding: 0 0 8px;
 }
-.tl.w1 {
-  --lgw: 46px;
-}
-.tl.w2 {
-  --lgw: 62px;
-}
-.tl.w3 {
-  --lgw: 78px;
+/* The spine: a border, so it survives forced colours. */
+.tl::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 0;
+  left: calc(var(--tcol) + var(--scol) / 2 - 0.75px);
+  border-left: 1.5px solid var(--spine);
 }
 .rv {
-  display: block;
-  padding: 8px 8px 10px var(--lgw);
-  border-radius: 9px;
-  color: inherit;
   position: relative;
-}
-.rv:hover {
-  background: var(--hover);
+  display: grid;
+  grid-template-columns: var(--tcol) var(--scol) minmax(0, 1fr);
+  align-items: start;
+  padding: 9px 4px 11px 0;
+  border-radius: var(--rd-box);
+  color: inherit;
 }
 .rv a.rvl::after {
   content: "";
@@ -42,195 +47,204 @@
   position: relative;
   z-index: 1;
 }
-/* The lane gutter: lane 0 centred at x = 14 px, side lane k at 14 + 16k. Borders, not
-   backgrounds, so lines and rings survive forced colours. Scoped to the row, since "lg" is also
-   the large icon size (svg.ic.lg). */
-.rv > .lg {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--lgw);
-}
-.lg i {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 13px;
-  border-left: 2px solid var(--control);
-}
-.lg .ln {
-  border-left-color: var(--ink-2);
-}
-.lg .ln.top,
-.lg .run {
-  top: 19px;
-}
-.lg .ln.bot {
-  bottom: calc(100% - 19px);
-}
-.lg .run.up {
-  top: 0;
-}
-.lg .p1 {
-  left: 29px;
-}
-.lg .p2 {
-  left: 45px;
-}
-.lg .p3 {
-  left: 61px;
-}
-.lg .jn {
-  left: 13px;
-  bottom: auto;
-  height: 20px;
-  border: 2px solid var(--control);
-  border-top: 0;
-  border-left: 0;
-  border-bottom-right-radius: 12px;
-}
-.lg .jn.p1 {
-  width: 18px;
-}
-.lg .jn.p2 {
-  width: 34px;
-}
-.lg .jn.p3 {
-  width: 50px;
-}
-.lg .nd {
-  top: 13px;
-  bottom: auto;
-  left: 8px;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--ink-2);
-  border-radius: 50%;
-  background: var(--paper);
-}
-.lg.l1 .nd {
-  left: 24px;
-}
-.lg.l2 .nd {
-  left: 40px;
-}
-.lg.l3 .nd {
-  left: 56px;
-}
-.lg.cur .nd {
-  border-color: var(--ink);
-  background: var(--ink);
-}
-.lg.pending .nd {
-  border-color: var(--pending);
-  background: var(--pending-bg);
-}
-.lg.failed .nd {
-  border-color: var(--failed);
-  background: var(--failed-bg);
-}
-.rv .h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.rv .h a {
-  text-decoration: none;
-}
-.rv .h b {
-  font: 650 13px var(--mono);
-}
-.rv .h .w {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.rv > span {
-  display: block;
-  min-width: 0;
-}
-.rv .br {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 3px;
-  font-size: 12.5px;
-  font-weight: 600;
+/* The time column: the clock, then #n, in mono. */
+.lb-t {
+  padding-right: 8px;
+  text-align: right;
+  font: 500 12.5px/1.35 var(--mono);
+  font-feature-settings: "tnum";
   color: var(--ink-2);
 }
-.rv .br svg {
-  color: var(--muted);
+.lb-t time {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+}
+.lb-t a.rvl {
+  display: block;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-decoration: none;
+}
+.lb-t a.rvl b {
+  font: inherit;
+}
+.rv:hover .lb-t a.rvl {
+  color: var(--ink);
+}
+/* The node: filled when synced, a dashed amber ring while uploading, a ringed red dot when failed;
+   the revision on screen is circled. Its surface ring cuts the spine around it. */
+.lb-n {
+  position: relative;
+  z-index: 1;
+  display: block;
+  flex: none;
+  justify-self: center;
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--node);
+  box-shadow: 0 0 0 4px var(--surface);
+}
+.lb-n.pending {
+  border: 2px dashed var(--pending);
+  background: var(--pending-bg);
+}
+.lb-n.failed {
+  background: var(--failed);
+  box-shadow:
+    0 0 0 4px var(--surface),
+    inset 0 0 0 2px var(--failed),
+    inset 0 0 0 3.5px var(--surface);
+}
+.lb-n.here {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .lb-n {
+    forced-color-adjust: none;
+    background: CanvasText;
+    box-shadow: 0 0 0 4px Canvas;
+  }
+  .lb-n.pending {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+  .lb-n.here {
+    outline-color: CanvasText;
+  }
+}
+/* The row's words; hover and the revision on screen fill this cell, not the time column. */
+.rv > .lb-c {
+  display: block;
+  min-width: 0;
+  margin: -6px 0;
+  padding: 6px;
+  border-radius: var(--rd-box);
+}
+.rv:hover > .lb-c {
+  background: var(--hover);
+}
+li.rv[aria-current] > .lb-c,
+li.rv[aria-current]:hover > .lb-c {
+  margin: -8px 0 -6px;
+  padding: 8px 10px 10px;
+  background: var(--sel-bg);
+}
+@media (forced-colors: active) {
+  li.rv[aria-current] > .lb-c {
+    outline: 2px solid CanvasText;
+  }
 }
 .rv .msg {
   display: block;
-  font: 13.5px/1.38 var(--sans);
-  margin: 3px 0 4px;
+  margin: 0;
+  font: 620 14px/1.35 var(--sans);
   color: var(--ink);
   overflow-wrap: anywhere;
 }
-.rv .f {
+/* One meta line: the state words (the node is their glyph), the branch in words, host and tally. */
+.lb-meta {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--muted);
   flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.lb-meta .chip {
+  font-size: 12.5px;
+}
+.lb-meta .chip:is(.pending, .failed)::before {
+  display: none;
+}
+/* host names are words, not code (D76) */
+.lb-meta .host {
+  font: 500 12.5px var(--sans);
+}
+.lb-meta .chg {
+  font-weight: 560;
+}
+.rv .err {
+  display: block;
+  margin: 6px 0 0;
+  padding: 5px 7px;
+  border-radius: var(--rd-2);
+  background: var(--failed-bg);
+  font: 11.5px/1.45 var(--mono);
+  color: var(--failed);
+  overflow-wrap: anywhere;
 }
 .rv .acts {
   display: flex;
-  gap: 6px;
-  margin-top: 7px;
   flex-wrap: wrap;
-}
-.err {
-  display: block;
-  font: 12px/1.4 var(--mono);
-  color: var(--failed);
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-}
-.hhead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 8px 2px 12px;
-}
-.hhead .hl {
-  margin: 0;
-  font: 700 13px/1.2 var(--sans);
-  font-variant-caps: all-small-caps;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-}
-.hhead .hl span {
-  font-variant-caps: normal;
-  font-size: 11.5px;
-  font-weight: 450;
-  letter-spacing: 0;
-  margin-left: 4px;
-}
-.lgd {
-  display: grid;
   gap: 6px;
+  margin-top: 9px;
 }
-.lgk {
+/* Day rows (decorative): the day on the spine; after the first, a rule the panel's width. */
+.lb-day {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 6px;
+  padding: 12px 0 2px calc(var(--tcol) + var(--scol));
+  font-size: 13.5px;
+  color: var(--ink);
 }
-.lgk i {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--ink-2);
+.lb-day::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: calc(12px + 0.42em);
+  left: calc(var(--tcol) + var(--scol) / 2 - 3.5px);
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
+  background: var(--ink-2);
+  box-shadow: 0 0 0 3px var(--surface);
 }
-.lgk .k1 {
-  border-color: var(--control);
+.lb-day b {
+  font-weight: 700;
 }
-.lgjoin a {
-  color: var(--muted);
+.lb-day span {
+  font-weight: 420;
+  color: var(--ink-2);
+}
+.tl > .lb-day:not(:first-child) {
+  margin: 12px -8px 0;
+  padding: 16px 8px 2px calc(var(--tcol) + var(--scol) + 8px);
+  border-top: 1px solid var(--rule);
+}
+.tl > .lb-day:not(:first-child)::before {
+  top: calc(16px + 0.42em);
+  left: calc(8px + var(--tcol) + var(--scol) / 2 - 3.5px);
+}
+@media (forced-colors: active) {
+  .lb-day::before {
+    forced-color-adjust: none;
+    background: CanvasText;
+    box-shadow: 0 0 0 3px Canvas;
+  }
+}
+/* History's tools row (the row metrics are 40-collection's .ptools). */
+.hhead .hl,
+.hist .hl-on {
+  margin: 0;
+  font: 600 var(--row-fs) / var(--row-lh) var(--sans);
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+/* a smaller part inside a row's label has a tight line height: it must not move the baseline */
+.hhead .hl span {
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--ink-2);
 }
 /* Compare mode (NAV-10): History is one GET form; the hidden #cmp-on checkbox switches it on, so
    the mode works without script. Ticks, the mode header, the footer and the legend show only then. */
@@ -253,10 +267,6 @@
 .hist:has(#cmp-on:checked) .cmphd {
   display: flex;
 }
-.hist .hl-on {
-  font: 650 13px/1.2 var(--sans);
-  color: var(--ink);
-}
 .hist:has(#cmp-on:checked) .cmpleg {
   display: block;
   position: absolute;
@@ -267,10 +277,7 @@
   white-space: nowrap;
 }
 .hist:has(#cmp-on:checked) li.rv {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 6px;
-  align-items: start;
+  grid-template-columns: var(--tcol) var(--scol) minmax(0, 1fr) auto;
 }
 .hist:has(#cmp-on:checked) .pick {
   display: flex;
@@ -283,10 +290,7 @@
   cursor: pointer;
 }
 .hist .pick input {
-  width: 16px;
-  height: 16px;
   margin: 0;
-  accent-color: var(--ink);
   cursor: pointer;
 }
 .hist:has(#cmp-on:checked) .rv .acts,
@@ -299,6 +303,12 @@
     inset 3px 0 0 var(--sel-bar),
     0 0 0 1px var(--sel-ring);
 }
+@media (forced-colors: active) {
+  .hist:has(#cmp-on:checked) li.rv:has(input[name="r"]:checked) {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+}
 .hist:has(#cmp-on:checked) li.rv.inr {
   background: color-mix(in srgb, var(--sunken) 70%, transparent);
 }
@@ -307,7 +317,7 @@
   margin-top: 4px;
   font-size: 12px;
   font-style: italic;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 /* Pinned to the bottom of the panel's scroll area, over .pbody's 8 px side and 16 px bottom
    padding; a grid, so the button fills its width. */
@@ -320,7 +330,7 @@
   margin: 8px -8px -16px;
   padding: 10px 12px;
   border-top: 1px solid var(--rule);
-  background: var(--paper);
+  background: var(--surface);
 }
 .hist .cmpscope {
   margin: 0;

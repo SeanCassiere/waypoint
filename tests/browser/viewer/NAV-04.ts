@@ -332,9 +332,9 @@ const scenario: ViewerScenario = {
       await page.frameLocator("iframe.frame").getByRole("link", { name: "Notes" }).click();
       await page.waitForURL((url) => url.pathname.endsWith("/notes.md"));
       await page.waitForFunction(
-        'document.querySelector("a.pill.file .mono").textContent === "notes.md"',
+        'document.querySelector("a.pill.file .fp").textContent === "notes.md"',
       );
-      assert.equal(await page.locator(".idsub .mono").textContent(), "notes.md");
+      assert.equal(await page.locator(".idsub .fp").textContent(), "notes.md");
       assert.equal(
         await page
           .getByRole("heading", { level: 2, name: "Document: notes.md", exact: true })
@@ -400,7 +400,7 @@ const scenario: ViewerScenario = {
       assert.equal(await page.locator(".idsub").isVisible(), true);
       assert.equal(
         ((await page.locator(".idsub").textContent()) ?? "").trim(),
-        `${pillText} · index.md`,
+        `${pillText}, index.md`,
       );
       assert.match(pillText, /^#1 /);
       assert.equal(await page.locator("li.crumb").first().isVisible(), false);
@@ -473,9 +473,7 @@ const scenario: ViewerScenario = {
             const list = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => "#" + (from + i)).join(", ");
             line.insertAdjacentHTML("beforeend",
               '<span class="seg1"><span class="f">! ' + list(3, 42) + ' failed to sync</span></span>' +
-              '<span class="sepdot" aria-hidden="true">·</span>' +
               '<span class="seg1"><span class="p">◌ ' + list(43, 62) + ' uploading</span></span>' +
-              '<span class="sepdot" aria-hidden="true">·</span>' +
               '<span class="seg1"><span class="long">Other machines and public links see nothing yet.</span></span>' +
               '<span class="grow"></span><button type="button" class="btn sm" data-action="retry">Retry #42</button>');
             line.hidden = false;

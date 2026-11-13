@@ -30,8 +30,8 @@
 .revbtn .l.failed {
   color: var(--failed);
 }
-/* The collection bar (NAV-04): Recent / project / title › revision pill › file crumb as one
-   breadcrumb list. The separators are CSS alt text, so its spoken text has no "/" or "›". */
+/* The collection bar (NAV-04): Recent / project / title, the revision selector and the file crumb
+   as one breadcrumb list. The separators are CSS alt text, so its spoken text has no "/". */
 .bc {
   min-width: 0;
   flex: 0 1 auto;
@@ -42,14 +42,14 @@
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .bc li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   flex: none;
 }
@@ -59,15 +59,10 @@
 }
 .bc li.anc::after {
   content: "/" / "";
-  color: var(--faint);
-}
-.bc li.crumb::before {
-  content: "›" / "";
-  color: var(--faint);
-  font-size: 15px;
+  color: var(--spine);
 }
 .bc li.anc a {
-  color: var(--muted);
+  color: var(--ink-2);
   text-decoration: none;
   white-space: nowrap;
   max-width: 18ch;
@@ -78,65 +73,84 @@
   color: var(--ink);
 }
 .bc h1 {
-  font: 650 15px/1.2 var(--sans);
+  font: 700 15.5px/1.2 var(--sans);
   color: var(--ink);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.01em;
 }
 .idsub {
   display: none;
 }
-/* The pills open History and Files (the pill contract); the file crumb shows the whole path up
-   to about 28 characters. */
+/* The revision selector and the file crumb open History and Files (the pill contract). The
+   revision is a box with its state glyph (as on its History node); the file crumb is quiet until
+   its tab is open, and shows the whole path up to about 28 characters. */
 .bc .pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
+  gap: 8px;
+  height: var(--ctl-md);
   min-width: 0;
-  padding: 0 10px;
-  border-radius: 99px;
-  border: 1px solid var(--rule-2);
-  background: var(--surface);
+  margin-left: 4px;
+  padding: 0 11px 0 10px;
+  border: 1px solid var(--control);
+  border-radius: var(--rd-2);
+  background-color: var(--surface);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
 .bc .pill:hover {
-  border-color: var(--muted);
+  border-color: var(--ink-2);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
-.bc .pill .ic,
-.bc .pill .l {
-  color: var(--muted);
+.bc .pill b {
+  font-weight: 650;
 }
 .bc .pill .l {
-  font-weight: 500;
+  color: var(--ink-2);
+  font-weight: 450;
 }
 .bc .pill .l.pending {
   color: var(--pending);
+  font-weight: 600;
 }
 .bc .pill .l.failed {
   color: var(--failed);
-}
-.bc .pill.file {
-  max-width: 28ch;
-  font-weight: 500;
-}
-.bc .pill.file .mono {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-weight: 600;
 }
 /* Pressed (the panel is open on this pill's tab): a 2 px ring drawn as a border, so forced
    colours keep it; the padding gives back the extra pixel. */
 .bc .pill[aria-expanded="true"] {
   border: 2px solid var(--ink);
+  padding: 0 10px 0 9px;
+}
+.bc .pill.file {
+  max-width: 28ch;
+  margin-left: 0;
+  padding: 0 10px;
+  border: 0;
+  background-color: transparent;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.bc .pill.file:hover {
+  color: var(--ink);
+}
+.bc .pill.file[aria-expanded="true"] {
   padding: 0 9px;
+  border: 1px solid var(--rule-2);
+  background-color: var(--sel-bg);
+  color: var(--ink);
+}
+.bc .pill.file .fp {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Tablets: Back replaces the logo and the ancestors, Copy link moves into More (.midonly), and the
    title and the pills stack in a two-line block. The bar is 60 px on the collection, Changes
@@ -171,15 +185,17 @@
     grid-column: 1 / -1;
     max-width: 100%;
   }
-  .bc li.crumb.rev::before {
-    content: none;
-  }
   .bc .pill {
-    height: 22px;
+    height: 24px;
+    margin-left: 0;
     padding: 0 8px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 12.5px;
   }
   .bc .pill[aria-expanded="true"] {
+    padding: 0 7px;
+  }
+  .bc .pill.file[aria-expanded="true"] {
     padding: 0 7px;
   }
 }
@@ -229,13 +245,13 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     white-space: normal;
-    font-size: 14px;
+    font-size: 15px;
   }
   .idsub {
     display: block;
     margin-top: 2px;
-    font-size: 12px;
-    color: var(--muted);
+    font-size: 12.5px;
+    color: var(--ink-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -312,6 +328,9 @@
   color: var(--ink);
   font-weight: 650;
 }
+.tabbar button {
+  font-weight: 560;
+}
 /* More carries Copy link's actions only where the bar has no Copy link (761–1099.98 px). */
 .menu .midonly {
   display: none;
@@ -335,13 +354,10 @@
 }
 .handoff-d > summary {
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--rd-2);
   font-size: 12.5px;
-  color: var(--muted);
+  color: var(--ink-2);
   cursor: pointer;
-}
-.handoff-d > summary:hover {
-  background: var(--hover);
 }
 .handoff-d .handoff {
   margin: 4px 0 0;
@@ -362,99 +378,98 @@
 .shell {
   height: calc(100dvh - var(--bar-h));
   --panel-top: var(--bar-h);
+  --panel-w: 316px;
 }
-.ptabs {
-  display: flex;
-  gap: 2px;
-  padding: 8px 10px 0;
-  border-bottom: 1px solid var(--rule);
+/* The panel is a leaf beside the paper. Its tabs and the notice beside them are --r1 tall, and the
+   first row of each tab is a tools row the height of the revision strip beside it (--r2), so their
+   rules meet across the panel edge; the row metrics are writerComponentsCss's. */
+.panel {
+  background: var(--surface);
 }
-/* The tablist wrapper is semantics only: the tabs stay flex items of the strip, beside Close. */
+/* The tablist wrapper is semantics only: the tabs stay flex items of the row, beside Close. */
 .ptabs > .ptl {
   display: contents;
-}
-/* A tab's words never wrap or ellipsize ("Public links" stays whole); if the three tabs ever need
-   more than the panel (very large counts, a wide system font), a tab's count drops under its
-   words instead of anything being clipped. */
-.ptabs a {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 6px;
-  align-items: center;
-  padding: 7px 8px 9px;
-  white-space: nowrap;
-  text-decoration: none;
-  color: var(--muted);
-  border-bottom: 2px solid transparent;
-  font-weight: 550;
-  font-size: 13px;
-}
-.ptabs a[aria-selected="true"] {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
-}
-.ptabs .n {
-  font-size: 11px;
-  color: var(--faint);
-  font-weight: 500;
-}
-.ptabs a.pub[aria-selected="true"] {
-  border-bottom-color: var(--public);
-  color: var(--public);
 }
 .ptabs .x {
   margin-left: auto;
   align-self: center;
   display: none;
 }
-.pfoot {
-  border-top: 1px solid var(--rule);
-  padding: 9px 14px;
-  font-size: 12px;
-  color: var(--muted);
+.pbody:has(> .ptools, > .hist) {
+  padding-top: 0;
+  scroll-padding-top: calc(var(--r2) + 8px);
+}
+/* It stays at the top while the tab scrolls (History opens scrolled to the revision on screen), so
+   its rule keeps meeting the strip's. */
+.ptools,
+.hist .hhead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--r2);
+  margin: 0 -8px 8px;
+  padding: 0 14px 0 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+  color: var(--ink-2);
+}
+/* Expand all / Collapse all (D72) ends the Files row; script shows it. */
+.ptools .txtbtn {
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+}
+/* Where the panel is a sheet nothing sits beside its rows, and touch targets are 44 px: the tools
+   row grows around them instead of clipping. */
+@media (max-width: 1099.98px), (pointer: coarse) {
+  .ptools,
+  .hist .hhead {
+    height: auto;
+    min-height: var(--r2);
+    padding-block: 6px;
+  }
+}
+.pfoot {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 18px;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
 .filter {
   display: block;
   width: calc(100% - 8px);
   margin: 0 4px 8px;
-  height: 30px;
-  border-radius: 8px;
+  height: var(--ctl-md);
+  border-radius: var(--rd-2);
   border: 1px solid var(--control);
   background: var(--surface);
   padding: 0 10px;
   font-size: 13px;
 }
-/* Expand all / Collapse all (D72), at the end of the row above the tree. */
-.ttools {
-  display: flex;
-  justify-content: flex-end;
-  margin: 0 4px 2px;
-}
-.ttools:has(> [hidden]) {
-  display: none;
-}
-/* The tree's rows and the selection style on them are treeCss (packages/ui/src/panel-css.ts);
-   History's current revision and a menu's current destination share that selection style
-   (VS-04). History's row is li.rv, so it outranks .rv:hover. */
-li.rv[aria-current],
+/* A menu's current destination shares the tree's selection style (VS-04); the tree's rows and that
+   style are treeCss (packages/ui/src/panel-css.ts). */
 .menu .mi[aria-current] {
   background: var(--sel-bg);
   color: var(--ink);
+  font-weight: 600;
   box-shadow:
     inset 3px 0 0 var(--sel-bar),
     0 0 0 1px var(--sel-ring);
 }
-li.rv[aria-current] .msg,
-.menu .mi[aria-current] {
-  font-weight: 600;
-}
-/* Meta on a selected row (the current file's head label and size, the current revision's facts)
-   is --ink-2: on the selected film over the panel's surface, --muted falls below 4.5:1 in dark. */
-.tree a[aria-current] :is(.hd, .sz),
-li.rv[aria-current] :is(.f, .h .w) {
+/* Meta on the current file's row (its head label and size) is --ink-2: on the selected film over
+   the panel's surface, --muted falls below 4.5:1 in dark. History's rows set theirs in
+   45-timeline.css. */
+.tree a[aria-current] :is(.hd, .sz) {
   color: var(--ink-2);
 }
 /* The bar and ring replace a menu row's focus shadow, so a focused current row gets an outline. */
@@ -462,30 +477,29 @@ li.rv[aria-current] :is(.f, .h .w) {
   outline: 2px solid var(--ink);
   outline-offset: -2px;
 }
+/* The writer's marks in the tree: +, ~ and · in mono, and the head file's label. */
 .tree .k {
   width: 12px;
   font: 12px var(--mono);
   text-align: center;
   flex: none;
-  color: var(--faint);
+  color: var(--ink-2);
 }
 .tree .hd {
   margin-left: auto;
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--faint);
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
 }
 .tree .sz {
   margin-left: auto;
   font: 11px var(--mono);
-  color: var(--faint);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 .tree .gal {
-  color: var(--muted);
-  font-size: 12.5px;
+  color: var(--ink-2);
+  font-size: 13px;
 }
 .k.a {
   color: var(--add) !important;
@@ -501,6 +515,11 @@ li.rv[aria-current] :is(.f, .h .w) {
   color: var(--faint);
   padding: 8px 8px 0;
   margin: 0;
+}
+.panel .legend {
+  padding: 10px 8px 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
 .main {
   display: flex;
@@ -593,22 +612,18 @@ li.rv[aria-current] :is(.f, .h .w) {
 .wcap [data-dim]:empty {
   display: none;
 }
-/* The change chip uses OW-12's diff roles (decision f). */
+/* The change mark uses OW-12's diff roles (decision f): coloured words, not a pill. */
 .ichg {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 1px 9px;
-  border-radius: 99px;
-  font-size: 12px;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 .ichg.m {
-  background: var(--changed-bg);
   color: var(--changed);
 }
 .ichg.a {
-  background: var(--add-bg);
   color: var(--add);
 }
 .ichg a {
@@ -620,68 +635,131 @@ li.rv[aria-current] :is(.f, .h .w) {
     display: none;
   }
 }
-.status1 {
-  display: flex;
-  align-items: center;
-  gap: 2px 10px;
-  padding: 7px 16px;
-  border-bottom: 1px solid var(--rule);
-  font-size: 13px;
-  background: var(--surface);
-  flex-wrap: wrap;
-}
-/* Segments stay short; on narrower screens their long explanations give way. The line wraps
-   to a second row rather than clip what it exists to say (spec §4.12). */
-@media (max-width: 1099.98px) {
-  .status1:has(.sepdot) .long,
-  .status1 .seg1:has(> .long:only-child),
-  .status1 .sepdot:has(+ .seg1 > .long:only-child) {
+/* The state notice (spec §4.12): its row metrics, glyphs and words are writerComponentsCss. Beside
+   the tabs the long clauses drop out, and so does a segment that is only a long clause. */
+@media (min-width: 1100px) {
+  .status1 .seg1:has(> .long:only-child) {
     display: none;
   }
 }
-.status1 .seg1 {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-/* State words (failed, uploading, public) never break or shrink; explanations wrap. */
-.status1 .f,
-.status1 .p,
-.status1 .pubseg {
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.status1 .sepdot {
-  color: var(--faint);
-}
-.status1 .f {
-  color: var(--failed);
-  font-weight: 650;
-}
-.status1 .p {
-  color: var(--pending);
-  font-weight: 650;
-}
-.status1 .pubseg {
-  color: var(--public);
-  font-weight: 650;
-}
-/* NAV-04: the status line has no separate phone tap target; on phones its segments wrap. */
+/* NAV-04: the notice has no separate phone tap target; on phones its segments wrap. */
 .status1 .stap {
   display: none;
 }
-.status1 .err {
-  display: inline;
-  margin: 0;
+/* The revision strip (Logbook): which revision this is, who wrote it, when, and the way to its
+   changes; on an older revision, "Not the latest." and the way to the latest. --r2 tall, beside
+   the panel's tools row. */
+.rstrip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  min-width: 0;
+  height: var(--r2);
+  padding: 0 22px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.rstrip > .lb-n {
+  margin: 0 4px;
+  box-shadow: none;
+}
+.rstrip b {
+  color: var(--ink);
+  font-weight: 620;
+}
+.rs-what {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rs-msg {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.rs-older {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: none;
+  margin-left: auto;
+}
+.rs-older b {
+  font-weight: 600;
+}
+.rs-older a,
+.rs-changes {
+  flex: none;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--spine);
+}
+.rs-changes {
+  margin-left: auto;
+  font-weight: 600;
+}
+.rs-older + .rs-changes {
+  margin-left: 4px;
+}
+.rs-older a:hover,
+.rs-changes:hover {
+  text-decoration-color: currentColor;
+}
+@media (max-width: 760px) {
+  .rstrip {
+    padding: 0 16px;
+    gap: 10px;
+  }
+  .rs-msg,
+  .rs-changes {
+    display: none;
+  }
+  /* "Not the latest." takes a line of its own under the revision. */
+  .rstrip:has(> .rs-older) {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--r2);
+    padding-block: 8px;
+    row-gap: 2px;
+  }
+  /* The revision stays beside its node (ending in an ellipsis when it must). */
+  .rs-what {
+    flex: 1 1 0;
+  }
+  .rs-older {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    margin-left: 0;
+    padding-left: 25px;
+    white-space: normal;
+  }
+  /* Links that stand alone are 44 × 44 boxes (as the notice's were, VS-05c). */
+  .rs-older a {
+    display: inline-flex;
+    align-items: center;
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+  .rstrip:has(> .rs-older) {
+    padding-block: 6px 0;
+  }
 }
 /* About this collection (NAV-11): the foot of every Files tab, after the legend. */
 .about {
   margin: 14px 4px 4px;
   padding: 12px 12px 10px;
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+  background: var(--paper);
 }
 .about .ah {
   display: flex;
@@ -692,10 +770,8 @@ li.rv[aria-current] :is(.f, .h .w) {
 }
 .about h3 {
   margin: 0;
-  font: 700 11px/1.2 var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--faint);
+  font: 700 13.5px/1.2 var(--sans);
+  color: var(--ink);
 }
 .about dl {
   display: grid;
@@ -706,7 +782,7 @@ li.rv[aria-current] :is(.f, .h .w) {
   align-items: center;
 }
 .about dt {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .about dd {
   margin: 0;
@@ -725,8 +801,8 @@ li.rv[aria-current] :is(.f, .h .w) {
   max-width: 100%;
   padding: 0 8px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--sunken);
+  border-radius: var(--rd-1);
+  background-color: var(--sunken);
   color: var(--ink);
   font-size: 12.5px;
   line-height: 1.3;
@@ -736,9 +812,7 @@ li.rv[aria-current] :is(.f, .h .w) {
 }
 .about .tok:hover {
   border-color: var(--rule-2);
-}
-.about .tok.mono {
-  font: 12px/1.3 var(--mono);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 /* The public ID selects as one unit, without script. */
 .about .idv {
@@ -755,9 +829,9 @@ li.rv[aria-current] :is(.f, .h .w) {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--rd-2);
   background: none;
-  color: var(--muted);
+  color: var(--ink-2);
   cursor: pointer;
 }
 .about .idcopy:hover {
@@ -768,12 +842,12 @@ li.rv[aria-current] :is(.f, .h .w) {
   margin: 10px 0 0;
   font-size: 11.5px;
   line-height: 1.4;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .about .ahint code {
   font: 11px var(--mono);
   padding: 0 3px;
-  border-radius: 4px;
+  border-radius: var(--rd-1);
   background: var(--sunken);
 }
 /* Touch: each token is a 32 px link, 10 px apart. */

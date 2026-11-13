@@ -232,6 +232,9 @@ afterAll(async () => {
 describe("About this collection", () => {
   it("is the foot of the Files tab, after the legend, with the collection's values", async () => {
     const files = filesTab(await get(docOf(webhook)));
+    // Logbook: the tab opens with its tools row, what it lists; flat, so no Expand all.
+    expect(files).toContain('<div class="ptools"><span>1 file in #3</span></div>');
+    expect(files.indexOf('class="ptools"')).toBeLessThan(files.indexOf('class="tree"'));
     const legend = files.indexOf('class="legend"');
     const at = files.indexOf('<section class="about" aria-labelledby="about-h">');
     expect(legend).toBeGreaterThan(-1);
@@ -241,7 +244,7 @@ describe("About this collection", () => {
     expect(about).toContain('href="/?q=project%3Awebhooks"');
     expect(about).toContain('href="/?q=tag%3Aresearch"');
     expect(about).toContain('href="/?q=host%3Adevbox"');
-    expect(text(about)).toContain("· 3 revisions");
+    expect(text(about)).toContain(", 3 revisions");
     expect(about).toContain(`<code class="idv">${webhookPub}</code>`);
     const copy = tagOf(about, 'class="idcopy"');
     expect(copy).toMatch(/\shidden[\s=>]/);
@@ -266,7 +269,7 @@ describe("About this collection", () => {
     expect(files.indexOf('<section class="about"')).toBeGreaterThan(
       files.lastIndexOf('class="legend"'),
     );
-    expect(card(files)).toContain("· 3 revisions");
+    expect(card(files)).toContain(", 3 revisions");
   });
 
   it("shows only Started and ID without project, tags or host", async () => {
@@ -275,7 +278,7 @@ describe("About this collection", () => {
       "Started",
       "ID",
     ]);
-    expect(text(about)).toContain("· 1 revision");
+    expect(text(about)).toContain(", 1 revision");
     expect(about).not.toContain('class="tok');
   });
 

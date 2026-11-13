@@ -456,17 +456,13 @@ const scenario: ViewerScenario = {
     );
 
     // (k) Review r8: the fresh page has a public segment the current line lacks (a link went
-    // live after the page loaded): the refresh inserts it, with the line's separators in step.
+    // live after the page loaded): the refresh inserts it (segments have no separator, D83).
     await Promise.all([addLink("Fixture R"), addLink("Fixture S")]);
     await page.goto(url);
     await untilLive(page, "2 live links");
     await page.evaluate(`(() => {
       const line = document.querySelector("[data-status]");
       const segment = line.querySelector(".pubseg").closest(".seg1");
-      const separator = segment.previousElementSibling?.classList.contains("sepdot")
-        ? segment.previousElementSibling
-        : segment.nextElementSibling?.classList.contains("sepdot") ? segment.nextElementSibling : null;
-      separator?.remove();
       segment.remove();
       line.hidden = !line.querySelector(".seg1");
     })()`);
@@ -474,11 +470,7 @@ const scenario: ViewerScenario = {
     await status.filter({ hasText: "1 live link. “Fixture R” follows latest" }).waitFor();
     assert.equal(await status.locator(".pubseg").count(), 1, "the public segment is back");
     assert.equal(await status.isVisible(), true, "the status line shows");
-    assert.equal(
-      await status.locator(":scope > .sepdot").count(),
-      Math.max(0, (await status.locator(":scope > .seg1").count()) - 1),
-      "one separator between segments",
-    );
+    assert.equal(await status.locator(".sepdot").count(), 0, "no separator between segments");
   },
 };
 export default scenario;

@@ -1,5 +1,7 @@
-// NAV-05b: History draws lanes on display order (one link per row, the gutter hidden from AT),
-// and [ and ] follow parents. Runs alone, on its own writer: #1, #2 on #1, #3 on #1, #4 on #2,
+import { z } from "zod";
+
+// NAV-05b: History is a log on one spine in display order (one link per row, the nodes and day
+// rows hidden from AT, the branch said in words; D82), and [ and ] follow parents. Runs alone, on its own writer: #1, #2 on #1, #3 on #1, #4 on #2,
 // so the latest line is #4 #2 #1 and #3 is a branch off #1.
 import { endOfBranch, FIRST_REVISION } from "../../../apps/writer/src/viewer/lineage.ts";
 import { assert, startWriter, type ViewerScenario, type WriteResult } from "../harness.ts";
@@ -7,7 +9,7 @@ import { assert, startWriter, type ViewerScenario, type WriteResult } from "../h
 const pinned = (result: WriteResult): string => new URL(result.url).pathname;
 
 const scenario: ViewerScenario = {
-  name: "NAV-05 History lanes on display order; [ and ] follow parents",
+  name: "NAV-05 History on one spine in display order; [ and ] follow parents",
   async run(ctx) {
     const writer = await startWriter();
     const { base } = writer;
@@ -37,33 +39,34 @@ const scenario: ViewerScenario = {
     const row = (n: number) => page.locator(`#tp-history li.rv[data-n="${n}"]`);
     await page.goto(`${base}${pinned(four)}?panel=history`);
     await history.waitFor({ state: "visible" });
-    assert.deepEqual(await page.locator("#tp-history .rv .h b").allTextContents(), [
+    assert.deepEqual(await page.locator("#tp-history .rv .lb-t b").allTextContents(), [
       "#4",
       "#3",
       "#2",
       "#1",
     ]);
-    assert.equal(
-      (await row(3).locator(".br").textContent())?.trim(),
-      "Branch off #1 · not in latest",
-    );
+    assert.equal((await row(3).locator(".br").textContent())?.trim(), "on #1, not in latest");
     assert.equal(await page.locator("#tp-history .br").count(), 1);
     const hidden = await page.evaluate(
-      `[...document.querySelectorAll("#tp-history .lg")].map((node) => node.getAttribute("aria-hidden"))`,
+      `[...document.querySelectorAll("#tp-history :is(.lb-n, .lb-day)")].map((node) => node.getAttribute("aria-hidden"))`,
     );
-    assert.deepEqual(hidden, ["true", "true", "true", "true"]);
+    assert.deepEqual(hidden, ["true", "true", "true", "true", "true"]);
 
-    // Geometry at 1280 x 800: lane 0 at 14 px from the row's left edge, the side lane at 30 px.
-    const centre = (n: number, selector: string) =>
-      page.evaluate(`(() => {
-        const li = document.querySelector('#tp-history li.rv[data-n="${n}"]');
-        const box = li.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
-        return box.left + box.width / 2 - li.getBoundingClientRect().left;
-      })()`);
-    const lane0 = Number(await centre(4, ".lg i.ln"));
-    const lane1 = Number(await centre(3, ".lg i.run"));
-    assert.ok(Math.abs(lane0 - 14) <= 2, `lane 0 centre ${lane0}`);
-    assert.ok(Math.abs(lane1 - 30) <= 2, `lane 1 centre ${lane1}`);
+    // Geometry at 1280 x 800: every node, the branch's too, sits on the one spine.
+    const offsets = z.array(z.number()).parse(
+      await page.evaluate(`(() => {
+        const ol = document.querySelector("#tp-history ol");
+        const spine = parseFloat(getComputedStyle(ol, "::before").left) + 0.75;
+        const left = ol.getBoundingClientRect().left;
+        return [...ol.querySelectorAll("li.rv > .lb-n")].map((node) => {
+          const box = node.getBoundingClientRect();
+          return box.left + box.width / 2 - left - spine;
+        });
+      })()`),
+    );
+    assert.equal(offsets.length, 4);
+    for (const offset of offsets)
+      assert.ok(Math.abs(offset) <= 1, `node off the spine by ${offset}`);
 
     // [ and ] follow parents; at an end the toast says why.
     const toast = page.locator("[data-toast]");
@@ -98,12 +101,12 @@ const scenario: ViewerScenario = {
       ["#4", "#3", "#2", "#1"],
     );
 
-    // Forced colours: the lanes are borders, so they stay visible.
+    // Forced colours: the spine is a border, so it stays visible.
     const forced = await ctx.newPage({ forcedColors: "active" });
     await forced.page.goto(`${base}${pinned(four)}?panel=history`);
     await forced.page.locator("#tp-history").waitFor({ state: "visible" });
     const width = await forced.page.evaluate(
-      `getComputedStyle(document.querySelector('#tp-history li.rv[data-n="3"] .lg i.run')).borderLeftWidth`,
+      `getComputedStyle(document.querySelector("#tp-history ol"), "::before").borderLeftWidth`,
     );
     assert.equal(await forced.page.evaluate('matchMedia("(forced-colors: active)").matches'), true);
     assert.ok(

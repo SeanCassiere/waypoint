@@ -5,8 +5,9 @@
 // revoked card's confirmation row) and the gallery's removed image are told apart by colour, never
 // opacity; a disabled button is neutral (the Trash restore dialog's Restore before a choice); the
 // Files tree's current file and History's current revision share the selected fill (--sel-bg; the
-// tree's current file adds a hairline --sel-ring, Logbook's collection screen), outlined in forced
-// colours; colour contrast holds on all of them (axe). Also verifies OW-05b's control has
+// tree's current file adds a hairline --sel-ring, Logbook's collection screen; History's node is
+// circled too, D82), outlined in forced colours; colour contrast holds on all of them (axe). Also
+// verifies OW-05b's control has
 // no Inactive segment and that an expiry within a day is ink at 600, not amber.
 import type { Page } from "playwright";
 import { z } from "zod";
@@ -380,12 +381,12 @@ const scenario: ViewerScenario = {
       await contrast(page, `${scheme} #5 Files, runbook.md selected`, ".panel");
       await page.goto(`${base}${runbook}?panel=history`);
       await page.locator("#tp-history").waitFor({ state: "visible" });
-      const rev = await lookOf(page, '#tp-history li.rv[aria-current="true"]');
+      const rev = await lookOf(page, '#tp-history li.rv[aria-current="true"] > .lb-c');
       assert.equal(rev.bg, file.bg, `${scheme}: History's current row has the current file's fill`);
       assert.equal(
-        (await lookOf(page, '#tp-history li.rv[aria-current="true"] .msg')).weight,
-        "600",
-        `${scheme}: the current revision's message is at 600`,
+        (await lookOf(page, '#tp-history li.rv[aria-current="true"] > .lb-n')).outline,
+        "solid",
+        `${scheme}: the current revision's node is circled`,
       );
       await contrast(page, `${scheme} #5 History`, ".panel");
 
@@ -496,7 +497,10 @@ const scenario: ViewerScenario = {
         forcedColors: "active",
       });
       await page.goto(`${base}${runbook}?panel=history`);
-      for (const selector of ['#tp-history li.rv[aria-current="true"]', ".tree a[aria-current]"])
+      for (const selector of [
+        '#tp-history li.rv[aria-current="true"] > .lb-c',
+        ".tree a[aria-current]",
+      ])
         assert.equal(
           (await lookOf(page, selector)).outline,
           "solid",
