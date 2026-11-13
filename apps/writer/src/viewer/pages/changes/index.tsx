@@ -9,7 +9,7 @@ import type { HttpServices } from "../../../http.ts";
 import { isLive } from "../../../shares.ts";
 import { shellPath } from "../../../viewer-paths.ts";
 import { excludedLabel, type PairKind } from "../../compare-text.ts";
-import { Time, type TimelineRow } from "../../components.tsx";
+import { StateGlyph, Time, type TimelineRow } from "../../components.tsx";
 import { plural } from "../../format.ts";
 import { Layout } from "../../layout.tsx";
 import { noStore } from "../../respond.ts";
@@ -320,7 +320,7 @@ export async function changesPage(
       </span>,
     );
   if (compare.counts.unchanged)
-    chips.push(<span class="chip">{compare.counts.unchanged} unchanged</span>);
+    chips.push(<span class="chip same">{compare.counts.unchanged} unchanged</span>);
   const disclosure = ctx.sharing ? await shareDisclosure(ctx, revision.head_path) : null;
   return noStore(
     c.html(
@@ -417,11 +417,11 @@ export async function changesPage(
                           ), up to {message(revision)} (#{headN})
                           {host ? (
                             <>
-                              {" · "}
-                              <span class="mono">{host}</span>
+                              {", "}
+                              <b class="who">{host}</b>
                             </>
                           ) : null}
-                          {" · "}
+                          {", "}
                           <Time at={revision.created_at} fmt="day" now={ctx.chrome.now} />
                         </div>
                         <div class="incl">
@@ -433,7 +433,16 @@ export async function changesPage(
                                   class={`stepchip${row.sync_state === "pending" ? " pending" : row.sync_state === "failed" ? " failed" : ""}`}
                                   href={ownChanges(row)}
                                 >
-                                  <b>#{row.display_number}</b> {row.message ?? "No message"}
+                                  <b>#{row.display_number}</b>{" "}
+                                  <span class="m">{row.message ?? "No message"}</span>
+                                  {row.sync_state === "pending" || row.sync_state === "failed" ? (
+                                    <>
+                                      <StateGlyph kind={row.sync_state} />
+                                      <span class="w">
+                                        {row.sync_state === "pending" ? "uploading" : "failed"}
+                                      </span>
+                                    </>
+                                  ) : null}
                                 </a>
                                 {i < steps.length - 1 ? (
                                   <span class="arr" aria-hidden="true">
@@ -482,23 +491,24 @@ export async function changesPage(
                       <>
                         <h2>Changes in #{headN}</h2>
                         <div class="muted">
-                          {revision.message ? `“${revision.message}” · ` : ""}
+                          {revision.message ? `“${revision.message}”, ` : ""}
                           {host ? (
                             <>
-                              <span class="mono">{host}</span> ·{" "}
+                              <b class="who">{host}</b>,{" "}
                             </>
                           ) : null}
                           <Time at={revision.created_at} fmt="day" now={ctx.chrome.now} />
-                          {baseN !== null ? ` · compared with its parent #${baseN}` : null}
+                          {baseN !== null ? `, compared with its parent #${baseN}` : null}
                         </div>
                       </>
                     )}
-                    <div class="sumrow">
-                      {chips}
-                      <span class="grow" />
-                      <Stepper />
-                      <ViewSwitch view={view} href={href} files={changed} />
-                    </div>
+                  </div>
+                  {/* A child of the scroller, not of .cmphead, so it stays in view (sticky) down
+                      the whole page. */}
+                  <div class="sumrow">
+                    {chips}
+                    <Stepper />
+                    <ViewSwitch view={view} href={href} files={changed} />
                   </div>
                   {baseN === null ? (
                     <p class="cmphead muted">#{headN} is the first revision. Everything is new.</p>

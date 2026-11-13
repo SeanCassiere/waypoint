@@ -273,12 +273,12 @@ describe("tallies and removed files", () => {
       /<figure class="rmimg" data-dims="true">[\s\S]*?<\/figure>/.exec(html)?.[0] ?? "";
     expect(removed).toContain(`<img src="/raw/r/${basePub}/c.png"`);
     expect(removed).toContain(
-      `<figcaption>Removed in #2<span data-dim-wrap="true" hidden=""> · <span data-dim="true"></span></span> · 3 B · <a href="${firstPinned}c.png">Open in #1</a></figcaption>`,
+      `<figcaption>Removed in #2<span data-dim-wrap="true" hidden="">, <span data-dim="true"></span></span>, 3 B. <a href="${firstPinned}c.png">Open in #1</a></figcaption>`,
     );
     expect(html).toContain("Removed (was 2 B).");
     // Image pairs: dimensions fill in after load.
     expect(html).toContain(
-      'Before · #1<span data-dim-wrap="true" hidden=""> · <span data-dim="true"></span></span> · 2.9 KB',
+      'Before, #1<span data-dim-wrap="true" hidden="">, <span data-dim="true"></span></span>, 2.9 KB',
     );
     expect(html).toContain(`<img src="/raw/r/${secondPinned.split("/")[4] ?? ""}/a.png"`);
   });
@@ -296,11 +296,11 @@ describe("tallies and removed files", () => {
       { "index.md": "# A\n\nRetry for 24 hours.\n\nNew block.\n" },
     );
     expect(await page(both.changes)).toContain(
-      '<span class="tally">Blocks: <span class="m">1 changed</span> · <span class="a">1 added</span></span>',
+      '<span class="tally">Blocks: <span class="m">1 changed</span>, <span class="a">1 added</span></span>',
     );
     const lines = await page(`${both.changes}?view=source`);
     expect(lines).toContain(
-      '<span class="tally">Lines: <span class="a">3 added</span> · <span class="rm">1 removed</span></span>',
+      '<span class="tally">Lines: <span class="a">3 added</span>, <span class="rm">1 removed</span></span>',
     );
   });
 });
@@ -353,7 +353,7 @@ describe("stepper and spoken marks", () => {
     expect(html).toContain('<span class="lndel"><span class="sg" aria-hidden="true">−</span>');
     // The legend of marks sits above the Files panel's legend.
     expect(html).toContain(
-      '<p class="legend"><span class="diffkey"><span class="k a"><span aria-hidden="true">+</span></span> added · <span class="k m"><span aria-hidden="true">~</span></span> changed · <span class="k rm"><span aria-hidden="true">−</span></span> removed</span></p><p class="legend">',
+      '<p class="legend"><span class="diffkey"><span class="k a"><span aria-hidden="true">+</span></span> added, <span class="k m"><span aria-hidden="true">~</span></span> changed, <span class="k rm"><span aria-hidden="true">−</span></span> removed</span></p><p class="legend">',
     );
   });
 });

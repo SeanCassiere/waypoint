@@ -414,36 +414,48 @@ li.rv[aria-current]:hover > .lb-c {
 .incl .arr {
   color: var(--muted);
 }
+/* A step in Changes' Includes row is a link, so it is a control's box (D78: no pills); a pending or
+   failed step adds its state as a glyph and words. */
 .stepchip {
-  display: inline-block;
-  max-width: 22ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 3px 10px;
-  border: 1px solid var(--rule-2);
-  border-radius: 99px;
-  background: var(--paper);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 34ch;
+  height: var(--ctl-sm);
+  padding: 0 9px;
+  border: 1px solid var(--control);
+  border-radius: var(--rd-2);
+  background-color: var(--surface);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: var(--row-fs);
   text-decoration: none;
+  white-space: nowrap;
 }
 .stepchip:hover {
+  background-image: linear-gradient(var(--hover), var(--hover));
   border-color: var(--ink-2);
 }
 .stepchip b {
   font: 650 12px var(--mono);
 }
-.stepchip.pending {
-  border-style: dashed;
-  border-color: var(--pending-line);
-  background: var(--pending-bg);
+.stepchip .m {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stepchip .w {
+  font-weight: 600;
+}
+.stepchip.pending .w {
   color: var(--pending);
 }
-.stepchip.failed {
-  border-color: var(--failed-line);
-  background: var(--failed-bg);
+.stepchip.failed .w {
   color: var(--failed);
+}
+@media (pointer: coarse) {
+  .stepchip {
+    min-height: var(--tap);
+  }
 }
 .excl {
   display: flex;

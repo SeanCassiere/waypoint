@@ -161,9 +161,6 @@
   .item .msg {
     white-space: normal;
   }
-  .cmp {
-    padding: 14px 10px 130px;
-  }
   /* The notice wraps (NAV-04): its segments first, and the actions at the end, 44 px tall. */
   .status1 > .grow + * {
     margin-left: auto;
@@ -202,9 +199,6 @@
   }
   .dlg .ft .exist {
     display: none;
-  }
-  .lbx .pair {
-    grid-template-columns: 1fr;
   }
   /* Status stat cards stack (OW-06b). */
   .grid3 {

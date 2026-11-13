@@ -255,7 +255,7 @@ describe("compare API and Changes page", () => {
     expect(html).toContain("Changes in #2");
     expect(html).toContain("<del>72</del>");
     expect(html).toContain("<ins>24</ins>");
-    expect(html).toContain("Table · 1 row changed");
+    expect(html).toContain("Table, 1 row changed");
     expect(html).toContain("Removed (was 2 B)");
     expect(queries).toBeLessThan(30);
     const source = await (await app.request(`${pinned}changes?view=source`)).text();

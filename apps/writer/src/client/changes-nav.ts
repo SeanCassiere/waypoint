@@ -21,7 +21,10 @@ function move(direction: 1 | -1, fromStepper: boolean): void {
   if (!page) return;
   const changes = $$("[data-change]").filter((node) => node.offsetParent !== null);
   if (!changes.length) return;
-  const top = page.getBoundingClientRect().top + 8;
+  // The page top is below the summary row while it's stuck to the top of the scroller.
+  const top =
+    Math.max(page.getBoundingClientRect().top, $(".sumrow")?.getBoundingClientRect().bottom ?? 0) +
+    8;
   const index = changes.findIndex((node) => node.getBoundingClientRect().top > top + 1);
   const active = document.activeElement;
   let current = active instanceof HTMLElement ? changes.indexOf(active) : -1;

@@ -370,7 +370,7 @@ describe("NAV-10 Changes page: headers", () => {
     const revs = await seedFork();
     const page = await get(changesOf(revs, 5));
     expect(page.html).toContain("<h2>Changes in #5</h2>");
-    expect(page.html).toContain(" · compared with its parent #4");
+    expect(page.html).toContain(", compared with its parent #4");
     expect(page.html).not.toContain("(not its parent)");
     expect(filesPanel(page.html)).toContain(
       "Comparing #5 with its parent #4. To compare other revisions, use Compare… in History.",

@@ -394,7 +394,7 @@ describe("the writer stays responsive during large compares", () => {
     expect(value.status).toBe(200);
     const html = await value.text();
     // Blocks the worker couldn't render in its budget show their source instead.
-    expect(html).toContain("Source · not rendered");
+    expect(html).toContain("Source, not rendered");
     expect(html).not.toContain("<!--wpfrag:");
     expect(worst).toBeLessThan(250);
   });

@@ -141,7 +141,7 @@ class Fragments {
 function Rendered(props: { markdown: string; source: Child; frags: Fragments }) {
   const fallback = (
     <div class="tx code">
-      <span class="srcnote">Source · not rendered</span>
+      <span class="srcnote">Source, not rendered</span>
       {props.source}
     </div>
   );
@@ -223,7 +223,7 @@ function TableUnit(props: { rows: DiffBlock[]; frags: Fragments }) {
   // fragment renders, so .dtsrc styles them as .blk.src does.
   const source = (
     <div class="tx dtsrc">
-      <span class="srcnote">Table · {parts}</span>
+      <span class="srcnote">Table, {parts}</span>
       {rows.map((row) =>
         row.op === "equal" ? (
           <span class="row0">{row.head_text}</span>
@@ -294,7 +294,7 @@ function CodeBlock(props: { op: DiffBlock }) {
         {marker(op.op)}
         <div class="tx">
           <span class="srcnote">
-            Code{language ? ` · ${language}` : ""} · {op.op === "insert" ? "added" : "removed"}
+            Code{language ? ` (${language})` : ""}, {op.op === "insert" ? "added" : "removed"}
           </span>
           {codeBody(text).join("\n")}
         </div>
@@ -312,7 +312,7 @@ function CodeBlock(props: { op: DiffBlock }) {
         {marker("replace")}
         <div class="tx">
           <span class="srcnote">
-            Code{language ? ` · ${language}` : ""} · {lines} changed
+            Code{language ? ` (${language})` : ""}, {lines} changed
           </span>
           {before.map((line) => (
             <CodeLine op="delete" text={line} />
@@ -360,7 +360,7 @@ function CodeBlock(props: { op: DiffBlock }) {
       {marker("replace")}
       <div class="tx">
         <span class="srcnote">
-          Code{language ? ` · ${language}` : ""} · {lines} changed
+          Code{language ? ` (${language})` : ""}, {lines} changed
         </span>
         {rows}
       </div>
@@ -709,7 +709,7 @@ export function summary(diff: FileDiff): string {
       .join(" ") + " blocks"
   );
 }
-/** The card header's counts in words, unit once: "Blocks: 2 changed · 5 added". */
+/** The card header's counts in words, unit once: "Blocks: 2 changed, 5 added". */
 export function summaryWords(diff: FileDiff): Child {
   const count = (op: string) =>
     diff.lines
@@ -726,7 +726,7 @@ export function summaryWords(diff: FileDiff): Child {
       {diff.lines ? "Lines: " : "Blocks: "}
       {parts.map((part, index) => (
         <>
-          {index ? " · " : ""}
+          {index ? ", " : ""}
           <span class={part.cls}>
             {part.n} {part.word}
           </span>
@@ -787,7 +787,7 @@ function WindowNote(props: {
       {window.from > 0 && props.focused ? (
         <a href={props.href(Math.max(0, window.from - step))}>Previous {noun}</a>
       ) : null}
-      {window.from > 0 && props.focused && end < total ? " · " : null}
+      {window.from > 0 && props.focused && end < total ? ", " : null}
       {end < total ? (
         <a href={props.href(end)}>
           {props.focused
@@ -969,7 +969,7 @@ export function FileCard(props: {
   // Dimensions fill in after the image loads (client/dims.ts).
   const dims = (
     <span data-dim-wrap hidden>
-      {" · "}
+      {", "}
       <span data-dim />
     </span>
   );
@@ -986,8 +986,7 @@ export function FileCard(props: {
         </span>
         <figcaption>
           Removed in #{headN}
-          {dims} · {bytes(file.base?.size ?? 0)} ·{" "}
-          <a href={openBase}>Open in #{props.baseNumber}</a>
+          {dims}, {bytes(file.base?.size ?? 0)}. <a href={openBase}>Open in #{props.baseNumber}</a>
         </figcaption>
       </figure>
     );
@@ -1015,7 +1014,7 @@ export function FileCard(props: {
         {openBase && file.base ? "both versions: " : ""}
         {openBase && file.base ? (
           <>
-            <a href={openBase}>#{props.baseNumber}</a> ({bytes(file.base.size)}) ·{" "}
+            <a href={openBase}>#{props.baseNumber}</a> ({bytes(file.base.size)}) and{" "}
           </>
         ) : null}
         <a href={openHead}>#{headN}</a>
@@ -1034,8 +1033,8 @@ export function FileCard(props: {
               decoding="async"
             />
             <figcaption>
-              Before · #{props.baseNumber}
-              {dims} · {bytes(file.base.size)}
+              Before, #{props.baseNumber}
+              {dims}, {bytes(file.base.size)}
             </figcaption>
           </figure>
         ) : null}
@@ -1043,8 +1042,8 @@ export function FileCard(props: {
           <figure data-dims>
             <img src={rawHead} alt={`${file.path} in #${headN}`} loading="lazy" decoding="async" />
             <figcaption>
-              After · #{headN}
-              {dims} · {bytes(file.head.size)}
+              After, #{headN}
+              {dims}, {bytes(file.head.size)}
             </figcaption>
           </figure>
         ) : null}
@@ -1054,14 +1053,14 @@ export function FileCard(props: {
     body = (
       <div class="note">
         Binary file {file.status === "added" ? "added" : "changed"}
-        {file.base ? ` · ${bytes(file.base.size)} → ` : " · "}
+        {file.base ? `, ${bytes(file.base.size)} → ` : ", "}
         {bytes(file.head?.size ?? 0)}.{" "}
         {rawBase && file.base ? (
           <a href={rawBase} download>
             Download before
           </a>
         ) : null}
-        {rawBase && file.base ? " · " : ""}
+        {rawBase && file.base ? ", " : ""}
         <a href={rawHead} download>
           Download {file.base ? "after" : "it"}
         </a>
@@ -1084,7 +1083,7 @@ export function FileCard(props: {
         <span class="p">{file.path}</span>
         {file.path === ctx.revision.head_path ? <span class="chip xs">head</span> : null}
         {file.status === "added" ? (
-          <span class="muted small">new · {bytes(file.head?.size ?? 0)}</span>
+          <span class="muted small">new, {bytes(file.head?.size ?? 0)}</span>
         ) : null}
         <span class="grow" />
         {words ? <span class="tally">{words}</span> : null}
@@ -1146,7 +1145,7 @@ export function ViewSwitch(props: {
   );
 }
 
-/** The marks' legend: "+ added · ~ changed · − removed" (the words follow, so the glyphs are
+/** The marks' legend: "+ added, ~ changed, − removed" (the words follow, so the glyphs are
  * hidden from assistive technology). */
 export function DiffKey() {
   return (
@@ -1154,11 +1153,11 @@ export function DiffKey() {
       <span class="k a">
         <span aria-hidden="true">+</span>
       </span>{" "}
-      added ·{" "}
+      added,{" "}
       <span class="k m">
         <span aria-hidden="true">~</span>
       </span>{" "}
-      changed ·{" "}
+      changed,{" "}
       <span class="k rm">
         <span aria-hidden="true">−</span>
       </span>{" "}

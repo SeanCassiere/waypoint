@@ -72,6 +72,8 @@ const DIFF_SELECTORS = [
   // .ichg: RX-04's writer change chip ("~ Changed in #N"), pre-seeded so RX-04 needn't edit this file
   ".ichg",
   ".dt tr.r-mod",
+  // The gallery lightbox's "changed" beside the image's name (client/gallery.ts sets data-tone)
+  '.lbx header [data-tone="changed"]',
 ] as const;
 /** Selectors that the diff half requires to use --changed*. */
 const MUST_BE_CHANGED = [".k.m", ".blk.mod", ".shot.mod", ".chg .m"] as const;
