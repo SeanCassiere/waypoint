@@ -135,15 +135,15 @@ export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
 .done{display:none}
 .tree a>svg,.tree summary>svg.ti{color:var(--faint)}.tree a[aria-current]>svg{color:var(--ink)}
 .tree a>b{font-weight:400}
-html:not(.js) .tree a>b{white-space:normal;overflow-wrap:anywhere}
+@media(scripting:none){.tree a>b{white-space:normal;overflow-wrap:anywhere}}
 .tree small{margin-left:auto;flex:none;font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .tree details:not([open])>summary>svg.ti{transform:none}
 .tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
 .tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
 .tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
 @media(min-width:${WIDE_MIN}px){.panel{display:flex;position:static;width:auto}
-html:not(.js) .ptog{display:none}
 .panel:popover-open{position:fixed;inset:0 auto 0 0;width:var(--panel-w);box-shadow:var(--sh-2)}}
+@media(min-width:${WIDE_MIN}px) and (scripting:none){.ptog{display:none}}
 @media(min-width:${WIDE_MIN}px) and (hover:hover) and (pointer:fine){.shell.closed>.peek-edge,.shell.closed .panel{position:absolute}}
 @media(max-width:${NARROW_MAX}px){.panel:not(:popover-open){display:none}
 body:has(#files:popover-open) .pop-scrim{display:block;opacity:1;background:var(--scrim)}}

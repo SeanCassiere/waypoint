@@ -268,7 +268,12 @@ describe("Files CSS", () => {
     expect(sidebarCss).toContain(
       "@media(min-width:1100px){.panel{display:flex;position:static;width:auto}",
     );
-    expect(sidebarCss).toContain("html:not(.js) .ptog{display:none}");
+    // Without script the button (which couldn't collapse it) is hidden there; scripting is a media
+    // feature, so with script nothing changes once the script has run (no layout shift).
+    expect(sidebarCss).toContain(
+      "@media(min-width:1100px) and (scripting:none){.ptog{display:none}}",
+    );
+    expect(publicShellCss).not.toContain(".js");
     expect(sidebarCss).toContain(
       "@media(max-width:1099.98px){.panel:not(:popover-open){display:none}",
     );

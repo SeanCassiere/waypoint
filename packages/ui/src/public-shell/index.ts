@@ -105,7 +105,10 @@ export function renderPublicShell(options: PublicShellOptions): string {
   if (!options.frameBase.endsWith("/")) throw new Error("frameBase must end with /");
   const name = options.current.slice(options.current.lastIndexOf("/") + 1);
   const title = `${escapeHtml(showBidi(name))} · ${escapeHtml(showBidi(options.title))}`;
-  // One sprite for every row's icon; same-document <use> references resolve forward.
+  // One sprite for every row's icon; same-document <use> references resolve forward. The script
+  // comes before the panel (straight after `#shell`'s start tag, or after the banner without a
+  // panel): its first segments apply the stored panel state before the shell paints, the rest wait
+  // for the parsed page (publicShellScript).
   const list = files(options);
   const sprite = list
     ? iconSprite(["doc", "image", "table", "code", "binary", "folder", "chevronDown"])
@@ -117,5 +120,5 @@ export function renderPublicShell(options: PublicShellOptions): string {
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
   const version = options.version ? ` data-waypoint-version="${escapeHtml(options.version)}"` : "";
-  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell">${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
+  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell">${script}${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : `${script}${documentArea(options)}`}${sprite}<div class="pop-scrim" aria-hidden="true"></div></body></html>`;
 }

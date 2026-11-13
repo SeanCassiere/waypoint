@@ -88,6 +88,14 @@ describe("public shell", () => {
     expect(markup(html)).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
     expect(html).toContain(`<style>${publicShellCss}</style>`);
     expect(html).toContain(`<script>${publicShellScript}</script>`);
+    // The script follows #shell's start tag, before the panel (the stored state applies before the
+    // shell paints); without a panel it follows the banner.
+    expect(html).toContain(
+      `<div id="shell" class="shell"><script>${publicShellScript}</script><nav`,
+    );
+    expect(renderPublicShell(base)).toContain(
+      `</header><script>${publicShellScript}</script><main`,
+    );
     // Page navigation is never animated (owner feedback 1).
     expect(publicShellCss).not.toMatch(/view-transition/);
   });

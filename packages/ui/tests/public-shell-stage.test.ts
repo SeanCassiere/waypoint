@@ -132,7 +132,7 @@ describe("image stage (RX-04)", () => {
     expect(stageScript).not.toContain("//");
     expect(stageScript).not.toContain("/*");
     for (const line of stageScript.split("\n")) expect(line.length).toBeLessThanOrEqual(100);
-    expect(publicShellScript.endsWith(stageScript)).toBe(true);
+    expect(publicShellScript.endsWith(`${stageScript}\n});`)).toBe(true);
   });
 
   it("uses only shared tokens in balanced CSS", () => {
