@@ -45,7 +45,7 @@ async function goldenHash(): Promise<string> {
 describe("csv rendition", () => {
   it("has its own name, version and limits", () => {
     expect(CSV_RENDERER_NAME).toBe("csv");
-    expect(CSV_RENDERER_VERSION).toBe(1);
+    expect(CSV_RENDERER_VERSION).toBe(2);
     expect(CSV_LIMITS).toEqual({ maxBytes: 2_097_152, rows: 500, cellChars: 65_536 });
   });
 

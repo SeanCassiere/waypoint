@@ -1,4 +1,4 @@
-import { createHighlighterCore } from "@shikijs/core";
+import { createHighlighterCore, type LanguageRegistration } from "@shikijs/core";
 import { createOnigurumaEngine } from "@shikijs/engine-oniguruma";
 import bash from "@shikijs/langs/bash";
 import cssGrammar from "@shikijs/langs/css";
@@ -40,8 +40,10 @@ export const RENDERER_NAME = "markdown";
 // v1: GitHub-like template. v2: Folio reading template (headings anchors, alerts, contents,
 // table wrap, figures, code labels, frame reporter, dir="auto" on text blocks). v3: Folio tokens
 // (readingTokensCss from @waypoint/ui): warm rules, Contents box and code wells, links in the
-// public blue, and the chrome's 2px ink focus ring.
-export const RENDERER_VERSION = 3;
+// public blue, and the chrome's 2px ink focus ring. v4: Logbook's palette (D88): the page is the
+// shell's paper, cool rules and wells, the neutral mark (also on <mark>), callouts in the chrome's
+// state colours, and syntax colours that reach 4.5:1 on the wells and the mark (SYNTAX_COLOURS).
+export const RENDERER_VERSION = 4;
 
 const languages = [
   "typescript",
@@ -78,29 +80,48 @@ export function isSupportedLanguage(value: string): value is ShikiLanguage {
   return languages.some((language) => language === value);
 }
 
+/**
+ * The GitHub themes' token colours that fall under 4.5:1 on the reading wells (`--code-bg`) or the
+ * `:target` line (`--mark`), darkened (light) or lightened (dark) in their own hue until they pass
+ * on the page, the wells and the mark in their scheme. Every other token colour already passes
+ * (tests/syntax-contrast.test.ts). Both the markdown and the text renderer highlight with these.
+ */
+export const SYNTAX_COLOURS: Record<string, Record<string, string>> = {
+  "github-light": {
+    "#6a737d": "#5c646d",
+    "#22863a": "#1d7231",
+    "#d73a49": "#b5313d",
+    "#e36209": "#a34706",
+  },
+  "github-dark": { "#6a737d": "#a1a7ad", "#b392f0": "#b696f1", "#f97583": "#fa818e" },
+};
+
+/** Every grammar the highlighter loads, embedded ones included. */
+export const GRAMMARS: readonly LanguageRegistration[] = [
+  typescript,
+  javascript,
+  tsx,
+  jsx,
+  json,
+  bash,
+  python,
+  go,
+  rust,
+  sql,
+  yaml,
+  toml,
+  html,
+  cssGrammar,
+  diff,
+  markdown,
+  dockerfile,
+].flat();
+
 let highlighter: ReturnType<typeof createHighlighterCore> | undefined;
 export function getHighlighter(): ReturnType<typeof createHighlighterCore> {
   highlighter ??= createHighlighterCore({
     themes: [githubLight, githubDark],
-    langs: [
-      typescript,
-      javascript,
-      tsx,
-      jsx,
-      json,
-      bash,
-      python,
-      go,
-      rust,
-      sql,
-      yaml,
-      toml,
-      html,
-      cssGrammar,
-      diff,
-      markdown,
-      dockerfile,
-    ].flat(),
+    langs: [...GRAMMARS],
     engine: createOnigurumaEngine(import("@shikijs/engine-oniguruma/wasm-inlined")),
   }).catch((error: unknown) => {
     highlighter = undefined;
@@ -199,6 +220,7 @@ const css = `${readingTokensCss}*{box-sizing:border-box}
 html{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{margin:0 auto;max-width:calc(var(--measure) + 64px);padding:40px 32px 96px;font:17px/1.65 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;font-feature-settings:"kern","liga","calt";overflow-wrap:break-word;hyphens:manual;text-rendering:optimizeLegibility}
 ::selection{background:var(--mark)}
+mark{background:var(--mark);color:inherit}
 a{color:var(--link);text-decoration:underline;text-decoration-color:var(--link-u);text-decoration-thickness:1px;text-underline-offset:.18em}
 a:hover{text-decoration-color:currentColor}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
@@ -333,6 +355,7 @@ async function highlight(root: Root): Promise<void> {
       lang: language,
       themes: { light: "github-light", dark: "github-dark" },
       defaultColor: false,
+      colorReplacements: SYNTAX_COLOURS,
       tokenizeTimeLimit: 0,
       tokenizeMaxLineLength: 5000,
     });

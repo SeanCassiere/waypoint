@@ -18,7 +18,8 @@ export const CSV_RENDERER_NAME = "csv";
 // Bump this version for any change to the CSV view's output, and update CSV_GOLDEN_HASH in
 // tests/golden-text.ts in the same change (see TEXT_RENDERER_VERSION).
 // v1: the bounded table (first 500 rows, sticky header, row numbers), text view on a parse failure.
-export const CSV_RENDERER_VERSION = 1;
+// v2: Logbook's reading palette (markdown v4, D88).
+export const CSV_RENDERER_VERSION = 2;
 
 export const CSV_LIMITS: {
   readonly maxBytes: 2097152;

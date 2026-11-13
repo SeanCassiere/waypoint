@@ -70,7 +70,7 @@ async function goldenHash(): Promise<string> {
 describe("text rendition", () => {
   it("has its own name, version and limits", () => {
     expect(TEXT_RENDERER_NAME).toBe("text");
-    expect(TEXT_RENDERER_VERSION).toBe(1);
+    expect(TEXT_RENDERER_VERSION).toBe(2);
     expect(TEXT_LIMITS).toEqual({
       maxBytes: 2_097_152,
       maxLines: 50_000,

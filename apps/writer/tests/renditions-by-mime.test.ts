@@ -146,13 +146,13 @@ describe("renditions by MIME type (RX-08)", () => {
     }>("SELECT source_hash,renderer,renderer_version FROM pending_renditions");
     const hash = (path: string): string => written.find((file) => file.path === path)!.hash;
     const expected = [
-      [hash("index.md"), "markdown", 3],
-      [hash("twin.md"), "markdown", 3],
-      [hash("run.sh"), "text", 1],
-      [hash("metrics.json"), "text", 1],
-      [hash("notes.txt"), "text", 1],
-      [hash("twin.txt"), "text", 1],
-      [hash("data.csv"), "csv", 1],
+      [hash("index.md"), "markdown", 4],
+      [hash("twin.md"), "markdown", 4],
+      [hash("run.sh"), "text", 2],
+      [hash("metrics.json"), "text", 2],
+      [hash("notes.txt"), "text", 2],
+      [hash("twin.txt"), "text", 2],
+      [hash("data.csv"), "csv", 2],
     ].map(([source, renderer, version]) => `${source} ${renderer} ${version}`);
     expect(
       rows.map((row) => `${row.source_hash} ${row.renderer} ${row.renderer_version}`).toSorted(),

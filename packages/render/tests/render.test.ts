@@ -85,7 +85,7 @@ describe("markdown rendition", () => {
 
   it("renders only normalized Markdown MIME and strips the UTF-8 BOM", async () => {
     expect(RENDERER_NAME).toBe("markdown");
-    expect(RENDERER_VERSION).toBe(3);
+    expect(RENDERER_VERSION).toBe(4);
     expect(await markdownRenderer.render(new Uint8Array(), "text/plain")).toBeNull();
     const result = await markdownRenderer.render(
       new TextEncoder().encode("\uFEFF# Title"),
@@ -117,7 +117,7 @@ describe("markdown rendition", () => {
     }
   });
 
-  it("builds the reading palette from the frozen readingTokensCss (v3)", async () => {
+  it("builds the reading palette from the frozen readingTokensCss (v4)", async () => {
     const html = await renderMarkdown(
       "# T\n\n[a](#x)\n\n| a |\n| - |\n| 1 |\n\n```js\nlet x = 1\n```\n\n## A\n## B\n## C\n## D",
     );
@@ -151,9 +151,22 @@ describe("markdown rendition", () => {
     ]) {
       expect(html).not.toContain(cool);
     }
-    // Alert hues are unchanged.
-    expect(html).toContain("--note:#1d5bd6");
+    // v4 (D88): Logbook's palette. The page is the shell's paper, so the frame shows no band, and
+    // nothing of Folio's warm paper is left.
+    expect(html).toContain("--bg:#f6f7f9;");
+    expect(html).toContain("--bg:#131518;");
+    for (const warm of ["#fcfbf9", "#f4f2ee", "#e7e3dc", "#1b1a17", "#151514", "#fff1a8"])
+      expect(html).not.toContain(warm);
+    // <mark> takes the neutral mark, not the browser's yellow, and keeps its text colour.
+    expect(html).toContain("mark{background:var(--mark);color:inherit}");
     expect(html.match(/:root\{/g)).toHaveLength(2);
+  });
+
+  it("highlights code with the contrast-checked syntax colours (D88)", async () => {
+    const html = await renderMarkdown("```js\n// a comment\nconst a = 1\n```");
+    expect(html).toContain('style="--shiki-light:#5c646d;--shiki-dark:#a1a7ad"');
+    expect(html).toContain("--shiki-light:#b5313d;--shiki-dark:#fa818e");
+    expect(html).not.toMatch(/--shiki-light:#(?:6a737d|d73a49)\b/i);
   });
 
   it("frame reporter posts only the path and fragment to the parent", () => {
