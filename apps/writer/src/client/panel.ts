@@ -1,3 +1,5 @@
+import { PANEL_STORAGE_KEY } from "@waypoint/ui";
+
 import { rawPath } from "../viewer-paths.ts";
 import { $, $$, storage } from "./dom.ts";
 import { bindPeek, collapsedUnderPointer, peeking, stopPeek } from "./panel-peek.ts";
@@ -40,7 +42,7 @@ export function setPanel(open: boolean): void {
     stopPeek();
     root.classList.toggle("closed", !open);
     if (!open) collapsedUnderPointer();
-    storage()?.setItem("wp:panel", open ? "open" : "closed");
+    storage()?.setItem(PANEL_STORAGE_KEY, open ? "open" : "closed");
     syncToggle();
     if (open) revealRevision();
     return;
@@ -166,7 +168,7 @@ export function showTab(id: string): void {
 export function bindPanel(): void {
   const root = shell();
   if (!root) return;
-  if (wide() && storage()?.getItem("wp:panel") === "closed") root.classList.add("closed");
+  if (wide() && storage()?.getItem(PANEL_STORAGE_KEY) === "closed") root.classList.add("closed");
   const tabs = $$("#panel [role=tab]");
   for (const tab of tabs) {
     tab.addEventListener("click", (event) => {

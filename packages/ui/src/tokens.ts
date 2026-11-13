@@ -8,7 +8,9 @@
  *    shell and static style hashes (regenerate apps/reader/src/csp-hashes.ts).
  *  - `writerTokensCss`: roles only the writer uses, including any role that neither reader CSS
  *    nor the preview band references. Appended only by apps/writer/viewer.build.ts; it never
- *    reaches the reader, so editing it never moves a reader hash.
+ *    reaches the reader, so editing it never moves a reader hash. The shared panel and tree
+ *    styles (panel-css.ts) still use two of its roles, `--panel-w` and `--sel-bg`: they move to
+ *    `sharedTokensCss` when the reader takes those styles.
  *  - `readingTokensCss`: a frozen copy of the reading palette, in the renderer's own variable
  *    names, for the renderer (VS-07). Its snapshot changes only with a `RENDERER_VERSION` bump.
  */

@@ -1,7 +1,7 @@
+import { TREE_STORAGE_PREFIX } from "@waypoint/ui";
+
 import { $, $$, shellRoot } from "./dom.ts";
 
-/** The open folders of one collection's Files tree, kept for the tab's session (D72). */
-const KEY = "wp:tree:";
 function session(): Storage | null {
   try {
     return window.sessionStorage;
@@ -46,7 +46,7 @@ export function bindTree(): void {
   const filter = $("[data-filter]", HTMLInputElement, panel);
   const collection = shellRoot()?.dataset.collection;
   const store = collection ? session() : null;
-  const key = `${KEY}${collection ?? ""}`;
+  const key = `${TREE_STORAGE_PREFIX}${collection ?? ""}`;
   const query = () => filter?.value.trim().toLowerCase() ?? "";
 
   const chosen = new Set<string>();

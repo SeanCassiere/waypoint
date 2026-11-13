@@ -25,6 +25,14 @@ describe("viewer stylesheet partials", () => {
     }
     expect(viewerCssSource()).toBe(texts.join(""));
   });
+  // The panel, its peek and the tree's rows are panelCss and treeCss (packages/ui/src/panel-css.ts),
+  // shared with the public reader; a partial that styled them again would fork the two.
+  it("leaves the panel's states and peek to packages/ui", () => {
+    const found = VIEWER_CSS_PARTIALS.filter((name) =>
+      /\.peek-edge\b|\.shell\.closed\b/.test(read(name).replace(/\/\*[\s\S]*?\*\//g, "")),
+    );
+    expect(found).toEqual([]);
+  });
   it("never brings back the monolithic viewer.css", () => {
     expect(existsSync(new URL("../src/viewer/viewer.css", import.meta.url))).toBe(false);
   });

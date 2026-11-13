@@ -1,3 +1,5 @@
+import { PEEK_CLOSE_GRACE, PEEK_OPEN_DELAY, PEEK_SLIDE_OUT } from "@waypoint/ui";
+
 import { $ } from "./dom.ts";
 
 /**
@@ -11,11 +13,6 @@ import { $ } from "./dom.ts";
  * goes through setPanel, which calls stopPeek first. Pointer-only: keyboard and touch users dock
  * the panel instead, and the module never writes the stored panel state.
  */
-
-const OPEN_DELAY = 150;
-const CLOSE_GRACE = 250;
-/** The slide-out's length in 95-motion.css; .peek-out is dropped after it. */
-const SLIDE_OUT = 100;
 
 const WIDE = window.matchMedia("(min-width: 1100px)");
 const FINE = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -85,7 +82,7 @@ export function closePeek(slide: boolean): void {
   if (slide) {
     shell.classList.add("peek-out");
     clearTimeout(outTimer);
-    outTimer = setTimeout(() => shell?.classList.remove("peek-out"), SLIDE_OUT + 50);
+    outTimer = setTimeout(() => shell?.classList.remove("peek-out"), PEEK_SLIDE_OUT + 50);
   }
   shell.classList.remove("peek");
   inside = false;
@@ -106,7 +103,7 @@ function arm(event: PointerEvent): void {
   openTimer = setTimeout(() => {
     openTimer = undefined;
     open();
-  }, OPEN_DELAY);
+  }, PEEK_OPEN_DELAY);
 }
 
 /** What keeps the peek out with the pointer elsewhere; "" when nothing does. */
@@ -134,7 +131,7 @@ function scheduleClose(): void {
   closeTimer = setTimeout(() => {
     if (!peeking() || inside || peekHold()) return;
     closePeek(true);
-  }, CLOSE_GRACE);
+  }, PEEK_CLOSE_GRACE);
 }
 /** A hold may have ended: with the pointer outside, the grace period starts again. */
 function recheck(): void {

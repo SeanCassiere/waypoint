@@ -16,21 +16,20 @@
   .bc .pill[aria-expanded="true"] {
     border-width: 2px;
   }
-  .tree a[aria-current],
+  /* The tree's current row is treeCss (packages/ui/src/panel-css.ts). */
   .rv[aria-current],
   .menu .mi[aria-current] {
     outline: 2px solid CanvasText;
   }
 }
 @media print {
+  /* panelCss hides the panel and makes the shell a block; the page owns its height. */
   .bar,
-  .panel,
   .tabbar,
   .status1 {
     display: none !important;
   }
   .shell {
-    display: block;
     height: auto;
   }
 }
