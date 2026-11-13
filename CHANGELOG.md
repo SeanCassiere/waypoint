@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/SeanCassiere/waypoint/compare/v0.7.0...v0.7.1) (2026-11-13)
+
+
+### Documentation
+
+* **skill:** frame Waypoint as an artifact store and add HTML prototype guidance ([#140](https://github.com/SeanCassiere/waypoint/issues/140)) ([01aafef](https://github.com/SeanCassiere/waypoint/commit/01aafeff0ce52dd415b438b05b3ed5607b3a5344))
+
 ## [0.7.0](https://github.com/SeanCassiere/waypoint/compare/v0.6.0...v0.7.0) (2026-11-13)
 
 
