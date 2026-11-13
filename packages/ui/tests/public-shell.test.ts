@@ -254,7 +254,7 @@ describe("public shell", () => {
       download: { mime: "application/zip", size: null },
     });
     expect(card).not.toContain("<iframe");
-    expect(card).toContain("<p>application/zip · can&#39;t be previewed in the browser</p>");
+    expect(card).toContain("<p>application/zip, can&#39;t be previewed in the browser</p>");
   });
 });
 describe("encodePathSegments", () => {

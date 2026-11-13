@@ -173,8 +173,8 @@ const scenario: ReaderScenario = {
       assert.equal(await page.locator(".exp svg").count(), 0, "no clock for 6 days");
       assert.equal(
         await page.evaluate(`getComputedStyle(document.querySelector(".exp")).color`),
-        await tokenColour(page, "--muted"),
-        "the 6-day expiry is muted",
+        await tokenColour(page, "--ink-2"),
+        "the 6-day expiry is secondary text (--ink-2), not bold ink",
       );
 
       await page.click(".abt");

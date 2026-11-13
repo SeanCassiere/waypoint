@@ -67,7 +67,7 @@ interface Budget {
  * One file row: a bare link with its type icon (from the page's sprite; drawn by `.tree a>svg`, so
  * without the `ic` classes: 2,000 rows would carry them), the label in a `b` (the part that's cut short with an ellipsis; the script
  * sets the full path as the row's `title` on hover or focus), and for files that can't be previewed
- * a "download · size" marker. No `autofocus` here: a docked panel is open at load, and a parsed
+ * a "download, size" marker. No `autofocus` here: a docked panel is open at load, and a parsed
  * `autofocus` would take the focus from the skip link; the script puts it on the current row, so
  * opening the Files sheet focuses it.
  */
@@ -84,12 +84,12 @@ function link(
     budget.kind = shellFileKind(file.mime);
   }
   const kind = budget.kind;
-  // The leading space keeps the accessible name "name download · 4.1 MB".
+  // The leading space keeps the accessible name "name download, 4.1 MB".
   const marker =
     kind !== "binary"
       ? ""
       : typeof file.size === "number"
-        ? `<small> download · ${bytes(file.size)}</small>`
+        ? `<small> download, ${bytes(file.size)}</small>`
         : "<small> download</small>";
   const out = `<a href="${esc(options.fileHref(path))}" data-p="${esc(path)}"${current}><svg aria-hidden="true"><use href="#i-${kind}"/></svg><b>${label(text)}</b>${marker}</a>`;
   // Count UTF-8 bytes roughly: non-ASCII names cost up to three bytes per character.
@@ -281,7 +281,7 @@ export function files(options: PublicShellOptions): ShellFiles | null {
     ? '<div class="ttools"><button type="button" class="btn ghost sm" data-tree-all hidden>Expand all</button></div>'
     : "";
   // Done shows only on phones, where the panel is a bottom sheet.
-  const header = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
+  const header = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="btn done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
   return {
     row: `<div class="prow">${button}${downloadLink(options, "row")}</div>`,
     panel: `<nav id="files" class="panel" popover="auto" aria-label="Files">${header}<div class="pbody">${tools}<div class="tree">${headRow}${list}${more}</div></div></nav>`,

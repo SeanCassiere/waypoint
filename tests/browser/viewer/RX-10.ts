@@ -10,7 +10,7 @@ import { assert, axe, startDemoWriter, VIEWPORTS, type ViewerScenario } from "..
 const POSTGRES = "Postgres 17 upgrade runbook";
 const BAND = '[role="region"][aria-label="Public preview"][data-preview-banner][data-preview-band]';
 const SYNCING =
-  "Public preview · A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.";
+  "Public preview: A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.";
 
 const collectionsOf = z.object({
   collections: z.array(z.object({ id: z.string(), public_id: z.string(), title: z.string() })),
@@ -114,7 +114,7 @@ const scenario: ViewerScenario = {
         band.textHeight <= band.lineHeight + 1,
         `the band text takes ${band.textHeight}px (line ${band.lineHeight}px)`,
       );
-      assert.ok(band.text.includes("Public preview · Latest links show #5"), band.text);
+      assert.ok(band.text.includes("Public preview: Latest links show #5"), band.text);
       assert.ok(band.back.height >= 44, `a ${band.back.height}px Back on touch`);
       assert.equal(owner(band.back.href), owner(page.url()));
       assert.notEqual(band.position, "sticky");
@@ -183,8 +183,8 @@ const scenario: ViewerScenario = {
       const labels = await page.locator(".pv-facts li > b").allTextContents();
       assert.equal(labels.length, 3);
       assert.ok(labels[0]?.startsWith("Latest links show"), String(labels[0]));
-      assert.ok(labels[1]?.startsWith("#6 · Branch off #4"), String(labels[1]));
-      assert.ok(labels[2]?.startsWith("#7 · latest"), String(labels[2]));
+      assert.ok(labels[1]?.startsWith("#6, a branch off #4"), String(labels[1]));
+      assert.ok(labels[2]?.startsWith("#7, latest"), String(labels[2]));
       const retry = page.getByRole("button", { name: "Retry #6" });
       assert.equal(await retry.getAttribute("data-action"), "retry");
       assert.equal(await retry.getAttribute("data-ids"), rev(6).id);
@@ -206,7 +206,7 @@ const scenario: ViewerScenario = {
       const row = await page.evaluate(`(() => {
         const li = document.querySelectorAll(".pv-facts li")[1];
         li.querySelector("span").textContent =
-          "failed · https://example.com/blobs/sha256/" + "9c41".repeat(16) + "…";
+          "failed: https://example.com/blobs/sha256/" + "9c41".repeat(16) + "…";
         const top = (el) => el.getBoundingClientRect().top - li.getBoundingClientRect().top;
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,

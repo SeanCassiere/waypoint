@@ -34,8 +34,8 @@ describe("previewBand", () => {
       short: "Latest links show #5",
       back: "Back to #7",
     });
-    expect(`Public preview · ${band.first} ${band.second}`).toBe(
-      "Public preview · A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.",
+    expect(`Public preview: ${band.first} ${band.second}`).toBe(
+      "Public preview: A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.",
     );
   });
 

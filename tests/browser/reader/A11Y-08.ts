@@ -224,9 +224,9 @@ const scenario: ReaderScenario = {
       assert.equal(
         await page.evaluate(`getComputedStyle(document.getElementById("loading")).color`),
         await page.evaluate(`(() => { const p = document.createElement("span");
-          p.style.color = "var(--muted)"; document.body.append(p);
+          p.style.color = "var(--ink-2)"; document.body.append(p);
           const c = getComputedStyle(p).color; p.remove(); return c; })()`),
-        "the line is --muted",
+        "the line is --ink-2 (Logbook's secondary text)",
       );
       await loaded(page);
     }

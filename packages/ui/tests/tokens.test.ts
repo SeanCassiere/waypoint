@@ -107,12 +107,12 @@ describe("Logbook tokens", () => {
     expect([
       writer.get("--rd-1"),
       shared.get("--rd-2"),
-      writer.get("--rd-box"),
+      shared.get("--rd-box"),
       shared.get("--rd-3"),
     ]).toEqual(["4px", "6px", "8px", "10px"]);
     expect(writer.get("--rd-2-in")).toBe("calc(var(--rd-2) - 1px)");
-    expect([writer.get("--r1"), writer.get("--r2")]).toEqual(["45px", "45px"]);
-    expect([writer.get("--row-fs"), writer.get("--row-lh")]).toEqual(["13.5px", "20px"]);
+    expect([shared.get("--r1"), writer.get("--r2")]).toEqual(["45px", "45px"]);
+    expect([shared.get("--row-fs"), shared.get("--row-lh")]).toEqual(["13.5px", "20px"]);
     expect(shared.get("--sans")?.startsWith('"Recursive",')).toBe(true);
     expect(shared.get("--mono")?.startsWith('"Recursive Mono",')).toBe(true);
     expect(writerDark.get("--spine")).toBe("#3b424c");

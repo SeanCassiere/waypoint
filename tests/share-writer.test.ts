@@ -1095,7 +1095,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(failedHtml).toMatch(
       new RegExp(`<button[^>]*data-action="retry"[^>]*data-ids="${failedId}"[^>]*>Retry #3<`),
     );
-    expect(failedHtml).toContain("failed · R2 PUT timed out");
+    expect(failedHtml).toContain("failed: R2 PUT timed out");
     expect(failedHtml).toContain(`href="/c/${collectionPublicId}/?as=public"`);
     expect(failedHtml).toContain("Preview #1, what the public sees");
     expect(failedHtml).not.toContain(`/raw/r/${failedPub}/`);

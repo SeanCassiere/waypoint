@@ -33,7 +33,7 @@ export interface PublicShellFile {
   path: string;
   /** Stored MIME type: picks the row's type icon (a document when absent). */
   mime?: string | undefined;
-  /** Bytes, shown as "download · size" on files that can't be previewed. */
+  /** Bytes, shown as "download, size" on files that can't be previewed. */
   size?: number | null | undefined;
 }
 export interface PublicShellOptions {
@@ -89,7 +89,7 @@ function documentArea(options: PublicShellOptions): string {
     // Bidi controls in a file name could spoof its extension ("invoice\u202Efdp.exe").
     const shown = showBidi(options.current);
     const name = shown.slice(shown.lastIndexOf("/") + 1);
-    const meta = `${size === null ? "" : `${bytes(size)} · `}${showBidi(mime)} · can't be previewed in the browser`;
+    const meta = `${size === null ? "" : `${bytes(size)}, `}${showBidi(mime)}, can't be previewed in the browser`;
     return `<main id="main" class="scroll"><div class="dl"><div class="ic" aria-hidden="true">${escapeHtml(extension(shown))}</div><h2>${escapeHtml(shown)}</h2><p>${escapeHtml(meta)}</p><a id="doc" class="btn primary" href="${escapeHtml(src)}" download="${escapeHtml(name)}">Download</a></div></main>`;
   }
   if (options.image) {

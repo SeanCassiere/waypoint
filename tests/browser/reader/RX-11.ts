@@ -1,5 +1,6 @@
 // RX-11: a Latest link whose collection has a newer revision still syncing shows a calm pending
-// note under the meta row (a short pill in the meta row on phones); snapshots never do.
+// note under the meta row (on phones a short note in the meta row: the pending glyph and amber
+// words, not a pill); snapshots never do.
 import { hashShareToken, newShareToken } from "@waypoint/core";
 import type { Page } from "playwright";
 
@@ -58,7 +59,7 @@ async function pendingColours(page: Page, scheme: string): Promise<void> {
 }
 
 const scenario: ReaderScenario = {
-  name: "RX-11 syncing note on Latest links: box on desktop, pill on phones, none on snapshots",
+  name: "RX-11 syncing note on Latest links: box on desktop, short note on phones, none on snapshots",
   async run(ctx) {
     const now = Date.now();
     const db = readerTestDb();
@@ -125,7 +126,7 @@ const scenario: ReaderScenario = {
       const sync = page.locator(".sync");
       assert.ok(await sync.isVisible(), ".sync is visible");
       assert.equal((await sync.innerText()).replace(/\s+/g, " ").trim(), SENTENCE);
-      assert.equal(await page.locator(".sync svg").count(), 1, "the clock icon");
+      assert.equal(await page.locator(".sync > .lb-g.pending").count(), 1, "the pending glyph");
       await pendingColours(page, "light");
       assert.equal(await style(page, ".pend", "display"), "none", ".pend is hidden");
       const [syncTop, noteBottom] = (
@@ -148,7 +149,7 @@ const scenario: ReaderScenario = {
       await pendingColours(page, "dark");
     }
 
-    // Phone: the box is gone; the meta row ends with the pill, which says the whole sentence to
+    // Phone: the box is gone; the meta row ends with the short note, which says the whole sentence to
     // assistive technology; nothing scrolls sideways.
     {
       const { page } = await ctx.newPage({ ...VIEWPORTS.phone, mobile: true });
@@ -164,7 +165,7 @@ const scenario: ReaderScenario = {
         ),
         "Newer version syncing",
       );
-      assert.equal(await page.locator(".pend svg").count(), 1, "the clock icon");
+      assert.equal(await page.locator(".pend > .lb-g.pending").count(), 1, "the pending glyph");
       const tree = await page.locator(".lh").ariaSnapshot();
       assert.ok(
         tree
@@ -203,7 +204,7 @@ const scenario: ReaderScenario = {
         await colour(page, "CanvasText"),
         "the border is CanvasText",
       );
-      assert.ok(await page.locator(".sync svg").isVisible(), "the icon is visible");
+      assert.ok(await page.locator(".sync > .lb-g").isVisible(), "the glyph is visible");
     }
 
     for (const log of logs) assert.deepEqual(cspProblems(log), []);

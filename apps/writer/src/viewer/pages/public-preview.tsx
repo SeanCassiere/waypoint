@@ -153,7 +153,7 @@ export async function publicPreview(
 
 /**
  * The band's markup. Lead, separator and text share one flex item, so the region reads as one
- * sentence ("Public preview · A Latest link…"); flex items would each be a line of its text.
+ * sentence ("Public preview: A Latest link…"); flex items would each be a line of its text.
  */
 function bandHtml(band: PreviewBand, back: string): string {
   // The served number is emphasised (the first "#N" in the first sentence).
@@ -162,7 +162,7 @@ function bandHtml(band: PreviewBand, back: string): string {
   return (
     `<div class="wp-pv" role="region" aria-label="Public preview" data-preview-banner data-preview-band="${band.kind}"><div class="wp-pv-in">` +
     icon("globe") +
-    `<span class="wp-pv-m"><b class="wp-pv-lead">Public preview</b><span class="wp-pv-sep"> · </span><span class="wp-pv-t"><span class="wp-pv-1">${first}</span>${second}<span class="wp-pv-s">${escapeAttr(band.short)}</span></span></span>` +
+    `<span class="wp-pv-m"><b class="wp-pv-lead">Public preview</b><span class="wp-pv-sep">: </span><span class="wp-pv-t"><span class="wp-pv-1">${first}</span>${second}<span class="wp-pv-s">${escapeAttr(band.short)}</span></span></span>` +
     `<a class="wp-pv-back" href="${escapeAttr(back)}">${icon("chevronLeft")}${escapeAttr(band.back)}</a>` +
     `</div></div>`
   );
@@ -170,16 +170,17 @@ function bandHtml(band: PreviewBand, back: string): string {
 
 // Shared tokens only (the shell doesn't load viewer.css). The column matches the letterhead's
 // `.lh` (1120 px, or the whole width beside a file panel, `body.pan`; 20 px, 14 px on phones), so
-// the band's start lines up with the title. The shell's panel script saves the docked panel's
+// the band's start lines up with the title. Logbook: public blue, kept and flattened; Back is a
+// control-radius box on the public line, with the ink film on hover. The shell's panel script saves the docked panel's
 // state under the same localStorage key as the writer's own panel, with the same meaning.
 const BANNER_CSS =
   ".wp-pv{flex:none;display:flex;min-height:40px;background:var(--public-bg);border-bottom:1px solid var(--public-line);color:var(--ink-2);font:13px/1.4 var(--sans)}" +
   ".wp-pv-in{flex:1;display:flex;align-items:center;gap:8px;min-width:0;max-width:1120px;margin:0 auto;padding:4px 20px}" +
   ".pan .wp-pv-in{max-width:none}" +
   ".wp-pv-in>svg.ic,.wp-pv-lead{color:var(--public)}" +
-  ".wp-pv-m{flex:1;min-width:0}.wp-pv-lead,.wp-pv-1 b{font-weight:650}.wp-pv-1 b{color:var(--ink)}.wp-pv-s{display:none}" +
-  ".wp-pv-back{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px 0 6px;border:1px solid var(--public-line);border-radius:8px;background:var(--surface);color:var(--ink);font-weight:500;text-decoration:none;white-space:nowrap}" +
-  ".wp-pv-back:hover{background:var(--hover)}" +
+  ".wp-pv-m{flex:1;min-width:0}.wp-pv-lead{font-weight:680}.wp-pv-1 b{font-weight:650;color:var(--ink)}.wp-pv-s{display:none}" +
+  ".wp-pv-back{display:inline-flex;align-items:center;gap:4px;height:var(--ctl-md);padding:0 10px 0 6px;border:1px solid var(--public-line);border-radius:var(--rd-2);background:var(--surface);color:var(--ink);font-weight:540;text-decoration:none;white-space:nowrap}" +
+  ".wp-pv-back:hover{background-image:linear-gradient(var(--hover),var(--hover));border-color:var(--public)}" +
   "@media(pointer:coarse){.wp-pv-back{height:auto;min-height:var(--tap)}}" +
   "@media(max-width:760px){.wp-pv-2{display:none}.wp-pv-m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}" +
   `@media(max-width:${PHONE_MAX}px){.wp-pv{min-height:48px}.wp-pv-in{gap:6px;padding:0 14px}.wp-pv-1{display:none}.wp-pv-s{display:inline}.wp-pv-back>svg.ic{display:none}}` +
@@ -214,7 +215,7 @@ function stateOf(
   };
 }
 
-/** "failed · {cause}", the cause cut to 80 characters. */
+/** "failed: {cause}", the cause cut to 80 characters. */
 function cause(error: string | null | undefined): string {
   const text = error?.trim();
   if (!text) return "no error detail";
@@ -321,20 +322,20 @@ function notPublicYet(
             label: "Latest links show",
             tone: "ok",
             icon: icon("okcircle"),
-            value: `#${seen} · synced`,
+            value: `#${seen}, synced`,
           }
         : { label: "Latest links show", tone: "wait", icon: icon("dot"), value: "nothing yet" },
       {
-        label: fork ? `#${n} · Branch off #${fork.display_number}` : `#${n}`,
+        label: fork ? `#${n}, a branch off #${fork.display_number}` : `#${n}`,
         tone: "bad",
         icon: icon("alert"),
-        value: `failed · ${cause(served.last_error)}`,
+        value: `failed: ${cause(served.last_error)}`,
       },
     ];
     if (latest && latest.id !== served.id && latest.id !== sees?.id) {
       const state = stateOf(ctx, latest);
       facts.push({
-        label: `#${latest.display_number ?? 0} · latest`,
+        label: `#${latest.display_number ?? 0}, latest`,
         tone: state.word === "failed" ? "bad" : state.word === "waiting" ? "wait" : "pend",
         icon: icon(state.word === "failed" ? "alert" : "clock"),
         value:
