@@ -128,15 +128,16 @@ a.shot:hover {
   font: 680 14px/1.2 var(--sans);
   color: var(--ink);
 }
+/* Phones: two columns with 16 px gutters (A11Y-10). */
 @media (max-width: 599.98px) {
   .gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    padding: 0 12px 60px;
+    gap: 16px;
+    padding: 0 16px 60px;
   }
   .galhead {
-    margin: 0 -12px 4px;
-    padding: 8px 12px;
+    margin: 0 -16px 4px;
+    padding: 8px 16px;
   }
   .shot .cap {
     min-height: var(--tap);
