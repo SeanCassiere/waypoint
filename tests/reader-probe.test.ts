@@ -3,7 +3,6 @@ import { createHmac } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { hashShareToken, newShareToken } from "@waypoint/core";
-import { encodePathSegments, renderPublicShell } from "@waypoint/ui";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -426,29 +425,7 @@ describe("adversarial reader probes", () => {
     expect(shell).toContain('popovertarget="files"');
     expect(shell).toContain('Files <span class="n">2003</span>');
     expect(shell).not.toContain("<details open><summary>dir");
-    // Time the Worker CPU work that scales with file count: the whole shell document.
-    // The end-to-end request includes fake SQLite and Hono/Vitest scheduling overhead.
-    const paths = Array.from({ length: 2000 }, (_, i) => ({ path: `dir${i % 40}/file-${i}.html` }));
-    const prefix = `https://reader.example.test/s/${tokens.follow}/c/${A.pub}/`;
-    const render = () =>
-      renderPublicShell({
-        title: "T",
-        files: paths,
-        head: "index.html",
-        current: "dir7/file-7.html",
-        fileHref: (path) => prefix + encodePathSegments(path),
-        frameBase: "https://reader.example.test/x/shl_x.cap/r/a2a2a2a2a2a2/",
-        updatedAt: 1,
-        snapshotAt: null,
-      });
-    // CPU time of this thread (what the Worker CPU limit counts), not wall time, which other
-    // processes on a busy machine inflate. Warm isolates serve most requests, so measure after a
-    // short warm-up: the mean of 10 renders, as before, in milliseconds.
-    for (let i = 0; i < 5; i++) render();
-    const cpu = process.threadCpuUsage();
-    for (let i = 0; i < 10; i++) render();
-    const used = process.threadCpuUsage(cpu);
-    const overhead = (used.user + used.system) / 1000 / 10;
-    expect(overhead).toBeLessThan(5);
+    // The CPU time of rendering this shell is measured where CPU tests run, alone after every
+    // other test: apps/reader/tests/reader-cpu.test.ts ("renders the shell document …").
   });
 });
