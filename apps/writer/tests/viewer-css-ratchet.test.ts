@@ -8,8 +8,8 @@ import { VIEWER_CSS_PARTIALS } from "../src/viewer/css.ts";
 // A ratchet on the writer's literal font sizes, radii and hex colours (VS-01b): the counts may only
 // go down. Migrating the existing literals was cut; this stops new drift. When a change removes
 // literals, it lowers the matching ceiling in the same commit.
-export const FONT_SIZE_CEILING = 230;
-export const RADIUS_CEILING = 47;
+export const FONT_SIZE_CEILING = 222;
+export const RADIUS_CEILING = 39;
 export const HEX_CEILING = 3;
 
 const RATCHET_MESSAGE =

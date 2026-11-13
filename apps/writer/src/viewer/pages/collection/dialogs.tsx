@@ -107,12 +107,12 @@ export function CollectionDialogs(props: { ctx: CollectionContext }) {
           </p>
           {host ? (
             <div class="fl ro">
-              <span class="lbl">Written on</span> <span class="mono">{host}</span>
+              <span class="lbl">Written on</span> <span class="v">{host}</span>
               <small>Set by the agent that created the collection.</small>
             </div>
           ) : null}
           <details class="othermeta">
-            <summary>Other metadata (JSON) · {plural(Object.keys(rest).length, "key")}</summary>
+            <summary>Other metadata (JSON), {plural(Object.keys(rest).length, "key")}</summary>
             <textarea
               name="extra"
               spellcheck={false}

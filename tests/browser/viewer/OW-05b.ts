@@ -32,7 +32,7 @@ async function expectNoClippedGroup(page: Page, width: string): Promise<void> {
   const clipped = z.array(z.string()).parse(
     await page.evaluate(`(() => {
       const meta = document.querySelector(".lgrp .lgh .p");
-      if (meta) meta.textContent = "${"p".repeat(160)} · now #3";
+      if (meta) meta.textContent = "${"p".repeat(160)}, now #3";
       return [...document.querySelectorAll(".lgrp")]
         .filter((group) => group.scrollWidth > group.clientWidth)
         .map((group) => group.querySelector("h2")?.textContent ?? "?");
@@ -46,14 +46,14 @@ async function expectNoClippedGroup(page: Page, width: string): Promise<void> {
 }
 /**
  * At 820, opens Extend… on an expiring live row dressed as a waiting Latest link (the longest
- * facts: "Latest · nothing synced yet" and "Opens when #3 syncs"), then checks that the row's
+ * facts: "Latest, nothing synced yet" and "Opens when #3 syncs"), then checks that the row's
  * label and facts neither overflow nor run under the open popover (review r3).
  */
 async function expectExtendBesideFacts(page: Page): Promise<void> {
   const rowSelector = '.lrow[data-link-status="active"]:has(details.act)';
   await page.evaluate(`(() => {
     const target = document.querySelector(${JSON.stringify(`${rowSelector} .s [data-shows]`)});
-    target.lastChild.textContent = "Latest · nothing synced yet";
+    target.lastChild.textContent = "Latest, nothing synced yet";
     const waiting = document.createElement("span");
     waiting.className = "chip xs waiting";
     waiting.setAttribute("data-link-state", "waiting");

@@ -169,7 +169,7 @@ const scenario: ViewerScenario = {
     );
     assert.equal(
       (await confirm.locator(".lnkl").textContent())?.trim(),
-      "Vendor debug · Latest · never expires",
+      "Vendor debug, Latest, never expires",
     );
     const group = confirm.getByRole("radiogroup", { name: "What happens to the link" });
     assert.equal(await group.count(), 1);

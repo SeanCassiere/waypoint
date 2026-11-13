@@ -262,7 +262,7 @@ describe("OW-05b /links", () => {
       );
       expect(group).toContain(`data-collection="${made.id}"`);
     }
-    expect(bGroup).toContain('<span class="p">api · now #1</span>');
+    expect(bGroup).toContain('<span class="p">api, now #1</span>');
     expect(aGroup).toContain('<span class="p">now #1</span>');
     expect(dGroup).toContain('<span class="p">now #2</span>');
     expect(dGroup).toMatch(
@@ -337,7 +337,7 @@ describe("OW-05b /links", () => {
     expect(segments(paused).map((segment) => segment[1])).toEqual(["", "current", "", ""]);
     expect(rows(paused).map((row) => [row.id, row.status])).toEqual([[s.paused, "paused"]]);
     const row = rows(paused)[0]?.html ?? "";
-    expect(row).toContain('<span class="chip xs" data-link-state="paused">Paused</span>');
+    expect(row).toContain('<span class="chip xs paused" data-link-state="paused">Paused</span>');
     expect(row).toContain(`<span data-live="true">${PAUSED_NOTE}</span>`);
     expect(row).toContain(">Revoke…</button>");
     expect(row).not.toContain("Copy URL");

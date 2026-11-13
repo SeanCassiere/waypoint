@@ -22,7 +22,7 @@ import {
 } from "../../shares.ts";
 import { shellPath } from "../../viewer-paths.ts";
 import { getChrome } from "../chrome.ts";
-import { Spinner, Time } from "../components.tsx";
+import { DialogBand, StateGlyph, Time } from "../components.tsx";
 import { plural } from "../format.ts";
 import { HomeBar, Layout } from "../layout.tsx";
 import { noStore } from "../respond.ts";
@@ -37,7 +37,7 @@ export function StateChip(props: { link: ShareView }) {
   // Status first: a paused or waiting link isn't served, whatever its push lifecycle (OW-05).
   if (status === "paused")
     return (
-      <span class="chip" data-link-state="paused">
+      <span class="chip paused" data-link-state="paused">
         Paused
       </span>
     );
@@ -57,7 +57,6 @@ export function StateChip(props: { link: ShareView }) {
   if (state === "activating")
     return (
       <span class="chip pending" data-link-state="activating">
-        <Spinner />
         Activating
       </span>
     );
@@ -70,15 +69,15 @@ export function StateChip(props: { link: ShareView }) {
   );
 }
 
-/** "Only #3", "Latest · now #3", or "Latest · public sees #3 until #4 syncs". */
+/** "Only #3", "Latest, now #3", or "Latest, public sees #3 until #4 syncs". */
 export function showsText(link: ShareView, newest: number | null): string {
   if (link.revision_id) return `Only #${link.revision_display_number ?? "?"}`;
   if (link.status !== "active" && link.status !== "waiting") return "Latest";
   const sees = link.public_sees?.display_number ?? null;
-  if (sees === null) return "Latest · nothing synced yet";
+  if (sees === null) return "Latest, nothing synced yet";
   if (newest !== null && newest !== sees)
-    return `Latest · public sees #${sees} until #${newest} syncs`;
-  return `Latest · now #${sees}`;
+    return `Latest, public sees #${sees} until #${newest} syncs`;
+  return `Latest, now #${sees}`;
 }
 
 /** Links can be listed and revoked without the token key, but not created or copied. */
@@ -319,7 +318,7 @@ export function LinksPanel(props: {
     <>
       <div class="lnk-acts">
         {ctx.sharing ? (
-          <button type="button" class="btn public center" commandfor="share" command="show-modal">
+          <button type="button" class="btn sm public" commandfor="share" command="show-modal">
             {html(icon("globe"))}
             New public link
           </button>
@@ -694,14 +693,14 @@ function SeesRow(props: {
 /** The checklist lists paths in plain sorted order (DisclosedRevision.files is head-first). */
 const sortedPaths = (files: string[]): string[] => files.toSorted(byPath);
 
-/** The first six paths, then "· +N more". */
+/** The first six paths, joined with commas, then "+N more". */
 function FileList(props: { items: Child[] }) {
   const { items } = props;
-  const shown = items.slice(0, 6).flatMap((item, i) => (i ? [" · ", item] : [item]));
+  const shown = items.slice(0, 6).flatMap((item, i) => (i ? [", ", item] : [item]));
   return (
     <span class="files">
       {shown}
-      {items.length > 6 ? ` · +${items.length - 6} more` : null}
+      {items.length > 6 ? `, +${items.length - 6} more` : null}
     </span>
   );
 }
@@ -774,15 +773,14 @@ export function ShareDialog(props: {
       data-latest-n={String(latestN)}
     >
       <div data-share-step="create">
-        <div class="band">
-          {html(icon("globe", "xl"))}
-          <div>
-            <h2 id="share-title">Create a public link</h2>
-            <p id="share-desc">
-              Anyone who has the link can read this on the open internet. No Tailscale, no login.
-            </p>
-          </div>
-        </div>
+        <DialogBand
+          icon="globe"
+          titleId="share-title"
+          title="Create a public link"
+          descId="share-desc"
+        >
+          Anyone who has the link can read this on the open internet. No Tailscale, no login.
+        </DialogBand>
         <form data-share-form>
           <div class="bd">
             <fieldset>
@@ -906,8 +904,8 @@ export function ShareDialog(props: {
                   ) : null}
                   <SeesRow mark="bang">
                     <b>Every future revision</b>, by any agent on{" "}
-                    <span class="mono">{hosts.length ? hosts.join(", ") : "any machine"}</span>,
-                    within seconds of syncing, with no review step
+                    {hosts.length ? hosts.join(", ") : "any machine"}, within seconds of syncing,
+                    with no review step
                   </SeesRow>
                 </div>
               </div>
@@ -949,10 +947,10 @@ export function ShareDialog(props: {
                   </span>
                 )}
               </a>
+              {/* Its own phrase beside the preview link, never joined to it by a dot. */}
               {liveCount ? (
                 <span class="exist">
-                  {" · Already has "}
-                  <a href="?panel=links">{plural(liveCount, "link")}</a>
+                  Already has <a href="?panel=links">{plural(liveCount, "link")}</a>
                 </span>
               ) : null}
             </span>
@@ -967,16 +965,9 @@ export function ShareDialog(props: {
         </form>
       </div>
       <div data-share-step="created" hidden>
-        <div class="band">
-          {html(icon("globe", "xl"))}
-          <div>
-            <h2 id="share-created-title">Link created</h2>
-            <p>
-              Anyone who has it can read this. You can copy it again any time from the Public links
-              tab.
-            </p>
-          </div>
-        </div>
+        <DialogBand icon="globe" titleId="share-created-title" title="Link created">
+          Anyone who has it can read this. You can copy it again any time from the Public links tab.
+        </DialogBand>
         <div class="bd">
           <div class="tok">
             <code data-share-url />
@@ -986,7 +977,7 @@ export function ShareDialog(props: {
           </div>
           <div class="once">
             <span class="state pending" data-share-state>
-              <Spinner />
+              <StateGlyph kind="pending" />
               Activating
             </span>
             <span role="status" data-share-state-text>
@@ -1168,7 +1159,7 @@ function LinkRow(props: { link: ShareView; now: number; sharing: boolean }) {
         </span>
         {paused ? (
           <>
-            <span class="chip xs" data-link-state="paused">
+            <span class="chip xs paused" data-link-state="paused">
               Paused
             </span>
             {/* data-live: a revoke removes it (a revoked link never works again). */}
@@ -1238,7 +1229,7 @@ function LinkGroup(props: {
   const known = Boolean(collection.public_id && collection.title);
   const number =
     collection.latest_display_number === null ? null : `now #${collection.latest_display_number}`;
-  const meta = [collection.project, number].filter(Boolean).join(" · ");
+  const meta = [collection.project, number].filter(Boolean).join(", ");
   return (
     <section class="lgrp" aria-labelledby={heading} data-collection={collection.id}>
       <header class="lgh">
