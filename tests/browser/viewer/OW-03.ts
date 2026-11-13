@@ -1,8 +1,10 @@
 // OW-03: the share dialog shows what each target publishes and its Preview link follows the chosen
 // target; every open starts from the D43 default (Only #N, 7 days, no label) with focus on the
-// checked target; switching targets or expiry never changes the dialog's height (on phones, only
-// a wrapping Latest summary may add its one line: decision d-1). Runs its own
-// seeded demo writer: Postgres has #6 failed (on #4) and #7 uploading (on #5), Webhook is synced.
+// checked target. The checklist's rows that only Latest or Never publish join it when chosen and
+// leave the layout otherwise (D84, reversing the fixed height): nothing above the checklist moves,
+// no hole is reserved for them, and the footer stays at the dialog's bottom (on phones, a wrapping
+// Latest summary may add its one line: decision d-1). Runs its own seeded demo writer: Postgres
+// has #6 failed (on #4) and #7 uploading (on #5), Webhook is synced.
 import type { Page } from "playwright";
 import { z } from "zod";
 
@@ -20,8 +22,6 @@ const state = z.object({
   dataLatest: z.string(),
   dataPinned: z.string(),
   title: z.string().nullable(),
-  height: z.number(),
-  scroll: z.number(),
   sees: z.boolean(),
   summary: z.object({
     height: z.number(),
@@ -32,8 +32,7 @@ const state = z.object({
     clipped: z.boolean(),
   }),
 });
-/** The dialog's form, focus, preview link, height (its box, and its content: the box is capped
- *  at the viewport), checklist fold and phone summary. */
+/** The dialog's form, focus, preview link, checklist fold and phone summary. */
 async function dialogState(page: Page): Promise<z.infer<typeof state>> {
   return state.parse(
     await page.evaluate(`(() => {
@@ -55,8 +54,6 @@ async function dialogState(page: Page): Promise<z.infer<typeof state>> {
         dataLatest: preview.dataset.latest,
         dataPinned: preview.dataset.pinned,
         title: preview.getAttribute("title"),
-        height: dialog.getBoundingClientRect().height,
-        scroll: dialog.scrollHeight,
         sees: dialog.querySelector("details.sees").open,
         summary: {
           height: summary.getBoundingClientRect().height,
@@ -90,6 +87,45 @@ function fits(at: z.infer<typeof state>, what: string): void {
     Math.abs(summary.height - summary.shownHeight) <= 1,
     `${what}: summary ${summary.height} px = its shown sentence ${summary.shownHeight} px`,
   );
+}
+const layout = z.object({
+  tops: z.array(z.number()),
+  footerGap: z.number(),
+  rows: z.array(z.string()),
+  holes: z.number(),
+});
+/** Where the dialog and everything above its checklist sit once settled, the gap under the
+ *  footer, the checklist's shown rows (their first words) and how many hidden rows take space. */
+async function shareLayout(page: Page): Promise<z.infer<typeof layout>> {
+  return layout.parse(
+    await page.evaluate(`(async () => {
+      // The dialog opens with a short transition (D51): measure where it settles.
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+      const dialog = document.querySelector("#share");
+      const top = (selector) => dialog.querySelector(selector).getBoundingClientRect().top;
+      const rows = [...dialog.querySelectorAll("details.sees .row")];
+      const shown = rows.filter((row) => row.getClientRects().length > 0);
+      return {
+        tops: [dialog.getBoundingClientRect().top, top(".opts"), top(".track"), top(".expiry"), top("details.sees")],
+        footerGap:
+          dialog.getBoundingClientRect().bottom -
+          parseFloat(getComputedStyle(dialog).borderBottomWidth) -
+          dialog.querySelector(".ft").getBoundingClientRect().bottom,
+        rows: shown.map((row) => row.innerText.trim().split(/\\s+/).slice(0, 2).join(" ")),
+        holes: shown.filter((row) => getComputedStyle(row).visibility === "hidden").length,
+      };
+    })()`),
+  );
+}
+/** Choosing a target or expiry moves nothing above the checklist, and leaves no hole in it. */
+function steady(before: z.infer<typeof layout>, after: z.infer<typeof layout>, what: string): void {
+  after.tops.forEach((top, i) =>
+    assert.ok(
+      Math.abs(top - (before.tops[i] ?? 0)) <= 1,
+      `${what}: part ${i} at ${top} vs ${before.tops[i]}`,
+    ),
+  );
+  assert.equal(after.holes, 0, `${what}: no hidden row takes space`);
 }
 async function openWithShare(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Share", exact: true }).click();
@@ -152,7 +188,9 @@ const scenario: ViewerScenario = {
     );
     await cancel(page);
 
-    // Latest URL (#7): Only #7 is the default; Preview follows the radio; the height holds.
+    // Latest URL (#7): Only #7 is the default; Preview follows the radio. The checklist lists only
+    // what Only #7 publishes; choosing Latest swaps in its rows and Never adds "No expiry" before
+    // the closing row, while the controls above stay put and the footer stays at the bottom.
     await page.goto(postgres);
     await openWithShare(page);
     now = await dialogState(page);
@@ -161,21 +199,49 @@ const scenario: ViewerScenario = {
     assert.equal(now.href, now.dataPinned);
     assert.match(now.href, /\/r\/[^/]+\/.*\?as=public$/);
     assert.equal(now.title, null);
-    const { height, scroll } = now;
+    const onlyLayout = await shareLayout(page);
+    assert.deepEqual(onlyLayout.rows, ["The title", "All 3", "Other revisions,"]);
+    assert.equal(onlyLayout.holes, 0, "Only: no hidden row takes space");
+    assert.ok(
+      Math.abs(onlyLayout.footerGap) <= 1,
+      `Only: the footer is ${onlyLayout.footerGap} px off the bottom`,
+    );
     await pickLatest(page);
     now = await dialogState(page);
     assert.equal(now.href, now.dataLatest);
     assert.equal(now.title, "Opens the Latest URL as a stranger sees it today");
-    assert.ok(Math.abs(now.height - height) <= 1, `Latest: ${now.height} vs ${height}`);
-    assert.ok(Math.abs(now.scroll - scroll) <= 1, `Latest content: ${now.scroll} vs ${scroll}`);
+    const latestLayout = await shareLayout(page);
+    steady(onlyLayout, latestLayout, "Latest");
+    assert.deepEqual(latestLayout.rows, [
+      "The title",
+      "Now: 2",
+      "When #7",
+      "Every future",
+      "Other revisions,",
+    ]);
+    assert.ok(
+      Math.abs(latestLayout.footerGap) <= 1,
+      `Latest: the footer is ${latestLayout.footerGap} px off the bottom`,
+    );
     assert.equal(
       (await page.locator('#share [data-track="latest"] .tnote').innerText()).trim(),
       "Latest: shows the newest revision. While #7 uploads, recipients see #5 with a syncing note.",
     );
     await page.locator("#share .expiry label", { hasText: "Never" }).click();
-    now = await dialogState(page);
-    assert.ok(Math.abs(now.height - height) <= 1, `Never: ${now.height} vs ${height}`);
-    assert.ok(Math.abs(now.scroll - scroll) <= 1, `Never content: ${now.scroll} vs ${scroll}`);
+    const never = await shareLayout(page);
+    steady(onlyLayout, never, "Never");
+    assert.deepEqual(never.rows, [
+      "The title",
+      "Now: 2",
+      "When #7",
+      "Every future",
+      "No expiry.",
+      "Other revisions,",
+    ]);
+    assert.ok(
+      Math.abs(never.footerGap) <= 1,
+      `Never: the footer is ${never.footerGap} px off the bottom`,
+    );
 
     // Cancel resets: Only, 7 days, no label, focus on Only; the same through the s key.
     await page.locator('#share input[name="label"]').fill("x");
