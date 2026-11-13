@@ -426,13 +426,16 @@ describe("public reader", () => {
       // shell's only buttons.
       const markup = html
         .replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "")
-        .replace(/<button type="button" class="abt" popovertarget="about">[\s\S]*?<\/button>/, "")
+        .replace(
+          /<button type="button" class="btn abt" popovertarget="about">[\s\S]*?<\/button>/,
+          "",
+        )
         .replace(
           /<button type="button" class="fbtn ptog" popovertarget="files"[\s\S]*?<\/button>/,
           "",
         )
         .replace(
-          '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button>',
+          '<button type="button" class="btn done" popovertarget="files" popovertargetaction="hide">Done</button>',
           "",
         );
       expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
@@ -479,7 +482,7 @@ describe("public reader", () => {
     ).text();
     expect(binary).not.toContain("<iframe");
     expect(binary).toContain(
-      "2.0 KB · application/octet-stream · can&#39;t be previewed in the browser",
+      "2.0 KB, application/octet-stream, can&#39;t be previewed in the browser",
     );
     expect(binary).toMatch(
       /<a id="doc" class="btn primary" href="[^"]*\/x\/shl_[^"]+\/data\/a\.bin" download="a\.bin">/,

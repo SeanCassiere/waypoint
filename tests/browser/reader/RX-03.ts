@@ -1,5 +1,5 @@
 // RX-03: every row of the Files panel shows a type icon from the page's one sprite; files that
-// can't be previewed end with "download · size"; the page title is "<file name> · <collection
+// can't be previewed end with "download, size"; the page title is "<file name> · <collection
 // title>" and follows in-frame navigation; moving the current row changes no row's size.
 import { hashShareToken, newShareToken } from "@waypoint/core";
 import type { Page } from "playwright";
@@ -156,7 +156,7 @@ const scenario: ReaderScenario = {
       assert.ok(await page.locator("#files").isVisible(), "the panel is docked");
       assert.equal(
         await page
-          .getByRole("link", { name: "archive/build-output.tar.gz download · 4.1 MB" })
+          .getByRole("link", { name: "archive/build-output.tar.gz download, 4.1 MB" })
           .count(),
         1,
         "the archive row's accessible name",

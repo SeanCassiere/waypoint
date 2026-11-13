@@ -21,7 +21,7 @@ const LEAKED = "Leaked .env in run output (do not share)";
 const AUDIT = "Checkout flow screenshot audit";
 const BAND = '[role="region"][aria-label="Public preview"]';
 const SYNCING =
-  "Public preview · A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.";
+  "Public preview: A Latest link shows #5, the newest revision that has synced. Recipients see a “newer version is being synced” note until #7 finishes uploading.";
 
 const norm = (text: string): string => text.replace(/\s+/g, " ").trim();
 const strings = z.array(z.string());
@@ -232,7 +232,7 @@ const scenario: ViewerScenario = {
       const phone = await open({ ...VIEWPORTS.phone, mobile: true });
       await phone.goto(`${postgres}?as=public`);
       const band = norm(await phone.locator(BAND).innerText());
-      assert.ok(band.includes("Public preview · Latest links show #5"), band);
+      assert.ok(band.includes("Public preview: Latest links show #5"), band);
     }
     await page.goto(`${webhook}?as=public`);
     assert.ok(

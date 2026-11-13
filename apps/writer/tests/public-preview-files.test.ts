@@ -118,7 +118,7 @@ describe("public preview files", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<symbol id="i-binary"');
-    expect(html).toContain("<b>archive/build.tar.gz</b><small> download · 4.1 MB</small></a>");
+    expect(html).toContain("<b>archive/build.tar.gz</b><small> download, 4.1 MB</small></a>");
     expect(html).toContain(`id="files-cur">${iconUse("doc")}<span class="t"`);
     expect(html).toContain('<svg aria-hidden="true"><use href="#i-doc"/></svg><b>index.md</b></a>');
     // The preview is the reader's page, file panel included (D74).

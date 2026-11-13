@@ -29,7 +29,8 @@ const syncingNote = (options: PublicShellOptions): boolean =>
 
 /**
  * The meta row: the mode pill, then the facts ("Updated …" or "Taken … won't change", the expiry),
- * then on phones RX-11's short syncing pill (its full sentence stays in the accessibility tree).
+ * then on phones RX-11's short syncing note: the pending glyph and words, its full sentence
+ * staying in the accessibility tree.
  */
 function note(options: PublicShellOptions, now: number): string {
   const mode =
@@ -47,7 +48,7 @@ function note(options: PublicShellOptions, now: number): string {
     facts += `<span class="${soon ? "f exp soon" : "f exp"}">${soon ? icon("clock", "sm") : ""}<span class="lgo">Link expires</span><span class="smo">Expires</span> ${time(expiresAt, "rel")}</span>`;
   }
   if (syncingNote(options))
-    facts += `<span class="f pend">${icon("clock", "sm")}Newer version syncing<span class="vh">. It will appear here once it has uploaded.</span></span>`;
+    facts += `<span class="f pend"><span class="lb-g pending" aria-hidden="true"></span>Newer version syncing<span class="vh">. It will appear here once it has uploaded.</span></span>`;
   return `<p class="note">${mode}${facts}</p>`;
 }
 
@@ -111,9 +112,9 @@ function about(options: PublicShellOptions, title: string): string {
 export function letterhead(options: PublicShellOptions, actionsLead = ""): string {
   const title = escapeHtml(showBidi(options.title));
   const now = options.now ?? Date.now();
-  const button = `<button type="button" class="abt" popovertarget="about"><span class="lgo">${icon("info", "sm")}About this link</span><span class="smo">${icon("lock", "sm")}Read-only<span class="vh">, about this link</span>${icon("info", "sm")}</span></button>`;
+  const button = `<button type="button" class="btn abt" popovertarget="about"><span class="lgo">${icon("info", "sm")}About this link</span><span class="smo">${icon("lock", "sm")}Read-only<span class="vh">, about this link</span>${icon("info", "sm")}</span></button>`;
   const sync = syncingNote(options)
-    ? `<p class="sync">${icon("clock", "sm")}<span>A newer version is being synced. It will appear here once it has uploaded.</span></p>`
+    ? `<p class="sync"><span class="lb-g pending" aria-hidden="true"></span><span>A newer version is being synced. It will appear here once it has uploaded.</span></p>`
     : "";
   return `<div class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options, now)}${sync}</div><div class="acts">${actionsLead}<span class="ro">${icon("lock", "sm")}Read-only</span>${button}${about(options, title)}</div></div>`;
 }

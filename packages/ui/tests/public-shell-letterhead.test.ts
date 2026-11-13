@@ -97,7 +97,7 @@ describe("letterhead", () => {
   it("has one About button with long and phone forms, and an unbranded-link footer", () => {
     const html = render();
     expect(html.match(/popovertarget="about"/g)).toHaveLength(1);
-    const button = html.slice(html.indexOf('<button type="button" class="abt"'));
+    const button = html.slice(html.indexOf('<button type="button" class="btn abt"'));
     expect(button).toMatch(/<span class="lgo">(?:(?!<\/span>).)*About this link<\/span>/);
     expect(button).toMatch(
       /<span class="smo">.*Read-only<span class="vh">, about this link<\/span>/,
@@ -155,20 +155,20 @@ const count = (html: string, needle: string): number => html.split(needle).lengt
 
 describe("syncing note", () => {
   const SENTENCE = "A newer version is being synced. It will appear here once it has uploaded.";
-  const clock = icon("clock", "sm");
+  const glyph = '<span class="lb-g pending" aria-hidden="true"></span>';
 
-  it("shows the box under the meta row and the phone pill at the end of it", () => {
+  it("shows the box under the meta row and the phone note at the end of it", () => {
     const html = render({ syncing: true });
     expect(count(html, 'class="sync"')).toBe(1);
     expect(count(html, 'class="f pend"')).toBe(1);
     const note = html.slice(html.indexOf('<p class="note">'), html.indexOf("</p>") + 4);
     expect(note).toMatch(
       new RegExp(
-        `<span class="f pend">${clock.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}Newer version syncing<span class="vh">\\. It will appear here once it has uploaded\\.</span></span></p>$`,
+        `<span class="f pend">${glyph}Newer version syncing<span class="vh">\\. It will appear here once it has uploaded\\.</span></span></p>$`,
       ),
     );
     expect(html).toContain(
-      `${note}<p class="sync">${clock}<span>${SENTENCE}</span></p></div><div class="acts">`,
+      `${note}<p class="sync">${glyph}<span>${SENTENCE}</span></p></div><div class="acts">`,
     );
   });
 
@@ -195,14 +195,16 @@ describe("syncing note", () => {
     expect(sync).toContain("background:var(--pending-bg)");
     expect(sync).toContain("border:1px solid var(--pending-line)");
     expect(sync).toContain("color:var(--pending)");
+    // On phones the short form is the pending glyph and amber words, not a pill.
     const pend = rules(letterheadCss).find(([selector]) => selector === ".pend")?.[1] ?? "";
     expect(pend).toContain("display:none");
-    expect(pend).toContain("var(--pending-bg)");
+    expect(pend).toContain("color:var(--pending)");
+    expect(pend).not.toMatch(/background|border/);
     expect(letterheadCss).toMatch(
       /@media\(max-width:599\.98px\)\{[^@]*\.sync\{display:none\}\.pend\{display:inline-block\}/,
     );
     expect(letterheadCss).toMatch(
-      /@media\(forced-colors:active\)\{[^}]*\.sync,\.pend\{border-color:CanvasText\}/,
+      /@media\(forced-colors:active\)\{\.sync\{border-color:CanvasText\}/,
     );
     for (const banned of ["animation", "transition"]) expect(letterheadCss).not.toContain(banned);
   });

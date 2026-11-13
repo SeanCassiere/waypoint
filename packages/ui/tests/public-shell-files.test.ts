@@ -54,7 +54,7 @@ describe("Files panel", () => {
       '</header><div id="shell" class="shell"><nav id="files" class="panel" popover="auto" aria-label="Files"><div class="shd"><h2 id="files-h">Files <span class="n">12</span></h2>',
     );
     expect(html).toContain(
-      '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div><div class="pbody"><div class="ttools"><button type="button" class="btn ghost sm" data-tree-all hidden>Expand all</button></div><div class="tree">',
+      '<button type="button" class="btn done" popovertarget="files" popovertargetaction="hide">Done</button></div><div class="pbody"><div class="ttools"><button type="button" class="btn ghost sm" data-tree-all hidden>Expand all</button></div><div class="tree">',
     );
     expect(html).toMatch(
       /<\/div><\/div><\/nav><main id="main">[\s\S]*<\/main><div class="peek-edge" aria-hidden="true"><\/div><\/div><svg/,
@@ -216,7 +216,7 @@ describe("file type icons", () => {
   it("puts the kind's icon on every row, and the download marker only where it can't preview", () => {
     const html = markup(typedShell());
     expect(html).toContain(
-      "<b>archive/build-output.tar.gz</b><small> download · 4.1 MB</small></a>",
+      "<b>archive/build-output.tar.gz</b><small> download, 4.1 MB</small></a>",
     );
     expect(html).toContain("<b>y.bin</b><small> download</small></a>");
     const rows = html.match(/<a href="[^"]*" data-p="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
@@ -272,7 +272,7 @@ describe("file type icons", () => {
 describe("Files CSS", () => {
   it("pins the .prow row, full width beside a panel, and drops the tab strip", () => {
     expect(filesCss).toContain(
-      ".prow{display:flex;align-items:flex-end;gap:8px;max-width:1120px;margin:0 auto;padding:0 16px}",
+      ".prow{display:flex;align-items:stretch;gap:8px;min-height:calc(var(--r1) - 1px);max-width:1120px;margin:0 auto;padding:0 16px}",
     );
     expect(filesCss).toContain(".pan .lh,.pan .prow{max-width:none}");
     expect(filesCss).toMatch(
