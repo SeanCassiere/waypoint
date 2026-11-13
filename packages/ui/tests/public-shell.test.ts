@@ -26,6 +26,8 @@ const base: PublicShellOptions = {
 };
 const markup = (html: string): string =>
   html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "");
+/** A folder name longer than a row shows; `c` sits where the row shortens it. */
+const long = (c: string): string => `${"x".repeat(60)}${c}${"y".repeat(60)}/`;
 const menuOf = (html: string): string => html.slice(html.indexOf('<div class="tree">'));
 /** A folder row: the fold chevron, the folder icon, the label. */
 const summary = (name: string): string =>
@@ -154,7 +156,6 @@ describe("public shell", () => {
   });
   it("names each folder by its full path, which its shortened row text can't do (D75)", () => {
     // Two long names that differ only where the row shortens them, a bidi control, a chain.
-    const long = (c: string) => `${"x".repeat(60)}${c}${"y".repeat(60)}/`;
     const paths = [
       "index.md",
       `${long("1")}a.md`,
@@ -170,8 +171,9 @@ describe("public shell", () => {
     ];
     const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
     const dirs = [...menu.matchAll(/<details data-dir="([^"]*)">/g)].map((m) => m[1]);
-    expect(dirs.toSorted()).toEqual(
-      [long("1"), long("2"), "r\u202eev/", "p/q/r/", "q&quot;&amp;&lt;/"].toSorted(),
+    expect(dirs).toHaveLength(5);
+    expect(dirs).toEqual(
+      expect.arrayContaining([long("1"), long("2"), "r\u202eev/", "p/q/r/", "q&quot;&amp;&lt;/"]),
     );
     // The two long folders' rows read the same.
     const rows = [...menu.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1]);
