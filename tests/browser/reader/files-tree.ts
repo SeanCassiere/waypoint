@@ -240,15 +240,12 @@ const scenario: ReaderScenario = {
           String(await page.evaluate(`sessionStorage.getItem("wp:tree:${COL.pub}")`)),
         ) as unknown,
       );
-    assert.deepEqual(
-      (await tree()).toSorted(),
-      ["Beta/", LONG[0]!, "p/", "p/q/", "p/q/r/"].toSorted(),
-    );
+    assert.deepEqual(new Set(await tree()), new Set(["Beta/", LONG[0]!, "p/", "p/q/", "p/q/r/"]));
     await open(page, shells[0]!);
     assert.deepEqual(await opened(page), ["Beta/", LONG[0]!, "p/q/r/"]);
     await summary(page, "p/q/r/").click();
     await settle(page);
-    assert.deepEqual((await tree()).toSorted(), ["Beta/", LONG[0]!].toSorted());
+    assert.deepEqual(new Set(await tree()), new Set(["Beta/", LONG[0]!]));
 
     // A new tab starts collapsed.
     const fresh = await ctx.newPage(WIDE);

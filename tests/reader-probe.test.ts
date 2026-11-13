@@ -224,6 +224,10 @@ beforeEach(async () => {
   app = makeApp();
 });
 
+/** The tree's folders in a shell page: each folder's path and whether it starts open. */
+const folders = (html: string): [string | undefined, boolean][] =>
+  [...html.matchAll(/<details( open)? data-dir="([^"]*)">/g)].map((m) => [m[2], !!m[1]]);
+
 describe("adversarial reader probes", () => {
   it("checks expiry on each request and sees revocation after the lookup TTL", async () => {
     clock = 9_999;
@@ -425,8 +429,6 @@ describe("adversarial reader probes", () => {
     // only dir7/ on a page for a file in it.
     expect(shell).toContain('popovertarget="files"');
     expect(shell).toContain('Files <span class="n">2003</span>');
-    const folders = (html: string) =>
-      [...html.matchAll(/<details( open)? data-dir="([^"]*)">/g)].map((m) => [m[2], !!m[1]]);
     expect(folders(shell)).toHaveLength(40);
     expect(folders(shell).filter(([, open]) => open)).toEqual([]);
     const inDir7 = await (await get(`/s/${tokens.follow}/c/${A.pub}/dir7/file-7.html`)).text();
