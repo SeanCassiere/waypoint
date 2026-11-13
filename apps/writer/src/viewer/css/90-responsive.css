@@ -26,29 +26,7 @@
   }
 }
 @media (max-width: 760px) {
-  .home {
-    grid-template-columns: 1fr;
-    padding: 20px 16px 80px;
-    gap: 24px;
-  }
-  /* Needs attention cards: one column, Retry and Details as two 44 px buttons under the cause. */
-  .attn .ag {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ag .acts {
-    grid-row: auto;
-    grid-column: 1;
-    order: 5;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-  .ag .acts .btn {
-    min-height: var(--tap);
-    justify-content: center;
-  }
-  .ag .acts > :only-child {
-    grid-column: 1 / -1;
-  }
+  /* Recent and search (the page, Needs attention, day blocks) are 10-home.css's. */
   /* Row action groups (History, Trash, Status, the Links tab's cards, Needs attention's writer
      rows) are equal-width rows of 44 px controls, mouse or touch (VS-05). A label too long for its
      cell wraps inside it. */
@@ -88,9 +66,6 @@
   }
   :is(.rv .acts, li.item .acts, .srow .acts, .lnk > .row, .attn .ar .acts) > .grow {
     display: none;
-  }
-  .lin2 {
-    grid-template-columns: minmax(0, 1fr);
   }
   /* Status rows: one column, the actions after the raw error (as .r below). */
   .srow {

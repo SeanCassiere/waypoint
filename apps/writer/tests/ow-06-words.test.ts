@@ -433,7 +433,9 @@ describe("Home's Needs attention and the row chips", () => {
       `data-action="retry" data-ids="rev_6" data-n="6" data-title="${TITLE}">Retry #6</button>`,
     );
     expect(one).toContain('href="/status#attn-pgpub"');
-    expect(one).toContain('<span class="proj">infra</span>');
+    expect(one).toContain('<span class="proj">in infra</span>');
+    // Retry is the card's one primary action.
+    expect(one).toContain('<button type="button" class="btn sm primary" data-action="retry"');
     expect(one).toContain('<div class="lin2" role="group" aria-label="Revision lines">');
     expect(one).toContain(
       '<p class="cause"><b>#6</b> stopped after 5 attempts: the bucket didn&#39;t accept a file.',

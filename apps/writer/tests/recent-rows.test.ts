@@ -24,7 +24,7 @@ import {
 import { ReadModel } from "../src/read-model.ts";
 import { Chg } from "../src/viewer/components.tsx";
 import { DayGroups, RecentRow, rowTitleId } from "../src/viewer/pages/recent/rows.tsx";
-import { trashDayLabel } from "../src/viewer/timefmt.ts";
+import { dayDate, formatTime, trashDayLabel } from "../src/viewer/timefmt.ts";
 
 const NOW = Date.UTC(2026, 9, 13, 12); // Tuesday 13 Oct 2026, 12:00 UTC
 const HOUR = 3_600_000;
@@ -68,6 +68,10 @@ function openTag(markup: string, tag: string, attr = ""): string {
       .find((match) => match.includes(attr)) ?? ""
   );
 }
+
+/** What a sighted reader sees: the markup without tags or visually hidden words. */
+const words = (markup: string): string =>
+  markup.replace(/<span class="vh">[^<]*<\/span>/g, "").replace(/<[^>]+>/g, "");
 
 describe("RecentRow, recent and search variants", () => {
   it("is an li whose only link is the title, named by its text", async () => {
@@ -182,6 +186,61 @@ describe("RecentRow, recent and search variants", () => {
     expect(row).toMatch(/<span class="chip xs failed">.*?#4 failed<\/span>/);
     expect(row).toMatch(/<span class="chip xs pending">.*?#5 uploading<\/span>/);
     expect(row).not.toContain("1 failed");
+    // States lead the meta line, the newest revision's first: #5 uploading before #4 failed.
+    const meta = row.slice(row.indexOf('<p class="meta">'));
+    expect(meta.indexOf("#5 uploading")).toBeLessThan(meta.indexOf("#4 failed"));
+    expect(meta.indexOf("#4 failed")).toBeLessThan(meta.indexOf('class="who"'));
+  });
+  it("says its meta in words: who and what, then where (Logbook)", async () => {
+    const row = await html(RecentRow({ variant: "recent", item: result(), now: NOW }));
+    const who = row.slice(row.indexOf('<span class="who">'), row.indexOf('<span class="place">'));
+    expect(words(who)).toBe("devbox, +1 file");
+    expect(row).toContain('<span class="place">in webhooks, tagged research</span>');
+    expect(row).toContain('<span aria-hidden="true"> file</span>');
+    expect(row).not.toContain(" · ");
+    const many = await html(
+      RecentRow({
+        variant: "recent",
+        item: result({
+          metadata: { tags: ["a", "b", "c"] },
+          latest_revision: {
+            ...result().latest_revision!,
+            source_host: null,
+            changes: { added: 1, modified: 3, removed: 1 },
+          },
+        }),
+        now: NOW,
+      }),
+    );
+    expect(many).toContain('<span class="place">tagged a, b and c</span>');
+    expect(many).toContain('<span aria-hidden="true"> files</span>');
+    expect(many).not.toContain('class="host"');
+  });
+  it("says Public in words: follows latest, or how many links", async () => {
+    const follows = await html(
+      RecentRow({
+        variant: "recent",
+        item: result({ share: { active: 2, follows_latest: true, paused: 0 } }),
+        now: NOW,
+      }),
+    );
+    expect(follows).toMatch(
+      /<span class="chip xs public"><svg[^]*?<\/svg>Public, follows latest<\/span>/,
+    );
+    const pinned = await html(
+      RecentRow({
+        variant: "recent",
+        item: result({ share: { active: 2, follows_latest: false, paused: 0 } }),
+        now: NOW,
+      }),
+    );
+    expect(pinned).toContain("Public, 2 links</span>");
+  });
+  it("shows the time alone: the day heading names the day", async () => {
+    const row = await html(
+      RecentRow({ variant: "recent", item: result({ updated_at: NOW - 3 * DAY }), now: NOW }),
+    );
+    expect(row).toMatch(/<time [^>]*data-fmt="time"[^>]*>12:00<\/time>/);
   });
 });
 
@@ -246,8 +305,13 @@ describe("DayGroups", () => {
     expect(out.startsWith('<div class="groups" data-groups="recent">')).toBe(true);
     const sections = [...out.matchAll(/<section aria-labelledby="([^"]+)">/g)].map((m) => m[1]);
     expect(sections).toEqual(["recent-day-0", "recent-day-1"]);
-    expect(out).toContain('<h2 class="day" id="recent-day-0">Today</h2><ul class="list">');
-    expect(out).toContain('<h2 class="day" id="recent-day-1">Yesterday</h2><ul class="list">');
+    // The heading row: the day, its date, and the count (for the eye: the list has its own).
+    expect(out).toContain(
+      '<h2 class="day" id="recent-day-0"><span class="dlab">Today</span> <span class="ddate">Tuesday, 13 October</span><span class="dcount" aria-hidden="true">2 collections</span></h2><ul class="list">',
+    );
+    expect(out).toContain(
+      '<h2 class="day" id="recent-day-1"><span class="dlab">Yesterday</span> <span class="ddate">Monday, 12 October</span><span class="dcount" aria-hidden="true">1 collection</span></h2><ul class="list">',
+    );
     expect(out.match(/<ul class="list">/g)).toHaveLength(2);
     expect([...out.matchAll(/<li class="item">(\w)<\/li>/g)].map((m) => m[1])).toEqual([
       "a",
@@ -259,17 +323,36 @@ describe("DayGroups", () => {
     const out = await html(
       DayGroups({ kind: "trash", items, at: (item) => item.at, now: NOW, render: renderName }),
     );
-    expect(out).toContain('<h2 class="day" id="trash-day-0">In Trash · moved today</h2>');
-    expect(out).toContain('<h2 class="day" id="trash-day-1">In Trash · moved yesterday</h2>');
+    expect(out).toContain(
+      '<h2 class="day" id="trash-day-0"><span class="dlab">In Trash, moved today</span><span class="dcount" aria-hidden="true">2 collections</span></h2>',
+    );
+    expect(out).toContain(
+      '<h2 class="day" id="trash-day-1"><span class="dlab">In Trash, moved yesterday</span><span class="dcount" aria-hidden="true">1 collection</span></h2>',
+    );
+  });
+});
+
+describe("dayDate", () => {
+  it.each([
+    [NOW - HOUR, "Tuesday, 13 October"],
+    [NOW - DAY, "Monday, 12 October"],
+    [NOW - 3 * DAY, "10 October"],
+    [NOW - 10 * DAY, null],
+  ])("%i → %s", (time, date) => {
+    expect(dayDate(time, NOW, true)).toBe(date);
+  });
+  it("formats the time alone", () => {
+    expect(formatTime(NOW - 3 * DAY, "time", NOW, true)).toBe("12:00");
+    expect(formatTime(NOW - 3 * DAY, "clock", NOW, true)).toBe("Sat 12:00");
   });
 });
 
 describe("trashDayLabel", () => {
   it.each([
-    [NOW - HOUR, "In Trash · moved today"],
-    [NOW - DAY, "In Trash · moved yesterday"],
-    [NOW - 3 * DAY, "In Trash · moved Saturday"],
-    [NOW - 10 * DAY, "In Trash · moved 3 Oct"],
+    [NOW - HOUR, "In Trash, moved today"],
+    [NOW - DAY, "In Trash, moved yesterday"],
+    [NOW - 3 * DAY, "In Trash, moved Saturday"],
+    [NOW - 10 * DAY, "In Trash, moved 3 Oct"],
   ])("%i → %s", (time, label) => {
     expect(trashDayLabel(time, NOW, true)).toBe(label);
   });

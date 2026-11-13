@@ -12,11 +12,10 @@ import {
   type SearchToken,
 } from "../../../search-query.ts";
 import { shellPath } from "../../../viewer-paths.ts";
-import { Chg } from "../../components.tsx";
-import { plural, projectAndTags } from "../../format.ts";
+import { plural } from "../../format.ts";
 import type { Chrome } from "../../layout.tsx";
 import { BrowseAside, BrowseRow, type Facet, type PublicNow } from "./home.tsx";
-import { DayGroups, highlight, RecentRow } from "./rows.tsx";
+import { DayGroups, highlight, Place, RecentRow, Who } from "./rows.tsx";
 
 /** One active filter: its visible text (an optional muted lead word) and the query without it. */
 interface FilterChip {
@@ -179,7 +178,7 @@ export function SearchBody(props: {
 }
 
 /** An in:trash result on A11Y-04's Trash variant: its title opens the in-Trash collection page;
- *  its links show as paused (amber), never as Public; no actions here. */
+ *  its links show as paused (neutral), never as Public; no actions here. */
 function TrashResult(props: {
   item: CollectionSearchResult;
   now: number;
@@ -187,8 +186,6 @@ function TrashResult(props: {
 }): JSX.Element {
   const { item } = props;
   const latest = item.latest_revision;
-  const { project, tags } = projectAndTags(item.metadata);
-  const labels = [project, ...tags].filter((value): value is string => Boolean(value));
   const paused = item.share?.paused ?? 0;
   return (
     <RecentRow
@@ -202,12 +199,11 @@ function TrashResult(props: {
       msg="In Trash. Open it in Trash to restore or purge."
       meta={
         <>
-          {latest?.source_host ? <span class="host">{latest.source_host}</span> : null}
-          <Chg changes={latest?.changes} />
-          {labels.length ? <span>{labels.join(" · ")}</span> : null}
           {paused > 0 ? (
-            <span class="chip xs paused">In Trash · {plural(paused, "link")} paused</span>
+            <span class="chip xs paused">In Trash, {plural(paused, "link")} paused</span>
           ) : null}
+          <Who host={latest?.source_host} changes={latest?.changes} />
+          <Place metadata={item.metadata} />
         </>
       }
     />

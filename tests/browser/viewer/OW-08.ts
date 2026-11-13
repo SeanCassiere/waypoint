@@ -1,7 +1,8 @@
 // OW-08: unread stays in place. Read marks (wp:read:<pub>) drive unread; wp:lastVisit is set once on
 // the first visit and by Mark all read, never on leaving the page. An unread row keeps its place
-// and day group, gets a dot, a bolder title and (with a mark) one link to the changes since. The
-// writer is shared, so rows are found only by data-pub and unread counts come from the page.
+// and day group, gets an ink halo round its node on the spine, a bolder title and (with a mark) one
+// link to the changes since. The writer is shared, so rows are found only by data-pub and unread
+// counts come from the page.
 import type { Locator, Page } from "playwright";
 import { z } from "zod";
 
@@ -103,7 +104,7 @@ const scenario: ViewerScenario = {
     assert.equal(await isUnread(item), true);
     const link = item.locator("a.rv-link");
     assert.ok(await link.isVisible(), "the new-since link is visible");
-    assert.equal(await link.textContent(), `3 new since you read #1 in ${TITLE} ›`);
+    assert.equal(await link.textContent(), `3 new since you read #1 in ${TITLE}`);
     const name = `3 new since you read #1 in ${TITLE}`;
     assert.equal(await item.getByRole("link", { name, exact: true }).count(), 1, "its name");
     assert.equal(
@@ -125,7 +126,7 @@ const scenario: ViewerScenario = {
       `new-${firstPub}`,
       "Tab goes from the title to the link",
     );
-    // The dot and the link use --ink; the title is bolder.
+    // The halo round the row's node on the spine and the link use --ink; the title is bolder.
     const styles = strings.parse(
       await page.evaluate(`(() => {
         const probe = document.createElement("span");
@@ -134,20 +135,20 @@ const scenario: ViewerScenario = {
         const ink = getComputedStyle(probe).color;
         probe.remove();
         const li = document.querySelector('li.item[data-pub="${firstPub}"]');
-        const dot = getComputedStyle(li.querySelector(".t"), "::before");
+        const halo = getComputedStyle(li, "::after");
         return [
           ink,
-          dot.backgroundColor,
-          dot.width,
+          halo.outlineColor,
+          halo.outlineWidth,
           getComputedStyle(li.querySelector(".tt")).fontWeight,
           getComputedStyle(li.querySelector("a.rv-link")).color,
         ];
       })()`),
     );
-    assert.deepEqual(styles.slice(1), [styles[0], "6px", "750", styles[0]], styles.join(", "));
+    assert.deepEqual(styles.slice(1), [styles[0], "2px", "750", styles[0]], styles.join(", "));
     assert.equal(
       (await page.locator("[data-lede]").textContent())?.trim(),
-      "1 collection has revisions you haven't read. Mark all read · Read marks live in this browser.",
+      "1 collection has revisions you haven't read. Mark all read Read marks live in this browser.",
     );
     assert.equal(await page.locator("[data-lede] b").textContent(), "1 collection");
     assert.deepEqual(await rowAxe(page), [], "axe on / with an unread row");
@@ -256,21 +257,22 @@ const scenario: ViewerScenario = {
     const box = await row(phone.page, firstPub).locator("a.rv-link").boundingBox();
     assert.ok(box && box.height >= 44, `tap target ${box?.height ?? 0} px tall`);
     const shown = await row(phone.page, firstPub).locator("a.rv-link").innerText();
-    assert.match(
-      shown,
-      / ›$/,
-      `the visible link text keeps the space before the arrow: "${shown}"`,
+    assert.ok(
+      shown.startsWith("3 new since you read #1") && !/[›→]/.test(shown),
+      `the link says it in words, with no arrow: "${shown}"`,
     );
 
-    // Forced colours paint backgrounds as Canvas: the dot is drawn in CanvasText instead.
+    // Forced colours paint backgrounds as Canvas: the node and its halo are drawn in CanvasText.
     await phone.page.emulateMedia({ forcedColors: "active" });
-    const [dot, canvas] = strings.parse(
+    const [node, halo, canvas] = strings.parse(
       await phone.page.evaluate(`[
-        getComputedStyle(document.querySelector('li.item[data-pub="${firstPub}"] .t'), "::before").backgroundColor,
+        getComputedStyle(document.querySelector('li.item[data-pub="${firstPub}"]'), "::after").backgroundColor,
+        getComputedStyle(document.querySelector('li.item[data-pub="${firstPub}"]'), "::after").outlineStyle,
         getComputedStyle(document.body).backgroundColor,
       ]`),
     );
-    assert.notEqual(dot, canvas, `the dot (${dot}) stands out from the page (${canvas})`);
+    assert.notEqual(node, canvas, `the node (${node}) stands out from the page (${canvas})`);
+    assert.equal(halo, "solid", "the unread halo still draws");
 
     // A full localStorage: the first-visit write throws, but existing marks still show, nothing
     // else on the page stops (newPage records page errors), and Mark all read still clears.

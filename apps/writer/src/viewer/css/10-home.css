@@ -1,4 +1,4 @@
-/* home */
+/* home: Recent and search results (NAV-03), and Recent's empty states (NAV-06) */
 /* The frame's left margin is measured against 100vw, not centred with auto, so the H1 doesn't
    move between short and long pages where the browser shows a classic scrollbar (80-pages.css). */
 .home {
@@ -9,65 +9,25 @@
   grid-template-columns: minmax(0, 1fr) 288px;
   gap: 48px;
 }
+.home > main {
+  min-width: 0;
+}
+/* The H1 is the shared page frame's (80-pages.css), the same on every global-bar page (VS-01b). */
 .lede {
-  color: var(--muted);
-  margin: 6px 0 22px;
-  font-size: 14.5px;
+  margin: 8px 0 28px;
+  color: var(--ink-2);
 }
-.seg {
-  display: inline-flex;
-  border: 1px solid var(--rule);
-  border-radius: 9px;
-  padding: 2px;
-  background: var(--sunken);
-}
-.seg a,
-.seg button {
-  border: 0;
-  background: none;
-  padding: 4px 10px;
-  border-radius: 7px;
-  text-decoration: none;
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-}
-.seg [aria-current],
-.seg [aria-pressed="true"] {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: var(--sh-1);
-  font-weight: 600;
-}
-.filters {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-.day {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 26px 0 4px;
-  font: 600 11.5px/1 var(--sans);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.day::after {
-  content: "";
-  flex: 1;
-  border-top: 1px solid var(--rule);
-}
+/* Row contract (A11Y-04): section > h2.day + ul.list > li.item. The title is the row's only link,
+   stretched over the row; siblings that act (meta links and buttons, Trash actions, OW-08's
+   .rv-link) are raised above the stretch. These base rules are shared with Trash's rows; Recent
+   and search lay theirs out as day blocks (.groups, below). */
 .item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 3px 16px;
   padding: 13px 12px;
   margin: 0 -12px;
-  border-radius: 10px;
+  border-radius: var(--rd-box);
   text-decoration: none;
   position: relative;
 }
@@ -89,7 +49,7 @@
 }
 .item .when {
   font-size: 12.5px;
-  color: var(--muted);
+  color: var(--ink-2);
   text-align: right;
   white-space: nowrap;
 }
@@ -102,7 +62,7 @@
 }
 .item .rn {
   font: 12px var(--mono);
-  color: var(--faint);
+  color: var(--ink-2);
   text-align: right;
 }
 .item .meta {
@@ -112,16 +72,9 @@
   align-items: center;
   flex-wrap: wrap;
   font-size: 12.5px;
-  color: var(--muted);
+  color: var(--ink-2);
   margin-top: 3px;
 }
-.host {
-  font-family: var(--mono);
-  font-size: 11.5px;
-}
-/* Row contract (A11Y-04): section > h2.day + ul.list > li.item. The title is the row's only link,
-   stretched over the row; siblings that act (meta links and buttons, Trash actions, OW-08's
-   .rv-link) are raised above the stretch. */
 ul.list {
   list-style: none;
   margin: 0;
@@ -144,7 +97,6 @@ li.item a.tlink::after {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 10px;
 }
 li.item a.tlink:focus-visible {
   outline: none;
@@ -160,33 +112,16 @@ li.item .rv-link {
   position: relative;
   z-index: 1;
 }
-/* Unread (OW-08): a dot left of the title, a bolder title and one link to the changes since the
-   read mark, at the end of the meta line. Rows never move. */
+/* Unread (OW-08): a bolder title, an ink halo round the row's node on the spine (below) and one
+   link to the changes since the read mark, at the end of the meta line. Rows never move. */
 li.item.unread .tt {
   font-weight: 750;
-}
-li.item.unread .t::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink);
-  flex: none;
-  margin-left: -13px;
-}
-/* Forced colours paint backgrounds as Canvas, which would hide the dot: draw it in CanvasText. */
-@media (forced-colors: active) {
-  li.item.unread .t::before {
-    forced-color-adjust: none;
-    background: CanvasText;
-  }
 }
 .rv-link {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .markall {
   border: 0;
@@ -195,7 +130,8 @@ li.item.unread .t::before {
   font: inherit;
   color: var(--ink);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
   cursor: pointer;
 }
 @media (pointer: coarse) {
@@ -203,10 +139,6 @@ li.item.unread .t::before {
     display: inline-flex;
     align-items: center;
     min-height: var(--tap);
-  }
-  /* inline-flex makes each child a flex item, which drops the arrow's leading space: keep it. */
-  .rv-link > [aria-hidden] {
-    white-space: pre;
   }
   .markall {
     min-height: var(--tap);
@@ -235,27 +167,260 @@ li.item.trash .meta {
     justify-content: flex-start;
   }
 }
-.side h2 {
-  font: 600 11.5px/1 var(--sans);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--faint);
-  margin: 0 0 10px;
+
+/* ---- day blocks (Recent and search) ----
+   Each day is a ruled box with a header row: the day, its date and how many collections it holds.
+   Inside, the time and #n sit in a mono column, and each collection hangs off one node on the
+   spine. The node's state comes from the row's own chips (:has): a dashed amber ring is
+   uploading, a ringed red dot failed, an ink node synced, a small grey node in Trash. */
+.groups {
+  --tcol: 76px;
+  --scol: 28px;
+  /* the node's centre from the top of a row: padding 12 + half the 22 px title line */
+  --ny: 23px;
 }
-.side h2 + * {
-  margin-top: 0;
+.groups > section {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+}
+.groups > section + section {
+  margin-top: 22px;
+}
+.day {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  height: var(--r1);
+  margin: 0;
+  padding: 0 18px 0 calc(var(--tcol) + var(--scol));
+  border-bottom: 1px solid var(--rule-2);
+  font: 740 16px / calc(var(--r1) - 1px) var(--sans);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.day .ddate {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.day .dcount {
+  margin-left: auto;
+  font-size: var(--row-fs);
+  font-weight: 400;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.groups ul.list {
+  padding: 6px 0 8px;
+}
+.groups li.item {
+  grid-template-columns: var(--tcol) var(--scol) minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 12px 18px 14px 0;
+  border-radius: 0;
+}
+/* the title underlines instead of the row taking a film, so the spine runs through unbroken */
+.groups li.item:hover {
+  background-color: transparent;
+}
+.groups li.item:hover .tt {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* a rule between entries, in the content column only */
+.groups li.item + li.item {
+  background-image: linear-gradient(var(--rule), var(--rule));
+  background-repeat: no-repeat;
+  background-position: right top;
+  background-size: calc(100% - var(--tcol) - var(--scol)) 1px;
+}
+.groups li.item > .when {
+  grid-column: 1;
+  grid-row: 1;
+  padding-right: 12px;
+  font: 560 14px/22px var(--mono);
+  color: var(--ink);
+}
+.groups li.item > .rn {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: start;
+  padding-right: 12px;
+  font: 400 12.5px/1.45 var(--mono);
+}
+.groups li.item > .t {
+  grid-column: 3;
+  grid-row: 1;
+  font: 680 17px/22px var(--sans);
+  letter-spacing: -0.012em;
+}
+.groups li.item > .msg {
+  grid-column: 3;
+  grid-row: 2;
+  margin-top: 3px;
+  font: 400 15px/1.45 var(--sans);
+  color: var(--ink);
+  white-space: normal;
+}
+.groups li.item > .meta {
+  grid-column: 3;
+  grid-row: 3;
+  margin-top: 7px;
+  gap: 4px 16px;
+  font-size: 13px;
+}
+/* "devbox, +1 file" and "in infra, tagged runbook" */
+.who .host {
+  color: var(--ink);
+  font-weight: 520;
+}
+.who .chg {
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+.groups li.item .meta .faint {
+  font-style: italic;
+}
+/* the spine: one segment per entry, from the first node to the last */
+.groups li.item::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--tcol) + var(--scol) / 2 - 0.75px);
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--spine);
+}
+.groups li.item:first-child::before {
+  top: var(--ny);
+}
+.groups li.item:last-child::before {
+  bottom: auto;
+  height: var(--ny);
+}
+.groups li.item:only-child::before {
+  content: none;
+}
+/* the node */
+.groups li.item::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: calc(var(--tcol) + var(--scol) / 2 - 6.5px);
+  top: calc(var(--ny) - 6.5px);
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--node);
+  box-shadow: 0 0 0 4px var(--surface);
+  pointer-events: none;
+}
+.groups li.item:has(.meta .chip.failed)::after {
+  background: var(--failed);
+  box-shadow:
+    0 0 0 4px var(--surface),
+    inset 0 0 0 2px var(--failed),
+    inset 0 0 0 3.5px var(--surface);
+}
+/* after failed: a row with both shows its newest revision's state, which is uploading */
+.groups li.item:has(.meta .chip.pending)::after {
+  background: var(--pending-bg);
+  border: 2px dashed var(--pending);
+  box-shadow: 0 0 0 4px var(--surface);
+}
+.groups li.item.trash::after {
+  left: calc(var(--tcol) + var(--scol) / 2 - 4.5px);
+  top: calc(var(--ny) - 4.5px);
+  width: 9px;
+  height: 9px;
+  background: var(--spine);
+}
+li.item.unread::after {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* Forced colours paint backgrounds as Canvas, which would hide the spine and the nodes. */
+@media (forced-colors: active) {
+  .groups li.item::before,
+  .groups li.item::after {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+  .groups li.item:has(.meta .chip.pending)::after {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+}
+
+/* ---- the side column: Projects and Public now ---- */
+.side {
+  padding-top: 6px;
+}
+.side h2 {
+  margin: 0 0 8px;
+  font: 720 15px/1.3 var(--sans);
+  letter-spacing: -0.005em;
+  color: var(--ink);
 }
 .side ul + h2 {
-  margin-top: 24px;
+  margin-top: 30px;
 }
-.card {
-  border: 1px solid var(--rule);
-  background: var(--surface);
-  border-radius: var(--rd-box);
-  padding: 14px 16px;
-  margin-bottom: 24px;
-  box-shadow: var(--sh-1);
+.facet {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 -8px;
+  padding: 5px 8px;
+  border-radius: var(--rd-2);
+  text-decoration: none;
+  color: var(--ink);
 }
+.facet:hover {
+  background: var(--hover);
+}
+.facet span {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Public now: the title, and under it the globe and the link count in the public colour */
+.pubs .facet:not(.all) {
+  flex-direction: column;
+  gap: 1px;
+}
+.pubs .facet:not(.all) span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--public);
+}
+.facet.all {
+  width: max-content;
+  margin-top: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--spine);
+}
+.facet.all:hover {
+  text-decoration-color: currentColor;
+}
+/* The sidebar's projects past the first 12. */
+.side details.more summary {
+  padding: 5px 0;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.pager {
+  margin: 18px 0 0;
+}
+/* The health popover's key-value rows. */
 .kv {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -264,7 +429,7 @@ li.item.trash .meta {
   font-size: 13px;
 }
 .kv dt {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .kv dd {
   margin: 0;
@@ -272,63 +437,48 @@ li.item.trash .meta {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.facet {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 4px 0;
-  text-decoration: none;
-  color: var(--ink-2);
-  font-size: 13.5px;
-}
-.facet:hover {
-  color: var(--ink);
-}
-.facet span {
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.facet.all {
-  color: var(--muted);
-}
-.pager {
-  margin: 18px 0 0;
-}
-/* needs attention */
+
+/* ---- needs attention (OW-06b) ----
+   A ruled box with a red edge: writer-wide rows, then one card per collection with its title, the
+   project, Retry (its one primary action) and Details, the revision lines as a track, and why. */
 .attn {
+  margin: 0 0 30px;
+  padding: 18px 20px;
   border: 1px solid var(--failed-line);
-  background: var(--failed-bg);
-  border-radius: 12px;
-  margin: 0 0 20px;
-  overflow: hidden;
+  border-radius: var(--rd-box);
+  background: var(--surface);
 }
 .attn h2 {
-  margin: 0;
-  padding: 10px 14px 6px;
-  font: 650 12px/1 var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  font: 720 15px/1.2 var(--sans);
   color: var(--failed);
+}
+.attn h2 .n {
+  font-size: var(--row-fs);
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.attn :is(.ar, .ag) + :is(.ar, .ag) {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--failed-line);
 }
 .attn .ar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  padding: 8px 14px 10px;
+  gap: 2px 14px;
   align-items: center;
-  border-top: 1px solid var(--failed-line);
-}
-.attn h2 + .ar {
-  border-top: 0;
 }
 .attn .ar .t {
-  font-weight: 650;
+  font-weight: 680;
 }
 .attn .ar .s {
-  font-size: 12.5px;
-  color: var(--ink-2);
   grid-column: 1;
+  font-size: var(--row-fs);
+  color: var(--ink-2);
 }
 .attn .ar .acts {
   grid-row: 1/span 2;
@@ -337,19 +487,150 @@ li.item.trash .meta {
   gap: 6px;
 }
 .attn .more {
-  padding: 6px 14px 10px;
-  font-size: 12.5px;
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--failed-line);
+  font-size: var(--row-fs);
 }
-/* Empty Recent (NAV-06). First run: one sentence, two numbered steps and a shortcut tip hidden on
-   touch. The steps reuse /mcp's .steps (80-pages: the <ol> carries the order, h2::before draws
-   the circle); here step 2's circle is outlined and the text hangs under the heading's words.
-   All in Trash: Recent's heading, then a card to Trash. The .backup line shows on local-only
-   writers with nothing queued. */
+.attn .ag {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+.ag .t {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ag .t a {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--spine);
+}
+.ag .t a:hover {
+  text-decoration-color: currentColor;
+}
+.ag .proj {
+  font-size: var(--row-fs);
+  color: var(--ink-2);
+}
+.ag .acts {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ag .cause {
+  grid-column: 1/-1;
+  margin: 0;
+  font-size: var(--row-fs);
+  line-height: 1.5;
+}
+.ag .cause b {
+  font-weight: 650;
+}
+/* The revision lines (also on Status): labels left, each line a track of state words joined by
+   the spine, dashed into an uploading revision; one column on phones. No box of its own: the
+   zero-width solid border lets a context draw one rule (Status's .sgrp .lin2). */
+.lin2 {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 18px;
+  border: 0 solid var(--rule);
+}
+.lin2 .sline {
+  display: contents;
+}
+.lin2 .lk {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  align-self: start;
+  font-size: var(--row-fs);
+  line-height: 24px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.attn .lin2 .lk svg {
+  display: none;
+}
+/* every item on a 24 px line, as the label is, so the label and the track share a baseline */
+.lin2 .lv {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  min-width: 0;
+  font-size: var(--row-fs);
+  line-height: 24px;
+  color: var(--ink-2);
+}
+.lin2 .to {
+  display: inline-flex;
+  width: 36px;
+  height: 1.5px;
+  margin: 0 8px;
+  background: var(--spine);
+}
+.lin2 .to:has(+ .sc.p) {
+  background: repeating-linear-gradient(90deg, var(--pending) 0 4px, transparent 4px 7px);
+}
+.lin2 .to svg {
+  display: none;
+}
+.lin2 .sc + .sc,
+.lin2 .sc + .scm,
+.lin2 .scm + .sc {
+  margin-left: 12px;
+}
+.lin2 .q {
+  margin-left: 14px;
+}
+.lin2 .q2 {
+  flex-basis: 100%;
+  line-height: var(--row-lh);
+}
+@media (forced-colors: active) {
+  .lin2 .to {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+/* Sync off: a neutral note instead of the card. */
+.attn.off {
+  display: block;
+  padding: 11px 14px;
+  border-color: var(--rule-2);
+  background: var(--sunken);
+  font-size: var(--row-fs);
+  color: var(--ink-2);
+}
+.attn.off .ic {
+  margin-right: 6px;
+}
+.attn.off b {
+  color: var(--ink);
+}
+
+/* ---- empty Recent (NAV-06) ----
+   First run: one sentence, two numbered steps and a shortcut tip hidden on touch. The steps reuse
+   /mcp's .steps (80-pages: the <ol> carries the order, h2::before draws the circle); here step 2's
+   circle is outlined and the text hangs under the heading's words. All in Trash: Recent's
+   heading, then a box to Trash. The .backup line shows on local-only writers with nothing queued. */
 .backup {
   margin: 0 0 22px;
-  color: var(--muted);
-  font-size: 14px;
+  color: var(--ink-2);
 }
 .backup a {
   color: var(--ink);
@@ -368,12 +649,12 @@ li.item.trash .meta {
 .firstrun .steps > li + li h2::before {
   border-color: var(--rule-2);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .firstrun .steps p {
   margin: 0;
-  color: var(--muted);
-  font-size: 13.5px;
+  color: var(--ink-2);
+  font-size: var(--row-fs);
 }
 .firstrun .steps .btn {
   margin-top: 10px;
@@ -382,12 +663,12 @@ li.item.trash .meta {
   font: 12.5px var(--mono);
   background: var(--sunken);
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--rd-1);
   overflow-wrap: anywhere;
 }
 .tip {
   margin: 26px 0 0;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 13px;
 }
 @media (hover: none) and (pointer: coarse) {
@@ -401,7 +682,7 @@ li.item.trash .meta {
   align-items: center;
   gap: 6px 20px;
   padding: 22px;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--rule-2);
   border-radius: var(--rd-box);
   background: var(--surface);
 }
@@ -412,8 +693,8 @@ li.item.trash .meta {
 .alltrash p {
   grid-column: 1;
   margin: 0;
-  color: var(--muted);
-  font-size: 13.5px;
+  color: var(--ink-2);
+  font-size: var(--row-fs);
 }
 .alltrash .btn {
   grid-row: 1 / 3;
@@ -430,160 +711,10 @@ li.item.trash .meta {
     margin-top: 10px;
   }
 }
-.attn h2 .n {
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  margin-left: 4px;
-}
-/* One card per collection that needs you (OW-06b). */
-.attn .ag {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 14px;
-  padding: 10px 14px 13px;
-  align-items: start;
-  border-top: 1px solid var(--failed-line);
-}
-.attn h2 + .ag {
-  border-top: 0;
-}
-.ag .t {
-  font-weight: 650;
-  font-size: 15px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.ag .t a {
-  color: var(--ink);
-}
-.ag .proj {
-  font-weight: 500;
-  color: var(--muted);
-  font-size: 13px;
-}
-.ag .acts {
-  grid-row: 1;
-  grid-column: 2;
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
-}
-.ag .cause {
-  grid-column: 1/-1;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink-2);
-}
-.ag .cause b {
-  font-weight: 650;
-  color: var(--ink);
-}
-/* The revision lines strip: labels left, chips right (one column on phones). */
-.lin2 {
-  grid-column: 1/-1;
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 12px;
-  background: var(--surface);
-  border: 1px solid var(--failed-line);
-  border-radius: 10px;
-  padding: 9px 12px;
-}
-.lin2 .sline {
-  display: contents;
-}
-.lin2 .lk {
-  font: 600 12px/24px var(--sans);
-  color: var(--muted);
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  white-space: nowrap;
-}
-.lin2 .lv {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-  color: var(--ink-2);
-  min-height: 24px;
-  min-width: 0;
-}
-.lin2 .sc,
-.srow .sc,
-.lin2 .scm {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 99px;
-  border: 1px solid var(--rule-2);
-  background: var(--surface);
-  white-space: nowrap;
-  font-size: 12.5px;
-  font-weight: 650;
-}
-.lin2 .sc.ok,
-.srow .sc.ok {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-}
-.lin2 .sc.f,
-.srow .sc.f {
-  color: var(--failed);
-  border-color: var(--failed-line);
-  background: var(--failed-bg);
-}
-.lin2 .sc.p,
-.srow .sc.p {
-  color: var(--pending);
-  border-color: var(--pending-line);
-  background: var(--pending-bg);
-}
-.lin2 .sc.w,
-.srow .sc.w {
-  color: var(--muted);
-  border-style: dashed;
-}
-.lin2 .scm {
-  color: var(--muted);
-  font-weight: 500;
-}
-.lin2 .to {
-  display: inline-flex;
-  color: var(--faint);
-}
-.lin2 .q {
-  color: var(--muted);
-}
-.lin2 .q2 {
-  flex-basis: 100%;
-  font-size: 12px;
-  color: var(--ink-2);
-}
-/* Sync off: a neutral note instead of the card. */
-.attn.off {
-  display: block;
-  border-color: var(--rule-2);
-  background: var(--sunken);
-  padding: 11px 14px;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.attn.off .ic {
-  color: var(--muted);
-  margin-right: 6px;
-}
-.attn.off b {
-  color: var(--ink);
-}
-/* The empty search page (NAV-02, /?q=): the heading and lede, and below 761 px an in-page field
-   (.show-sm makes it a grid there), since the bar's is hidden. */
+
+/* ---- the empty search page (NAV-02, /?q=) ----
+   The heading and lede, and below 761 px an in-page field (.show-sm makes it a grid there), since
+   the bar's is hidden. */
 .searchstart .lede {
   margin-bottom: 18px;
 }
@@ -598,7 +729,7 @@ li.item.trash .meta {
   border: 1px solid var(--control);
   border-radius: var(--rd-box);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .search-page:focus-within {
   border-color: var(--ink);
@@ -622,13 +753,11 @@ form.search-page input[type="search"] {
   min-height: 52px;
   align-content: center;
 }
-/* Search results (NAV-03): the count as H1, one removable chip per active filter, Clear all and
-   one hint line. Below 761 px the query field sits in the page (the bar's is hidden there) and
-   the Browse chip row stands in for the sidebar; both are display: none above, so "/" and Tab
-   skip them on wider screens. */
-.home > main {
-  min-width: 0;
-}
+
+/* ---- search results (NAV-03) ----
+   The count as H1, one removable token per active filter, Clear all and one hint line. Below
+   761 px the query field sits in the page (the bar's is hidden there) and the Browse row stands
+   in for the sidebar; both are display: none above, so "/" and Tab skip them on wider screens. */
 .qfield {
   display: none;
   align-items: center;
@@ -639,7 +768,7 @@ form.search-page input[type="search"] {
   border: 1px solid var(--control);
   border-radius: var(--rd-2);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .qfield:focus-within {
   border-color: var(--ink);
@@ -667,8 +796,8 @@ form.qfield input[type="search"] {
   gap: 8px;
   margin: 14px 0 10px;
 }
-/* A chip never grows past the column: a long label (typed free text, a long project name) ends in
-   an ellipsis while its × stays in view; the × link's aria-label keeps the full name. */
+/* A token never grows past the column: a long label (typed free text, a long project name) ends
+   in an ellipsis while its × stays in view; the × link's aria-label keeps the full name. */
 ul.fchips {
   display: flex;
   flex-wrap: wrap;
@@ -684,9 +813,9 @@ ul.fchips {
   min-width: 0;
   max-width: 100%;
   padding: 0 4px 0 11px;
-  border-radius: 99px;
-  background: var(--sunken);
   border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box-in);
+  background: var(--surface);
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
@@ -698,7 +827,7 @@ ul.fchips {
   text-overflow: ellipsis;
 }
 .fchip .k {
-  color: var(--muted);
+  color: var(--ink-2);
   font-weight: 500;
 }
 .fchip a {
@@ -708,21 +837,21 @@ ul.fchips {
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  color: var(--muted);
+  border-radius: var(--rd-1);
+  color: var(--ink-2);
 }
 .fchip a:hover {
   background: var(--hover);
   color: var(--ink);
 }
 .fchip.pub {
-  background: var(--public-bg);
   border-color: var(--public-line);
+  background: var(--public-bg);
   color: var(--public);
 }
 .fchip.trash {
-  background: var(--pending-bg);
   border-color: var(--pending-line);
+  background: var(--pending-bg);
   color: var(--pending);
 }
 .fchip.pub a,
@@ -731,12 +860,17 @@ ul.fchips {
 }
 .clear {
   margin-left: 4px;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 13px;
+  text-decoration: underline;
+  text-decoration-color: var(--spine);
 }
-.hint {
-  margin: 0 0 6px;
-  color: var(--muted);
+.clear:hover {
+  text-decoration-color: currentColor;
+}
+.fbar + .hint {
+  margin: 0 0 18px;
+  color: var(--ink-2);
   font-size: 13px;
 }
 /* Phones: Public now, then every project, in one row that scrolls sideways (fading out at the
@@ -744,14 +878,12 @@ ul.fchips {
    is wider, so the last chip clears it once the row is scrolled to the end. */
 .browse {
   display: none;
-  margin: 18px -16px 0;
+  margin: 0 -16px 16px;
 }
 .browse h2 {
   margin: 0 16px 8px;
-  font: 600 11.5px/1 var(--sans);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--faint);
+  font: 720 15px/1.3 var(--sans);
+  color: var(--ink);
 }
 .browse ul {
   display: flex;
@@ -764,50 +896,94 @@ ul.fchips {
 .browse li {
   flex: none;
 }
-.bchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* the chips are the component's .bchip, 44 px tall here (A11Y-02) */
+.browse .bchip {
   min-height: var(--tap);
-  padding: 0 14px;
-  border: 1px solid var(--rule-2);
-  border-radius: 99px;
-  background: var(--surface);
-  color: var(--ink-2);
-  font-size: 14px;
-  text-decoration: none;
+  color: var(--ink);
   white-space: nowrap;
 }
-.bchip span {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.bchip.pub {
-  background: var(--public-bg);
-  border-color: var(--public-line);
+.browse .bchip.pub {
   color: var(--public);
 }
-.bchip.pub span {
+.browse .bchip.pub span {
   color: inherit;
 }
-/* The sidebar's projects past the first 12. */
-.side details.more summary {
-  padding: 4px 0;
-  color: var(--muted);
-  font-size: 13.5px;
-  cursor: pointer;
-}
+
+/* ---- phones ---- */
 @media (max-width: 760px) {
+  .home {
+    grid-template-columns: 1fr;
+    padding: 20px 16px 80px;
+    gap: 24px;
+  }
   .qfield {
     display: flex;
   }
   .browse {
     display: block;
   }
+  /* Needs attention: one column; Retry and Details as two 44 px buttons right under the title,
+     before the lines. */
+  .attn {
+    padding: 16px;
+  }
+  .attn .ag {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ag .acts {
+    grid-row: auto;
+    grid-column: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .ag .acts .btn {
+    min-height: var(--tap);
+    justify-content: center;
+  }
+  .ag .acts > :only-child {
+    grid-column: 1 / -1;
+  }
+  .lin2 {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+  }
+  .lin2 .lk {
+    margin-top: 6px;
+  }
+  .lin2 .q {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  /* Day blocks: a narrower time column; the spine and nodes stay, the count goes. */
+  .groups {
+    --tcol: 52px;
+    --scol: 22px;
+  }
+  .day {
+    padding-right: 12px;
+  }
+  .day .dcount {
+    display: none;
+  }
+  .groups li.item {
+    padding-right: 12px;
+  }
+  .groups li.item > :is(.when, .rn) {
+    padding-right: 8px;
+    font-size: 12.5px;
+  }
+  .groups li.item > .t {
+    font-size: 16.5px;
+  }
+  .groups li.item :is(a.tlink, .tt) {
+    white-space: normal;
+  }
+  .groups li.item > .msg {
+    font-size: 14.5px;
+  }
 }
-/* Each chip's × keeps its 22 px circle but takes a 44 × 44 tap; the wider row gap keeps the
-   taps of wrapped rows apart. */
+/* Each token's × keeps its 22 px box but takes a 44 × 44 tap; the wider row gap keeps the taps of
+   wrapped rows apart. */
 @media (pointer: coarse) {
   ul.fchips {
     row-gap: 14px;

@@ -277,13 +277,13 @@ describe("in:trash results", () => {
     expect(paused).toContain(`<li class="item trash" data-pub="${PUB}"`);
     expect(paused).toContain('<p class="msg">In Trash. Open it in Trash to restore or purge.</p>');
     expect(tagWith(paused, 'class="tlink"')).toContain(`href="/c/${PUB}/"`);
-    expect(paused).toContain('<span class="chip xs paused">In Trash · 1 link paused</span>');
+    expect(paused).toContain('<span class="chip xs paused">In Trash, 1 link paused</span>');
     expect(paused).toContain('<span class="host">devbox</span>');
 
     const two = await render("in:trash", {
       items: [result({ share: { active: 0, follows_latest: false, paused: 2 } })],
     });
-    expect(two).toContain(">In Trash · 2 links paused</span>");
+    expect(two).toContain(">In Trash, 2 links paused</span>");
 
     const active = await render("in:trash", {
       items: [result({ share: { active: 1, follows_latest: true } })],

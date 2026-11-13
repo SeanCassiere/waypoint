@@ -24,10 +24,10 @@ function suggestions(value: unknown): Suggestion[] {
     return [
       {
         title,
-        // "{project} · #{n} {message}"
+        // "{project}, #{n} {message}"
         detail: [typeof project === "string" ? project : "", revision.trim()]
           .filter(Boolean)
-          .join(" · "),
+          .join(", "),
         href: `/c/${pub}/`,
       },
     ];
