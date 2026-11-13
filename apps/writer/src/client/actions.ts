@@ -213,7 +213,7 @@ export function parseLinks(element: HTMLElement): PausedLink[] {
       : [];
   });
 }
-/** One paused link in the restore dialog: label · mode · expiry (the mode is bold without a label). */
+/** One paused link in the restore dialog: label, mode, expiry (the mode is bold without a label). */
 function linkLine(link: PausedLink, now: number): HTMLElement {
   const mode =
     link.revision_display_number === null ? "Latest" : `Only #${link.revision_display_number}`;
@@ -222,8 +222,8 @@ function linkLine(link: PausedLink, now: number): HTMLElement {
       ? "never expires"
       : `expires ${formatTime(link.expires_at, "until", now, false)}`;
   const line = link.label
-    ? el("div", { class: "lnkl" }, el("b", { text: link.label }), ` · ${mode} · ${expiry}`)
-    : el("div", { class: "lnkl" }, el("b", { text: mode }), ` · ${expiry}`);
+    ? el("div", { class: "lnkl" }, el("b", { text: link.label }), `, ${mode}, ${expiry}`)
+    : el("div", { class: "lnkl" }, el("b", { text: mode }), `, ${expiry}`);
   line.insertAdjacentHTML("afterbegin", icon("globe", "sm"));
   return line;
 }

@@ -1,52 +1,191 @@
-/* links */
-/* Links tab: one primary action, then a quiet secondary row. */
+/* Public links: the collection panel's Links tab and the /links page. Buttons, text actions, state
+   chips and the inline confirmations' boxes are components (@waypoint/ui components-css.ts); this
+   lays them out. State is a glyph and words, never a pill; an inactive link is told apart by
+   colour, never opacity (VS-04). */
+
+/* ---------- the Links tab ---------- */
+/* Its first row is a tools row the height of the revision strip beside it (--r2), like Files' and
+   History's: New public link, then Preview as public. A row that wraps (a narrow panel, 44 px
+   touch controls, the key-missing note) grows instead of clipping. */
+.pbody:has(> .lnk-acts:first-child) {
+  padding-top: 0;
+}
 .lnk-acts {
-  padding: 4px 4px 12px;
-  display: grid;
-  gap: 4px;
-  justify-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 4px;
+  min-height: var(--r2);
+  margin: 0 -8px 10px;
+  padding: 6px 4px 6px 18px;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+  color: var(--ink-2);
 }
-.lnk-acts .btn {
-  width: 100%;
+/* Both controls fit one row of the docked panel: the text action keeps slim sides, and its text
+   ends 8 px from the panel's edge. */
+.lnk-acts > .txtbtn {
+  padding-inline: 4px;
+  /* the row's text metrics, so its words share the strip's baseline (D78) */
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
 }
+.lnk-acts > .note {
+  flex-basis: 100%;
+  margin: 0;
+}
+/* Revoke all, under the cards (two or more open links). */
 .lnk-foot {
   display: flex;
   justify-content: flex-end;
   padding: 0 4px 10px;
 }
-/* A text button: quiet secondary and danger actions (Preview, Revoke…, Revoke all). */
-.txtbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 28px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 6px;
+/* A card: one ruled box on paper, inside the panel's surface. */
+.lnk {
+  margin: 0 4px 10px;
+  padding: 12px 12px 6px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+  background: var(--paper);
+}
+.lnk .h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.lnk .h :is(b, i) {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.lnk .h b {
+  font-weight: 650;
+}
+.lnk .h i {
+  color: var(--ink-2);
+}
+.lnk dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 8px 0 10px;
+  font-size: 13px;
+}
+.lnk dt {
+  color: var(--ink-2);
+}
+.lnk dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* Expires within a day: ink at 600, never amber (amber means pending). */
+.lnk .soon {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* The URL's owner-only fingerprint (D50): one line, truncated. */
+.lnk .fp {
+  display: block;
+  margin: 0 0 10px;
+  font: 12px/1.5 var(--mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lnk .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+.lnk .row .grow {
+  flex: 1;
+}
+.lnk .row .note {
+  flex-basis: 100%;
+  margin: 0;
+}
+/* Row 1: Copy URL, Open. Row 2, under a rule: Extend… at the start, Revoke… at the end. */
+.lnk .r2 {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+/* An inactive card (revoked, expired): no fill, a rule at the start edge, muted words under an
+   --ink-2 title; its state chips turn neutral (no tone, no fill). */
+.lnk.dead {
   background: none;
   color: var(--muted);
-  font: inherit;
-  font-size: 12.5px;
-  text-decoration: none;
+  box-shadow: inset 3px 0 0 var(--rule-2);
+}
+.lnk.dead .h b {
+  color: var(--ink-2);
+}
+.lnk.dead .chip:is(.public, .pending, .failed, .paused) {
+  color: var(--muted);
+}
+/* A card just revoked collapses into a dismissible confirmation row (OW-04). */
+.lnk.gone {
+  padding: 8px 8px 8px 12px;
+  border-style: dashed;
+  background: none;
+  color: var(--ink-2);
+}
+.lnk.gone .h b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.lnk.gone .iconbtn {
+  align-self: flex-start;
+  color: var(--ink-2);
+}
+.lnk.gone .note {
+  margin: 2px 0 0;
+}
+details.inactive > summary {
+  padding: 4px 8px 8px;
+  font-size: 13px;
+  color: var(--ink-2);
   cursor: pointer;
-  white-space: nowrap;
 }
-.txtbtn:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.txtbtn.danger {
-  color: var(--failed);
-}
-.txtbtn.danger:hover {
-  background: var(--failed-bg);
-  color: var(--failed);
-}
-summary.txtbtn {
+
+/* ---------- shared by the tab and /links ---------- */
+/* Extend… and Revoke… open an inline confirmation in place of their text action. */
+:is(.lnk, .lrow) details.act > summary {
   list-style: none;
 }
-summary.txtbtn::-webkit-details-marker {
+:is(.lnk, .lrow) details.act > summary::-webkit-details-marker {
   display: none;
+}
+:is(.lnk, .lrow) details.act[open] {
+  flex-basis: 100%;
+}
+:is(.lnk, .lrow) details.act[open] > summary {
+  display: none;
+}
+/* The confirmation: a box inside the card, tinted red for Revoke, neutral for Extend. */
+.pop {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--failed-line);
+  border-radius: var(--rd-2);
+  background: var(--failed-bg);
+  font-size: 13px;
+  color: var(--ink);
+}
+.pop.neutral {
+  border-color: var(--rule-2);
+  background: var(--surface);
+}
+.pop .row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 /* "URL unavailable": a one-line chip that discloses why. */
 details.why > summary {
@@ -62,138 +201,217 @@ details.why[open] {
 details.why .note {
   margin: 6px 0 0;
 }
+.note {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* A revocation not yet pushed: the reader still serves the link, which is pending (amber). */
 .note[data-stops="false"],
 .stops[data-stops="false"] {
   color: var(--pending);
 }
-.note {
-  margin: 0 0 8px;
-  font-size: 12.5px;
-  color: var(--muted);
+
+/* ---------- /links ---------- */
+/* The header, the state tabs, then one ruled box per collection: a header row (--r1), then a row
+   per link: its label, the actions beside it, then a meta line. */
+[data-links-page] .ph h1 .ic {
+  color: var(--public);
 }
-.lnk {
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  padding: 12px;
-  margin: 0 4px 10px;
-  background: var(--surface);
+[data-links-page] [data-refresh="links-head"] {
+  color: var(--ink-2);
 }
-.lnk .h {
+[data-links-page] [data-refresh="links-head"] b {
+  color: var(--ink);
+}
+/* The state tabs switch what's shown: underlined tabs (components) in a ruled row the page's
+   width. */
+[data-links-page] > .seg {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+  height: auto;
+  margin: 22px 0 14px;
+  border-bottom: 1px solid var(--rule-2);
+}
+[data-links-page] > .seg a {
+  min-height: 40px;
+}
+@media (pointer: coarse), (max-width: 760px) {
+  [data-links-page] > .seg a {
+    min-height: var(--tap);
+  }
+}
+[data-links-page] > .seg .n {
+  margin-left: 2px;
+}
+[data-links-page] > .legend {
+  margin: 12px 0 14px;
+  padding: 0;
+  font-size: var(--row-fs);
+  color: var(--ink-2);
+}
+[data-links-page] > .legend a {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+  color: var(--ink);
 }
-.lnk .h b,
-.lnk .h i {
-  font-size: 14px;
-  flex: 1;
-  overflow-wrap: anywhere;
+.lgrp {
+  margin-bottom: 14px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+  background: var(--surface);
+  overflow: hidden;
 }
-.lnk .h i {
-  color: var(--muted);
+.lgh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-content: center;
+  gap: 2px 10px;
+  min-height: var(--r1);
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--rule-2);
 }
-.lnk dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 10px;
-  margin: 8px 0 10px;
-  font-size: 12.5px;
-}
-.lnk dt {
-  color: var(--muted);
-}
-.lnk dd {
+.lgh h2 {
   margin: 0;
+  min-width: 0;
+  font: 700 16px/1.3 var(--sans);
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
-/* Expires within a day: ink at 600, never amber (amber means pending). */
-.lnk .soon {
+.lgh h2 a {
+  color: var(--ink);
+  text-decoration-color: var(--spine);
+}
+.lgh :is(.p, .tab) {
+  font-size: var(--row-fs);
+}
+.lgh .p {
+  min-width: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.lgh .grow {
+  flex: 1;
+}
+.lgh .tab {
   color: var(--ink);
   font-weight: 600;
+  text-decoration-color: var(--spine);
 }
-/* The URL's owner-only fingerprint: one line, truncated. */
-.lnk .fp {
-  display: block;
-  margin: 0 0 10px;
-  font: 11.5px var(--mono);
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.lgh :is(h2 a, .tab):hover {
+  text-decoration-color: currentColor;
 }
-.lnk .row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.lnk .row .grow {
-  flex: 1;
-}
-.lnk .row .note {
+.lrows {
   margin: 0;
-  flex-basis: 100%;
+  padding: 0;
+  list-style: none;
 }
-/* Row 1: Copy URL · Open. Row 2, under a hairline: Extend… at the start, Revoke… at the end. */
-.lnk .r2 {
-  margin-top: 10px;
-  padding-top: 8px;
+.lrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 13px 18px 14px;
   border-top: 1px solid var(--rule);
 }
-/* An inactive card (revoked, expired) is told apart by colour, never opacity (VS-04): muted meta,
-   an --ink-2 title, neutral chips and a rule at the start edge. */
-.lnk.dead {
-  background: none;
+.lrow:first-child {
+  border-top: 0;
+}
+/* An inactive row: a rule at the start edge, muted words, as the tab's .lnk.dead. */
+.lrow.dead {
   color: var(--muted);
   box-shadow: inset 3px 0 0 var(--rule-2);
 }
-.lnk.dead .h b {
+.lrow.dead .who b {
   color: var(--ink-2);
 }
-.lnk.dead .chip:is(.public, .pending, .failed, .paused) {
+.lrow.dead .chip:is(.public, .pending, .failed, .paused) {
   color: var(--muted);
-  background: var(--sunken);
-  border-color: var(--rule-2);
-  border-style: solid;
 }
-/* A card just revoked collapses into a dismissible confirmation row (OW-04). */
-.lnk.gone {
-  padding: 8px 8px 8px 12px;
-  border-style: dashed;
-  border-color: var(--rule-2);
-  opacity: 1;
+.lrow .who {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lrow .who b {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.008em;
+}
+.lrow .who i {
   color: var(--ink-2);
 }
-.lnk.gone .h b {
-  font-size: 13px;
+.lrow .acts {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+/* Extend… and the empty slot of a row without it (a link that never expires) share one width,
+   wider than the label, so Revoke… lines up whatever the font. */
+.lrow .acts > details.act > summary,
+.lrow .acts > .slot {
+  min-width: 5.5em;
+  justify-content: center;
+}
+.lrow details.act .pop {
+  max-width: 340px;
+}
+.lrow .acts details.why[open] {
+  flex-basis: 100%;
+}
+/* An open Extend… or "URL unavailable" holds the actions column at the popover's width: the auto
+   column would otherwise size to every control and the popover side by side, and squeeze the row's
+   label and facts until they overlap it (review r3). */
+.lrow .acts:has(> details:is(.act, .why)[open]) {
+  width: 340px;
+}
+.lrow .s {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-width: 0;
+  font-size: var(--row-fs);
+  color: var(--ink-2);
+}
+.lrow .s > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lrow .s .chip {
+  font-size: inherit;
+}
+.lrow .s .ic {
+  width: var(--ic-sm);
+  height: var(--ic-sm);
+}
+/* Expires within a day: a clock, ink at 600, never amber (amber means pending). */
+.lrow .soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
   font-weight: 600;
 }
-.lnk.gone .iconbtn {
-  align-self: flex-start;
-  color: var(--muted);
+.lrow .fp {
+  font: 12px/1.5 var(--mono);
+  color: var(--ink-2);
 }
-.lnk.gone .note {
-  margin: 2px 0 0;
-}
-.pop {
-  border: 1px solid var(--failed-line);
-  background: var(--failed-bg);
-  border-radius: 10px;
-  padding: 10px;
-  font-size: 12.5px;
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-}
-.pop .row {
-  justify-content: flex-end;
-}
-.pop.neutral {
-  border-color: var(--rule);
-  background: var(--sunken);
-}
-details.inactive > summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12.5px;
-  padding: 4px 8px 8px;
+/* Under the groups: why inactive links stay listed, and Revoke all. */
+.lc-foot {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 4px 0 22px;
+  padding: 0;
+  font-size: var(--row-fs);
+  color: var(--ink-2);
 }

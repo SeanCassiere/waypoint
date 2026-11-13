@@ -30,9 +30,6 @@ dialog form {
     z-index: 1;
   }
 }
-.dlg .ft .exist {
-  color: var(--muted);
-}
 /* restore dialog (OW-07): paused link lines and a choice with no default */
 /* The confirm dialog's title and body carry user text (a collection title can be one unbroken
    word): they wrap inside the dialog, never widen it. */
@@ -46,31 +43,46 @@ dialog form {
 .lnkl {
   margin: 8px 0 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--rd-2);
   background: var(--sunken);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink-2);
   /* A label is user text up to 200 characters, maybe one unbroken word: it wraps, never widens. */
   overflow-wrap: anywhere;
 }
+.lnkl b {
+  color: var(--ink);
+}
 .lnkl svg.ic {
   margin-right: 6px;
+}
+/* share dialog (OW-03). The consequence band, the choices, the expiry control and the checklist's box
+   are components; this lays them out. */
+/* Wide screens: the dialog's top stays where it opened (about where a centred dialog of its usual
+   height sits), so a checklist row joining below the controls grows it downward and nothing above
+   moves (D84). Phones keep the bottom sheet (90-responsive). */
+@media (min-width: 760.02px) {
+  #share.dlg {
+    margin: max(24px, calc(50dvh - 380px)) auto auto;
+    max-height: calc(100dvh - max(24px, calc(50dvh - 380px)) - 24px);
+  }
 }
 .fields {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
   gap: 12px;
 }
+/* What the public will see: a ruled box of rows, each a mark (an icon) and its words. */
 .sees {
   overflow: hidden;
 }
 .sees .row {
   display: grid;
-  grid-template-columns: 20px 1fr;
+  grid-template-columns: 20px minmax(0, 1fr);
   gap: 8px;
   padding: 9px 14px;
-  font-size: 13px;
   border-top: 1px solid var(--rule);
+  font-size: 13px;
 }
 .sees h3 + .row,
 .sees summary + .row {
@@ -82,19 +94,16 @@ dialog form {
 }
 .sees .yes {
   color: var(--add);
-  font-weight: 700;
 }
 .sees .no {
-  color: var(--faint);
-  font-weight: 700;
+  color: var(--ink-2);
 }
 .sees .bang,
 .sees .next .later {
   color: var(--pending);
-  font-weight: 700;
 }
 .sees .files {
-  font: 12px var(--mono);
+  font: 12px/1.6 var(--mono);
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
@@ -106,25 +115,29 @@ dialog form {
   color: var(--del);
   text-decoration: line-through;
 }
+/* What Latest shows once the uploading revision syncs: tinted pending. */
 .sees .row.next {
-  background: color-mix(in srgb, var(--pending-bg) 40%, transparent);
+  background: var(--pending-bg);
 }
 details.sees > summary {
-  list-style: none;
-  cursor: default;
   display: flex;
   align-items: center;
   gap: 10px;
+  list-style: none;
+  cursor: default;
+}
+details.sees > summary::-webkit-details-marker {
+  display: none;
 }
 /* "Details" and its chevron, phones only (90-responsive). */
 details.sees .sum-more {
   display: none;
 }
-details.sees > summary::-webkit-details-marker {
-  display: none;
-}
-/* Per-target alternatives share one grid cell; the unchosen one is visibility:hidden (below),
-   so it keeps its size and switching targets never moves anything. */
+/* Per-target alternatives. The track and the footer's preview link keep both versions in one grid
+   cell, the unchosen one visibility: hidden, so switching targets never moves the fields or the
+   footer's buttons. The checklist is different (D84, reversing OW-03's fixed height): a row that
+   only Latest or Never publishes leaves the layout until it's chosen, then joins the checklist
+   below every control, so nothing under the pointer moves and no hole is reserved for it. */
 .alt {
   display: grid;
 }
@@ -134,11 +147,31 @@ details.sees > summary::-webkit-details-marker {
 .ft a.alt {
   display: inline-grid;
 }
+#share .sees > .alt {
+  display: block;
+}
+#share:not(:has(input[name="target"][value="latest"]:checked)) .when-latest,
+#share:has(input[name="target"][value="latest"]:checked) .when-only {
+  visibility: hidden;
+}
+#share:not(:has(input[name="target"][value="latest"]:checked)) .sees > .alt > .when-latest,
+#share:has(input[name="target"][value="latest"]:checked) .sees > .alt > .when-only,
+#share:not(:has(input[name="expires"][value="never"]:checked)) .sees > .when-never {
+  display: none;
+}
+/* The footer's start: the preview link, then "Already has N links" as its own phrase. */
+#share .ft .grow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  min-width: 0;
+}
 .sum-sm {
   display: none;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink-2);
 }
 /* Phones only (hidden elsewhere). The shown sentence wraps rather than clip; the hidden one stays
@@ -152,44 +185,146 @@ details.sees > summary::-webkit-details-marker {
   overflow: hidden;
   white-space: nowrap;
 }
-.tok {
+/* Link created: the URL in a public-tinted field joined to its Copy button, one box. */
+#share .tok {
   display: flex;
-  gap: 0;
-  border: 2px solid var(--public);
-  border-radius: 12px;
+  border: 1px solid var(--public-line);
+  border-radius: var(--rd-2);
   overflow: hidden;
 }
-.tok code {
+#share .tok code {
   flex: 1;
-  font: 13.5px/1.5 var(--mono);
-  padding: 12px 14px;
-  word-break: break-all;
+  padding: 10px 12px;
+  border-radius: var(--rd-2-in) 0 0 var(--rd-2-in);
   background: var(--public-bg);
   color: var(--ink);
+  font: 13px/1.5 var(--mono);
+  word-break: break-all;
   user-select: all;
 }
-.tok button {
-  border: 0;
-  background: var(--public-solid);
-  color: var(--on-solid);
-  font-weight: 700;
-  padding: 0 18px;
-  cursor: pointer;
-  font-size: 14px;
+#share .tok button {
   flex: none;
   min-width: 7.5em;
-  white-space: nowrap;
-}
-.tok button[data-copied] {
-  background: var(--ok-solid);
+  padding: 0 18px;
+  border: 0;
+  border-left: 1px solid var(--public-line);
+  border-radius: 0 var(--rd-2-in) var(--rd-2-in) 0;
+  background: var(--public-solid);
   color: var(--on-solid);
+  font-size: var(--row-fs);
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+#share .tok button:hover {
+  background-color: color-mix(in srgb, var(--public-solid) 86%, black);
+}
+#share .tok button[data-copied] {
+  background: var(--ok-solid);
 }
 .once {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
   font-size: 13px;
   color: var(--ink-2);
+}
+.kv.flat {
+  margin: 0;
+}
+/* Collection details (NAV-11). Fields, the tag suggestions (.tagadd) and the JSON field are
+   components; #details outranks the components' .dlg .bd p margin. A long project, tag, host or
+   suggestion with no spaces wraps instead of widening the dialog: the grid tracks may shrink
+   below their content, and the values break anywhere. */
+#details .bd,
+#details .fl {
+  grid-template-columns: minmax(0, 1fr);
+}
+#details :is(small, .ro .v, .tagadd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#details small code {
+  font: 12px var(--mono);
+}
+/* What a new title changes in public: a tinted note under the field, in the public blue. */
+#details .pubnote {
+  margin: -8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--public-line);
+  border-radius: var(--rd-2);
+  background: var(--public-bg);
+  color: var(--public);
+  font-size: 13px;
+}
+#details .pubnote .ic {
+  margin-right: 2px;
+}
+#details .tagsugg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -8px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+#details .tagadd {
+  max-width: 100%;
+  height: auto;
+  text-align: start;
+}
+#details .ro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+/* A host name is a name, in the UI's sans (D76's mono is for IDs and paths). */
+#details .ro .v {
+  color: var(--ink);
+}
+#details .ro small {
+  flex-basis: 100%;
+}
+#details .othermeta summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+#details .othermeta textarea {
+  display: block;
+  margin-top: 8px;
+}
+#details .othermeta textarea[aria-invalid="true"] {
+  border-color: var(--failed);
+}
+/* Reserved for two lines, so the dialog doesn't jump when the JSON error appears. */
+#details .jsonerr {
+  min-height: calc(2 * 1.4em);
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--failed);
+}
+#details .ft .nojs {
+  flex: 1 1 200px;
+}
+/* Phones: the bottom sheet's fields and buttons are 44 px tall. */
+@media (max-width: 760px) {
+  #details :is(input, textarea, button),
+  #details .tagadd,
+  #details .othermeta summary {
+    min-height: var(--tap);
+  }
+  #details .othermeta summary {
+    padding-block: 12px;
+  }
+  /* The engine's longer messages take three lines at this width. */
+  #details .jsonerr {
+    min-height: calc(3 * 1.4em);
+  }
 }
 /* purge dialog (OW-14): what happens when, the values to type with a Copy button each, and a
    hint that turns --ok once the field matches. Colour changes only, no motion. */
@@ -372,47 +507,6 @@ dialog.dlg .when b {
   .pfoot {
     display: none;
   }
-}
-.pop .row {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-/* share dialog: the tracks, checklist and preview link follow the form with :has(), no script.
-   Hidden, not removed: each keeps its size, so the dialog never changes height (OW-03). */
-#share:not(:has(input[name="target"][value="latest"]:checked)) .when-latest,
-#share:has(input[name="target"][value="latest"]:checked) .when-only,
-#share:not(:has(input[name="expires"][value="never"]:checked)) .when-never {
-  visibility: hidden;
-}
-.kv.flat {
-  margin: 0;
-}
-.lnk .soon,
-.r .soon {
-  color: var(--ink);
-  font-weight: 600;
-}
-.lnk .row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-.lnk details.act > summary {
-  list-style: none;
-}
-.lnk details.act > summary::-webkit-details-marker {
-  display: none;
-}
-.lnk details.act[open] {
-  flex-basis: 100%;
-}
-.lnk details.act[open] > summary {
-  display: none;
-}
-.lnk details.act .pop {
-  margin-top: 0;
 }
 /* Find (NAV-02): top-anchored, so it doesn't jump as results arrive. The form fills the box
    (padding 0), so a click whose target is the dialog itself landed on ::backdrop. */

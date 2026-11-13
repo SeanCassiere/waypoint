@@ -262,7 +262,7 @@ describe("OW-03 share dialog", () => {
       expect(latest).toContain("data-warn");
       const latestRows = checklist(dialog, "latest");
       expect(textOf(latestRows)).toContain("Now: the file in #1 index.txt");
-      expect(textOf(latestRows)).toContain("When #3 syncs: 2 files + two.txt · index.txt");
+      expect(textOf(latestRows)).toContain("When #3 syncs: 2 files + two.txt, index.txt");
       expect(latestRows).toContain('<span class="add">+ two.txt</span>');
       expect(latestRows).not.toContain('class="rm"');
       expect(latestRows).not.toContain("four.txt");
@@ -279,7 +279,7 @@ describe("OW-03 share dialog", () => {
     );
     const onlyRows = checklist(dialog, "only");
     expect(textOf(onlyRows)).toContain(
-      "All 2 files in #3, not just the one you're reading index.txt · two.txt",
+      "All 2 files in #3, not just the one you're reading index.txt, two.txt",
     );
     const fromLatest = preview(dialog);
     expect(fromLatest.latest).not.toContain("/r/");

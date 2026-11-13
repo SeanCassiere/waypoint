@@ -139,7 +139,8 @@ async function soonIsInk(page: Page, selector: string, where: string): Promise<v
   assert.notEqual(soon.color, await tok(page, "--pending"), `${where}: not --pending`);
   assert.equal(soon.weight, "600", `${where}: Sam's expiry is at 600`);
 }
-/** Inactive rows or cards: --muted, a 3 px --rule-2 rule, an --ink-2 title, neutral tone chips. */
+/** Inactive rows or cards: --muted, a 3 px --rule-2 rule, an --ink-2 title, and tone chips that
+ *  turn neutral: --muted words with no fill (a state is a glyph and words, never a pill: D78). */
 async function inactive(page: Page, row: string, title: string, where: string): Promise<void> {
   const facts = z
     .object({
@@ -147,7 +148,7 @@ async function inactive(page: Page, row: string, title: string, where: string): 
       color: z.string(),
       shadow: z.string(),
       title: z.string(),
-      chips: z.array(z.object({ bg: z.string(), color: z.string(), border: z.string() })),
+      chips: z.array(z.object({ bg: z.string(), color: z.string() })),
     })
     .parse(
       await page.evaluate(`(() => {
@@ -158,7 +159,7 @@ async function inactive(page: Page, row: string, title: string, where: string): 
         const tones = ".chip:is(.public, .pending, .failed, .paused)";
         const chips = rows.flatMap((r) => [...r.querySelectorAll(tones)]).map((chip) => {
           const c = getComputedStyle(chip);
-          return { bg: c.backgroundColor, color: c.color, border: c.borderTopStyle };
+          return { bg: c.backgroundColor, color: c.color };
         });
         const name = rows.map((r) => r.querySelector(${JSON.stringify(title)})).find(Boolean);
         return { rows: rows.length, color: s.color, shadow: s.boxShadow,
@@ -169,7 +170,6 @@ async function inactive(page: Page, row: string, title: string, where: string): 
   const muted = await tok(page, "--muted");
   const ink2 = await tok(page, "--ink-2");
   const rule2 = await tok(page, "--rule-2");
-  const sunken = await tok(page, "--sunken");
   assert.equal(facts.color, muted, `${where}: the row's meta is --muted`);
   assert.ok(
     facts.shadow.includes(rule2) && facts.shadow.includes("inset") && facts.shadow.includes("3px"),
@@ -178,8 +178,8 @@ async function inactive(page: Page, row: string, title: string, where: string): 
   if (facts.title) assert.equal(facts.title, ink2, `${where}: the title is --ink-2`);
   for (const chip of facts.chips)
     assert.deepEqual(
-      [chip.bg, chip.color, chip.border],
-      [sunken, muted, "solid"],
+      [chip.bg, chip.color],
+      ["rgba(0, 0, 0, 0)", muted],
       `${where}: a tone chip is neutral`,
     );
   assert.deepEqual(await dimmed(page), [], `${where}: nothing is dimmed with opacity`);

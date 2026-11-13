@@ -323,7 +323,7 @@ describe("Collection details", () => {
     expect(extra).not.toContain('"project"');
     expect(extra).not.toContain('"tags"');
     expect(extra).not.toContain('"source_host"');
-    expect(text(dialog)).toContain("Other metadata (JSON) · 1 key");
+    expect(text(dialog)).toContain("Other metadata (JSON), 1 key");
     expect(tagOf(dialog, "data-json-error")).toContain('id="details-json-err"');
     const keep = tagOf(dialog, 'data-form="details"');
     expect(keep).toContain("data-keep=");
@@ -370,7 +370,7 @@ describe("Collection details", () => {
     const extra = region(dialog, '<textarea name="extra"', "</textarea>");
     expect(extra).toContain('"ticket": "W-9"');
     expect(extra).not.toContain('"project"');
-    expect(text(dialog)).toContain("Other metadata (JSON) · 1 key");
+    expect(text(dialog)).toContain("Other metadata (JSON), 1 key");
   });
 
   it("names no blank project or tag in the hints", async () => {
@@ -393,7 +393,7 @@ describe("Collection details", () => {
     );
     expect(dialog).not.toContain("Written on");
     expect(region(dialog, '<textarea name="extra"', "</textarea>")).toMatch(/>\{\}$/);
-    expect(text(dialog)).toContain("Other metadata (JSON) · 0 keys");
+    expect(text(dialog)).toContain("Other metadata (JSON), 0 keys");
     expect(tagOf(dialog, 'data-form="details"')).toContain('data-keep="{}"');
   });
 });
