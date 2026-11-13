@@ -72,7 +72,7 @@ export interface TableMeta {
   readonly rows: readonly (TableRowKind | number)[];
   /** Content columns, which a gap row's cell spans. */
   readonly columns: number;
-  /** The caption ("Table · 1 row changed, 1 added") with a gutter column; `null` for an
+  /** The caption ("Table, 1 row changed, 1 added") with a gutter column; `null` for an
    * unchanged table, shown plain. */
   readonly caption: string | null;
   /** For each row of the fragment, header first (a gap row has `[]`): the content columns whose
@@ -310,7 +310,7 @@ export function tableFragment(
     meta: {
       rows: kinds,
       columns,
-      caption: plain ? null : `Table · ${parts.join(", ")}`,
+      caption: plain ? null : `Table, ${parts.join(", ")}`,
       marked,
       whole,
     },

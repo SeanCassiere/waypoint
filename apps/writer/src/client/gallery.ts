@@ -54,7 +54,10 @@ export function bindGallery(): void {
     const title = $("[data-lbx-title]", dialog);
     if (title) title.textContent = name;
     const status = $("[data-lbx-status]", dialog);
-    if (status) status.textContent = shot.dataset.status ?? "";
+    if (status) {
+      status.textContent = shot.dataset.status ?? "";
+      status.dataset.tone = shot.dataset.status ?? "";
+    }
     const count = $("[data-lbx-count]", dialog);
     if (count) count.textContent = `${index + 1} of ${shots.length}`;
     if (open) open.href = shot.href;

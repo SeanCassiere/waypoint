@@ -152,7 +152,7 @@ describe("rendered table diffs", () => {
       /^<div class="blk mod" data-change="table, 1 row changed, 1 added" tabindex="-1">/,
     );
     expect(block).toContain('<div class="tx rd"><div class="dtwrap"><table class="dt">');
-    expect(block).toContain('<caption class="srcnote">Table · 1 row changed, 1 added</caption>');
+    expect(block).toContain('<caption class="srcnote">Table, 1 row changed, 1 added</caption>');
     expect(block).toContain('<th class="g"><span class="vh">Change</span></th>');
     expect(block.match(/<tr class="r-mod">/g)).toHaveLength(1);
     expect(block.match(/<tr class="r-add">/g)).toHaveLength(1);
@@ -191,7 +191,7 @@ describe("rendered table diffs", () => {
     );
     const block = tableBlock(await page(changes));
     expect(block).toMatch(/^<div class="blk add" data-change="table, 2 added" tabindex="-1">/);
-    expect(block).toContain('<caption class="srcnote">Table · 2 added</caption>');
+    expect(block).toContain('<caption class="srcnote">Table, 2 added</caption>');
     expect(block).toContain('<span class="mk"><span aria-hidden="true">+</span>');
     expect(
       block.match(/<tr class="r-add"><td class="g"><span aria-hidden="true">\+<\/span>/g),
@@ -209,7 +209,7 @@ describe("rendered table diffs", () => {
     expect(block).toMatch(
       /^<div class="blk mod" data-change="table, 1 row changed" tabindex="-1">/,
     );
-    expect(block).toContain('<caption class="srcnote">Table · 1 row changed</caption>');
+    expect(block).toContain('<caption class="srcnote">Table, 1 row changed</caption>');
   });
 
   it("shows a context row under a changed header", async () => {
@@ -276,7 +276,7 @@ describe("rendered table diffs", () => {
     const html = await page(crossed.changes);
     expect(html).not.toContain('class="dtwrap"');
     expect(html).toContain(
-      '<div class="tx dtsrc"><span class="srcnote">Table · 1 row changed</span>',
+      '<div class="tx dtsrc"><span class="srcnote">Table, 1 row changed</span>',
     );
   });
 
@@ -301,7 +301,7 @@ describe("rendered table diffs", () => {
     const html = await page(bold.changes);
     expect(html).not.toContain('class="dtwrap"');
     expect(html).toContain(
-      '<div class="tx dtsrc"><span class="srcnote">Table · 1 row changed</span>',
+      '<div class="tx dtsrc"><span class="srcnote">Table, 1 row changed</span>',
     );
   });
 
@@ -313,7 +313,7 @@ describe("rendered table diffs", () => {
       '<div class="blk mod" data-change="table, 1 row changed" tabindex="-1"><span class="mk">',
     );
     expect(html).toContain(
-      '<div class="tx dtsrc"><span class="srcnote">Table · 1 row changed</span><span class="row0">| A |</span><span class="row0">| - |</span><span class="lndel">| 3 apples |</span><span class="lnadd">| 4 apples |</span><span class="row0">| B |</span>',
+      '<div class="tx dtsrc"><span class="srcnote">Table, 1 row changed</span><span class="row0">| A |</span><span class="row0">| - |</span><span class="lndel">| 3 apples |</span><span class="lnadd">| 4 apples |</span><span class="row0">| B |</span>',
     );
   });
 
@@ -327,7 +327,7 @@ describe("rendered table diffs", () => {
     expect(html).toContain(
       '<div class="blk mod" data-change="table, 1 row changed, 1 added" tabindex="-1">',
     );
-    expect(html).toContain('<span class="srcnote">Table · 1 row changed, 1 added</span>');
+    expect(html).toContain('<span class="srcnote">Table, 1 row changed, 1 added</span>');
   });
 
   it("shows an unchanged table opened in a fold as a plain table", async () => {

@@ -74,7 +74,7 @@ export async function galleryPage(
           <CollectionBar
             ctx={ctx}
             mode="gallery"
-            pill={`gallery · ${dir}`}
+            pill={`gallery, ${dir}`}
             doneHref={done}
             menus={
               <>
@@ -116,7 +116,7 @@ export async function galleryPage(
                 <h2>{dir}</h2>
                 <span class="muted">
                   {plural(images.length, "image")} in #{n}
-                  {parentN !== null ? ` · ${changedCount} changed since #${parentN}` : ""}
+                  {parentN !== null ? `, ${changedCount} changed since #${parentN}` : ""}
                 </span>
                 <span class="grow" />
                 <nav class="seg" aria-label="Filter images">
@@ -222,11 +222,11 @@ export async function galleryPage(
           <div class="pair" data-lbx-pair>
             <figure data-lbx-before>
               <img alt="" />
-              <figcaption>Before · #{parentN ?? "–"}</figcaption>
+              <figcaption>Before, #{parentN ?? "–"}</figcaption>
             </figure>
             <figure>
               <img alt="" data-lbx-after />
-              <figcaption>After · #{n}</figcaption>
+              <figcaption>After, #{n}</figcaption>
             </figure>
           </div>
           <div class="slider" data-lbx-slider>

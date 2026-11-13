@@ -2,8 +2,8 @@
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
-  padding: 18px 22px 60px;
+  gap: 16px;
+  padding: 0 22px 60px;
   overflow: auto;
   flex: 1;
   align-content: start;
@@ -11,21 +11,35 @@
      have a zero minimum and share the height; size each row to its content instead. */
   grid-auto-rows: max-content;
 }
+/* The folder heading is a ruled row across the column, like the Changes summary row, and stays
+   in view while the images scroll. */
 .galhead {
   grid-column: 1/-1;
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  gap: 10px;
-  align-items: center;
+  gap: 6px 14px;
+  align-items: baseline;
   flex-wrap: wrap;
+  min-height: var(--r1);
+  margin: 0 -22px 6px;
+  padding: 7px 22px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
 }
 .galhead h2 {
-  font: 700 20px/1.2 var(--sans);
+  font: 740 19px/1.2 var(--mono);
   margin: 0;
   letter-spacing: -0.01em;
 }
+.galhead .muted {
+  color: var(--ink-2);
+  font-size: var(--row-fs);
+}
 .shot {
-  border: 1px solid var(--rule);
-  border-radius: 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   overflow: hidden;
   background: var(--surface);
   text-decoration: none;
@@ -37,12 +51,18 @@
   color: var(--ink);
   min-height: max-content;
 }
+/* A card's hover: the film over its surface, and its edge darkens. */
+a.shot:hover {
+  border-color: var(--ink-2);
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
 .shot .img {
   aspect-ratio: 16/10;
   background: var(--stage);
   display: grid;
   place-items: center;
   overflow: hidden;
+  border-bottom: 1px solid var(--rule);
 }
 .shot .img img {
   width: 100%;
@@ -50,12 +70,25 @@
   object-fit: contain;
 }
 .shot .cap {
-  padding: 7px 10px;
-  font: 12px var(--mono);
+  min-height: 36px;
+  padding: 6px 10px;
+  font: 500 12.5px var(--mono);
+  color: var(--ink);
   display: flex;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
   min-width: 0;
+}
+/* Concentric corners: the caption follows the card's rounded bottom. */
+.shot > .cap:last-child {
+  border-bottom-left-radius: var(--rd-box-in);
+  border-bottom-right-radius: var(--rd-box-in);
+}
+.shot .cap .k {
+  width: 1.2ch;
+  font-weight: 700;
+  text-align: center;
+  color: var(--muted);
 }
 .shot .cap .nm {
   overflow: hidden;
@@ -64,15 +97,16 @@
 }
 .shot .cap .dim {
   margin-left: auto;
-  color: var(--faint);
-  font-size: 11px;
+  font: 450 12px var(--sans);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .shot.mod {
   border-color: var(--changed-line);
 }
 .shot.add {
-  border-color: var(--add-word);
+  border-color: var(--add);
 }
 .shot.del {
   border-style: dashed;
@@ -86,22 +120,24 @@
 .shot.del .cap .nm {
   color: var(--ink-2);
 }
-.shot.del .cap .dim {
-  color: var(--muted);
-}
 .galsec {
   grid-column: 1/-1;
-  margin: 10px 0 0;
-  font: 650 12px/1 var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font: 680 14px/1.2 var(--sans);
+  color: var(--ink);
 }
+/* Phones: two columns with 16 px gutters (A11Y-10). */
 @media (max-width: 599.98px) {
   .gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
-    padding: 16px 16px 60px;
+    padding: 0 16px 60px;
+  }
+  .galhead {
+    margin: 0 -16px 4px;
+    padding: 8px 16px;
   }
   .shot .cap {
     min-height: var(--tap);
@@ -113,8 +149,8 @@ dialog.lbx {
   max-width: none;
   max-height: none;
   padding: 0;
-  border: 1px solid var(--rule);
-  border-radius: 16px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--dlg);
   color: var(--ink);
   box-shadow: var(--sh-2);
@@ -126,26 +162,57 @@ dialog.lbx[open] {
 dialog.lbx::backdrop {
   background: var(--scrim);
 }
+/* The header and footer are ruled rows the height of a panel row. */
 .lbx header,
 .lbx footer {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--rule);
+  align-items: baseline;
+  gap: 8px 12px;
+  min-height: var(--r1);
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--rule-2);
   flex-wrap: wrap;
 }
+/* Centred, not on a baseline: Previous starts with its icon, which has none. The text beside it
+   takes the row's line metrics, so it all shares one baseline anyway. */
 .lbx footer {
-  border-top: 1px solid var(--rule);
+  align-items: center;
+  border-top: 1px solid var(--rule-2);
   border-bottom: 0;
+}
+.lbx header b {
+  font-family: var(--mono);
+  font-weight: 620;
+}
+/* What happened to the image, in its change colour (client/gallery.ts sets data-tone). */
+.lbx header [data-lbx-status] {
+  color: var(--ink-2);
+  font-weight: 620;
+}
+.lbx header [data-tone="changed"] {
+  color: var(--changed);
+}
+.lbx header [data-tone="added"] {
+  color: var(--add);
+}
+.lbx footer .muted {
+  line-height: var(--row-lh);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .lbx .pair {
   flex: 1;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  padding: 16px;
+  gap: 20px;
+  padding: 20px;
   min-height: 0;
+  background: var(--paper);
+}
+@media (max-width: 760px) {
+  .lbx .pair {
+    grid-template-columns: 1fr;
+  }
 }
 .lbx .pair.one {
   grid-template-columns: 1fr;
@@ -164,13 +231,14 @@ dialog.lbx::backdrop {
   max-height: 100%;
   min-height: 0;
   object-fit: contain;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-2);
   background: var(--sunken);
 }
 .lbx figcaption {
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 .slider {
@@ -191,8 +259,8 @@ dialog.lbx::backdrop {
   display: block;
   max-width: 100%;
   max-height: calc(100dvh - 220px);
-  border: 1px solid var(--rule);
-  border-radius: 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-2);
 }
 .slider .stack img.after {
   position: absolute;

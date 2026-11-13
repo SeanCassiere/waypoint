@@ -1,47 +1,113 @@
-/* compare */
+/* Changes: an 860 px column, centred in the scroller. The summary row runs the scroller's full
+   width while its contents stay on the column. */
 .cmp {
+  --cmp-col: min(860px, calc(100% - 56px));
   overflow: auto;
   flex: 1;
-  padding: 22px 28px 60px;
+  padding: 0 0 72px;
+}
+.cmp > :not(.sumrow) {
+  width: var(--cmp-col);
+  margin-inline: auto;
 }
 .cmphead {
-  max-width: 860px;
-  margin: 0 auto 18px;
+  padding-top: 22px;
+  margin-bottom: 0;
+}
+/* The page has no top padding (the summary row sticks flush to the top), so the "Swapped to…"
+   note above the header keeps its own space. */
+.cmp > .cmpnote {
+  margin-top: 16px;
 }
 .cmphead h2 {
-  font: 700 20px/1.2 var(--sans);
-  margin: 0 0 4px;
-  letter-spacing: -0.01em;
+  font: 740 22px/1.2 var(--sans);
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
 }
+.cmphead > .muted {
+  color: var(--ink-2);
+}
+/* The writer's host, said in words like the rest of the line. */
+.cmphead > .muted .who {
+  color: var(--ink);
+  font-weight: 520;
+}
+/* The tally, the change stepper and the view switch: one ruled row that stays in reach. */
 .sumrow {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 10px;
+  /* Centred, not on a baseline: Previous starts with its icon, which has none. The text beside
+     it takes the row's line metrics, so it all shares one baseline anyway. */
   align-items: center;
+  gap: 6px 14px;
+  min-height: var(--r2);
+  margin-top: 16px;
+  padding: 7px max(28px, calc((100% - 860px) / 2));
+  border-block: 1px solid var(--rule);
+  background: var(--surface);
 }
+/* The stepper (or, until it shows, the view switch) goes to the right. An auto margin rather than
+   a spacer element, which would cost a gap: counts, stepper and switch fit one 860 px row. */
+.sumrow > :is(.stepper:not([hidden]), .stepper[hidden] + *) {
+  margin-left: auto;
+}
+.sumrow .chip {
+  align-items: baseline;
+  gap: 5px;
+  color: var(--ink);
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+  font-weight: 560;
+}
+.sumrow .chip.same {
+  color: var(--ink-2);
+  font-weight: 450;
+}
+.sumrow .k {
+  font-family: var(--mono);
+  font-weight: 700;
+  line-height: 1;
+}
+/* File cards: boxy, one hairline, the header a ruled row the height of a panel row. */
 .fd {
-  max-width: 860px;
-  margin: 0 auto 18px;
-  border: 1px solid var(--rule);
-  border-radius: 12px;
+  margin-top: 22px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
-  box-shadow: var(--sh-1);
+  /* A card reached from the Files panel lands below the stuck summary row. */
+  scroll-margin-top: calc(var(--r2) + 12px);
 }
 .fd > header {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--rule);
-  background: var(--sunken);
-  font-size: 13px;
+  align-items: baseline;
   flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: var(--r1);
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--rule-2);
+  background: var(--paper);
+  font-size: 13px;
+}
+.fd > header .k {
+  width: 1.2ch;
+  font-family: var(--mono);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
 }
 .fd > header .p {
-  font: 600 13px var(--mono);
+  font-family: var(--mono);
+  font-weight: 560;
+  color: var(--ink);
   overflow-wrap: anywhere;
+}
+.fd > header :is(.chip.xs, .muted.small) {
+  color: var(--ink-2);
+  font-weight: 500;
 }
 /* Phones: the glyph, path and "Open in #N" share the first row (a long path wraps within it,
    so the button never wraps onto a row of its own); the chips and change summary go below. */
@@ -73,17 +139,35 @@
 .fd .note {
   padding: 12px 16px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--ink-2);
   overflow-wrap: anywhere;
 }
+/* Blocks keep Folio's grammar: + − ~ in the gutter, a 3 px bar, green and red fills. Blocks are
+   ruled apart, except within a run of additions or of removals. */
 .blk {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
   border-top: 1px solid transparent;
 }
+.blk + .blk {
+  border-top-color: var(--rule);
+}
+.blk.add + .blk.add,
+.blk.del + .blk.del {
+  border-top-color: transparent;
+}
+/* Concentric corners: the last block, or a last fold, follows the card's rounded bottom. */
+.fd > .blk:last-child {
+  border-bottom-left-radius: var(--rd-box-in);
+  border-bottom-right-radius: var(--rd-box-in);
+}
+.fd > details.folded:last-child > summary.fold,
+.fd > .lines:last-child > details.folded:last-child > summary.fold {
+  border-radius: 0 0 var(--rd-box-in) var(--rd-box-in);
+}
 .blk .tx {
   padding: 8px 18px 8px 10px;
-  font: 15.5px/1.6 var(--sans);
+  font: 400 15.5px/1.62 var(--sans);
   max-width: 72ch;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -125,7 +209,7 @@
   color: var(--changed);
 }
 .blk .ctxnote {
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 13px;
 }
 .blk .tx.rd > :first-child {
@@ -179,9 +263,8 @@
 }
 .blk .tx.rd .markdown-alert-title {
   margin: 0 0 4px;
-  font: 650 11px/1.2 var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font: 650 13px/1.3 var(--sans);
+  letter-spacing: -0.005em;
   color: var(--ink-2);
 }
 /* Rendered tables scroll sideways in their wrapper, which is only as wide as its table.
@@ -248,7 +331,7 @@
   max-width: 22ch;
 }
 .dt thead th {
-  background: var(--sunken);
+  background: var(--paper);
   font-weight: 650;
 }
 .dt .g {
@@ -290,13 +373,7 @@
 }
 /* A table that can't be rendered shows its source rows as .blk.src lines (below). The block's
    class can't depend on whether its fragment renders, so the same lines are scoped to the
-   fallback itself. */
-.blk .tx.dtsrc {
-  padding-left: calc(10px + 2ch);
-  font: 12.5px/1.6 var(--mono);
-  white-space: pre-wrap;
-  color: var(--ink-2);
-}
+   fallback itself (.tx.dtsrc). */
 .dtsrc .lnadd {
   display: block;
   background: var(--add-word);
@@ -311,14 +388,22 @@
 .dtsrc .row0 {
   display: block;
 }
+/* Code and source lines, in blocks and in the line view: one mono size. */
 .blk.src .tx,
-.blk .tx.code {
-  font: 12.5px/1.6 var(--mono);
+.blk .tx.code,
+.blk .tx.dtsrc,
+.lines {
+  font: 400 12.5px/1.6 var(--mono);
+}
+.blk.src .tx,
+.blk .tx.code,
+.blk .tx.dtsrc {
   white-space: pre-wrap;
   color: var(--ink-2);
 }
 /* Room for the code lines' +/− signs, which sit in the padding and aren't copied. */
-.blk.src .tx {
+.blk.src .tx,
+.blk .tx.dtsrc {
   padding-left: calc(10px + 2ch);
 }
 .blk.src .tx .sg {
@@ -348,12 +433,10 @@
   display: block;
 }
 .srcnote {
-  font: 600 10.5px/1 var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font: 620 12.5px/1.2 var(--sans);
+  color: var(--ink-2);
 }
 ins {
   background: var(--add-word);
@@ -399,14 +482,16 @@ del {
 .cmp del::before {
   content: "removed: ";
 }
+/* Folded runs of unchanged blocks: a quiet ruled row, not a grey slab. */
 .fold {
   display: block;
   width: 100%;
+  min-height: 36px;
   text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 6px;
-  background: var(--sunken);
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 8px;
+  background: var(--surface);
   border: 0;
   border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
@@ -414,6 +499,10 @@ del {
   list-style: none;
   /* Over-limit links name the file; a long path wraps instead of being clipped by .fd. */
   overflow-wrap: anywhere;
+}
+.fold:hover {
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--ink);
 }
 .fold::-webkit-details-marker {
   display: none;
@@ -437,7 +526,6 @@ details.folded[open] > summary.fold .ic {
   transform: rotate(180deg);
 }
 .lines {
-  font: 12.5px/1.6 var(--mono);
   overflow-x: auto;
 }
 .lines .ln {
@@ -447,7 +535,7 @@ details.folded[open] > summary.fold .ic {
   overflow-wrap: anywhere;
 }
 .lines .ln .n {
-  color: var(--faint);
+  color: var(--muted);
   text-align: right;
   padding-right: 8px;
   user-select: none;
@@ -475,8 +563,8 @@ details.folded[open] > summary.fold .ic {
 .imgpair {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  padding: 14px;
+  gap: 16px;
+  padding: 16px;
 }
 .imgpair figure {
   margin: 0;
@@ -487,23 +575,23 @@ details.folded[open] > summary.fold .ic {
 .imgpair img {
   max-width: 100%;
   max-height: 420px;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-2);
   background: var(--sunken);
 }
 .imgpair figcaption {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
 /* A removed image, framed in the removal colour. */
 .rmimg {
   margin: 0;
-  padding: 14px;
+  padding: 16px;
 }
 .rmimg .img {
   display: block;
   border: 2px solid var(--del);
-  border-radius: 8px;
+  border-radius: var(--rd-2);
   overflow: hidden;
   background: var(--stage);
   max-width: min(100%, 480px);
@@ -515,13 +603,14 @@ details.folded[open] > summary.fold .ic {
 }
 .rmimg figcaption {
   font-size: 12.5px;
-  color: var(--muted);
+  color: var(--ink-2);
   margin-top: 6px;
 }
 /* Card header counts in words, and the Files panel's legend of marks. */
 .tally {
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .tally .m {
   color: var(--changed);
@@ -535,18 +624,67 @@ details.folded[open] > summary.fold .ic {
 .diffkey .k {
   font-family: var(--mono);
 }
-/* Previous · Change 1 of 4 · Next; docked above the tab bar on phones. */
+/* Previous, "Change 1 of 4", Next; docked above the tab bar on phones. */
 .stepper {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .stepcount {
-  font-size: 13px;
-  min-width: 9ch;
+  min-width: 8ch;
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
+/* The changed-file list in the panel (this page's own panel content). */
+body[data-page="changes"] .tree .dir {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 680;
+}
+body[data-page="changes"] .tree .k {
+  width: 1.2ch;
+  font-weight: 700;
+  line-height: 1;
+}
+body[data-page="changes"] .tree :is(.k, .nm) {
+  font-family: var(--mono);
+}
+/* The page's small text: card header notes, the changed files' marks and names, the legend. */
+.fd > header :is(.chip.xs, .muted.small),
+body[data-page="changes"] :is(.tree .k, .tree .nm, .legend) {
+  font-size: 12.5px;
+}
+body[data-page="changes"] .tree .sz {
+  margin-left: auto;
+  font: 450 12px var(--sans);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+body[data-page="changes"] .legend {
+  color: var(--ink-2);
+}
 @media (max-width: 760px) {
+  .cmp {
+    --cmp-col: calc(100% - 24px);
+    padding-bottom: 140px;
+  }
+  .cmphead {
+    padding-top: 16px;
+  }
+  .cmphead h2 {
+    font-size: 20px;
+  }
+  .sumrow {
+    position: static;
+    padding: 8px 12px;
+  }
+  .fd {
+    margin-top: 16px;
+  }
   .stepper {
     position: fixed;
     left: 0;
@@ -557,8 +695,8 @@ details.folded[open] > summary.fold .ic {
     justify-content: space-between;
     gap: 8px;
     padding: 8px 12px;
-    background: var(--paper);
-    border-top: 1px solid var(--rule);
+    background: var(--surface);
+    border-top: 1px solid var(--rule-2);
   }
   .stepper .btn {
     flex: 1;

@@ -135,7 +135,7 @@ describe("tableParts", () => {
       same("| 1 | 2 |"),
     ];
     expect(tableParts(rows)).toEqual(["1 row changed"]);
-    expect(tableFragment(rows)?.meta.caption).toBe("Table · 1 row changed");
+    expect(tableFragment(rows)?.meta.caption).toBe("Table, 1 row changed");
   });
 });
 
@@ -212,7 +212,7 @@ describe("tableFragment", () => {
     expect(table?.meta).toEqual({
       rows: [3, "ctx", "mod", "ctx", 4],
       columns: 2,
-      caption: "Table · 1 row changed",
+      caption: "Table, 1 row changed",
       marked: [[], [], [], [1], [], []],
       whole: [[], [], [], [], [], []],
     });
@@ -411,7 +411,7 @@ const fragment = "| A | B |\n| :- | -: |\n| `x` | *y* |\n|  |  |\n| 1 | 2 |\n| 3
 const meta: TableMeta = {
   rows: ["ctx", 2, "mod", "add"],
   columns: 2,
-  caption: "Table · 1 row changed, 1 added",
+  caption: "Table, 1 row changed, 1 added",
 };
 
 const marks = (marked: readonly (readonly number[])[]) =>
@@ -421,7 +421,7 @@ describe("decorateTable", () => {
   it("wraps the table and adds the caption, gutter, row classes and gap rows", () => {
     const html = decorateTable(renderFragment(fragment), meta) ?? "";
     expect(html).toMatch(/^<div class="dtwrap"><table class="dt"><caption class="srcnote">/);
-    expect(html).toContain('<caption class="srcnote">Table · 1 row changed, 1 added</caption>');
+    expect(html).toContain('<caption class="srcnote">Table, 1 row changed, 1 added</caption>');
     expect(html).toContain('<tr><th class="g"><span class="vh">Change</span></th>\n<th');
     expect(html.match(/<tr class="r-[a-z]+">/g)).toEqual([
       '<tr class="r-ctx">',
@@ -470,7 +470,7 @@ describe("decorateTable", () => {
   it("ignores tags inside attribute values", () => {
     const html = decorateTable(
       renderFragment('| A |\n| - |\n| [x](https://e.example/ "<td>x</td>") |'),
-      { rows: ["mod"], columns: 1, caption: "Table · 1 row changed" },
+      { rows: ["mod"], columns: 1, caption: "Table, 1 row changed" },
     );
     expect(html).toContain('title="<td>x</td>"');
     expect(html?.match(/<span class="dc">/g)).toHaveLength(2);
@@ -503,7 +503,7 @@ describe("decorateTable", () => {
       decorateTable(renderFragment(swallowed), {
         rows: ["mod"],
         columns: 1,
-        caption: "Table · 1 row changed",
+        caption: "Table, 1 row changed",
         marked: [[], [0]],
       }),
     ).toBeNull();

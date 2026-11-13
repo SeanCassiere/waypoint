@@ -116,7 +116,7 @@ export default {
     await page.goto(changes);
     const changed = page.locator(".blk.mod:has(table.dt)");
     await changed.waitFor();
-    assert.equal(await changed.locator("caption").textContent(), "Table · 1 row changed, 1 added");
+    assert.equal(await changed.locator("caption").textContent(), "Table, 1 row changed, 1 added");
     assert.equal(await changed.locator("tr.r-mod").count(), 1);
     assert.equal(await changed.locator("tr.r-add").count(), 1);
     assert.equal(

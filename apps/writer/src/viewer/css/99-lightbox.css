@@ -21,6 +21,12 @@
 .lbx header form {
   margin: 0;
 }
+/* Done takes the modes' text metrics, so on the header's baseline the two also share a centre
+   line (A11Y-05b). */
+.lbx [data-lbx-done] {
+  font-size: var(--row-fs);
+  line-height: var(--row-lh);
+}
 /* forced colours drop the pressed segment's background and shadow: keep an outline */
 @media (forced-colors: active) {
   .lbx .seg [aria-pressed="true"] {
