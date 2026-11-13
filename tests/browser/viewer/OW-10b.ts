@@ -369,7 +369,7 @@ const scenario: ViewerScenario = {
       assert.equal(looks.background, await token(dark, "--surface"), "dark: surface fill");
       assert.equal(looks.border, await token(dark, "--rule-2"), "dark: --rule-2 border");
       assert.equal(looks.color, await token(dark, "--ink-2"), "dark: --ink-2 words");
-      assert.equal(looks.icon, await token(dark, "--failed"), "dark: a red icon");
+      assert.equal(looks.ring?.color, await token(dark, "--failed"), "dark: a red ring");
     }
 
     // Forced colours: the ring is a border, so it stays.

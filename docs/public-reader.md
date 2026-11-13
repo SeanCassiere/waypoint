@@ -113,7 +113,7 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 | No stale shared caches | `Cache-Control: private` on all tokenized responses; `no-store` on denials |
 | Environment isolation | The prod reader is bound only to the prod bucket and the prod DB |
 | Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
-| Shell runs only its own code | Hash-only CSP for the one inline style and script, plus `font-src 'self'` for the chrome's font; frame messages are validated against the frame's window and the shell's own links |
+| Shell runs only its own code | Hash-only CSP for the one inline style and script, plus `font-src 'self'` for the chrome's font (preloaded with no Referer); frame messages are validated against the frame's window and the shell's own links |
 
 ## Later
 

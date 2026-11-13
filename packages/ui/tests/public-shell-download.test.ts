@@ -115,7 +115,7 @@ describe("Download control (RX-06)", () => {
         [...icon(name).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]),
       );
       const allowed = [
-        ..."a b body button circle defs details div h1 h2 head header hr html iframe li main meta nav p path rect small span summary svg symbol time title ul use".split(
+        ..."a b body button circle defs details div h1 h2 head header hr html iframe li link main meta nav p path rect small span summary svg symbol time title ul use".split(
           " ",
         ),
         ...iconTags,

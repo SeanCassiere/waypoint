@@ -1,3 +1,4 @@
+import { chromeFontPreload } from "../font.ts";
 import { escapeHtml } from "../html.ts";
 import { iconSprite } from "../icons.ts";
 import { publicShellCss } from "./css.ts";
@@ -24,7 +25,7 @@ export { shellFileKind, type ShellFileKind } from "./tree.ts";
  * Callers own every URL. The shell never builds share or capability URLs itself.
  *
  * CSP contract: the markup has no `style` attributes, no inline event handlers and no
- * external assets. All CSS is `publicShellCss` and all script is `publicShellScript`, emitted
+ * external assets but the chrome's font, preloaded with no Referer (`chromeFontPreload`, D76). All CSS is `publicShellCss` and all script is `publicShellScript`, emitted
  * as exactly one `<style>` and one `<script>` element (or as external files via `assets`), so
  * one hash each covers them.
  */
@@ -126,5 +127,5 @@ export function renderPublicShell(options: PublicShellOptions): string {
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
   const version = options.version ? ` data-waypoint-version="${escapeHtml(options.version)}"` : "";
-  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell"${options.collection ? ` data-collection="${escapeHtml(options.collection)}"` : ""}>${script}${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : `${script}${documentArea(options)}`}${sprite}<div class="pop-scrim" aria-hidden="true"></div></body></html>`;
+  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${chromeFontPreload}${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell"${options.collection ? ` data-collection="${escapeHtml(options.collection)}"` : ""}>${script}${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : `${script}${documentArea(options)}`}${sprite}<div class="pop-scrim" aria-hidden="true"></div></body></html>`;
 }

@@ -237,9 +237,10 @@ dialog.dlg .when b {
 .cpv dd.v.mono {
   font: 13px/1.4 var(--mono);
 }
+/* 92 px holds the check and "Copied" in Recursive (D76), so Copied never grows the button. */
 .btn.cpy {
   justify-content: center;
-  min-width: 88px;
+  min-width: 92px;
   background: var(--surface);
 }
 /* Copied is a colour change only: no pressed scale (95-motion), so the width showCopied() keeps

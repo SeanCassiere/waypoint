@@ -32,6 +32,15 @@ export function chromeFontBytes(): Uint8Array<ArrayBuffer> {
   return decoded;
 }
 
+/**
+ * The font's preload, for the head of every reader page, before its `<style>`. Chromium sends the
+ * page's full URL as the Referer of a font that an inline style sheet loads, whatever the page's
+ * referrer policy, and a reader page's URL can hold a share token or a raw capability. The
+ * preload's own `referrerpolicy` holds, and the style sheet's load reuses the preloaded response,
+ * so the font is fetched once with no Referer (tests/browser/reader/04-no-token-referers.ts).
+ */
+export const chromeFontPreload: string = `<link rel="preload" href="${CHROME_FONT_PATH}" as="font" type="font/woff2" crossorigin referrerpolicy="no-referrer">`;
+
 /** The two faces over the one file; heads `sharedTokensCss`. */
 export const fontFaceCss: string = `@font-face{font-family:"Recursive";src:url(${CHROME_FONT_PATH}) format("woff2");font-weight:300 1000;font-style:normal;font-display:swap}
 @font-face{font-family:"Recursive Mono";src:url(${CHROME_FONT_PATH}) format("woff2");font-weight:300 1000;font-style:normal;font-display:swap;font-variation-settings:"MONO" 1}

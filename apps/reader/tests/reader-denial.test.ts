@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { hashShareToken, newShareToken, shareShellUrl } from "@waypoint/core";
-import { FRAME_DENIED_BODY, FRAME_DENIED_HEADING } from "@waypoint/ui";
+import { chromeFontPreload, FRAME_DENIED_BODY, FRAME_DENIED_HEADING } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
@@ -20,6 +20,11 @@ const linkId = "shl_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const token = newShareToken();
 const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const forbiddenTags = /<(?:a|input|form|button|script|select|textarea|link|img)\b/i;
+/** The page without its one allowed resource, the chrome font's no-Referer preload (D76). */
+const withoutFont = (page: string): string => {
+  expect(page.split(chromeFontPreload)).toHaveLength(2);
+  return page.replace(chromeFontPreload, "");
+};
 const forbiddenAttributes = /\sstyle=|\son[a-z]+=/i;
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "turso://test",
@@ -145,7 +150,7 @@ describe("denial pages", () => {
     expect(frameDeniedPage).toContain("<h1>This file can't be shown right now</h1>");
     expect(frameDeniedPage).toContain(`<p>${FRAME_DENIED_BODY}</p>`);
     expect(frameDeniedPage).toContain("<title>File not available · Waypoint</title>");
-    expect(frameDeniedPage).not.toMatch(forbiddenTags);
+    expect(withoutFont(frameDeniedPage)).not.toMatch(forbiddenTags);
     expect(frameDeniedPage).not.toMatch(forbiddenAttributes);
     expect(frameDeniedPage).not.toContain('class="mark"');
     expect(frameDeniedPage.match(/<style>[^<]*<\/style>/g)).toEqual([
@@ -166,7 +171,7 @@ describe("denial pages", () => {
     // role="list": Safari drops list semantics from a list-style:none list without it.
     expect(deniedPage).toContain('<ul class="steps" role="list">');
     expect(deniedPage).not.toContain('class="note"');
-    expect(deniedPage).not.toMatch(forbiddenTags);
+    expect(withoutFont(deniedPage)).not.toMatch(forbiddenTags);
     expect(deniedPage).not.toMatch(forbiddenAttributes);
     expect(deniedPage.match(/<style>[^<]*<\/style>/g)).toEqual([`<style>${staticCss}</style>`]);
   });

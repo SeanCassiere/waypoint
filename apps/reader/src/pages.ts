@@ -1,10 +1,15 @@
 // The reader's three static pages (spec §9.2): the bare root, the denial page and the framable
 // denial card for the raw route (`/x/`). All are fixed constants with no per-request data, share
 // one <style> element (one CSP hash), and carry no script, no style attributes, no links and no
-// inputs. Built from sharedTokensCss plus these page rules, so the static pages can't drift from
+// inputs; the chrome font's preload (D76) is their one resource. Built from sharedTokensCss plus these page rules, so the static pages can't drift from
 // the shell.
 
-import { FRAME_DENIED_BODY, FRAME_DENIED_HEADING, sharedTokensCss } from "@waypoint/ui";
+import {
+  chromeFontPreload,
+  FRAME_DENIED_BODY,
+  FRAME_DENIED_HEADING,
+  sharedTokensCss,
+} from "@waypoint/ui";
 
 export const staticCss: string =
   sharedTokensCss +
@@ -28,7 +33,7 @@ p{margin:0 0 12px;color:var(--ink-2);text-wrap:pretty}
 const mark =
   '<div class="mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15"/><path d="M14 20l10 26 8-17 8 17 10-26"/></svg>Waypoint</div>';
 const head = (title: string): string =>
-  `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title><style>${staticCss}</style></head>`;
+  `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${chromeFontPreload}<style>${staticCss}</style></head>`;
 
 /** `GET /` and `HEAD /` only: 200. */
 export const rootPage = `<!doctype html><html lang="en">${head("Waypoint")}<body><main>${mark}<h1>This address is for shared Waypoint documents</h1><p>Waypoint documents are shared with a private link. To read one, open the full link you were given.</p><p>If you typed or shortened the address, check that you copied the whole link. It's long, and every character matters.</p><p class="note">Shared links can stop working when they expire or when the person who shared them turns them off. If that happens, ask them for a new one.</p></main></body></html>\n`;

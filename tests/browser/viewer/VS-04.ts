@@ -1,6 +1,7 @@
-// VS-04: status colour roles. On the seeded demo writer, light and dark: solid buttons and dialog
-// bands use the dark-safe --*-solid tokens with white text (the Webhook share dialog, its Copied
-// state, the Postgres #6 Drop… confirm); inactive links (/links rows, the Links tab's cards, a
+// VS-04: status colour roles. On the seeded demo writer, light and dark: solid buttons use the
+// dark-safe --*-solid tokens with white text (the Webhook share dialog, its Copied state, the
+// Postgres #6 Drop… confirm), and dialog bands are tinted with a coloured top edge and an ink title
+// (D78); inactive links (/links rows, the Links tab's cards, a
 // revoked card's confirmation row) and the gallery's removed image are told apart by colour, never
 // opacity; a disabled button is neutral (the Trash restore dialog's Restore before a choice); the
 // Files tree's current file and History's current revision share one selection style, outlined in
@@ -37,7 +38,6 @@ const SOLID: Record<Scheme, { public: string; failed: string; ok: string }> = {
   light: { public: "rgb(31, 95, 209)", failed: "rgb(180, 35, 24)", ok: "rgb(45, 122, 76)" },
   dark: { public: "rgb(43, 91, 196)", failed: "rgb(179, 55, 43)", ok: "rgb(45, 122, 76)" },
 };
-const SEL_BG: Record<Scheme, string> = { light: WHITE, dark: "rgb(42, 41, 38)" };
 const CHANGED: Record<Scheme, string> = {
   light: "rgb(125, 60, 152)",
   dark: "rgb(212, 180, 238)",
@@ -249,15 +249,20 @@ const scenario: ViewerScenario = {
       await inactive(page, ".lnk.dead", ".h b", `${scheme} Links tab inactive`);
       await contrast(page, `${scheme} Links tab, inactive open`, "#tp-links");
 
-      // The Webhook share dialog: a solid band and Create link; then Copied, solid green.
+      // The Webhook share dialog: a tinted band and a solid Create link; then Copied, solid green.
       await page.goto(`${base}${webhook}`);
       await openShare(page);
       await contrast(page, `${scheme} share dialog`, "#share");
       const shareBand = await lookOf(page, '#share [data-share-step="create"] .band');
       assert.deepEqual(
         [shareBand.bg, shareBand.color],
-        [SOLID[scheme].public, WHITE],
-        `${scheme} share dialog: the band is --public-solid with white text`,
+        [await tok(page, "--public-bg"), await tok(page, "--ink")],
+        `${scheme} share dialog: the band is --public-bg with an ink title`,
+      );
+      assert.ok(
+        shareBand.shadow.includes(await tok(page, "--public")) &&
+          shareBand.shadow.includes("inset"),
+        `${scheme} share dialog: the band's top edge is --public (${shareBand.shadow})`,
       );
       assert.equal(SOLID[scheme].public, await tok(page, "--public-solid"));
       const create = await lookOf(page, "#share .btn.public-solid");
@@ -315,15 +320,19 @@ const scenario: ViewerScenario = {
       await page.waitForURL((url) => url.searchParams.get("panel") === "links");
       await page.waitForLoadState("load");
 
-      // The Postgres #6 Drop… confirm: a solid red band and confirm button, white text.
+      // The Postgres #6 Drop… confirm: a tinted red band, and a solid red confirm button.
       await page.goto(`${base}${six}`);
       await page.locator(".status1 [data-action=drop]").click();
       await page.locator("dialog#confirm").waitFor({ state: "visible" });
       const dropBand = await lookOf(page, "dialog#confirm.danger .band");
       assert.deepEqual(
         [dropBand.bg, dropBand.color],
-        [SOLID[scheme].failed, WHITE],
-        `${scheme} Drop #6: the band is --failed-solid with white text`,
+        [await tok(page, "--failed-bg"), await tok(page, "--ink")],
+        `${scheme} Drop #6: the band is --failed-bg with an ink title`,
+      );
+      assert.ok(
+        dropBand.shadow.includes(await tok(page, "--failed")) && dropBand.shadow.includes("inset"),
+        `${scheme} Drop #6: the band's top edge is --failed (${dropBand.shadow})`,
       );
       const drop = await lookOf(page, "dialog#confirm [data-confirm-ok].danger-solid");
       assert.deepEqual(
@@ -338,8 +347,12 @@ const scenario: ViewerScenario = {
       // Postgres #5, runbook.md (changed) selected: one selection style in Files and History.
       await page.goto(`${base}${runbook}`);
       const file = await lookOf(page, ".tree a[aria-current]");
-      assert.equal(file.bg, SEL_BG[scheme], `${scheme}: the current file's fill is --sel-bg`);
-      assert.equal(SEL_BG[scheme], await tok(page, "--sel-bg"));
+      // --sel-bg is a film of ink over the panel (D77)
+      assert.equal(
+        file.bg,
+        await tok(page, "--sel-bg"),
+        `${scheme}: the current file's fill is --sel-bg`,
+      );
       const bar = await tok(page, "--sel-bar");
       const ring = await tok(page, "--sel-ring");
       assert.ok(
@@ -441,7 +454,7 @@ const scenario: ViewerScenario = {
       const neutral = [
         await tok(page, "--faint"),
         await tok(page, "--sunken"),
-        await tok(page, "--rule"),
+        await tok(page, "--rule-2"),
         "1",
       ];
       for (let index = 0; index < 7; index++) {
@@ -456,7 +469,7 @@ const scenario: ViewerScenario = {
           assert.deepEqual(
             [seen.color, seen.bg, seen.border, seen.opacity],
             neutral,
-            `${scheme}: disabled ${selector} is --faint on --sunken with a --rule border, ${state}`,
+            `${scheme}: disabled ${selector} is --faint on --sunken with a --rule-2 border, ${state}`,
           );
       }
 

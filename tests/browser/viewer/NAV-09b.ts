@@ -402,7 +402,8 @@ const scenario: ViewerScenario = {
       await mid.goto(pg5);
       await mid.locator('header.cbar [popovertarget="more-menu"][aria-haspopup]').click();
       await mid.locator("#more-menu").waitFor({ state: "visible" });
-      assert.equal(norm(await mid.locator("#more-menu .lbl.midonly").innerText()), "COPY LINK");
+      // Sentence case (D78): the label renders as written, no tracked capitals.
+      assert.equal(norm(await mid.locator("#more-menu .lbl.midonly").innerText()), "Copy link");
       assert.equal(
         norm((await mid.locator("#more-menu .lbl.midonly").textContent()) ?? ""),
         "Copy link",

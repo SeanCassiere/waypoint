@@ -48,7 +48,14 @@ export function Layout(props: {
         <title>{props.title === "Waypoint" ? "Waypoint" : `${props.title} · Waypoint`}</title>
         <link rel="icon" href={faviconAsset.url} type="image/svg+xml" />
         <link rel="stylesheet" href={cssAsset.url} />
-        <link rel="preload" href={CHROME_FONT_PATH} as="font" type="font/woff2" crossorigin="" />
+        <link
+          rel="preload"
+          href={CHROME_FONT_PATH}
+          as="font"
+          type="font/woff2"
+          crossorigin=""
+          referrerpolicy="no-referrer"
+        />
       </head>
       <body data-page={props.page}>
         <a class="skip" href="#main">

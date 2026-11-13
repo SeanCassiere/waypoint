@@ -33,7 +33,7 @@ export const controlsCss: string = `.btn{display:inline-flex;align-items:center;
 .btn>svg{flex:none}.btn kbd{margin-left:2px}
 .btn:is([disabled],[aria-disabled="true"]),.btn:is(.primary,.public-solid,.danger-solid,.public,.danger,.ghost):is([disabled],[aria-disabled="true"]),.btn:is(.primary,.public-solid,.danger-solid,.public,.danger,.ghost):is([disabled],[aria-disabled="true"]):hover{color:var(--faint);background:var(--sunken);border-color:var(--rule-2);box-shadow:none;cursor:not-allowed}
 @media(pointer:coarse){.btn:is(a,button,summary,label){min-height:var(--tap)}}
-@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.primary,.btn.primary:hover{border-color:ButtonText}}
+@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.ghost:hover,.btn.primary,.btn.primary:hover{border-color:ButtonText}}
 .lb-g,.chip:is(.pending,.failed)::before,.sc::before{content:"";display:inline-block;flex:none;box-sizing:border-box;width:10px;height:10px;border-radius:50%}
 .lb-g.done,.sc.ok::before{background:var(--node)}
 .lb-g.pending,.chip.pending::before,.sc.p::before{border:2px dashed var(--pending)}
@@ -643,8 +643,9 @@ mark {
   color: var(--public);
   font-weight: 500;
 }
+/* the revision you're on: words in the selection ink (--sel), no fill */
 .chip.ink {
-  color: var(--ink);
+  color: var(--sel);
 }
 .chip.paused,
 .chip.waiting {
@@ -1449,9 +1450,10 @@ dialog.dlg .when li::marker {
   color: var(--ink-2);
 }
 
-/* ---------- focus inside a box: an inset ring that follows the corner, never an outline ---------- */
+/* ---------- focus inside a box: an inset ring that follows the corner, never an outline ----------
+   A current item ([aria-current]) keeps its selection bar and takes an inset outline instead. */
 :is(.opt, .ch2 label, .expiry label):has(input:focus-visible),
-:is(.suggest, .sees, .hosts, .fd, .mbox, .cpv, .lgroup) :is(a, button:not(.btn), summary, [role="option"]):focus-visible,
+:is(.suggest, .sees, .hosts, .fd, .mbox, .cpv, .lgroup) :is(a, button:not(.btn), summary, [role="option"]):not([aria-current]):focus-visible,
 .fd .blk:focus-visible,
 .codeblock pre:focus-visible {
   outline: 0;
@@ -1463,7 +1465,7 @@ dialog.dlg .when li::marker {
 }
 @media (forced-colors: active) {
   :is(.opt, .ch2 label, .expiry label):has(input:focus-visible),
-  :is(.suggest, .sees, .hosts, .fd, .mbox, .cpv, .lgroup) :is(a, button:not(.btn), summary, [role="option"]):focus-visible,
+  :is(.suggest, .sees, .hosts, .fd, .mbox, .cpv, .lgroup) :is(a, button:not(.btn), summary, [role="option"]):not([aria-current]):focus-visible,
   .fd .blk:focus-visible,
   .codeblock pre:focus-visible {
     outline: 2px solid CanvasText;
@@ -1486,7 +1488,8 @@ summary:hover {
   align-items: stretch;
   gap: 18px;
   flex: none;
-  height: var(--r1);
+  /* min-height: on a sheet the 44 px Close grows the row, and the tabs stretch to a 44 px press */
+  min-height: var(--r1);
   padding: 0 14px 0 18px;
   border-bottom: 1px solid var(--rule);
 }

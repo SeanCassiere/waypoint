@@ -39,7 +39,7 @@ describe("shell button family", () => {
     // The forced-colours border covers hover, ghost and primary too (their selectors are more
     // specific; ghost's transparent border would otherwise be forced to LinkText).
     expect(controlsCss).toContain(
-      "@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.primary,.btn.primary:hover{border-color:ButtonText}}",
+      "@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.ghost:hover,.btn.primary,.btn.primary:hover{border-color:ButtonText}}",
     );
     expect(controlsCss).not.toContain("transition");
     expect(controlsCss).not.toContain("animation");

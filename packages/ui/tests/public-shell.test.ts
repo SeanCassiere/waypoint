@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { chromeFontPreload } from "../src/font.ts";
 import {
   ICON_NAMES,
   icon,
@@ -50,7 +51,7 @@ describe("public shell", () => {
       [...icon(name).matchAll(/<([a-z][a-z0-9]*)\b/gi)].map((m) => m[1]),
     );
     const allowed = [
-      ..."a b body button circle defs details div h1 h2 head header hr html iframe li main meta nav p path rect small span summary svg symbol time title ul use".split(
+      ..."a b body button circle defs details div h1 h2 head header hr html iframe li link main meta nav p path rect small span summary svg symbol time title ul use".split(
         " ",
       ),
       ...iconTags,
@@ -81,13 +82,18 @@ describe("public shell", () => {
     );
     expect(publicShellScript).toContain("window._WAYPOINT_VERSION = version;");
   });
-  it("has no style attributes, handlers, or external assets by default", () => {
+  it("has no style attributes, handlers, or external assets but the font's preload", () => {
     const html = renderPublicShell({
       ...base,
       files: Array.from({ length: 12 }, (_, i) => ({ path: `a/b${i}.md` })),
       current: "a/b3.md",
     });
-    expect(markup(html)).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
+    // The one resource is the chrome's font (D76), preloaded with no Referer before the style.
+    expect(html.split(chromeFontPreload)).toHaveLength(2);
+    expect(html).toContain(`${chromeFontPreload}<style>`);
+    expect(markup(html.replace(chromeFontPreload, ""))).not.toMatch(
+      /\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i,
+    );
     expect(html).toContain(`<style>${publicShellCss}</style>`);
     expect(html).toContain(`<script>${publicShellScript}</script>`);
     // The script follows #shell's start tag, before the panel (the stored state applies before the
@@ -315,10 +321,10 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    // The rest of the page (style with the font faces and the shared controls, script, letterhead
-    // and About, the panel's CSS and script, the tree's folds and their saved state) and the last
-    // row's overshoot come to about 48.5 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 48_500);
+    // The rest of the page (the font's preload, style with the font faces and the shared controls,
+    // script, letterhead and About, the panel's CSS and script, the tree's folds and their saved
+    // state) and the last row's overshoot come to about 48.7 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 48_700);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },

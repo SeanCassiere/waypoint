@@ -152,7 +152,8 @@ const scenario: ViewerScenario = {
     assert.equal(children[4], 'button "Purge…"');
     assert.equal(await row.locator("a").count(), 1, "the chip isn't a link");
     assert.equal(await row.locator(".chip.paused svg.ic").count(), 1, "the chip's globe icon");
-    assert.ok(await colourIs(page, `li.item[data-pub="${pub.a}"] .chip.paused`, "--pending"));
+    // Paused is neutral, not amber: amber means uploading (D78).
+    assert.ok(await colourIs(page, `li.item[data-pub="${pub.a}"] .chip.paused`, "--ink-2"));
     assert.equal(await page.locator(`li.item[data-pub="${pub.b}"] .chip`).count(), 0);
 
     // Restore… with a paused link: listed, nothing chosen, Restore disabled, focus on Cancel.
