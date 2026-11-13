@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0](https://github.com/SeanCassiere/waypoint/compare/v0.6.0...v0.7.0) (2026-11-13)
+
+
+### Features
+
+* **reader:** order and fold the file tree like the writer's ([bd8e82e](https://github.com/SeanCassiere/waypoint/commit/bd8e82ee9742b54e6a7db1c2b0e0c7229f0d926b))
+* **reader:** show the file list as a sidebar ([2f19bbf](https://github.com/SeanCassiere/waypoint/commit/2f19bbf0c3b69838be2ec628be3254ed9c1ef6d8))
+
+
+### Bug Fixes
+
+* **deps:** bump node from `bc0a2af` to `add5c17` in /apps/writer in the docker group ([#128](https://github.com/SeanCassiere/waypoint/issues/128)) ([4e3c437](https://github.com/SeanCassiere/waypoint/commit/4e3c4370a9bde4fcc5b415c7e471adb83041f167))
+* **reader:** apply the stored panel state before the shell paints ([257dadb](https://github.com/SeanCassiere/waypoint/commit/257dadb9564689d0bbb52d37fef389b3b6cdd598))
+* **reader:** name saved folders by path and keep accented names cheap to sort ([86448bc](https://github.com/SeanCassiere/waypoint/commit/86448bc0ae6d0e3255acd4efd247fb4584e957bd))
+
+
+### Code Refactoring
+
+* **viewer:** move the panel and tree styles into packages/ui ([8328c19](https://github.com/SeanCassiere/waypoint/commit/8328c193ef2457b4673b0b218c2844891cc11af0))
+
 ## [0.6.0](https://github.com/SeanCassiere/waypoint/compare/v0.5.0...v0.6.0) (2026-11-07)
 
 
