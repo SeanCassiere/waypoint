@@ -421,10 +421,17 @@ describe("adversarial reader probes", () => {
       insert.run(A2.id, `dir${i % 40}/file-${i}.html`, h("3"), "text/html");
     const shell = await (await get(`/s/${tokens.follow}/c/${A.pub}/`)).text();
     expect((shell.match(/<a href=/g) ?? []).length).toBeGreaterThan(2000);
-    // Folders start collapsed except the current file's (D75).
+    // Folders start collapsed except the current file's (D75): none on the head file's page, and
+    // only dir7/ on a page for a file in it.
     expect(shell).toContain('popovertarget="files"');
     expect(shell).toContain('Files <span class="n">2003</span>');
-    expect(shell).not.toContain("<details open><summary>dir");
+    const folders = (html: string) =>
+      [...html.matchAll(/<details( open)? data-dir="([^"]*)">/g)].map((m) => [m[2], !!m[1]]);
+    expect(folders(shell)).toHaveLength(40);
+    expect(folders(shell).filter(([, open]) => open)).toEqual([]);
+    const inDir7 = await (await get(`/s/${tokens.follow}/c/${A.pub}/dir7/file-7.html`)).text();
+    expect(folders(inDir7)).toHaveLength(40);
+    expect(folders(inDir7).filter(([, open]) => open)).toEqual([["dir7/", true]]);
     // The CPU time of rendering this shell is measured where CPU tests run, alone after every
     // other test: apps/reader/tests/reader-cpu.test.ts ("renders the shell document …").
   });

@@ -122,6 +122,26 @@ describe("CPU budget worst cases", () => {
       false,
       CPU_BUDGET_MS,
     ],
+    // D75: names that aren't printable ASCII sort with the collator itself. One of them in a
+    // large folder must not send the whole folder there.
+    [
+      "one folder of 2,000 files, one with an accented name",
+      Array.from({ length: 2000 }, (_, i) => (i === 1000 ? `été-${i}.md` : `file-${i}.md`)),
+      false,
+      CPU_BUDGET_MS,
+    ],
+    [
+      "2,000 folders with accented names",
+      Array.from({ length: 2000 }, (_, i) => `café${i}/a.md`),
+      false,
+      CPU_BUDGET_MS,
+    ],
+    [
+      "one folder of 2,000 files with accented names",
+      Array.from({ length: 2000 }, (_, i) => `café-${i}.md`),
+      false,
+      CPU_BUDGET_MS,
+    ],
   ];
   for (const [name, paths, decodes, budget] of shapes) {
     it(`serves a 2,000-file shell under ${budget} ms of CPU: ${name}`, async () => {

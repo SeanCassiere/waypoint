@@ -18,7 +18,8 @@ export function compareNames(a: string, b: string): number {
  * does (leading zeros ignored) and against any other character as a digit (every digit ranks above
  * punctuation and below letters). ICU reads runs longer than 254 digits in pieces, so keys stop
  * at PAD_MAX digits, and other scripts have digits and contractions of their own, so any other
- * name sorts with `compareNames`. packages/ui/tests/tree-order.test.ts checks that they agree.
+ * name compares with `compareNames`. packages/ui/tests/tree-order.test.ts checks that they agree,
+ * on ASCII names and on mixed sets.
  */
 const PAD_MAX = 32;
 let ranks: Uint16Array | undefined;
@@ -55,34 +56,44 @@ function keyOf(text: string, width: number, table: Uint16Array, out: number[]): 
 }
 
 /**
- * `items` in `compareNames` order of `name(item)`: by sort keys when every name is printable ASCII
- * with digit runs of at most PAD_MAX digits (several times faster: the public reader sorts up to
- * 2,000 names inside its Worker CPU budget), else with `compareNames`.
+ * `items` in `compareNames` order of `name(item)`. Names that are printable ASCII with digit runs
+ * of at most PAD_MAX digits get sort keys (padded to the widest of their runs), and two such names
+ * compare by key (several times faster: the public reader sorts up to 2,000 names inside its
+ * Worker CPU budget); a pair with any other name compares with `compareNames`. Keys agree with
+ * `compareNames` pairwise, so mixing the two is still one consistent order, and a folder with one
+ * accented name costs a few collator calls rather than the whole folder's.
  */
 export function sortByName<T>(items: readonly T[], name: (item: T) => string): T[] {
   if (items.length < 2) return [...items];
-  const slow = () => items.toSorted((a, b) => compareNames(name(a), name(b)));
+  const entries: { item: T; text: string; key: string | null }[] = [];
   let width = 0;
   for (const item of items) {
     const text = name(item);
     let run = 0;
+    let longest = 0;
+    let ascii = true;
     for (let i = 0; i < text.length; i++) {
       const code = text.charCodeAt(i);
-      if (code < 32 || code > 126) return slow();
+      if (code < 32 || code > 126) {
+        ascii = false;
+        break;
+      }
       run = isDigit(code) ? run + 1 : 0;
-      if (run > width) width = run;
+      if (run > longest) longest = run;
     }
+    const keyed = ascii && longest <= PAD_MAX;
+    if (keyed && longest > width) width = longest;
+    entries.push({ item, text, key: keyed ? "" : null });
   }
-  if (width > PAD_MAX) return slow();
   const table = rankTable();
   const out: number[] = [];
-  return items
-    .map((item) => {
-      const text = name(item);
-      return { item, text, key: keyOf(text, width, table, out) };
+  for (const entry of entries)
+    if (entry.key !== null) entry.key = keyOf(entry.text, width, table, out);
+  return entries
+    .toSorted((a, b) => {
+      if (a.key === null || b.key === null) return compareNames(a.text, b.text);
+      if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+      return a.text < b.text ? -1 : a.text > b.text ? 1 : 0;
     })
-    .toSorted((a, b) =>
-      a.key < b.key ? -1 : a.key > b.key ? 1 : a.text < b.text ? -1 : a.text > b.text ? 1 : 0,
-    )
     .map((entry) => entry.item);
 }

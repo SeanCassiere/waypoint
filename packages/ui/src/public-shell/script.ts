@@ -256,9 +256,10 @@ export const filesMenuScript: string = `(() => {
  * The server opens only the current file's folders; this reopens the ones the reader opened
  * earlier in this tab for this collection, kept in sessionStorage under TREE_STORAGE_PREFIX and
  * the collection's public ID (`#shell[data-collection]`; never the share token), and shows and
- * names Expand all / Collapse all. A folder is known by its row's text joined to its parents'
- * ("docs/api/"), which is the writer's `data-dir` for an ordinary tree, so the writer's
- * `?as=public` preview shares the writer's own choices. Only the reader's own choices are kept (a
+ * names Expand all / Collapse all. A folder is known by its full path, `data-dir` ("docs/api/"),
+ * as in the writer's tree, so the writer's `?as=public` preview shares the writer's own choices; a
+ * collapsed chain ("a/b/c/") reopens when its deepest folder was kept, and opening or closing it
+ * keeps or drops every folder in it, as the writer would show them. Only the reader's own choices are kept (a
  * press on a folder's row, the button), never the folders opened to show a file. The button's
  * name is updated once per task, so Expand all over many folders stays linear. It runs before
  * `panelScript`, so the panel scrolls to the current row with the reopened folders in place.
@@ -266,15 +267,21 @@ export const filesMenuScript: string = `(() => {
 export const treeScript: string = `(() => {
   const shell = document.getElementById("shell");
   const panel = document.getElementById("files");
-  const folders = panel ? [...panel.querySelectorAll("details")] : [];
+  const folders = panel ? [...panel.querySelectorAll("details[data-dir]")] : [];
   if (!shell || !folders.length) return;
   const button = panel.querySelector("[data-tree-all]");
   const id = shell.dataset.collection;
   const key = "${TREE_STORAGE_PREFIX}" + id;
   const dirs = new Map();
   for (const folder of folders) {
-    const up = folder.parentElement.closest("details");
-    dirs.set(folder, (up ? dirs.get(up) : "") + folder.firstElementChild.textContent);
+    const up = folder.parentElement.closest("details[data-dir]");
+    const dir = folder.dataset.dir;
+    const chain = [];
+    for (let i = dir.indexOf("/", up ? up.dataset.dir.length : 0); i >= 0;) {
+      chain.push(dir.slice(0, i + 1));
+      i = dir.indexOf("/", i + 1);
+    }
+    dirs.set(folder, chain);
   }
   const chosen = new Set();
   try {
@@ -283,7 +290,7 @@ export const treeScript: string = `(() => {
   } catch {
     chosen.clear();
   }
-  for (const folder of folders) if (chosen.has(dirs.get(folder))) folder.open = true;
+  for (const folder of folders) if (chosen.has(folder.dataset.dir)) folder.open = true;
   const save = () => {
     try {
       if (id) sessionStorage.setItem(key, JSON.stringify([...chosen]));
@@ -312,8 +319,10 @@ export const treeScript: string = `(() => {
       setTimeout(label);
     }
     if (!pressed.delete(folder)) return;
-    if (folder.open) chosen.add(dirs.get(folder));
-    else chosen.delete(dirs.get(folder));
+    for (const dir of dirs.get(folder)) {
+      if (folder.open) chosen.add(dir);
+      else chosen.delete(dir);
+    }
     save();
   }, true);
   if (button) button.addEventListener("click", () => {
@@ -321,7 +330,7 @@ export const treeScript: string = `(() => {
     chosen.clear();
     for (const folder of folders) {
       folder.open = open;
-      if (open) chosen.add(dirs.get(folder));
+      if (open) for (const dir of dirs.get(folder)) chosen.add(dir);
     }
     save();
     label();

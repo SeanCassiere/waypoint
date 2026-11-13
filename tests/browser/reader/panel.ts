@@ -100,7 +100,8 @@ const scenario: ReaderScenario = {
 
     // Narrowed with the focus on a row of the docked panel, which then hides: the focus moves to
     // the Files button, not to the page (where the next Tab would enter the document frame).
-    await page.focus('#files a[data-p="docs/a.html"]');
+    await page.focus('#files a[data-p="notes.html"]');
+    assert.ok(await active(page, '#files a[data-p="notes.html"]'), "focus on a docked row");
     await page.setViewportSize({ width: 820, height: 1180 });
     await until(page, `document.querySelector(".ptog").hasAttribute("popovertarget")`);
     assert.ok(await active(page, ".ptog"), "focus moved to the Files button");
