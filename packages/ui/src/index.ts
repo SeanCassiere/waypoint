@@ -8,3 +8,4 @@ export * from "./panel-css.ts";
 export * from "./panel.ts";
 export * from "./public-shell/index.ts";
 export * from "./tokens.ts";
+export * from "./tree-order.ts";

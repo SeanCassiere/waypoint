@@ -27,6 +27,7 @@ import {
   publicShellScript,
   stageScript,
   timeScript,
+  treeScript,
   versionScript,
 } from "../src/public-shell/script.ts";
 import { sharedTokensCss } from "../src/tokens.ts";
@@ -42,7 +43,15 @@ const cssSegments = {
   buttonCss,
 };
 const early = [versionScript, timeScript, panelStateScript, locationScript];
-const parsed = [filesMenuScript, panelScript, aboutScript, hashScript, loadingScript, stageScript];
+const parsed = [
+  filesMenuScript,
+  treeScript,
+  panelScript,
+  aboutScript,
+  hashScript,
+  loadingScript,
+  stageScript,
+];
 const scriptSegments = [...early, ...parsed];
 /** Compiles a script without running it, so a syntax error throws. */
 // oxlint-disable-next-line typescript/no-implied-eval -- Parsing the emitted script is the point.

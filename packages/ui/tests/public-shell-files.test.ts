@@ -54,7 +54,7 @@ describe("Files panel", () => {
       '</header><div id="shell" class="shell"><nav id="files" class="panel" popover="auto" aria-label="Files"><div class="shd"><h2 id="files-h">Files <span class="n">12</span></h2>',
     );
     expect(html).toContain(
-      '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div><div class="pbody"><div class="tree">',
+      '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div><div class="pbody"><div class="ttools"><button type="button" class="btn ghost sm" data-tree-all hidden>Expand all</button></div><div class="tree">',
     );
     expect(html).toMatch(
       /<\/div><\/div><\/nav><main id="main">[\s\S]*<\/main><div class="peek-edge" aria-hidden="true"><\/div><\/div><svg/,
@@ -89,6 +89,20 @@ describe("Files panel", () => {
     expect(head).toMatch(
       /<a href="[^"]*" data-p="index\.md" aria-current="page"><svg [^>]*><use href="#i-doc"\/><\/svg><b>index\.md<\/b><\/a>$/,
     );
+  });
+  it("offers Expand all only when the tree has a folder, and names the collection (D75)", () => {
+    expect(markup(shell(three))).not.toContain("data-tree-all");
+    expect(markup(shell(three))).not.toContain('class="ttools"');
+    expect(count(markup(shell(twelve)), "data-tree-all")).toBe(1);
+    // The shell names the collection by its public ID for the folders the script keeps; none
+    // when the caller passes none.
+    const named = renderPublicShell({
+      ...base,
+      files: twelve.map((path) => ({ path })),
+      collection: 'col"pub',
+    });
+    expect(named).toContain('<div id="shell" class="shell" data-collection="col&quot;pub">');
+    expect(shell(twelve)).toContain('<div id="shell" class="shell">');
   });
   it("uses the panel for two files too: no tab strip", () => {
     const html = markup(shell(three));

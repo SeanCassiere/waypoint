@@ -117,6 +117,7 @@ export async function publicPreview(
     })),
     head: manifest.headPath,
     current,
+    collection: ctx.collection.public_id,
     fileHref: href,
     frameBase: `/raw/r/${served.public_id}/`,
     updatedAt: ctx.pinned ? null : served.created_at,

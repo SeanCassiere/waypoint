@@ -1,8 +1,9 @@
 import type { ManifestFileEntry } from "@waypoint/core";
+import { compareNames } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
 import { FileTree, type TreeOptions } from "../src/viewer/components.tsx";
-import { compareNames, treeOf, type TreeNode } from "../src/viewer/tree-order.ts";
+import { treeOf, type TreeNode } from "../src/viewer/tree-order.ts";
 
 // D72: the Files tree lists the head first in its folder, then folders, then files (case-insensitive,
 // numeric-aware), and its folders start collapsed except the ones holding the current file.

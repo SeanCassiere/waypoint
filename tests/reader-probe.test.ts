@@ -421,7 +421,7 @@ describe("adversarial reader probes", () => {
       insert.run(A2.id, `dir${i % 40}/file-${i}.html`, h("3"), "text/html");
     const shell = await (await get(`/s/${tokens.follow}/c/${A.pub}/`)).text();
     expect((shell.match(/<a href=/g) ?? []).length).toBeGreaterThan(2000);
-    // Large manifests collapse folders, so the shell stays one cheap pass over the paths.
+    // Folders start collapsed except the current file's (D75).
     expect(shell).toContain('popovertarget="files"');
     expect(shell).toContain('Files <span class="n">2003</span>');
     expect(shell).not.toContain("<details open><summary>dir");

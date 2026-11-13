@@ -1,10 +1,8 @@
 import { icon, iconUse } from "../icons.ts";
+import { sortByName } from "../tree-order.ts";
 import { downloadLink } from "./download.ts";
 import type { PublicShellFile, PublicShellOptions } from "./index.ts";
 import { bytes, esc, label } from "./text.ts";
-
-/** Tree folders start collapsed above this many files, except the current file's (spec §4.9). */
-const OPEN_FOLDERS_LIMIT = 200;
 
 /** Folders nest at most this deep in the tree; deeper segments join the file's label. */
 export const PUBLIC_SHELL_TREE_DEPTH = 6;
@@ -60,6 +58,8 @@ interface Budget {
   /** The last row's MIME type and kind: most rows share their neighbour's type. */
   mime: string | undefined;
   kind: ShellFileKind;
+  /** Whether a folder row (`details`) was listed, which earns the tree Expand all. */
+  folders: boolean;
 }
 
 /**
@@ -99,7 +99,7 @@ function link(
 
 interface Folder {
   name: string;
-  /** Subfolders and files, in path order. */
+  /** Subfolders and files, in path order until the folder is listed, then in tree order. */
   entries: (Folder | PublicShellFile)[];
   folders: Map<string, Folder>;
   open: boolean;
@@ -137,14 +137,34 @@ function folderFor(root: Folder, key: string): Folder {
   return node;
 }
 
+/**
+ * The writer's tree order (D72, D75): folders first, then files, each in `compareNames` order of
+ * what the row shows (a folder's name, a file's label below `prefix`). A collapsed chain or a
+ * folder shown as its one file sorts as a folder, by its first name. Sorted only when listed, and
+ * only folders with more than one entry: the list's budget can stop long before the last folder.
+ */
+function order(node: Folder, prefix: number): void {
+  if (node.entries.length < 2) return;
+  const folders: Folder[] = [];
+  const leaves: PublicShellFile[] = [];
+  for (const entry of node.entries) {
+    if (isFolder(entry)) folders.push(entry);
+    else leaves.push(entry);
+  }
+  node.entries = [
+    ...sortByName(folders, (entry) => entry.name),
+    ...sortByName(leaves, (entry) => entry.path.slice(prefix)),
+  ];
+}
+
 function renderFolder(
   options: PublicShellOptions,
   node: Folder,
   prefix: number,
-  openAll: boolean,
   budget: Budget,
   out: string[],
 ): void {
+  order(node, prefix);
   for (const entry of node.entries) {
     if (budget.used > PUBLIC_SHELL_LIST_BUDGET) return;
     if (!isFolder(entry)) {
@@ -164,16 +184,19 @@ function renderFolder(
       out.push(link(options, only, only.path.slice(prefix), budget));
       continue;
     }
-    const open = openAll || child.open ? " open" : "";
+    budget.folders = true;
     out.push(
-      `<details${open}><summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${label(name)}</summary><div>`,
+      `<details${child.open ? " open" : ""}><summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${label(name)}</summary><div>`,
     );
-    renderFolder(options, child, prefix + name.length, openAll, budget, out);
+    renderFolder(options, child, prefix + name.length, budget, out);
     out.push("</div></details>");
   }
 }
 
-/** Tree of every file but the head. Linear in the total length of the paths, and bounded. */
+/**
+ * Tree of every file but the head, folded: only the folders holding the current file start open
+ * (D75). Linear in the total length of the paths plus the sort of the listed folders, and bounded.
+ */
 function tree(
   options: PublicShellOptions,
   list: readonly PublicShellFile[],
@@ -200,7 +223,7 @@ function tree(
     start = slash + 1;
   }
   const out: string[] = [];
-  renderFolder(options, root, 0, list.length <= OPEN_FOLDERS_LIMIT, budget, out);
+  renderFolder(options, root, 0, budget, out);
   return out.join("");
 }
 
@@ -218,7 +241,9 @@ export interface ShellFiles {
  * WIDE_MIN the CSS shows it docked as the shell's first column without opening it, and the script
  * collapses it with `#shell.closed`; below that the button opens it natively as a side sheet (a
  * bottom sheet on phones). The current file's Download control (RX-06) ends the row; a one-file
- * shell has it in the letterhead instead, and no row or panel.
+ * shell has it in the letterhead instead, and no row or panel. The tree is ordered and folded like
+ * the writer's (D72, D75): the head file first, then at every level folders before files, and only
+ * the current file's folders open; `treeScript` keeps the folders a reader opens for the tab.
  */
 export function files(options: PublicShellOptions): ShellFiles | null {
   let all = options.files;
@@ -230,7 +255,7 @@ export function files(options: PublicShellOptions): ShellFiles | null {
   if (!sorted) all = all.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const head = all.find((file) => file.path === options.head);
   const rest = head ? all.filter((file) => file.path !== options.head) : all;
-  const budget: Budget = { used: 0, listed: 0, mime: undefined, kind: "doc" };
+  const budget: Budget = { used: 0, listed: 0, mime: undefined, kind: "doc", folders: false };
   const headRow = head ? `${link(options, head, head.path, budget)}<hr>` : "";
   const list = tree(options, rest, budget);
   const missing = all.length - budget.listed;
@@ -242,10 +267,14 @@ export function files(options: PublicShellOptions): ShellFiles | null {
   const kind = shellFileKind(all.find((file) => file.path === options.current)?.mime);
   // The current path is the button's description too; the panel is a sibling, never inside it.
   const button = `<button type="button" class="fbtn ptog" popovertarget="files" aria-controls="files" aria-describedby="files-cur">${icon("panel")}${count}<span class="cur" id="files-cur">${iconUse(kind)}<span class="t" dir="auto">${label(options.current)}</span></span></button>`;
+  // Expand all / Collapse all (D75): hidden until the script names it for the folders' state.
+  const tools = budget.folders
+    ? '<div class="ttools"><button type="button" class="btn ghost sm" data-tree-all hidden>Expand all</button></div>'
+    : "";
   // Done shows only on phones, where the panel is a bottom sheet.
   const header = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
   return {
     row: `<div class="prow">${button}${downloadLink(options, "row")}</div>`,
-    panel: `<nav id="files" class="panel" popover="auto" aria-label="Files">${header}<div class="pbody"><div class="tree">${headRow}${list}${more}</div></div></nav>`,
+    panel: `<nav id="files" class="panel" popover="auto" aria-label="Files">${header}<div class="pbody">${tools}<div class="tree">${headRow}${list}${more}</div></div></nav>`,
   };
 }

@@ -1,15 +1,5 @@
 import type { ManifestFileEntry } from "@waypoint/core";
-
-/**
- * Names as a person sorts them: case-insensitive, accents ignored, digit runs compared as numbers
- * (`ch2.md` before `ch10.md`). The locale is fixed so the order doesn't depend on the writer's
- * `LANG`; names equal under that rule (`README.md`, `readme.md`) fall back to code-unit order, so
- * the order is total and stable.
- */
-const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
-export function compareNames(a: string, b: string): number {
-  return collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
-}
+import { compareNames } from "@waypoint/ui";
 
 const base = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 

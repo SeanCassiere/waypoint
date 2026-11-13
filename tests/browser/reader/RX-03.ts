@@ -162,6 +162,8 @@ const scenario: ReaderScenario = {
         "the archive row's accessible name",
       );
       assert.equal(await page.locator("#files small").count(), 1, "one download marker");
+      // Folders start collapsed but the current file's (D75): open them all to see every icon.
+      await page.click("#files [data-tree-all]");
       const boxes = await json(
         page,
         `[...document.querySelectorAll("#files a > svg, #files summary svg.ti")]

@@ -140,12 +140,58 @@ describe("public shell", () => {
     expect((menu.match(/<details/g) ?? []).length).toBe((menu.match(/<\/details>/g) ?? []).length);
     expect(renderPublicShell(base)).not.toContain('aria-label="Files"');
   });
-  it("collapses folders in large manifests except the current file's", () => {
-    const files = Array.from({ length: 300 }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
-    const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
-    expect(html).toContain(`<details open>${summary("d1/")}`);
-    expect(html).toContain(`<details>${summary("d0/")}`);
-    expect(html).toContain(`<details>${summary("d2/")}`);
+  it("folds every folder but the current file's, whatever the manifest's size (D75)", () => {
+    for (const length of [9, 300]) {
+      const files = Array.from({ length }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
+      const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
+      expect(html).toContain(`<details open>${summary("d1/")}`);
+      expect(html).toContain(`<details>${summary("d0/")}`);
+      expect(html).toContain(`<details>${summary("d2/")}`);
+    }
+    // The head file's page opens no folder.
+    const files = ["index.md", "a/x.md", "a/y.md"].map((path) => ({ path }));
+    expect(renderPublicShell({ ...base, files })).not.toContain("<details open>");
+  });
+  it("orders the tree like the writer's: folders first, then files, in name order (D75)", () => {
+    const paths = [
+      "index.md",
+      "Zeta.md",
+      "ch10.md",
+      "ch2.md",
+      "README.md",
+      "readme.md",
+      "api.md",
+      "notes/b.md",
+      "Docs/x.md",
+      "Docs/y.md",
+      "docs2/p/q/r.md",
+      "docs2/p/q/s.md",
+      "solo/only.md",
+      "émoji/a.md",
+      "émoji/b.md",
+    ];
+    const html = renderPublicShell({ ...base, files: paths.map((path) => ({ path })) });
+    expect([...html.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
+      "index.md",
+      "Docs/x.md",
+      "Docs/y.md",
+      "docs2/p/q/r.md",
+      "docs2/p/q/s.md",
+      "émoji/a.md",
+      "émoji/b.md",
+      "notes/b.md",
+      "solo/only.md",
+      "api.md",
+      "ch2.md",
+      "ch10.md",
+      "README.md",
+      "readme.md",
+      "Zeta.md",
+    ]);
+    // A collapsed chain and a folder shown as its one file sort among the folders by name.
+    const menu = menuOf(html);
+    expect(menu.indexOf(summary("docs2/p/q/"))).toBeGreaterThan(menu.indexOf(summary("Docs/")));
+    expect(menu).toContain(`data-p="notes/b.md">${doc}<b>notes/b.md</b></a>`);
   });
   it("says Snapshot for single-revision links and Updated for latest", () => {
     const at = Date.UTC(2026, 9, 7, 22, 8);
@@ -242,9 +288,9 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    // The rest of the page (style, script, letterhead and About, the panel's CSS and script) is
-    // about 42 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 44_000);
+    // The rest of the page (style, script, letterhead and About, the panel's CSS and script, the
+    // tree's folds) is about 44.6 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 47_000);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },
