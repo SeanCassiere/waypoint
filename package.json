@@ -27,20 +27,20 @@
     "typecheck:root": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.8",
     "@types/node": "^26.6.6",
-    "oxfmt": "^0.75.0",
-    "oxlint": "^1.90.0",
-    "oxlint-tsgolint": "^7.0.2005",
-    "playwright": "^1.64.1",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
+    "oxlint-tsgolint": "^7.0.2007",
+    "playwright": "^1.65.0",
     "tsx": "^4.23.15",
-    "turbo": "2.11.10",
+    "turbo": "2.11.11",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.0",
     "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=26"
   },
-  "packageManager": "pnpm@11.28.8"
+  "packageManager": "pnpm@11.28.11"
 }

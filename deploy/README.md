@@ -287,7 +287,10 @@ the writer (one `{renderer} renderer v{N}: …` line each), then runs the batche
 renderer in turn (markdown, text, csv), pinning that renderer's version and skipping any with
 nothing to render. The release that introduces `text` v1 and `csv` v1 together with markdown v3
 needs exactly one run, and so does the release that moves documents to Logbook's palette
-(markdown v4, `text` v2 and `csv` v2, D88): one run re-renders all three.
+(markdown v4, `text` v2 and `csv` v2, D88): one run re-renders all three. Markdown v5 (parse5 8.1,
+which keeps the whitespace in tables where it was written) changes no visible output; a run
+renders at the writer's current version, so a release that carries both v4 and v5 also needs only
+one run.
 
 Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
 content. Older documents keep their previous rendition (which is fine to serve) until they're

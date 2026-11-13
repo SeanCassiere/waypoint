@@ -43,7 +43,9 @@ export const RENDERER_NAME = "markdown";
 // public blue, and the chrome's 2px ink focus ring. v4: Logbook's palette (D88): the page is the
 // shell's paper, cool rules and wells, the neutral mark (also on <mark>), callouts in the chrome's
 // state colours, and syntax colours that reach 4.5:1 on the wells and the mark (SYNTAX_COLOURS).
-export const RENDERER_VERSION = 4;
+// v5: parse5 8.1 (under rehype-raw's hast-util-raw 9.2): the newlines between a table's rows and
+// cells stay inside the table instead of being moved in front of it. It looks the same.
+export const RENDERER_VERSION = 5;
 
 const languages = [
   "typescript",

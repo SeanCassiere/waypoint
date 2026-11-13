@@ -146,8 +146,8 @@ describe("renditions by MIME type (RX-08)", () => {
     }>("SELECT source_hash,renderer,renderer_version FROM pending_renditions");
     const hash = (path: string): string => written.find((file) => file.path === path)!.hash;
     const expected = [
-      [hash("index.md"), "markdown", 4],
-      [hash("twin.md"), "markdown", 4],
+      [hash("index.md"), "markdown", 5],
+      [hash("twin.md"), "markdown", 5],
       [hash("run.sh"), "text", 2],
       [hash("metrics.json"), "text", 2],
       [hash("notes.txt"), "text", 2],

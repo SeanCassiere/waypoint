@@ -171,7 +171,7 @@ Details are in [write-path-and-sync.md](write-path-and-sync.md).
 - **Agent-written HTML** is served exactly as the agent wrote it. Whatever external resources it references are its own business.
 - **Changes-page fragments** (`renderFragment` in `@waypoint/render`, run in `compare-worker.ts`) aren't renditions: they're rendered per request, never stored, so they don't bump `RENDERER_VERSION`; a separate fragment golden test pins their output, including GFM callouts and relative links resolved to the head revision's writer path.
 
-### The reading template (renderer version 4, Folio's template on Logbook's palette)
+### The reading template (renderer version 5, Folio's template on Logbook's palette)
 
 The template follows the Folio design spec (section 8). The CSS is inlined in every rendition.
 - **Typography:** the system sans stack at 17px/1.65 (16.5px under 600px) with a 68ch measure, light and dark via `prefers-color-scheme`. No webfonts. Colours come from the frozen `readingTokensCss` in `@waypoint/ui`, a copy of Logbook's chrome palette (D88): the page is the shell's paper (what the frame sits on in the writer and the reader, so there is no band at its edge), cool ink, rules and code wells, links in the public blue, the chrome's neutral mark (selection, `<mark>`, a text view's `:target` line), callouts in the chrome's state colours, and the chrome's 2 px ink focus ring (`--focus`). Every text colour passes 4.5:1 on each ground it sits on, light and dark (`packages/ui/tests/tokens-contrast.test.ts`). Chrome token edits can't change renditions; the reading palette changes only with a `RENDERER_VERSION` bump.
