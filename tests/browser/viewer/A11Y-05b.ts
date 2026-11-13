@@ -359,6 +359,11 @@ const scenario: ViewerScenario = {
     await touch.locator('[data-shot][data-name="b.png"]').tap();
     await touch.locator("#lightbox[open]").waitFor();
     assert.equal(await touch.locator("#lightbox .lbx-hint").isVisible(), false, "no key hint");
+    // Measure once the open transition (translateY, up to 150 ms) has finished: mid-transition
+    // the rects carry the fractional offset and can read 43.999996 px.
+    await touch.evaluate(
+      'Promise.all(document.querySelector("#lightbox").getAnimations({ subtree: true }).map((animation) => animation.finished)).then(() => true)',
+    );
     const heights = numbers.parse(
       await touch.evaluate(
         '[...document.querySelectorAll("#lightbox [data-lbx-prev], #lightbox [data-lbx-next], #lightbox [data-lbx-done], #lightbox [data-lbx-modes] button")].map((node) => node.getBoundingClientRect().height)',
