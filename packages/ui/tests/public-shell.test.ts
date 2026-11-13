@@ -315,9 +315,10 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    // The rest of the page (style, script, letterhead and About, the panel's CSS and script, the
-    // tree's folds and their saved state) and the last row's overshoot come to about 46.5 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 46_500);
+    // The rest of the page (style with the font faces and the shared controls, script, letterhead
+    // and About, the panel's CSS and script, the tree's folds and their saved state) and the last
+    // row's overshoot come to about 48.5 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 48_500);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },

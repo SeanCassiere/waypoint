@@ -24,7 +24,7 @@ export const panelCss: string = `.shell{display:grid;grid-template-columns:var(-
 .peek-edge{display:none}
 @media ${PEEK_MEDIA}{.shell.closed{grid-template-columns:minmax(0,1fr)}
 .shell.closed>.peek-edge{display:block;position:fixed;left:0;top:var(--panel-top,0px);bottom:0;width:16px;z-index:31}
-.shell.closed .panel{position:fixed;left:0;top:calc(var(--panel-top,0px) + 32px);bottom:24px;width:var(--panel-w);z-index:32;border:1px solid var(--rule);border-left:0;border-radius:0 var(--r-md) var(--r-md) 0;box-shadow:var(--sh-2)}
+.shell.closed .panel{position:fixed;left:0;top:calc(var(--panel-top,0px) + 32px);bottom:24px;width:var(--panel-w);z-index:32;border:1px solid var(--rule);border-left:0;border-radius:0 var(--rd-3) var(--rd-3) 0;box-shadow:var(--sh-2)}
 .shell.closed.peek .panel{visibility:visible}}
 .panel{border-right:1px solid var(--rule);background:var(--paper);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .pbody{flex:1;overflow:auto;padding:10px 8px 16px}

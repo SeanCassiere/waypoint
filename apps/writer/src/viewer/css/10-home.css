@@ -251,7 +251,7 @@ li.item.trash .meta {
 .card {
   border: 1px solid var(--rule);
   background: var(--surface);
-  border-radius: var(--r-lg);
+  border-radius: var(--rd-box);
   padding: 14px 16px;
   margin-bottom: 24px;
   box-shadow: var(--sh-1);
@@ -402,7 +402,7 @@ li.item.trash .meta {
   gap: 6px 20px;
   padding: 22px;
   border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
+  border-radius: var(--rd-box);
   background: var(--surface);
 }
 .alltrash h2 {
@@ -596,7 +596,7 @@ li.item.trash .meta {
   padding: 0 12px;
   min-height: 48px;
   border: 1px solid var(--control);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
   color: var(--muted);
 }
@@ -637,7 +637,7 @@ form.search-page input[type="search"] {
   margin: 0 0 16px;
   padding: 0 12px;
   border: 1px solid var(--control);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-2);
   background: var(--surface);
   color: var(--muted);
 }

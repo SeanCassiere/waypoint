@@ -83,9 +83,9 @@ async function sha256(text: string): Promise<string> {
   return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }
 /** Exact policy for the root and denial pages (spec §9.2). */
-const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /** The `/x/` denial card's policy: the same, but framable by the shell. */
-const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
@@ -386,7 +386,7 @@ describe("public reader", () => {
     expect(lookalikes.filter(isOwnOrigin)).toEqual([]);
     expect(isOwnOrigin(`${base}/s/x`)).toBe(true);
     expect(shell.headers.get("content-security-policy")).toBe(
-      `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     );
     expect(shell.headers.get("x-frame-options")).toBe("DENY");
     expect(shell.headers.get("cache-control")).toBe("private");

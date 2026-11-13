@@ -40,7 +40,7 @@
   gap: 14px;
   align-items: center;
   border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
+  border-radius: var(--rd-box);
   padding: 16px 18px;
   background: var(--surface);
   box-shadow: var(--sh-1);
@@ -177,7 +177,7 @@
 /* Status: one group per collection that needs you, rows that explain each revision (OW-06b). */
 .sgrp {
   border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
   margin-bottom: 12px;
@@ -421,7 +421,7 @@ h2.sec .n {
 }
 .lgrp {
   border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
   margin-bottom: 12px;
   overflow: hidden;

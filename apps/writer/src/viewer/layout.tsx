@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { WAYPOINT_VERSION } from "@waypoint/core";
-import { icon } from "@waypoint/ui";
+import { CHROME_FONT_PATH, icon } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
 
@@ -48,6 +48,7 @@ export function Layout(props: {
         <title>{props.title === "Waypoint" ? "Waypoint" : `${props.title} · Waypoint`}</title>
         <link rel="icon" href={faviconAsset.url} type="image/svg+xml" />
         <link rel="stylesheet" href={cssAsset.url} />
+        <link rel="preload" href={CHROME_FONT_PATH} as="font" type="font/woff2" crossorigin="" />
       </head>
       <body data-page={props.page}>
         <a class="skip" href="#main">

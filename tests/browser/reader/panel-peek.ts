@@ -73,7 +73,7 @@ const scenario: ReaderScenario = {
     assert.deepEqual(main, { left: 0, top, width: 1440, bottom: 900 });
 
     // Hover intent: nothing at 100 ms, the card at 150 ms, floating 32 px under the banner and
-    // 24 px above the bottom, its right corners on --r-md; the document doesn't move.
+    // 24 px above the bottom, its right corners on --rd-3 (it floats); the document doesn't move.
     await page.mouse.move(8, 500);
     await page.clock.runFor(100);
     assert.ok(!(await peeking(page)), "no peek before 150 ms");

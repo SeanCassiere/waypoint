@@ -1,6 +1,6 @@
 // OW-10b: the health pill says whether the collection on screen is affected. On the seeded demo
 // writer (only Postgres has trouble: #6 failed on #4, #7 uploading, stalled after about seven
-// minutes), Webhook's pill says "1 failed elsewhere" on a neutral pill (a ring and "1 failed"
+// minutes), Webhook's pill says "1 failed elsewhere" on a neutral pill with a red ring (D71; "1 failed"
 // below 1100 px, a 44 px ring-dot count on phones), Postgres's says "#6 failed" filled, global
 // pages keep "1 failed", and the popover opens with This collection, then Elsewhere on this
 // writer. The pill's own box is ≥ 44 px tall under a coarse pointer at every width and
@@ -41,25 +41,30 @@ const styles = z.object({
   color: z.string(),
   icon: z.string().nullable(),
   iconShown: z.boolean(),
-  ring: z.object({ shown: z.boolean(), style: z.string(), width: z.number() }).nullable(),
+  ring: z
+    .object({ shown: z.boolean(), style: z.string(), width: z.number(), color: z.string() })
+    .nullable(),
 });
 async function pillStyles(page: Page): Promise<z.infer<typeof styles>> {
   return styles.parse(
     await page.evaluate(`(() => {
       const pill = document.querySelector(${JSON.stringify(PILL)});
       const style = getComputedStyle(pill);
-      const icon = pill.querySelector("svg.ic");
-      const ring = pill.querySelector(".d.ring");
+      // The state mark (D80): the ok and sync-off icons, or a state glyph; a ring elsewhere (D71).
+      const icon = pill.querySelector("svg.ic, .lb-g:not(.ring)");
+      const ring = pill.querySelector(".lb-g.ring");
       const shown = (node) => !!node && getComputedStyle(node).display !== "none" &&
         node.getBoundingClientRect().width > 0;
       return {
         background: style.backgroundColor,
         border: style.borderTopColor,
         color: style.color,
-        icon: icon ? getComputedStyle(icon).color : null,
+        icon: icon ? (icon.matches(".lb-g") ? getComputedStyle(icon).backgroundColor
+          : getComputedStyle(icon).color) : null,
         iconShown: shown(icon),
         ring: ring ? { shown: shown(ring), style: getComputedStyle(ring).borderTopStyle,
-          width: parseFloat(getComputedStyle(ring).borderTopWidth) } : null,
+          width: parseFloat(getComputedStyle(ring).borderTopWidth),
+          color: getComputedStyle(ring).borderTopColor } : null,
       };
     })()`),
   );
@@ -159,16 +164,17 @@ const scenario: ViewerScenario = {
     assert.equal(away.background, await token(page, "--surface"), "elsewhere: surface fill");
     assert.equal(away.border, await token(page, "--rule-2"), "elsewhere: --rule-2 border");
     assert.equal(away.color, await token(page, "--ink-2"), "elsewhere: --ink-2 words");
-    assert.equal(away.icon, await token(page, "--failed"), "elsewhere: a red icon");
-    assert.ok(away.iconShown, "elsewhere at 1280: the icon shows");
-    assert.equal(away.ring?.shown, false, "elsewhere at 1280: no ring");
+    // D71: a fill is here, a ring is elsewhere, at every width
+    assert.equal(away.icon, null, "elsewhere: no filled glyph or icon");
+    assert.ok(away.ring?.shown, "elsewhere at 1280: the ring shows");
+    assert.equal(away.ring.color, await token(page, "--failed"), "elsewhere: a red ring");
 
     // Its popover: This collection, then Elsewhere on this writer.
     const pop = await popover(page);
     assert.deepEqual(pop.headings, ["This collection", "Elsewhere on this writer"]);
     assert.deepEqual(pop.rows[0], ["All 3 revisions synced | Public links see #3, the latest."]);
     const elsewhere = pop.rows[1] ?? [];
-    assert.equal(elsewhere[0], `${POSTGRES} #6 failed | Branch off #4 · readable here only`);
+    assert.equal(elsewhere[0], `${POSTGRES} #6 failed | Branch off #4, readable here only`);
     assert.ok(
       elsewhere.length === 1 ||
         (elsewhere[1] ?? "").startsWith(`${POSTGRES} #7 stalled | No upload progress for `),
@@ -187,7 +193,7 @@ const scenario: ViewerScenario = {
       1,
     );
     const footer = (await page.locator("#health-pop .hpw").innerText()).replace(/\s+/g, " ");
-    assert.ok(/^Last cloud sync .+ · 127\.0\.0\.1 · dev · Status$/.test(footer), footer);
+    assert.ok(/^Last cloud sync .+, 127\.0\.0\.1, dev\. Status$/.test(footer), footer);
     await page.keyboard.press("Escape");
     await page.locator("#health-pop").waitFor({ state: "hidden" });
     assert.ok(
@@ -223,7 +229,8 @@ const scenario: ViewerScenario = {
     );
     const here = await pillStyles(page);
     assert.equal(here.background, await token(page, "--failed-bg"), "here: filled red");
-    assert.ok(here.iconShown && here.ring === null, "here: the alert icon, no ring");
+    assert.ok(here.iconShown && here.ring === null, "here: the failed glyph, no ring");
+    assert.equal(here.icon, await token(page, "--failed"), "here: a red glyph");
     const own = await popover(page);
     assert.deepEqual(own.headings, ["This collection", "Elsewhere on this writer"]);
     const rows = own.rows[0] ?? [];
@@ -308,7 +315,7 @@ const scenario: ViewerScenario = {
       await tablet.goto(webhook);
       assert.equal(await visible(tablet), "1 failed", "820: the mid words");
       const ring = await pillStyles(tablet);
-      assert.ok(ring.ring?.shown && !ring.iconShown, "820: the ring, not the icon");
+      assert.ok(ring.ring?.shown && !ring.iconShown, "820: the ring, no filled glyph");
       assert.equal(ring.ring.width, 2, "820: a 2 px ring");
       assert.equal(
         await tablet
@@ -346,7 +353,7 @@ const scenario: ViewerScenario = {
       await phone.goto(postgres);
       assert.equal(await visible(phone), "#6", "390 Postgres: #6");
       const pg = await pillStyles(phone);
-      assert.ok(pg.iconShown && pg.ring === null, "390 Postgres: the alert icon");
+      assert.ok(pg.iconShown && pg.ring === null, "390 Postgres: the failed glyph");
       const pgSize = await pillBox(phone);
       assert.ok(
         pgSize.width >= 44 && pgSize.height >= 44,

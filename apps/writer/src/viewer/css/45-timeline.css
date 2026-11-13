@@ -359,7 +359,7 @@
   margin: 0 auto 14px;
   padding: 8px 12px;
   border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
   font-size: 13px;
 }
@@ -378,7 +378,7 @@
   margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
 }
 .incl .lbl {
@@ -455,7 +455,7 @@
   margin-top: 12px;
   padding: 10px 14px;
   border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-box);
   background: var(--surface);
 }
 .forkcard .btns {

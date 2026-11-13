@@ -128,7 +128,7 @@ function healthOf(
         : resolved === "uploading"
           ? "Uploading"
           : resolved === "offline"
-            ? "Offline · writes queued"
+            ? "Offline, writes queued"
             : resolved === "blocked"
               ? "Sync blocked"
               : resolved === "off"
@@ -137,7 +137,7 @@ function healthOf(
   return {
     state: resolved,
     label,
-    short: label.split(" · ")[0] ?? label,
+    short: label.split(", ")[0] ?? label,
     aria: "",
     failed: failedItems,
     pending,
@@ -244,12 +244,12 @@ describe("pillModel (OW-10b)", () => {
     [
       "mixed, a failure here and one elsewhere",
       healthOf([pgOnlyFailed(), group([], [failed(OPS, 2, null)])], { collectionPub: PG.pub }),
-      { scope: "mixed", label: "2 failed · 1 here", short: "2", tone: "failed", icon: "alert" },
+      { scope: "mixed", label: "2 failed, 1 here", short: "2", tone: "failed", icon: "alert" },
     ],
     [
       "mixed, one failure here only and a stall elsewhere",
       healthOf([pgOnlyFailed(), group([], [stalled(OPS, 2, null)])], { collectionPub: PG.pub }),
-      { scope: "mixed", label: "#6 failed · 1 stalled elsewhere", short: "#6", tone: "failed" },
+      { scope: "mixed", label: "#6 failed, 1 stalled elsewhere", short: "#6", tone: "failed" },
     ],
     [
       "mixed, two failures here only and two stalls elsewhere",
@@ -260,7 +260,7 @@ describe("pillModel (OW-10b)", () => {
         ],
         { collectionPub: PG.pub },
       ),
-      { scope: "mixed", label: "2 failed here · 2 stalled elsewhere", short: "2", tone: "failed" },
+      { scope: "mixed", label: "2 failed here, 2 stalled elsewhere", short: "2", tone: "failed" },
     ],
     [
       "mixed, a stall here and a failure elsewhere",
@@ -269,7 +269,7 @@ describe("pillModel (OW-10b)", () => {
       }),
       {
         scope: "mixed",
-        label: "#7 stalled · 1 failed elsewhere",
+        label: "#7 stalled, 1 failed elsewhere",
         short: "#7",
         tone: "pending",
         icon: "clock",
@@ -280,12 +280,12 @@ describe("pillModel (OW-10b)", () => {
       healthOf([group(pgRows(), [stalled(PG, 7, 5)]), group([], [stalled(OPS, 2, null)])], {
         collectionPub: PG.pub,
       }),
-      { scope: "mixed", label: "2 stalled · 1 here", short: "2", tone: "pending" },
+      { scope: "mixed", label: "2 stalled, 1 here", short: "2", tone: "pending" },
     ],
     [
       "offline with a scope",
       healthOf([pgOnlyFailed()], { collectionPub: PG.pub }, "offline"),
-      { scope: null, label: "Offline · writes queued", short: "Offline", tone: "pending" },
+      { scope: null, label: "Offline, writes queued", short: "Offline", tone: "pending" },
     ],
     [
       "blocked with a scope",
@@ -341,14 +341,15 @@ describe("withHealthScope", () => {
 });
 
 describe("HealthPill (OW-10b)", () => {
-  it("names the revision here, with a VS-03 icon and no dot", async () => {
+  it("names the revision here, with the failed glyph (D80) and no dot", async () => {
     const pill = await html(HealthPill({ health: healthOf([pgOnlyFailed()], PG_SCOPE) }));
     expect(pill).toContain('class="health failed"');
     expect(pill).toContain('data-scope="here"');
     expect(pill).toContain('aria-label="#6 failed: this collection and writer status"');
     expect(pill).toContain('<span class="lbl">#6 failed</span>');
     expect(pill).toContain('<span class="short" aria-hidden="true">#6</span>');
-    expect(pill).toContain("<svg");
+    expect(pill).toContain('<span class="lb-g failed" aria-hidden="true"></span>');
+    expect(pill).not.toContain("<svg");
     expect(pill).not.toContain('class="d"');
     expect(pill).not.toContain('class="d ring"');
   });
@@ -359,7 +360,9 @@ describe("HealthPill (OW-10b)", () => {
     expect(pill).toContain('class="health away"');
     expect(pill).toContain('data-scope="elsewhere"');
     expect(pill).toContain('aria-label="1 failed elsewhere: writer status"');
-    expect(pill).toContain('<span class="d ring" aria-hidden="true"></span>');
+    // D71: a fill is here, a ring is elsewhere; the ring is the pill's only state mark
+    expect(pill).toContain('<span class="lb-g ring" aria-hidden="true"></span>');
+    expect(pill).not.toContain("<svg");
     expect(pill).toContain('<span class="lbl">1 failed elsewhere</span>');
     expect(pill).toContain('<span class="mid" aria-hidden="true">1 failed</span>');
     expect(pill).toContain('<span class="short" aria-hidden="true">1</span>');
@@ -375,7 +378,7 @@ describe("HealthPill (OW-10b)", () => {
       }),
     );
     expect(mixed).toContain('data-scope="mixed"');
-    expect(mixed).toContain('<span class="lbl">2 failed · 1 here</span>');
+    expect(mixed).toContain('<span class="lbl">2 failed, 1 here</span>');
   });
 });
 
@@ -406,7 +409,7 @@ describe("HealthPopover (OW-10b)", () => {
     );
     // Nothing is in trouble elsewhere: no Open Status there.
     expect(markup.slice(away)).not.toContain(">Open Status<");
-    expect(words).toContain("Last cloud sync 2 min ago · 127.0.0.1 · dev · Status");
+    expect(words).toContain("Last cloud sync 2 min ago , 127.0.0.1, dev . Status");
     expect(words).not.toMatch(/stuck/i);
   });
   it("says this collection is synced and links the trouble elsewhere", async () => {
@@ -414,7 +417,7 @@ describe("HealthPopover (OW-10b)", () => {
     const words = text(markup);
     expect(words).toContain("All 3 revisions synced Public links see #3, the latest.");
     expect(markup).toContain(`<a href="/c/${PG.pub}/r/${PG.pub}r6/">${PG.title}</a> #6 failed`);
-    expect(words).toContain(`${PG.title} #6 failed Branch off #4 · readable here only`);
+    expect(words).toContain(`${PG.title} #6 failed Branch off #4, readable here only`);
     expect(words).toContain(`${PG.title} #7 stalled No upload progress for 24 min`);
     expect(markup).toContain('<a class="btn sm" href="/status">Open Status</a>');
     expect(markup).toContain(`data-ids="col_pg_r6" data-n="6" data-title="${PG.title}">Retry #6<`);

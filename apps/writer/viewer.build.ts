@@ -4,7 +4,15 @@
 // A turbo task of its own (`build:viewer`): the writer's tests serve these files too, so it reads
 // workspace packages from source (`@waypoint/source`, also for this script's own import of
 // @waypoint/ui) and needs no library build. Run it with `node --conditions=@waypoint/source`.
-import { panelCss, sharedTokensCss, stageCss, treeCss, writerTokensCss } from "@waypoint/ui";
+import {
+  controlsCss,
+  panelCss,
+  sharedTokensCss,
+  stageCss,
+  treeCss,
+  writerComponentsCss,
+  writerTokensCss,
+} from "@waypoint/ui";
 import { build } from "esbuild";
 
 import { viewerCssSource } from "./src/viewer/css.ts";
@@ -36,19 +44,31 @@ await build({
   logLevel: "info",
 });
 
-// The shared Folio tokens come first, then the writer-only roles, so the shell and the public
-// reader can't drift apart; only the writer gets writerTokensCss. The reader's image stage
-// (RX-04), then the file panel and its tree (packages/ui/src/panel-css.ts) come before the
-// viewer's own rules, so the partials can build on them and the writer's pages use the same ones.
+// The shared tokens (with the chrome's font faces) come first, then the writer-only roles, so the
+// shell and the public reader can't drift apart; only the writer gets writerTokensCss. Then the
+// component system (packages/ui/src/components-css.ts): the controls the reader shares, then the
+// writer's own. The reader's image stage (RX-04), then the file panel and its tree
+// (packages/ui/src/panel-css.ts) come before the viewer's own rules, so the partials only lay
+// things out on top of them and the writer's pages use the same ones.
 await build({
   stdin: {
-    contents: sharedTokensCss + writerTokensCss + stageCss + panelCss + treeCss + viewerCssSource(),
+    contents:
+      sharedTokensCss +
+      writerTokensCss +
+      controlsCss +
+      writerComponentsCss +
+      stageCss +
+      panelCss +
+      treeCss +
+      viewerCssSource(),
     loader: "css",
     resolveDir: at("src/viewer"),
     sourcefile: "viewer.css",
   },
   outfile: at("dist/viewer/viewer.css"),
   bundle: true,
+  // The chrome's font is served by the writer itself (CHROME_FONT_PATH), not bundled.
+  external: ["/assets/*"],
   minify: true,
   logLevel: "info",
 });

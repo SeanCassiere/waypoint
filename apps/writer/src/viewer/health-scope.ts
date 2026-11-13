@@ -100,21 +100,21 @@ export function pillModel(health: Health): PillModel {
     short = oneOr(items);
   } else if (fh > 0 && fa > 0) {
     failed = true;
-    label = `${f} failed · ${fh} here`;
+    label = `${f} failed, ${fh} here`;
     // Decision d-1: the phone label is the total, so the name starts with it (A11Y-04).
     short = `${f}`;
   } else if (fh > 0) {
-    // Failures only here, so a stall elsewhere: name it rather than hide it behind "· 1 here".
+    // Failures only here, so a stall elsewhere: name it rather than hide it behind ", 1 here".
     failed = true;
-    label = `${fh === 1 ? `${num(failedHere[0])} failed` : `${fh} failed here`} · ${sa} stalled elsewhere`;
+    label = `${fh === 1 ? `${num(failedHere[0])} failed` : `${fh} failed here`}, ${sa} stalled elsewhere`;
     short = oneOr(failedHere);
   } else if (fa > 0) {
     failed = false;
-    label = `${sh === 1 ? `${num(stalledHere[0])} stalled` : `${sh} stalled here`} · ${f} failed elsewhere`;
+    label = `${sh === 1 ? `${num(stalledHere[0])} stalled` : `${sh} stalled here`}, ${f} failed elsewhere`;
     short = oneOr(stalledHere);
   } else {
     failed = false;
-    label = `${sa + sh} stalled · ${sh} here`;
+    label = `${sa + sh} stalled, ${sh} here`;
     short = `${sa + sh}`;
   }
   return {
@@ -201,7 +201,7 @@ export function hereRows(health: Health, now: number): PopRow[] {
         head: chipText(item.display_number, "stalled"),
         note: [
           `No upload progress for ${stalledFor(item, now)}`,
-          ...(next === null ? [] : [" · next try ", { at: next, fmt: "until" as const }]),
+          ...(next === null ? [] : [", next try ", { at: next, fmt: "until" as const }]),
         ],
       };
     }
@@ -287,7 +287,7 @@ export function elsewhereModel(health: Health, now: number): ElsewhereModel {
         icon: "alert",
         item,
         head: chipText(item.display_number, "failed"),
-        note: [line ? `${line} · readable here only` : "Readable here only"],
+        note: [line ? `${line}, readable here only` : "Readable here only"],
       };
     }
     return {

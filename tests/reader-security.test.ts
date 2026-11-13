@@ -5,7 +5,13 @@ import { createHash, createHmac } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { hashShareToken, newShareToken } from "@waypoint/core";
-import { encodePathSegments, publicShellCss, publicShellScript } from "@waypoint/ui";
+import {
+  CHROME_FONT_PATH,
+  chromeFontBytes,
+  encodePathSegments,
+  publicShellCss,
+  publicShellScript,
+} from "@waypoint/ui";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../apps/reader/src/app.ts";
@@ -276,12 +282,38 @@ describe("uniform denial", () => {
   });
   it("lists every non-denial unauthenticated URL", async () => {
     const non: string[] = [];
-    for (const path of ["/", "/healthz", "/healthz/deep", "/robots.txt", "/index.html"]) {
+    const otherFont = CHROME_FONT_PATH.replace(/-[0-9a-f]{16}\.woff2$/, "-0000000000000000.woff2");
+    for (const path of [
+      "/",
+      "/healthz",
+      "/healthz/deep",
+      "/robots.txt",
+      "/index.html",
+      CHROME_FONT_PATH,
+      otherFont,
+    ]) {
       const res = await req(path);
       if ((await res.text()) !== deniedPage) non.push(`${path} ${res.status}`);
     }
-    // Besides /s/ and /x/: the root page and the operational endpoints (docs/public-reader.md).
-    expect(non).toEqual(["/ 200", "/healthz 200", "/healthz/deep 200", "/robots.txt 200"]);
+    // Besides /s/ and /x/: the root page, the chrome's font and the operational endpoints
+    // (docs/public-reader.md). A font path with another hash is the denial.
+    expect(non).toEqual([
+      "/ 200",
+      "/healthz 200",
+      "/healthz/deep 200",
+      "/robots.txt 200",
+      `${CHROME_FONT_PATH} 200`,
+    ]);
+  });
+  it("serves the chrome's font immutably without DB or limiter", async () => {
+    const res = await req(CHROME_FONT_PATH);
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(chromeFontBytes());
+    expect(res.headers.get("content-type")).toBe("font/woff2");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(queries).toEqual([]);
+    expect(limiterCalls).toBe(0);
   });
 });
 

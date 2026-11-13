@@ -1,4 +1,6 @@
-/* Folio shell stylesheet (spec §3–4). Tokens come from @waypoint/ui and are prepended at build. */
+/* The writer's shell stylesheet: helpers, then the bar. Tokens and every control (buttons, fields,
+   menus, dialogs, state glyphs, the health pill) come from @waypoint/ui and are prepended at build
+   (components-css.ts); these partials only lay things out. */
 .sr {
   position: absolute;
   width: 1px;
@@ -30,20 +32,6 @@
 .faint {
   color: var(--faint);
 }
-kbd {
-  font: 600 10.5px/1 var(--mono);
-  border: 1px solid var(--rule-2);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 2px 5px;
-  color: var(--muted);
-  background: var(--surface);
-}
-mark {
-  background: var(--pending-bg);
-  color: var(--ink);
-  border-radius: 3px;
-}
 [hidden] {
   display: none !important;
 }
@@ -55,18 +43,17 @@ mark {
   gap: 12px;
   padding: 0 16px;
   border-bottom: 1px solid var(--rule);
-  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  background: var(--paper);
   position: sticky;
   top: 0;
   z-index: 20;
-  backdrop-filter: saturate(1.4) blur(8px);
 }
 .logo {
   display: flex;
   align-items: center;
   gap: 8px;
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 750;
   letter-spacing: -0.01em;
   flex: none;
 }
@@ -120,21 +107,24 @@ mark {
   gap: 8px;
   border: 1px solid var(--control);
   background: var(--surface);
-  border-radius: var(--r-md);
+  border-radius: var(--rd-2);
   padding: 0 10px;
-  color: var(--muted);
+  color: var(--ink-2);
   min-width: 280px;
   flex: 0 1 420px;
   /* 0, not auto: the field follows the tabs; 0 also drops the bottom margin forms get when the
      page renders without a doctype, which would lift the field off the bar's centre line */
   margin: 0;
   position: relative;
-  height: 34px;
+  height: var(--ctl-md);
+}
+.search:hover {
+  border-color: var(--ink-2);
 }
 .search:focus-within {
   border-color: var(--ink);
   outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 .search input {
   flex: 1;
@@ -146,85 +136,19 @@ mark {
   color: var(--ink);
 }
 .search input::placeholder {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .search input::-webkit-search-cancel-button {
   display: none;
 }
+/* The bar's search list (NAV-02) hangs under the field; the list itself is a component. */
 .suggest {
   position: absolute;
   top: calc(100% + 6px);
   left: -1px;
   right: -1px;
   z-index: 40;
-  background: var(--dlg);
-  border: 1px solid var(--rule-2);
-  border-radius: 12px;
-  box-shadow: var(--sh-2);
-  padding: 6px;
   margin: 0;
-}
-/* Groups (NAV-02): "Collections", then All results under a rule. */
-.suggest [role="group"] + [role="group"] {
-  border-top: 1px solid var(--rule);
-  margin-top: 4px;
-  padding-top: 4px;
-}
-.suggest .sg-h {
-  font: 650 11px/1 var(--sans);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding: 8px 10px 6px;
-}
-/* Two lines: the title, then "project · #n message". */
-.suggest [role="option"] {
-  display: grid;
-  gap: 2px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  color: var(--ink);
-  text-decoration: none;
-}
-.suggest [role="option"] small {
-  color: var(--muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.suggest [role="option"] b {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.suggest mark {
-  padding: 0 1px;
-}
-.suggest .all {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-/* A long unbroken query wraps inside its column, clear of the keycap. */
-.suggest .all span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.suggest [role="option"]:hover {
-  background: var(--hover);
-}
-.suggest [role="option"][aria-selected="true"] {
-  background: var(--hover);
-  box-shadow: inset 0 0 0 1px var(--rule-2);
-}
-@media (forced-colors: active) {
-  .suggest [role="option"][aria-selected="true"] {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
-  }
 }
 /* The global bar's destinations (NAV-01). The search field follows the tabs, so it starts at the
    same x on every page that shares the bar. */
@@ -239,10 +163,10 @@ mark {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--rd-2);
   text-decoration: none;
-  color: var(--muted);
-  font-weight: 550;
+  color: var(--ink-2);
+  font-weight: 560;
   white-space: nowrap;
 }
 .gnav a:hover {
@@ -251,18 +175,14 @@ mark {
 }
 .gnav a[aria-current="page"] {
   color: var(--ink);
-  font-weight: 600;
-  background: var(--sel-bg);
-  box-shadow: inset 0 0 0 1px var(--sel-ring);
+  font-weight: 620;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
 }
+/* a count is a plain number, not a pill */
 .gnav .n {
-  font: 600 11px/1 var(--sans);
-  color: var(--muted);
-  background: var(--sunken);
-  /* the hairline keeps the pill visible in dark, where --sunken is close to the bar's --paper */
-  box-shadow: inset 0 0 0 1px var(--rule);
-  border-radius: 99px;
-  padding: 3px 6px;
+  font: 500 12.5px/1 var(--sans);
+  color: var(--ink-2);
 }
 /* Forced colours drop the background and ring; an underline keeps the current tab apart and
    leaves the outline to the focus ring. */
@@ -280,7 +200,7 @@ mark {
   border: 0;
   background: none;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--rd-2);
   font-weight: 650;
   font-size: 15px;
   white-space: nowrap;
@@ -289,196 +209,14 @@ mark {
   flex: none;
 }
 .where .ic {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .grow {
   flex: 1;
 }
-.health {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  text-decoration: none;
-  color: var(--muted);
-  padding: 5px 9px;
-  border-radius: 99px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  background: none;
-  cursor: pointer;
-  flex: none;
-}
-.health:hover {
-  border-color: var(--rule);
-}
-/* The visible words by width (90-responsive): .lbl from 1100 px, the elsewhere .mid and ring
-   below it, .short up to 760 px. */
-.health .short,
-.health .mid,
-.health .d.ring {
-  display: none;
-}
-/* VS-03's state icons: alert failed, clock pending, okcircle synced, dot sync off. */
-.health.ok .ic {
-  color: var(--ok);
-}
-.health.off .ic {
-  color: var(--muted);
-}
-.health.pending {
-  color: var(--pending);
-  background: var(--pending-bg);
-}
-.health.failed {
-  color: var(--failed);
-  background: var(--failed-bg);
-}
-/* Elsewhere (OW-10b): this collection is fine, so the pill is neutral and only its icon (or,
-   below 1100 px, its ring) is red, or amber when only stalls are elsewhere. */
-.health.away {
-  background: var(--surface);
-  border-color: var(--rule-2);
-  color: var(--ink-2);
-}
-.health.away:hover {
-  background: var(--hover);
-}
-.health.away .ic {
-  color: var(--failed);
-}
-.health .d.ring {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: transparent;
-  border: 2px solid var(--failed);
-  flex: none;
-}
-.health.away[data-health="stalled"] .ic {
-  color: var(--pending);
-}
-.health.away[data-health="stalled"] .d.ring {
-  border-color: var(--pending);
-}
-.iconbtn {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: none;
-  cursor: pointer;
-  color: var(--ink-2);
-  text-decoration: none;
-  flex: none;
-  font-size: 16px;
-}
-.iconbtn:hover {
-  background: var(--hover);
-}
-/* buttons */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: var(--ctl-md);
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--rule-2);
-  background: var(--surface);
-  color: var(--ink);
-  cursor: pointer;
-  text-decoration: none;
-  font-weight: 500;
-  white-space: nowrap;
-  box-shadow: var(--sh-1);
-}
-.btn:hover {
-  border-color: var(--muted);
-}
-/* Disabled is neutral, never a faded colour (VS-04): faint text on a sunken fill, for every
-   variant, so a disabled solid or tinted button doesn't read as a dimmed one. */
-.btn[disabled],
-.btn[aria-disabled="true"] {
-  color: var(--faint);
-  background: var(--sunken);
-  border-color: var(--rule);
-  box-shadow: none;
-  cursor: not-allowed;
-}
-/* Variants (and their later :hover rules) would repaint it: this outranks both. */
-.btn:is(.primary, .public-solid, .danger-solid, .public, .danger, .ghost):is(
-    [disabled],
-    [aria-disabled="true"]
-  ),
-.btn:is(.primary, .public-solid, .danger-solid, .public, .danger, .ghost):is(
-    [disabled],
-    [aria-disabled="true"]
-  ):hover {
-  color: var(--faint);
-  background: var(--sunken);
-  border-color: var(--rule);
-  box-shadow: none;
-  cursor: not-allowed;
-}
-.btn.ghost {
-  border-color: transparent;
-  background: none;
-  box-shadow: none;
-}
-.btn.ghost:hover {
-  background: var(--hover);
-}
-.btn.primary {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-}
-.btn.public {
-  color: var(--public);
-  border-color: var(--public-line);
-}
-.btn.public:hover {
-  border-color: var(--public);
-}
-.btn.public-solid {
-  background: var(--public-solid);
-  border-color: var(--public-solid);
-  color: var(--on-solid);
-}
-.btn.danger {
-  color: var(--failed);
-  border-color: var(--failed-line);
-}
-.btn.danger-solid {
-  background: var(--failed-solid);
-  border-color: var(--failed-solid);
-  color: var(--on-solid);
-}
-.btn.sm {
-  height: var(--ctl-sm);
-  padding: 0 9px;
-  font-size: 12.5px;
-  border-radius: 7px;
-}
-.btn.center {
-  justify-content: center;
-}
-.btn kbd {
-  margin-left: 2px;
-}
-/* Touch: 44 px buttons (beating .txtbtn's later min-heights), and fields of at least 16 px, so
-   iOS Safari doesn't zoom the page when one is focused. Mouse density is unchanged. */
+/* Touch: fields of at least 16 px, so iOS Safari doesn't zoom the page when one is focused (44 px
+   controls are the component layer's). Mouse density is unchanged. */
 @media (pointer: coarse) {
-  :is(.btn, .txtbtn):is(a, button, summary, label) {
-    min-height: var(--tap);
-  }
-  .iconbtn:is(a, button) {
-    min-width: var(--tap);
-    min-height: var(--tap);
-  }
   /* :is() gives every branch the input branch's (0,2,1), so it beats .fl textarea's font. */
   :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
     font-size: max(16px, 1em);

@@ -18,7 +18,7 @@ const firstPub = "bcdefghjkmnp";
 const otherPub = "cdefghjkmnpq";
 const linkId = "shl_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const token = newShareToken();
-const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const forbiddenTags = /<(?:a|input|form|button|script|select|textarea|link|img)\b/i;
 const forbiddenAttributes = /\sstyle=|\son[a-z]+=/i;
 const env: ReaderEnv = {
