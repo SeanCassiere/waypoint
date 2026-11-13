@@ -481,7 +481,9 @@ input:is([type="checkbox"], [type="radio"]):not(:checked, :disabled):hover {
   display: inline-flex;
   align-items: stretch;
   gap: 18px;
-  height: var(--ctl-md);
+  /* min-height: on touch screens the tabs are 44 px targets (90-responsive), and the row grows to
+     hold them rather than letting them overflow it. */
+  min-height: var(--ctl-md);
   padding: 0;
   border: 0;
   background: none;
