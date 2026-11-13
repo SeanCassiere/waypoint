@@ -268,6 +268,26 @@ describe("rerender", () => {
     expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_renditions")).toBe(3);
   });
 
+  it("leaves sources a newer release already rendered alone after a rollback", async () => {
+    const { readme, notes, shared } = await seed();
+    // A newer writer queued version 3 renditions; this one renders version 2.
+    await rerender(waypoint, queue, blobs, new FakeRenderer(3), { dryRun: false, limit: 2 });
+    const newer = (
+      await queue.all<{ source_hash: string }>("SELECT source_hash FROM pending_renditions")
+    ).map((row) => row.source_hash);
+    expect(newer).toHaveLength(2);
+    const v2 = new FakeRenderer(2);
+    const summary = await rerender(waypoint, queue, blobs, v2, { dryRun: false });
+    expect(summary).toMatchObject({ sources: 3, current: 2, queued: 1, remaining: 0 });
+    expect(v2.calls).toBe(1);
+    const left = [readme, notes, shared].filter((hash) => !newer.includes(hash));
+    expect(
+      await queue.all<{ source_hash: string }>(
+        "SELECT source_hash FROM pending_renditions WHERE renderer_version=2",
+      ),
+    ).toEqual(left.map((source_hash) => ({ source_hash })));
+  });
+
   it("ends its output with a plain remaining line for loops", async () => {
     await seed();
     const dry = await rerender(waypoint, queue, blobs, new FakeRenderer(2), {

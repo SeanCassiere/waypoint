@@ -1,14 +1,9 @@
-import { readFile } from "node:fs/promises";
-import { Readable } from "node:stream";
-
-import { isContentHash, rendererFor } from "@waypoint/core";
-import { z } from "zod";
-
 import type { BlobStore } from "./blob-store.ts";
 import type { Bucket } from "./bucket.ts";
-import { blobKey } from "./committer.ts";
 import { inSeries, type Db } from "./db.ts";
 import type { Renderer } from "./ingest.ts";
+import { renderSource } from "./render-source.ts";
+import { surveyStale } from "./stale.ts";
 
 /**
  * `waypoint-writer rerender`: give existing files a rendition at one renderer's current version
@@ -20,8 +15,10 @@ import type { Renderer } from "./ingest.ts";
  * `pending_renditions` rows, and the server's committer uploads each output before inserting its
  * `blobs` and `renditions` rows (blob before row), then pushes. It takes the data-directory lock,
  * so it runs while the server is stopped; the server commits the work on its next start.
- * Idempotent and resumable: sources that already have a current-version rendition (committed or
- * queued) are skipped, so an interrupted run is finished by running it again.
+ * Idempotent and resumable: sources whose newest rendition (committed or queued) is at or above
+ * the current version are skipped, so an interrupted run is finished by running it again. The
+ * selection is stale.ts's, shared with the background backfill; the CLI includes collections in
+ * Trash and processes sources in source-hash order.
  */
 export type RerenderOptions = {
   /** A collection ID or public ID; undefined means every collection. */
@@ -42,7 +39,7 @@ export type RerenderSummary = {
   dry_run: boolean;
   /** Distinct source blobs in scope (files whose type picks this renderer). */
   sources: number;
-  /** Sources that already have a current-version rendition, committed or queued. */
+  /** Sources whose newest rendition, committed or queued, is at or above the current version. */
   current: number;
   /** Renditions queued by this run (in a dry run: that would be queued). */
   queued: number;
@@ -144,52 +141,6 @@ async function resolveCollection(waypoint: Db, queue: Db, value: string): Promis
   return row.id;
 }
 
-const manifestFiles = z.object({
-  files: z.record(z.string(), z.object({ hash: z.string(), mime: z.string() })),
-});
-function manifestEntries(manifestJson: string): { hash: string; mime: string }[] {
-  const parsed = manifestFiles.safeParse(JSON.parse(manifestJson));
-  if (!parsed.success) return [];
-  return Object.values(parsed.data.files).filter((entry) => isContentHash(entry.hash));
-}
-
-/**
- * Source hashes in scope, sorted, each with the MIME type it is rendered as: committed files plus
- * files of pending (not failed) revisions whose type picks `renderer`. A hash stored under several
- * such types is rendered once, as the lexicographically smallest of them.
- */
-async function sources(
-  waypoint: Db,
-  queue: Db,
-  collectionId: string | undefined,
-  renderer: string,
-): Promise<[hash: string, mime: string][]> {
-  const purging = new Set(
-    (await queue.all<{ collection_id: string }>("SELECT collection_id FROM pending_purges")).map(
-      (row) => row.collection_id,
-    ),
-  );
-  const hashes = new Map<string, string>();
-  const add = (hash: string, mime: string): void => {
-    if (rendererFor(mime) !== renderer) return;
-    const known = hashes.get(hash);
-    if (known === undefined || mime < known) hashes.set(hash, mime);
-  };
-  const committed = await waypoint.all<{ collection_id: string; blob_hash: string; mime: string }>(
-    `SELECT DISTINCT r.collection_id, f.blob_hash, f.mime FROM revision_files f JOIN revisions r ON r.id=f.revision_id${collectionId ? " WHERE r.collection_id=?" : ""}`,
-    collectionId ? [collectionId] : [],
-  );
-  for (const row of committed) if (!purging.has(row.collection_id)) add(row.blob_hash, row.mime);
-  const pending = await queue.all<{ collection_id: string; manifest_json: string }>(
-    `SELECT collection_id, manifest_json FROM pending_revisions WHERE state='pending'${collectionId ? " AND collection_id=?" : ""}`,
-    collectionId ? [collectionId] : [],
-  );
-  for (const row of pending)
-    if (!purging.has(row.collection_id))
-      for (const entry of manifestEntries(row.manifest_json)) add(entry.hash, entry.mime);
-  return [...hashes].toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
-}
-
 export async function rerender(
   waypoint: Db,
   queue: Db,
@@ -204,29 +155,25 @@ export async function rerender(
     options.collection === undefined
       ? undefined
       : await resolveCollection(waypoint, queue, options.collection);
-  const all = await sources(waypoint, queue, collectionId, renderer.rendererName);
-  const mimes = new Map(all);
-  const needed: string[] = [];
-  await inSeries(all, async ([hash]) => {
-    const existing =
-      (await queue.get(
-        "SELECT 1 FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-        [hash, renderer.rendererName, renderer.rendererVersion],
-      )) ??
-      (await waypoint.get(
-        "SELECT 1 FROM renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-        [hash, renderer.rendererName, renderer.rendererVersion],
-      ));
-    if (!existing) needed.push(hash);
+  const survey = await surveyStale(waypoint, queue, {
+    renderers: [renderer],
+    ...(collectionId === undefined ? {} : { collectionId }),
+    includeTrashed: true,
+    now: now(),
   });
+  const total = survey.sources.get(renderer.rendererName) ?? 0;
+  // The CLI keeps its source-hash order (the backfill uses the survey's priority order).
+  const needed = survey.stale.toSorted((left, right) =>
+    left.hash < right.hash ? -1 : left.hash > right.hash ? 1 : 0,
+  );
   const limit = options.limit ?? needed.length;
   const summary: RerenderSummary = {
     renderer: renderer.rendererName,
     renderer_version: renderer.rendererVersion,
     collection: collectionId ?? null,
     dry_run: options.dryRun,
-    sources: all.length,
-    current: all.length - needed.length,
+    sources: total,
+    current: total - needed.length,
     queued: 0,
     remaining: needed.length,
     missing: [],
@@ -240,60 +187,32 @@ export async function rerender(
   // Attempt sources in order until `limit` are queued; missing and failed ones don't use up the
   // limit, so a run never stalls on sources that can't be rendered.
   let attempted = 0;
-  await inSeries(needed, async (hash) => {
+  await inSeries(needed, async (source) => {
     if (summary.queued >= limit) return;
     attempted++;
-    if (!(await blobs.has(hash))) {
-      // A writer bootstrapped from the cloud fetches blobs lazily; get the source like the viewer would.
-      const stored = await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash]);
-      if (!bucket || !stored) {
-        summary.missing.push(hash);
-        return;
-      }
-      try {
-        await blobs.put(await bucket.get(blobKey(hash)), hash);
-      } catch (error) {
-        console.error(
-          `Rerender could not fetch ${hash}: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
-        summary.missing.push(hash);
-        return;
-      }
-    }
-    const source = await readFile(blobs.path(hash));
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let rendered: Awaited<ReturnType<Renderer["render"]>>;
-    try {
-      rendered = await Promise.race([
-        renderer.render(source, mimes.get(hash) ?? ""),
-        new Promise<null>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("Renderer timeout")), timeoutMs);
-        }),
-      ]);
-    } catch {
-      rendered = null;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    // A rendition the blob store can't hold fails this source only, not the run.
-    if (!rendered || rendered.bytes.byteLength > blobs.maxBlobBytes) {
-      summary.failed.push(hash);
-      return;
-    }
-    const output = await blobs.put(Readable.from([Buffer.from(rendered.bytes)]));
-    const stored = await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [output.hash]);
-    await queue.transaction(async (tx) => {
-      if (!stored)
-        await tx.run("INSERT OR IGNORE INTO pending_blobs (hash,size) VALUES (?,?)", [
-          output.hash,
-          output.size,
-        ]);
-      await tx.run(
-        "INSERT OR IGNORE INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
-        [hash, renderer.rendererName, renderer.rendererVersion, output.hash, rendered.mime, now()],
-      );
+    const result = await renderSource({ waypoint, queue, blobs, bucket }, renderer, source, {
+      timeoutMs,
+      now,
     });
-    summary.queued++;
+    switch (result.status) {
+      case "queued":
+        summary.queued++;
+        return;
+      case "fetch_failed":
+        console.error(
+          `Rerender could not fetch ${source.hash}: ${result.error instanceof Error ? result.error.message : "unknown error"}`,
+        );
+        summary.missing.push(source.hash);
+        return;
+      case "missing":
+        summary.missing.push(source.hash);
+        return;
+      // A rendition the blob store can't hold fails this source only, not the run.
+      case "declined":
+      case "timeout":
+      case "output_too_large":
+        summary.failed.push(source.hash);
+    }
   });
   summary.remaining = needed.length - attempted;
   return summary;
