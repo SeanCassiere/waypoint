@@ -3,7 +3,9 @@
 // Expand all / Collapse all, and the folders a reader opens kept for the tab in
 // sessionStorage["wp:tree:<collection public ID>"], shared by every link to that collection and
 // never holding a share token. A document navigating to a file opens its folders without saving
-// them. Without script the folders toggle natively and there's no button.
+// them. A folder is known by its full path (`data-dir`): two long names that read the same once
+// shortened stay apart, and a collapsed chain keeps every folder in it, as the writer shows them.
+// Without script the folders toggle natively and there's no button.
 import { hashShareToken, newShareToken } from "@waypoint/core";
 import type { Page } from "playwright";
 import { z } from "zod";
@@ -23,6 +25,8 @@ const HASH = "sha256:" + "7".repeat(64);
 const COL = { id: "col_" + "t".repeat(26), pub: "tttttttttttt" };
 const REV = { id: "rev_" + "0".repeat(25) + "t", pub: "t7t7t7t7t7t7" };
 const LINKS = ["shl_" + "0".repeat(25) + "t", "shl_" + "0".repeat(25) + "u"] as const;
+// Two folder names longer than a row shows, differing only where the row shortens them.
+const LONG = [1, 2].map((n) => `${"L".repeat(50)}${n}${"M".repeat(50)}/`);
 const FILES = [
   "index.html",
   "Zeta.html",
@@ -36,13 +40,15 @@ const FILES = [
   "Beta/c.html",
   "Beta/d.html",
   "assets/logo.html",
+  ...LONG.flatMap((dir) => [`${dir}a.html`, `${dir}b.html`]),
+  "p/q/r/a.html",
+  "p/q/r/b.html",
 ];
 const WIDE = { width: 1440, height: 900 } as const;
 
 const strings = z.array(z.string());
-/** A folder's path: its row's text joined to its parents' (the script's key for it). */
-const DIR = `(d) => { let p = ""; for (let e = d; e; e = e.parentElement.closest("#files details"))
-  p = e.querySelector(":scope > summary").textContent + p; return p; }`;
+/** A folder's path, the script's key for it. */
+const DIR = `(d) => d.dataset.dir`;
 /** The tree's rows in document order: folders as their path, files as their data-p. */
 const rows = async (page: Page) =>
   strings.parse(
@@ -56,7 +62,7 @@ const opened = async (page: Page) =>
 /** Waits for the toggle events (a task after each change) to have been handled. */
 const settle = (page: Page) => page.evaluate("new Promise((resolve) => setTimeout(resolve, 50))");
 const summary = (page: Page, dir: string) =>
-  page.locator("#files details > summary").filter({ hasText: new RegExp(`^${dir}$`) });
+  page.locator(`#files details[data-dir="${dir}"] > summary`);
 /** Opens a shell URL and waits for its document frame. */
 async function open(page: Page, url: string): Promise<void> {
   const response = await page.goto(url);
@@ -126,12 +132,21 @@ const scenario: ReaderScenario = {
       "Beta/",
       "Beta/c.html",
       "Beta/d.html",
+      LONG[0]!,
+      `${LONG[0]}a.html`,
+      `${LONG[0]}b.html`,
+      LONG[1]!,
+      `${LONG[1]}a.html`,
+      `${LONG[1]}b.html`,
       "notes/",
       "notes/deep/",
       "notes/deep/x.html",
       "notes/deep/y.html",
       "notes/A.html",
       "notes/b.html",
+      "p/q/r/",
+      "p/q/r/a.html",
+      "p/q/r/b.html",
       "api.html",
       "ch2.html",
       "ch10.html",
@@ -146,7 +161,7 @@ const scenario: ReaderScenario = {
     // Expand all opens every folder and turns into Collapse all; a hand toggle flips it back.
     await all.click();
     await settle(page);
-    assert.deepEqual(await opened(page), ["Beta/", "notes/", "notes/deep/"]);
+    assert.deepEqual(await opened(page), ["Beta/", ...LONG, "notes/", "notes/deep/", "p/q/r/"]);
     assert.equal(await all.textContent(), "Collapse all");
     await summary(page, "Beta/").click();
     await settle(page);
@@ -208,6 +223,32 @@ const scenario: ReaderScenario = {
       entries.filter(([key]) => key.startsWith("wp:tree:")),
       [[`wp:tree:${COL.pub}`, '["Beta/"]']],
     );
+
+    // The two long folders read the same, but opening one keeps only that one.
+    const shown = (dir: string) => summary(page, dir).textContent();
+    assert.equal(await shown(LONG[0]!), await shown(LONG[1]!), "the long rows read the same");
+    await summary(page, LONG[0]!).click();
+    await settle(page);
+    await open(page, shells[0]!);
+    assert.deepEqual(await opened(page), ["Beta/", LONG[0]!]);
+    // A collapsed chain keeps (and drops) every folder in it, and reopens.
+    await summary(page, "p/q/r/").click();
+    await settle(page);
+    const tree = async () =>
+      strings.parse(
+        JSON.parse(
+          String(await page.evaluate(`sessionStorage.getItem("wp:tree:${COL.pub}")`)),
+        ) as unknown,
+      );
+    assert.deepEqual(
+      (await tree()).toSorted(),
+      ["Beta/", LONG[0]!, "p/", "p/q/", "p/q/r/"].toSorted(),
+    );
+    await open(page, shells[0]!);
+    assert.deepEqual(await opened(page), ["Beta/", LONG[0]!, "p/q/r/"]);
+    await summary(page, "p/q/r/").click();
+    await settle(page);
+    assert.deepEqual((await tree()).toSorted(), ["Beta/", LONG[0]!].toSorted());
 
     // A new tab starts collapsed.
     const fresh = await ctx.newPage(WIDE);

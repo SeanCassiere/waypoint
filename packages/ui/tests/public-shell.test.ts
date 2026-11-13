@@ -133,7 +133,7 @@ describe("public shell", () => {
     const menu = menuOf(tree);
     expect(menu.indexOf('data-p="index.md"')).toBeLessThan(menu.indexOf("<details"));
     expect(menu).toContain(
-      `<details open>${summary("a/")}<div><details open>${summary("b/")}<div>`,
+      `<details open data-dir="a/">${summary("a/")}<div><details open data-dir="a/b/">${summary("b/")}<div>`,
     );
     expect(menu).toContain(`data-p="a/b/y.md" aria-current="page">${doc}<b>y.md</b></a>`);
     // Balanced folders: the Files panel isn't a <details>.
@@ -144,13 +144,38 @@ describe("public shell", () => {
     for (const length of [9, 300]) {
       const files = Array.from({ length }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
       const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
-      expect(html).toContain(`<details open>${summary("d1/")}`);
-      expect(html).toContain(`<details>${summary("d0/")}`);
-      expect(html).toContain(`<details>${summary("d2/")}`);
+      expect(html).toContain(`<details open data-dir="d1/">${summary("d1/")}`);
+      expect(html).toContain(`<details data-dir="d0/">${summary("d0/")}`);
+      expect(html).toContain(`<details data-dir="d2/">${summary("d2/")}`);
     }
     // The head file's page opens no folder.
     const files = ["index.md", "a/x.md", "a/y.md"].map((path) => ({ path }));
-    expect(renderPublicShell({ ...base, files })).not.toContain("<details open>");
+    expect(renderPublicShell({ ...base, files })).not.toContain("<details open");
+  });
+  it("names each folder by its full path, which its shortened row text can't do (D75)", () => {
+    // Two long names that differ only where the row shortens them, a bidi control, a chain.
+    const long = (c: string) => `${"x".repeat(60)}${c}${"y".repeat(60)}/`;
+    const paths = [
+      "index.md",
+      `${long("1")}a.md`,
+      `${long("1")}b.md`,
+      `${long("2")}a.md`,
+      `${long("2")}b.md`,
+      "r\u202eev/a.md",
+      "r\u202eev/b.md",
+      "p/q/r/a.md",
+      "p/q/r/b.md",
+      'q"&</a.md',
+      'q"&</b.md',
+    ];
+    const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
+    const dirs = [...menu.matchAll(/<details data-dir="([^"]*)">/g)].map((m) => m[1]);
+    expect(dirs.toSorted()).toEqual(
+      [long("1"), long("2"), "r\u202eev/", "p/q/r/", "q&quot;&amp;&lt;/"].toSorted(),
+    );
+    // The two long folders' rows read the same.
+    const rows = [...menu.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1]);
+    expect(new Set(rows).size).toBeLessThan(rows.length);
   });
   it("orders the tree like the writer's: folders first, then files, in name order (D75)", () => {
     const paths = [
@@ -289,8 +314,8 @@ describe("tree limits", () => {
       ),
     );
     // The rest of the page (style, script, letterhead and About, the panel's CSS and script, the
-    // tree's folds) is about 44.6 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 47_000);
+    // tree's folds and their saved state) and the last row's overshoot come to about 46.5 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 46_500);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },

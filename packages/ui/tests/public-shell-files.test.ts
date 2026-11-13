@@ -103,6 +103,8 @@ describe("Files panel", () => {
     });
     expect(named).toContain('<div id="shell" class="shell" data-collection="col&quot;pub">');
     expect(shell(twelve)).toContain('<div id="shell" class="shell">');
+    // Its tighter padding outranks `.btn.sm` (same element, later in the sheet).
+    expect(sidebarCss).toContain(".ttools .btn.sm{padding:0 6px;");
   });
   it("uses the panel for two files too: no tab strip", () => {
     const html = markup(shell(three));
@@ -145,8 +147,9 @@ describe("Files panel", () => {
   });
   it("lists most of the repository shape on a page 9 folders deep, and says how many are missing", () => {
     // Decision c-2: the reader links with "../" once per folder level, so rows grow with depth.
-    // A file of this shape sits 9 folders deep; its page lists 1,822 of 2,000 at 340,000. Pin a
-    // floor so a markup change that shrinks the list further fails here.
+    // A file of this shape sits 9 folders deep; its page lists 1,747 of 2,000 at 340,000 (the
+    // folders' paths count too). Pin a floor so a markup change that shrinks the list further
+    // fails here.
     const paths = Array.from(
       { length: 2000 },
       (_, i) => `a${i % 13}/b${i % 17}/c${i % 7}/d/e/f/g/h/i/f${i}.ts`,

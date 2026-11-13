@@ -8,9 +8,10 @@ import { bytes, esc, label } from "./text.ts";
 export const PUBLIC_SHELL_TREE_DEPTH = 6;
 /**
  * Upper bound on the size of the file-list markup, in characters (non-ASCII names count
- * triple), row icons and download markers included. Past it the list stops with a count of the
- * files not listed, so pathological manifests (very long, deep or non-ASCII paths) can't blow the
- * Worker CPU budget.
+ * triple): file rows with their icons and download markers, and each folder row's `data-dir`
+ * path (its fixed markup isn't counted). Past it the list stops with a count of the files not
+ * listed, so pathological manifests (very long, deep or non-ASCII paths) can't blow the Worker
+ * CPU budget.
  */
 export const PUBLIC_SHELL_LIST_BUDGET = 340_000;
 
@@ -96,6 +97,8 @@ function link(
   budget.listed++;
   return out;
 }
+
+const FOLDER_END = "</div></details>";
 
 interface Folder {
   name: string;
@@ -185,11 +188,17 @@ function renderFolder(
       continue;
     }
     budget.folders = true;
-    out.push(
-      `<details${child.open ? " open" : ""}><summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${label(name)}</summary><div>`,
-    );
+    // `data-dir` is the folder's full path (the deepest of a collapsed chain), as in the writer's
+    // tree: the script's name for it (D75). The label can't be: it's shortened and bidi-escaped.
+    let first = child.entries[0];
+    while (isFolder(first)) first = first.entries[0];
+    const path = first ? first.path.slice(0, prefix + name.length) : name;
+    const dir = ` data-dir="${esc(path)}"`;
+    budget.used += nonAscii.test(path) ? dir.length * 3 : dir.length;
+    const row = `<details${child.open ? " open" : ""}${dir}><summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${label(name)}</summary><div>`;
+    out.push(row);
     renderFolder(options, child, prefix + name.length, budget, out);
-    out.push("</div></details>");
+    out.push(FOLDER_END);
   }
 }
 

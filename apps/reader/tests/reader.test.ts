@@ -490,7 +490,7 @@ describe("public reader", () => {
     // D75: the head's page opens no folder; the shell names the collection by its public ID
     // (the saved folders' key), never by the share token or the link's ID.
     expect(tree).toContain(
-      '<details><summary dir="auto">' +
+      '<details data-dir="docs/"><summary dir="auto">' +
         iconUse("chevronDown", "sm") +
         iconUse("folder") +
         "docs/</summary>",

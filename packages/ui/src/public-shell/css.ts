@@ -145,7 +145,7 @@ export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
 .tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
 .tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
 .ttools{display:flex;justify-content:flex-end;margin:0 4px 2px}.ttools:has(>[hidden]){display:none}
-.ttools .btn{padding:0 6px;color:var(--muted)}.ttools .btn:hover{color:var(--ink)}
+.ttools .btn.sm{padding:0 6px;color:var(--muted)}.ttools .btn:hover{color:var(--ink)}
 @media(min-width:${WIDE_MIN}px){.panel{display:flex;position:static;width:auto}
 .panel:popover-open{position:fixed;inset:0 auto 0 0;width:var(--panel-w);box-shadow:var(--sh-2)}}
 @media(min-width:${WIDE_MIN}px) and (scripting:none){.ptog{display:none}}

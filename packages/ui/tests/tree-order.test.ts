@@ -22,6 +22,9 @@ const byKeys = (names: readonly string[]): string[] =>
     (entry) => entry.name,
   ).map((entry) => entry.name);
 
+/** One more than PAD_MAX in src/tree-order.ts: digit runs this long get no sort key. */
+const NO_KEY_RUN = 33;
+
 describe("sortByName", () => {
   const printable = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("");
   const alphabets = [printable, "0000011112345678990aA.-_ ", "aA0123456789", "-_. ~'aAzZ()[]"];
@@ -67,6 +70,33 @@ describe("sortByName", () => {
       ["Résumé.md", "resume.md", "RESUME.md", "rest.md"],
     ])
       expect(byKeys(names)).toEqual(byCompareNames(names));
+  });
+
+  it("orders mixed sets (some names with keys, some without) exactly as compareNames", () => {
+    // A pair with a name that has no key compares with compareNames, a pair of keyed names by
+    // key: the order stays one consistent order only if the two agree on every keyed pair.
+    const next = random(77);
+    const ascii = "0000011112345678990aAbBzZ.-_ ";
+    const other = ["é", "É", "e\u0301", "ß", "١", "٢", "０", "９", "文", "Ω", "ﬁ", "\u00a0"];
+    const pick = () =>
+      next() < 0.15
+        ? other[Math.floor(next() * other.length)]!
+        : ascii[Math.floor(next() * ascii.length)]!;
+    for (let round = 0; round < 4000; round++) {
+      const names = Array.from({ length: 2 + Math.floor(next() * 14) }, () => {
+        let name = Array.from({ length: 1 + Math.floor(next() * 10) }, pick).join("");
+        if (next() < 0.05) name += "7".repeat(NO_KEY_RUN + Math.floor(next() * 4));
+        return name;
+      });
+      expect(byKeys(names)).toEqual(byCompareNames(names));
+    }
+    // Large folders: one accented name among 2,000, and half of them.
+    for (const share of [1 / 2000, 0.5]) {
+      const names = Array.from({ length: 2000 }, (_, i) =>
+        next() < share || i === 1000 ? `café-${i}.md` : `cafe-${i % 37}-${i}.md`,
+      );
+      expect(byKeys(names)).toEqual(byCompareNames(names));
+    }
   });
 
   it("is the writer's order on a typical folder", () => {
