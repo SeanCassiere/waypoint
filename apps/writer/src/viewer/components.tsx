@@ -52,6 +52,8 @@ export function DialogBand(props: {
   icon: "globe" | "alert";
   titleId: string;
   title: Child;
+  /** The consequence's id, for a dialog that names it in `aria-describedby`. */
+  descId?: string;
   children?: Child;
 }) {
   return (
@@ -59,7 +61,7 @@ export function DialogBand(props: {
       {raw(icon(props.icon, "xl"))}
       <div>
         <h2 id={props.titleId}>{props.title}</h2>
-        {props.children ? <p>{props.children}</p> : null}
+        {props.children ? <p id={props.descId}>{props.children}</p> : null}
       </div>
     </div>
   );
