@@ -26,6 +26,15 @@ const isOpen = async (page: Page) =>
 const active = async (page: Page, selector: string) =>
   (await page.evaluate(`document.activeElement?.matches(${JSON.stringify(selector)}) === true`)) ===
   true;
+// Records #shell's class when the parser first inserts #files: the stored state must already be
+// on it then, so a collapsed panel never paints docked first (the script follows #shell's start
+// tag). Mutation records are delivered before the next frame is painted.
+const AT_PARSE = `window.__shellAtPanel = null;
+new MutationObserver((records, observer) => {
+  if (!document.getElementById("files")) return;
+  window.__shellAtPanel = document.getElementById("shell").className;
+  observer.disconnect();
+}).observe(document, { childList: true, subtree: true });`;
 const storage = z.array(z.tuple([z.string(), z.string()]));
 const stored = async (page: Page) =>
   storage.parse(
@@ -67,8 +76,14 @@ const scenario: ReaderScenario = {
     near((await rect(page, "#doc")).left, 0, "the document takes the row");
     assert.equal(await page.evaluate(`localStorage.getItem("wp:panel")`), "closed");
     assert.equal(await isOpen(page), false, "collapsing never opens the popover");
+    await page.addInitScript(AT_PARSE);
     await reader.open(page, reader.shell);
     assert.equal(await shellClass(page), "shell closed", "collapsed after a reload");
+    assert.equal(
+      await page.evaluate("window.__shellAtPanel"),
+      "shell closed",
+      "collapsed before the panel is parsed, so it never paints docked",
+    );
     assert.equal(await page.getAttribute(".ptog", "aria-expanded"), "false");
     await page.mouse.move(900, 500);
     await page.click(".ptog");
@@ -82,6 +97,16 @@ const scenario: ReaderScenario = {
       assert.ok(!key.includes(reader.token) && !value.includes(reader.token), `${key}=${value}`);
     }
     assert.deepEqual(await stored(page), [["wp:panel", "open"]]);
+
+    // Narrowed with the focus on a row of the docked panel, which then hides: the focus moves to
+    // the Files button, not to the page (where the next Tab would enter the document frame).
+    await page.focus('#files a[data-p="docs/a.html"]');
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await until(page, `document.querySelector(".ptog").hasAttribute("popovertarget")`);
+    assert.ok(await active(page, ".ptog"), "focus moved to the Files button");
+    await page.setViewportSize(WIDE);
+    await until(page, `!document.querySelector(".ptog").hasAttribute("popovertarget")`);
+    assert.equal(await shellClass(page), "shell", "still docked");
 
     // Narrow, with the panel collapsed on desktop: the stored state doesn't apply; the button
     // opens a side sheet over a scrim, on the current row; Esc closes it and returns focus.

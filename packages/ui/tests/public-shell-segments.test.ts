@@ -15,11 +15,15 @@ import {
 } from "../src/public-shell/css.ts";
 import {
   aboutScript,
+  afterParse,
+  earlyShellScripts,
   filesMenuScript,
   hashScript,
   loadingScript,
   locationScript,
   panelScript,
+  panelStateScript,
+  parsedShellScripts,
   publicShellScript,
   stageScript,
   timeScript,
@@ -37,17 +41,9 @@ const cssSegments = {
   stageCss,
   buttonCss,
 };
-const scriptSegments = [
-  versionScript,
-  timeScript,
-  locationScript,
-  filesMenuScript,
-  panelScript,
-  aboutScript,
-  hashScript,
-  loadingScript,
-  stageScript,
-];
+const early = [versionScript, timeScript, panelStateScript, locationScript];
+const parsed = [filesMenuScript, panelScript, aboutScript, hashScript, loadingScript, stageScript];
+const scriptSegments = [...early, ...parsed];
 /** Compiles a script without running it, so a syntax error throws. */
 // oxlint-disable-next-line typescript/no-implied-eval -- Parsing the emitted script is the point.
 const parse = (source: string): unknown => new Function(source);
@@ -69,8 +65,21 @@ describe("public shell segments", () => {
     );
   });
 
-  it("joins the non-empty script segments in the fixed order", () => {
-    expect(publicShellScript).toBe(scriptSegments.filter((s) => s !== "").join("\n"));
+  it("joins the non-empty script segments in the fixed order, the rest after parsing", () => {
+    expect(earlyShellScripts).toEqual(early);
+    expect(parsedShellScripts).toEqual(parsed);
+    const wrapped = afterParse(parsed);
+    expect(wrapped).toContain(parsed.filter((s) => s !== "").join("\n"));
+    expect(wrapped).toContain(
+      'document.addEventListener("DOMContentLoaded", run, { once: true });',
+    );
+    expect(publicShellScript).toBe([...early.filter((s) => s !== ""), wrapped].join("\n"));
+  });
+
+  it("applies the stored panel state with nothing but the shell element", () => {
+    // It runs before the panel's rows are parsed (the script follows #shell's start tag).
+    expect(panelStateScript).not.toMatch(/querySelector|"files"|"doc"/);
+    expect(panelStateScript).toContain('localStorage.getItem("wp:panel") === "closed"');
   });
 
   it("keeps every script segment a self-contained IIFE that parses on its own", () => {

@@ -100,10 +100,6 @@ export const timeScript: string = `(() => {
  * its `?download` URL, saved name and accessible name come from that link's own `data-p`.
  */
 export const locationScript: string = `(() => {
-  const frame = document.getElementById("doc");
-  if (!frame || !frame.dataset.base) return;
-  const baseUrl = new URL(frame.dataset.base, location.href);
-  const base = baseUrl.origin + baseUrl.pathname;
   const sectionHash = /^#[\\w.~%-]{1,256}$/;
   const links = () => document.querySelectorAll("a[data-p]");
   let pinned = false;
@@ -113,7 +109,10 @@ export const locationScript: string = `(() => {
     for (const a of links()) a.setAttribute("href", a.href);
   };
   addEventListener("message", (e) => {
-    if (e.source !== frame.contentWindow) return;
+    const frame = document.getElementById("doc");
+    if (!frame || !frame.dataset.base || e.source !== frame.contentWindow) return;
+    const baseUrl = new URL(frame.dataset.base, location.href);
+    const base = baseUrl.origin + baseUrl.pathname;
     const m = e.data;
     if (!m || typeof m !== "object" || m.type !== "waypoint:location") return;
     if (typeof m.href !== "string" || m.href.length > 8192) return;
@@ -248,16 +247,17 @@ export const filesMenuScript: string = `(() => {
 })();`;
 /**
  * The file panel (D74), a port of the writer's client/panel.ts and client/panel-peek.ts without
- * tabs, dialogs or shortcuts. It marks `<html>` with `js` (the CSS shows the panel button from
- * WIDE_MIN only then) and puts `autofocus` on the current row after parsing, so the Files sheet
- * opens on it without the docked panel taking the focus at load. Rows get their full path as
- * `title` when first hovered or focused, so 2,000 rows don't carry it twice.
- * From WIDE_MIN the panel is docked: the button collapses and docks it (`#shell.closed`), saved
- * as "open" or "closed" under PANEL_STORAGE_KEY in localStorage (never with the share token: the
- * key and values are fixed), and its `popovertarget` is removed there, since Chromium reports a
- * popover invoker's expanded state from the popover alone; `aria-expanded` says whether the panel
- * shows. Below WIDE_MIN the button opens the native popover (filesMenuScript's light dismiss and
- * focus return apply) and nothing is saved. Crossing WIDE_MIN closes an open sheet.
+ * tabs, dialogs or shortcuts. It puts `autofocus` on the current row after parsing, so the Files
+ * sheet opens on it without the docked panel taking the focus at load. Rows get their full path
+ * as `title` when first hovered or focused, so 2,000 rows don't carry it twice.
+ * From WIDE_MIN the panel is docked: the button collapses and docks it (`#shell.closed`, which
+ * panelStateScript applies from storage before the shell paints), saved as "open" or "closed"
+ * under PANEL_STORAGE_KEY in localStorage (never with the share token: the key and values are
+ * fixed), and its `popovertarget` is removed there, since Chromium reports a popover invoker's
+ * expanded state from the popover alone; `aria-expanded` says whether the panel shows. Below
+ * WIDE_MIN the button opens the native popover (filesMenuScript's light dismiss and focus return
+ * apply) and nothing is saved. Crossing WIDE_MIN closes an open sheet; narrowing past it with the
+ * focus in the docked panel (which then hides) moves the focus to the button.
  * Peek (D73): collapsed, from WIDE_MIN, with a mouse, resting PEEK_OPEN_DELAY ms on the shell's
  * left-edge strip or on the button brings the panel out as a card (`.peek`). It stays while the
  * pointer is over the card, the strip, the button or an open popover, or while something holds
@@ -272,25 +272,15 @@ export const panelScript: string = `(() => {
   const toggle = document.querySelector(".ptog");
   const edge = document.querySelector("#shell > .peek-edge");
   if (!shell || !panel || !toggle || !edge) return;
-  document.documentElement.classList.add("js");
   const WIDE = matchMedia("(min-width: ${WIDE_MIN}px)");
   const FINE = matchMedia("(hover: hover) and (pointer: fine)");
-  const KEY = "${PANEL_STORAGE_KEY}";
-  const stored = () => {
-    try {
-      return localStorage.getItem(KEY);
-    } catch {
-      return null;
-    }
-  };
   const save = (value) => {
     try {
-      localStorage.setItem(KEY, value);
+      localStorage.setItem("${PANEL_STORAGE_KEY}", value);
     } catch {
       return;
     }
   };
-  if (stored() === "closed") shell.classList.add("closed");
   const current = panel.querySelector("a[aria-current]");
   if (current) current.setAttribute("autofocus", "");
   const title = (e) => {
@@ -414,7 +404,19 @@ export const panelScript: string = `(() => {
     if (!enabled()) stop();
     sync();
   };
-  WIDE.addEventListener("change", layout);
+  let left = null;
+  document.addEventListener("focusin", (e) => {
+    left = panel.contains(e.target) ? e.target : null;
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!(e.target instanceof Node && panel.contains(e.target))) left = null;
+  }, true);
+  WIDE.addEventListener("change", () => {
+    const active = document.activeElement;
+    const lost = (!active || active === document.body) && left !== null;
+    layout();
+    if (!WIDE.matches && (panel.contains(active) || lost)) toggle.focus({ preventScroll: true });
+  });
   FINE.addEventListener("change", layout);
   document.addEventListener("pointerover", (e) => {
     if (e.pointerType !== "mouse") return;
@@ -473,6 +475,20 @@ export const panelScript: string = `(() => {
   });
   sync();
   reveal();
+})();`;
+/**
+ * The file panel's stored state, applied before the shell paints (D74). It runs where the script
+ * sits, straight after `#shell`'s start tag and before the panel's rows are parsed, so a panel
+ * stored as "closed" never paints docked first; panelScript does the rest once parsing ends.
+ */
+export const panelStateScript: string = `(() => {
+  const shell = document.getElementById("shell");
+  if (!shell) return;
+  try {
+    if (localStorage.getItem("${PANEL_STORAGE_KEY}") === "closed") shell.classList.add("closed");
+  } catch {
+    return;
+  }
 })();`;
 /** RX-01's About popover (R2). Empty: About is a native popover; timeScript formats its times. */
 export const aboutScript: string = "";
@@ -558,17 +574,37 @@ export const versionScript: string = `(() => {
   if (version) window._WAYPOINT_VERSION = version;
 })();`;
 
-/** The shell's only script: the non-empty segments, in this order, one per line group. */
-export const publicShellScript: string = [
+/**
+ * Segments that run where the script sits, before the rest of the page is parsed: the script
+ * comes straight after `#shell`'s start tag (after the banner on a one-file page), so the banner's
+ * times are already there, the panel's stored state applies before the shell paints, and the
+ * frame's location reports are heard however early the frame loads.
+ */
+export const earlyShellScripts: readonly string[] = [
   versionScript,
   timeScript,
+  panelStateScript,
   locationScript,
+];
+/** Segments that need the whole page: they run once it's parsed (`DOMContentLoaded`). */
+export const parsedShellScripts: readonly string[] = [
   filesMenuScript,
   panelScript,
   aboutScript,
   hashScript,
   loadingScript,
   stageScript,
-]
-  .filter((segment) => segment !== "")
-  .join("\n");
+];
+/** Wraps segments to run once the document is parsed (at once if it already is). */
+export const afterParse = (segments: readonly string[]): string => `((run) => {
+  if (document.readyState !== "loading") run();
+  else document.addEventListener("DOMContentLoaded", run, { once: true });
+})(() => {
+${segments.filter((segment) => segment !== "").join("\n")}
+});`;
+
+/** The shell's only script: the non-empty segments, in this order, one per line group. */
+export const publicShellScript: string = [
+  ...earlyShellScripts.filter((segment) => segment !== ""),
+  afterParse(parsedShellScripts),
+].join("\n");
