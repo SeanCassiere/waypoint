@@ -59,6 +59,15 @@ function oneLinkPerItem(snapshot: string): void {
     assert.equal(links, 1, `one link per row:\n${snapshot}`);
   });
 }
+/** A Today group's first lines: the section named by its heading, the day and its date ("Today
+ *  Friday, 13 November"; the count beside it is for the eye only), then the list. */
+function assertDayHead(snapshot: string): void {
+  const [region, heading, list] = lines(snapshot).map((line) => line.text);
+  const name = /^Today [A-Z][a-z]+day, \d{1,2} [A-Z][a-z]+$/;
+  assert.match(/^region "(.*)":$/.exec(region ?? "")?.[1] ?? "", name, snapshot);
+  assert.match(/^heading "(.*)" \[level=2\]$/.exec(heading ?? "")?.[1] ?? "", name, snapshot);
+  assert.equal(list, "list:", snapshot);
+}
 /** The section (day group) that holds the row of `pub`. */
 const sectionOf = (page: Page, pub: string): Locator =>
   page.locator("div.groups > section").filter({ has: page.locator(`li.item[data-pub="${pub}"]`) });
@@ -120,12 +129,7 @@ const scenario: ViewerScenario = {
     // Recent: a named section per day, a list of rows, one link per row named by its title.
     await page.goto(`${base}/`);
     const recent = await sectionOf(page, pub.plain).ariaSnapshot();
-    const head = lines(recent).slice(0, 3);
-    assert.deepEqual(
-      head.map((line) => line.text),
-      ['region "Today":', 'heading "Today" [level=2]', "list:"],
-      recent,
-    );
+    assertDayHead(recent);
     const plainRow = rowChildren(recent, PLAIN);
     assert.deepEqual(kinds(plainRow), ["link", "time", "paragraph", "text", "paragraph"], recent);
     assert.equal(plainRow[3], 'text: "#1"');
@@ -163,13 +167,7 @@ const scenario: ViewerScenario = {
     // Search: the same rows, the match marked inside the link.
     await page.goto(`${base}/?q=${WORD}`);
     const search = await sectionOf(page, pub.plain).ariaSnapshot();
-    assert.deepEqual(
-      lines(search)
-        .slice(0, 3)
-        .map((line) => line.text),
-      ['region "Today":', 'heading "Today" [level=2]', "list:"],
-      search,
-    );
+    assertDayHead(search);
     assert.deepEqual(kinds(rowChildren(search, PLAIN)), [
       "link",
       "time",
@@ -256,7 +254,7 @@ const scenario: ViewerScenario = {
       ctx.watchErrors(view, "Pacific/Kiritimati");
       await view.clock.setFixedTime(serverNow + 2 * 24 * 3_600_000);
       await view.goto(`${base}/`);
-      const first = (await view.locator("div.groups h2.day").first().textContent()) ?? "";
+      const first = (await view.locator("div.groups h2.day .dlab").first().textContent()) ?? "";
       assert.ok(
         ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].includes(
           first,

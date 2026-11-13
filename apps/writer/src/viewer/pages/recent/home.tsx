@@ -1,5 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import type { CollectionSearchResult } from "@waypoint/core";
+import { icon } from "@waypoint/ui";
+import { raw } from "hono/html";
 import type { JSX } from "hono/jsx/jsx-runtime";
 
 import type { Health } from "../../../health.ts";
@@ -124,18 +126,21 @@ export function BrowseAside(props: {
       {props.publicNow ? (
         <>
           <h2>Public now</h2>
-          <ul class="list facets">
+          <ul class="list facets pubs">
             {props.publicNow.map((item) => (
               <li>
                 <a class="facet" href={`/c/${item.public_id}/?panel=links`}>
                   {item.title}
-                  <span>{plural(item.links, "link")}</span>
+                  <span>
+                    {raw(icon("globe", "sm"))}
+                    {plural(item.links, "link")}
+                  </span>
                 </a>
               </li>
             ))}
             <li>
               <a class="facet all" href="/links">
-                {props.publicNow.length ? "All public links →" : "No public links. Manage links →"}
+                {props.publicNow.length ? "All public links" : "No public links. Manage links"}
               </a>
             </li>
           </ul>

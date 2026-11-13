@@ -78,13 +78,14 @@ function AttentionCard(props: { group: CollectionHealth; health: Health; now: nu
     <div class="ag" data-attn-collection={pub ?? undefined}>
       <div class="t">
         <a href={pub ? `/c/${pub}/` : "/status"}>{title}</a>{" "}
-        {group.project ? <span class="proj">{group.project}</span> : null}
+        {group.project ? <span class="proj">in {group.project}</span> : null}
       </div>
       <span class="acts">
         {failed.length ? (
+          // The one thing the card asks for: its primary action.
           <button
             type="button"
-            class="btn sm"
+            class="btn sm primary"
             data-action="retry"
             data-ids={failed.map((item) => item.id).join(",")}
             data-n={one?.display_number ?? undefined}
@@ -164,7 +165,8 @@ function RowChip(props: { item: HealthItem }) {
   );
 }
 
-/** A Recent or search row's sync chips: its queued revisions by number ("#6 failed"). */
+/** A Recent or search row's sync chips: its queued revisions by number ("#6 failed"). The two
+ *  most urgent show, the newest revision first ("#7 uploading", then "#6 failed"). */
 export function RowSyncChips(props: {
   collectionId: string;
   health?: Health | undefined;
@@ -175,9 +177,12 @@ export function RowSyncChips(props: {
     health.collections.find((group) => group.collection_id === props.collectionId)?.items ?? []
   ).toSorted((a, b) => CHIP_ORDER[itemWord(a)] - CHIP_ORDER[itemWord(b)]);
   if (!items.length) return null;
+  const shown = items
+    .slice(0, ROW_CHIPS)
+    .toSorted((a, b) => (b.display_number ?? 0) - (a.display_number ?? 0));
   return (
     <>
-      {items.slice(0, ROW_CHIPS).map((item) => (
+      {shown.map((item) => (
         <RowChip item={item} />
       ))}
       {items.length > ROW_CHIPS ? <span class="chip xs">+{items.length - ROW_CHIPS}</span> : null}

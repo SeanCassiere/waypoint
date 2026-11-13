@@ -36,6 +36,8 @@ export interface AxeException {
 }
 
 const MONTHS = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec";
+const MONTHS_LONG =
+  "January|February|March|April|May|June|July|August|September|October|November|December";
 const WEEKDAYS =
   "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun";
 /** Replaces the volatile parts of accessibility-tree text: the demo seeds every time relative to
@@ -54,7 +56,10 @@ export function normalizeAria(text: string): string {
       .replace(/\bin \d+ (?:min|mins|minutes?|hours?|days?)\b/g, "in N")
       // Weekdays before dates, so the date placeholder's "Mon" stays.
       .replace(new RegExp(`\\b(?:${WEEKDAYS}|Today|Yesterday|today|yesterday)\\b`, "g"), "Day")
-      .replace(new RegExp(`\\b\\d{1,2} (?:${MONTHS})\\b`, "g"), "D Mon")
+      .replace(new RegExp(`\\b\\d{1,2} (?:${MONTHS_LONG}|${MONTHS})\\b`, "g"), "D Mon")
+      // A day heading's date beside its day ("Today Friday, 13 November", "Wednesday 11
+      // November") is the day too.
+      .replace(/\bDay(?: Day,)? D Mon\b/g, "Day")
   );
 }
 

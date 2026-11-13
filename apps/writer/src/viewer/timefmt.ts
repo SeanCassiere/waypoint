@@ -1,10 +1,26 @@
 // Date formatting shared by the server (UTC fallback text) and the browser (local time).
 // No DOM and no Node APIs: the client bundle imports this module too.
 
-export type TimeFormat = "clock" | "ago" | "full" | "day" | "date" | "until";
+/** `time` is the clock alone, for rows under a day heading that already names the day. */
+export type TimeFormat = "clock" | "time" | "ago" | "full" | "day" | "date" | "until";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const pad = (value: number) => String(value).padStart(2, "0");
 
 interface Parts {
@@ -83,6 +99,8 @@ export function formatTime(time: number, format: TimeFormat, now: number, utc: b
       if (days > 0 && days < 7) return `${DAYS[p.weekday] ?? ""} ${clock(p)}`;
       return shortDate(p, n);
     }
+    case "time":
+      return clock(p);
     case "ago":
       return agoText(time, now, utc);
     case "day": {
@@ -108,18 +126,48 @@ export function dayLabel(time: number, now: number, utc: boolean): string {
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   const p = parts(time, utc);
-  if (days < 7)
-    return (
-      ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][p.weekday] ??
-      ""
-    );
+  if (days < 7) return WEEKDAYS[p.weekday] ?? "";
   return shortDate(p, parts(now, utc));
 }
 
-/** Day-group label for Trash: "In Trash · moved today", "… moved Monday", "… moved 3 Oct". */
+/**
+ * The date beside a Recent day label, where the label doesn't already say it: "Friday, 13
+ * November" beside Today and Yesterday, "11 November" beside a weekday, nothing beside a date.
+ */
+export function dayDate(time: number, now: number, utc: boolean): string | null {
+  const days = dayDiff(time, now, utc);
+  if (days >= 7) return null;
+  const p = parts(time, utc);
+  const date = `${p.day} ${MONTHS_LONG[p.month] ?? ""}`;
+  return days <= 1 ? `${WEEKDAYS[p.weekday] ?? ""}, ${date}` : date;
+}
+
+/** Day-group label for Trash: "In Trash, moved today", "… moved Monday", "… moved 3 Oct". */
 export function trashDayLabel(time: number, now: number, utc: boolean): string {
   const label = dayLabel(time, now, utc);
-  return `In Trash · moved ${label === "Today" || label === "Yesterday" ? label.toLowerCase() : label}`;
+  return `In Trash, moved ${label === "Today" || label === "Yesterday" ? label.toLowerCase() : label}`;
+}
+
+/** A day group's heading row (A11Y-04): its label, the date where the label doesn't say it
+ *  (Recent and search only), and how many collections it holds. The server renders it in UTC,
+ *  client/day-groups.ts again in the browser's zone. */
+export interface DayHeading {
+  label: string;
+  date: string | null;
+  count: string;
+}
+export function dayHeading(
+  kind: string,
+  time: number,
+  now: number,
+  utc: boolean,
+  count: number,
+): DayHeading {
+  return {
+    label: kind === "trash" ? trashDayLabel(time, now, utc) : dayLabel(time, now, utc),
+    date: kind === "trash" ? null : dayDate(time, now, utc),
+    count: `${count} ${count === 1 ? "collection" : "collections"}`,
+  };
 }
 
 /**

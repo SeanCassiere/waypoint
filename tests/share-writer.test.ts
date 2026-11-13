@@ -1003,7 +1003,7 @@ describe("share links for the Folio UI (B3, B4)", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toMatch(/id="tab-links"[^>]*aria-selected="true"/);
     const recent = await (await app.request("/")).text();
-    expect(recent).toContain("Public · follows latest");
+    expect(recent).toContain("Public, follows latest");
     expect(recent).toContain("Public now");
     const preview = await app.request(`/c/${collectionPublicId}/?as=public`);
     const previewHtml = await preview.text();

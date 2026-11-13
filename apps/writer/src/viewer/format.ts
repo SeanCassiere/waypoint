@@ -36,3 +36,16 @@ export function ext(path: string): string {
   const index = name.lastIndexOf(".");
   return index > 0 ? name.slice(index) : name.slice(0, 6);
 }
+
+/** "a", "a and b", "a, b and c". */
+export function andList(items: readonly string[]): string {
+  return items.length > 1
+    ? `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`
+    : (items[0] ?? "");
+}
+
+/** Where a collection lives, in words: "in infra, tagged runbook", "tagged a and b", "in api". */
+export function placeText(project: string | null, tags: readonly string[]): string {
+  const tagged = tags.length ? `tagged ${andList(tags)}` : "";
+  return project ? `in ${project}${tagged ? `, ${tagged}` : ""}` : tagged;
+}

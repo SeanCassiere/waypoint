@@ -67,7 +67,7 @@ export function bindRecentMarks(): void {
     el("b", { text: `${count} ${count === 1 ? "collection" : "collections"}` }),
     ` ${count === 1 ? "has" : "have"} revisions you haven't read. `,
     markAll,
-    el("span", { text: " · ", attrs: { "aria-hidden": "true" } }),
+    " ",
     el("span", { class: "small muted", text: "Read marks live in this browser." }),
   );
   markAll.addEventListener("click", () => {
@@ -114,7 +114,6 @@ function markUnread(item: HTMLLIElement, lastVisit: number | null): (() => void)
     link.replaceChildren(
       `${n - mark.n} new since you read #${mark.n}`,
       el("span", { class: "vh", text: ` in ${name}` }),
-      el("span", { text: " ›", attrs: { "aria-hidden": "true" } }),
     );
     link.hidden = false;
     title.setAttribute("aria-describedby", link.id);

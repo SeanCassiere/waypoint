@@ -1,6 +1,6 @@
 import { formatTime, fullDate, type TimeFormat } from "../viewer/timefmt.ts";
 
-const formats: readonly TimeFormat[] = ["clock", "ago", "full", "day", "date", "until"];
+const formats: readonly TimeFormat[] = ["clock", "time", "ago", "full", "day", "date", "until"];
 const isFormat = (value: string): value is TimeFormat => formats.some((format) => format === value);
 /** Rewrites server-rendered UTC times in the browser's time zone. */
 export function localizeTimes(root: ParentNode = document): void {
