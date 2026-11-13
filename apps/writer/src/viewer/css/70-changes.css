@@ -14,6 +14,11 @@
   padding-top: 22px;
   margin-bottom: 0;
 }
+/* The page has no top padding (the summary row sticks flush to the top), so the "Swapped to…"
+   note above the header keeps its own space. */
+.cmp > .cmpnote {
+  margin-top: 16px;
+}
 .cmphead h2 {
   font: 740 22px/1.2 var(--sans);
   letter-spacing: -0.02em;
