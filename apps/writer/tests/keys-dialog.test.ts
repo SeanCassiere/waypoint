@@ -177,7 +177,7 @@ describe("KeysDialog", () => {
     const html = of("changes");
     const footer = between(html, '<form method="dialog" class="ft">', "</form>");
     expect(text(between(footer, '<label class="check">', "</label>"))).toBe(
-      "Turn off single-key shortcuts · / ? and Esc keep working",
+      "Turn off single-key shortcuts (/, ? and Esc still work)",
     );
     expect(footer).toMatch(/<input type="checkbox" data-keys-off(?:="[^"]*")?\/?>/);
     expect(footer).toMatch(/<button[^>]*\bautofocus\b[^>]*>Close<\/button>/);

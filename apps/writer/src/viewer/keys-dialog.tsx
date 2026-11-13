@@ -153,7 +153,7 @@ export function KeysDialog(props: { page: string }) {
         <label class="check">
           <input type="checkbox" data-keys-off />
           {" Turn off single-key shortcuts "}
-          <small class="muted">· / ? and Esc keep working</small>
+          <small class="muted">(/, ? and Esc still work)</small>
         </label>
         <button class="btn primary" value="close" autofocus>
           Close

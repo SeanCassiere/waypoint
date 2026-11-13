@@ -344,9 +344,18 @@ export function FindDialog(props: { findIn?: string | undefined }) {
             </p>
           ) : null}
         </div>
+        {/* Key hints are items, a key and what it does, set apart by space. */}
         <p class="find-hints">
-          <kbd>↑↓</kbd> move · <kbd>↵</kbd> open · <kbd>⇧↵</kbd> all results · Paste a Waypoint URL
-          or ID to jump to it
+          <span class="hint">
+            <kbd>↑↓</kbd> move
+          </span>{" "}
+          <span class="hint">
+            <kbd>↵</kbd> open
+          </span>{" "}
+          <span class="hint">
+            <kbd>⇧↵</kbd> all results
+          </span>{" "}
+          <span class="hint">Paste a Waypoint URL or ID to jump to it</span>
         </p>
         <span class="sr" role="status" data-search-status />
       </form>

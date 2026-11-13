@@ -85,9 +85,16 @@ describe("Find (NAV-02)", () => {
     expect(cancel).toContain('commandfor="find"');
     expect(cancel).toContain('command="close"');
     expect(dialog).toContain(">Cancel</button>");
-    expect(dialog.replace(/<[^>]+>/g, "")).toContain(
-      "↑↓ move · ↵ open · ⇧↵ all results · Paste a Waypoint URL or ID to jump to it",
-    );
+    // Key hints are items, a key and what it does, never a dot-joined sentence.
+    const footer = dialog.slice(dialog.indexOf('<p class="find-hints">'));
+    const hints = [...footer.matchAll(/<span class="hint">(.*?)<\/span>/g)];
+    expect(hints.map((m) => m[1]?.replace(/<[^>]+>/g, ""))).toEqual([
+      "↑↓ move",
+      "↵ open",
+      "⇧↵ all results",
+      "Paste a Waypoint URL or ID to jump to it",
+    ]);
+    expect(dialog).not.toContain(" · ");
   });
 
   it("offers the four filter tokens as toggle buttons, in order", async () => {
