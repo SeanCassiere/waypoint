@@ -13,6 +13,7 @@ import {
   hereRows,
   pillModel,
   retryTarget,
+  type PillModel,
   type NotePart,
   type PopRow,
 } from "./health-scope.ts";
@@ -28,6 +29,41 @@ export function LogoMark(props: { size?: number }) {
       <rect width="64" height="64" rx="15" />
       <path d="M14 20l10 26 8-17 8 17 10-26" />
     </svg>
+  );
+}
+/** A revision state's glyph (D78): the one vocabulary for spines, notices, the health pill and state
+ *  words. `done` is a filled node, `pending` a dashed amber ring, `failed` a ringed red dot; `ring`
+ *  is the health pill's elsewhere mark (D71: a fill is here, a ring is elsewhere), red, or amber
+ *  and dashed with `pending`. Decorative: the words beside it say the state. */
+export type GlyphKind = "done" | "pending" | "failed" | "ring" | "ring-pending";
+export function StateGlyph(props: { kind: GlyphKind }) {
+  const cls = props.kind === "ring-pending" ? "ring pending" : props.kind;
+  return <span class={`lb-g ${cls}`} aria-hidden="true" />;
+}
+/** State words: a glyph (the class's ::before) and coloured words, never a pill. `ok` (synced, an
+ *  ink node), `p` (uploading or stalled), `f` (failed), `w` (waiting). */
+export function StateWords(props: { tone: "ok" | "p" | "f" | "w"; children: Child }) {
+  return <span class={`sc ${props.tone}`}>{props.children}</span>;
+}
+/** A dialog's consequence band (public, or destructive with `.dlg.danger`): the icon, then the
+ *  title and the one-line consequence. A dialog without one puts its `h2` first in `.bd`, which
+ *  the component CSS draws as the same header row. */
+export function DialogBand(props: {
+  icon: "globe" | "alert";
+  titleId: string;
+  title: Child;
+  /** The consequence's id, for a dialog that names it in `aria-describedby`. */
+  descId?: string;
+  children?: Child;
+}) {
+  return (
+    <div class="band">
+      {raw(icon(props.icon, "xl"))}
+      <div>
+        <h2 id={props.titleId}>{props.title}</h2>
+        {props.children ? <p id={props.descId}>{props.children}</p> : null}
+      </div>
+    </div>
   );
 }
 export function Spinner() {
@@ -96,8 +132,7 @@ export function HealthPill(props: { health: Health }) {
       data-health={health.state}
       data-scope={pill.scope ?? undefined}
     >
-      {raw(icon(pill.icon))}
-      {pill.scope === "elsewhere" ? <span class="d ring" aria-hidden="true" /> : null}
+      <PillMark pill={pill} health={health} />
       <span class="lbl">{pill.label}</span>
       {pill.mid !== null ? (
         <span class="mid" aria-hidden="true">
@@ -111,6 +146,15 @@ export function HealthPill(props: { health: Health }) {
       ) : null}
     </button>
   );
+}
+/** The pill's state mark: the ok and sync-off icons, else the state's glyph (a ring elsewhere). */
+function PillMark(props: { pill: PillModel; health: Health }) {
+  const { pill } = props;
+  if (pill.tone === "away")
+    return <StateGlyph kind={pill.icon === "alert" ? "ring" : "ring-pending"} />;
+  if (pill.tone === "failed") return <StateGlyph kind="failed" />;
+  if (pill.tone === "pending") return <StateGlyph kind="pending" />;
+  return raw(icon(pill.icon));
 }
 function healthSummary(health: Health): string {
   const summaries: Record<Health["state"], string> = {
@@ -151,7 +195,11 @@ function PopRowItem(props: { row: PopRow; now: number }) {
   const { row, now } = props;
   return (
     <li class={row.tone}>
-      {raw(icon(row.icon))}
+      {row.tone === "ok" ? (
+        raw(icon(row.icon))
+      ) : (
+        <StateGlyph kind={row.tone === "f" ? "failed" : "pending"} />
+      )}
       <span>
         <b>
           {row.item ? (
@@ -269,11 +317,11 @@ function ScopedHealth(props: { health: Health; now: number; host: string }) {
         ) : (
           <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
         )}
-        {" · "}
+        {", "}
         <span class="mono">
-          {props.host} · {health.environment}
+          {props.host}, {health.environment}
         </span>
-        {" · "}
+        {". "}
         <a href="/status">Status</a>
       </p>
     </>
@@ -295,20 +343,20 @@ export function HealthPopover(props: { health: Health; now: number; host: string
     (at, item) => (at === null || item.created_at < at ? item.created_at : at),
     null,
   );
-  // The state icon, coloured by its tone class (VS-03's pins).
+  // The state's glyph, or the ok and sync-off icons coloured by their tone class (VS-03's pins).
   const mark =
-    health.state === "failed" || health.state === "blocked"
-      ? icon("alert", "failed")
-      : health.state === "uploading" || health.state === "stalled" || health.state === "offline"
-        ? icon("clock", "pending")
-        : health.state === "off"
-          ? icon("dot", "off")
-          : icon("okcircle", "ok");
+    health.state === "failed" || health.state === "blocked" ? (
+      <StateGlyph kind="failed" />
+    ) : health.state === "uploading" || health.state === "stalled" || health.state === "offline" ? (
+      <StateGlyph kind="pending" />
+    ) : (
+      raw(health.state === "off" ? icon("dot", "off") : icon("okcircle", "ok"))
+    );
   return (
     <div id="health-pop" class="pop2" popover="auto" role="dialog" aria-label="Writer status">
       <div class="mbox">
         <div class="big">
-          {raw(mark)}
+          {mark}
           {healthSummary(health)}
         </div>
         <dl class="kv">
@@ -341,7 +389,7 @@ export function HealthPopover(props: { health: Health; now: number; host: string
                 {plural(moving.length, "revision")}
                 {oldest !== null ? (
                   <>
-                    {" · oldest "}
+                    {", oldest "}
                     <Time at={oldest} fmt="ago" now={now} />
                   </>
                 ) : null}
@@ -366,7 +414,7 @@ export function HealthPopover(props: { health: Health; now: number; host: string
           ) : null}
           <dt>Writer</dt>
           <dd class="mono">
-            {props.host} · {health.environment}
+            {props.host}, {health.environment}
           </dd>
         </dl>
         <div class="acts">
@@ -401,29 +449,21 @@ export function HealthPopover(props: { health: Health; now: number; host: string
   );
 }
 
-const STEP_CLASS: Record<StripStep["word"], string> = {
+const STEP_CLASS: Record<StripStep["word"], "ok" | "p" | "f" | "w"> = {
   synced: "ok",
   failed: "f",
   uploading: "p",
   stalled: "p",
   waiting: "w",
 };
-const STEP_ICON = {
-  synced: "okcircle",
-  failed: "alert",
-  uploading: "clock",
-  stalled: "clock",
-  waiting: "clock",
-} as const satisfies Record<StripStep["word"], string>;
 function StripChip(props: { step: StripStep }) {
   const { row, word, waitingFor } = props.step;
   return (
-    <span class={`sc ${STEP_CLASS[word]}`}>
-      {raw(icon(STEP_ICON[word], "sm"))}
+    <StateWords tone={STEP_CLASS[word]}>
       {word === "synced"
         ? `#${row.display_number} synced`
         : chipText(row.display_number, word, waitingFor)}
-    </span>
+    </StateWords>
   );
 }
 const More = (props: { n: number; unit?: string }) =>

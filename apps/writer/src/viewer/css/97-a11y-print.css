@@ -5,10 +5,7 @@
   }
 }
 @media (forced-colors: active) {
-  .chip,
-  .health,
   .status1,
-  .btn,
   .revbtn,
   .bc .pill {
     border: 1px solid CanvasText;

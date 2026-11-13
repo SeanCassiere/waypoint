@@ -23,8 +23,8 @@ It's optional ([self-hosting](self-hosting.md#tier-3-the-public-reader)). An ins
 - **Downloads:** `?download` on a raw URL returns the stored file (never a rendition) as an attachment named after the file (`Content-Disposition: attachment; filename*=UTF-8''…`), with the same capability checks, denials and headers. The name is the file's base name with control and bidi characters shown as U+FFFD; the response has no `ETag`, so it is never a 304.
 - **The shell** is the Folio public shell (see [Shell and static pages](#shell-and-static-pages)): a quiet letterhead, for two or more files a "Files N" row and the Files panel beside the document (D74), and an iframe. It iframes the raw route **pinned to the resolved revision**, so one page never mixes files from two revisions. Share viewers never see a revision picker.
 - **Pinned links:** for a share link pinned to a revision, the raw route requires `rpub` to be that revision. Anything else returns 404.
-- **The bare root** `/` is a fixed explanatory page that returns **200**. Besides it, the only URLs outside `/s/` and `/x/` that aren't denials are the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`, none of which return collection data. `/index.html`, `/s`, `/s/` and everything else get the denial page.
-- **Assets:** `/assets/…` is reserved for future renderer assets. Current renditions are self-contained (D31), so there is no asset to serve and these URLs return 404.
+- **The bare root** `/` is a fixed explanatory page that returns **200**. Besides it, the only URLs outside `/s/` and `/x/` that aren't denials are the operational endpoints `/healthz`, `/healthz/deep` and `/robots.txt`, and the chrome's font at its content-hashed path (`/assets/font/recursive-<hash>.woff2`, D76: fixed public bytes, cached immutably, never counted against the rate limit), none of which return collection data. `/index.html`, `/s`, `/s/` and everything else get the denial page.
+- **Assets:** `/assets/…` is reserved for future renderer assets. Current renditions are self-contained (D31), so there is no renderer asset to serve. The one asset is the chrome's font (above); every other `/assets/` URL, including the font's path with another hash, returns the denial.
 
 ## Access model
 
@@ -113,7 +113,7 @@ The reasoning behind these safeguards is in [trust-model.md](trust-model.md).
 | No stale shared caches | `Cache-Control: private` on all tokenized responses; `no-store` on denials |
 | Environment isolation | The prod reader is bound only to the prod bucket and the prod DB |
 | Untrusted content is sandboxed | Raw responses carry `Content-Security-Policy: sandbox …` without `allow-same-origin`, and the shell's iframe is sandboxed, so shared documents run in an opaque origin |
-| Shell runs only its own code | Hash-only CSP for the one inline style and script; frame messages are validated against the frame's window and the shell's own links |
+| Shell runs only its own code | Hash-only CSP for the one inline style and script, plus `font-src 'self'` for the chrome's font (preloaded with no Referer); frame messages are validated against the frame's window and the shell's own links |
 
 ## Later
 

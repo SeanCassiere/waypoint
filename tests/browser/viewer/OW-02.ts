@@ -76,8 +76,18 @@ const scenario: ViewerScenario = {
         "/status",
       );
       assert.equal(await toast.locator("svg.ic").count(), 2, "alert and close icons");
-      const edge = await shadowOf(page, error);
-      assert.ok(edge.includes("inset"), `a red left edge: ${edge}`);
+      // Logbook (D78): a floating box with a red edge all round, led by the red alert icon.
+      const edge = z.object({ border: z.string(), token: z.string() }).parse(
+        await page.evaluate(`(() => {
+          const probe = document.createElement("i");
+          probe.style.color = "var(--failed-line)";
+          document.body.append(probe);
+          const token = getComputedStyle(probe).color;
+          probe.remove();
+          return { border: getComputedStyle(document.querySelector(${JSON.stringify(error)})).borderTopColor, token };
+        })()`),
+      );
+      assert.equal(edge.border, edge.token, "a red edge (--failed-line)");
       await page.clock.fastForward(6000);
       assert.ok(await toast.isVisible(), "the error toast is still there after 6 s");
       await toast.getByRole("button", { name: "Dismiss" }).click();

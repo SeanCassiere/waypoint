@@ -169,9 +169,10 @@ describe("stripModel and the words", () => {
 
     const markup = await strip(model);
     expect(markup).toContain('<div class="lin2" role="group" aria-label="Revision lines">');
-    expect(markup).toMatch(/<span class="sc ok"><svg[^>]*>.*?<\/svg>#5 synced<\/span>/);
-    expect(markup).toMatch(/<span class="sc p"><svg[^>]*>.*?<\/svg>#7 stalled<\/span>/);
-    expect(markup).toMatch(/<span class="sc f"><svg[^>]*>.*?<\/svg>#6 failed<\/span>/);
+    // State words (D78): the glyph is the class's ::before, so the words stand alone.
+    expect(markup).toContain('<span class="sc ok">#5 synced</span>');
+    expect(markup).toContain('<span class="sc p">#7 stalled</span>');
+    expect(markup).toContain('<span class="sc f">#6 failed</span>');
     expect(markup).toContain('<span class="q">latest, on #5</span>');
     expect(markup).toContain(
       '<span class="q2">Other machines and public links see #5 (with a syncing note)</span>',

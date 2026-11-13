@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { controlsCss } from "../src/components-css.ts";
 import { panelCss, treeCss } from "../src/panel-css.ts";
 import {
-  buttonCss,
   documentCss,
   filesCss,
   letterheadCss,
@@ -33,6 +33,7 @@ import {
 import { sharedTokensCss } from "../src/tokens.ts";
 
 const cssSegments = {
+  controlsCss,
   skipCss,
   letterheadCss,
   filesCss,
@@ -40,7 +41,6 @@ const cssSegments = {
   sidebarCss,
   documentCss,
   stageCss,
-  buttonCss,
 };
 const early = [versionScript, timeScript, panelStateScript, locationScript];
 const parsed = [
@@ -61,7 +61,8 @@ describe("public shell segments", () => {
   it("composes the stylesheet from its segments in the fixed order", () => {
     expect(publicShellCss).toBe(sharedTokensCss + shellCss);
     expect(shellCss).toBe(
-      skipCss +
+      controlsCss +
+        skipCss +
         letterheadCss +
         filesCss +
         menuCss +
@@ -69,8 +70,7 @@ describe("public shell segments", () => {
         treeCss +
         sidebarCss +
         documentCss +
-        stageCss +
-        buttonCss,
+        stageCss,
     );
   });
 

@@ -349,17 +349,18 @@ const scenario: ViewerScenario = {
       await local.stop();
     }
 
-    // The health pill: one state icon, no state dot; visible in forced colours.
+    // The health pill: one state mark (an icon, or a state glyph, D78), no state dot; visible in
+    // forced colours.
     for (const path of [postgres, "/"]) {
       await desk.goto(`${base}${path}`);
-      const pill = z.object({ icons: z.number(), dots: z.number() }).parse(
+      const pill = z.object({ marks: z.number(), dots: z.number() }).parse(
         await desk.evaluate(`(() => {
           const pill = document.querySelector("header.bar .health");
-          return { icons: pill.querySelectorAll("svg.ic").length,
-            dots: pill.querySelectorAll("span.d:not(.ring)").length };
+          return { marks: pill.querySelectorAll("svg.ic, .lb-g").length,
+            dots: pill.querySelectorAll("span.d").length };
         })()`),
       );
-      assert.deepEqual(pill, { icons: 1, dots: 0 }, `${path}: the pill's icon, no state dot`);
+      assert.deepEqual(pill, { marks: 1, dots: 0 }, `${path}: the pill's one mark, no state dot`);
     }
     {
       const { page } = await ctx.newPage({
@@ -368,22 +369,31 @@ const scenario: ViewerScenario = {
         forcedColors: "active",
       });
       await page.goto(`${base}${five}`);
-      await isSquare(page, "header.bar .health svg.ic", 16, "forced colours");
-      const stroke = await page.evaluate(
-        `getComputedStyle(document.querySelector("header.bar .health svg.ic")).stroke`,
-      );
-      assert.notEqual(stroke, "none", "forced colours: the pill's icon has a stroke");
+      // The pill's mark: an icon with a stroke, or a state glyph (D78) that keeps its colours.
+      if ((await page.locator("header.bar .health svg.ic").count()) > 0) {
+        await isSquare(page, "header.bar .health svg.ic", 16, "forced colours");
+        const stroke = await page.evaluate(
+          `getComputedStyle(document.querySelector("header.bar .health svg.ic")).stroke`,
+        );
+        assert.notEqual(stroke, "none", "forced colours: the pill's icon has a stroke");
+      } else {
+        await isSquare(page, "header.bar .health .lb-g", 10, "forced colours");
+        const adjust = await page.evaluate(
+          `getComputedStyle(document.querySelector("header.bar .health .lb-g")).forcedColorAdjust`,
+        );
+        assert.equal(adjust, "none", "forced colours: the pill's glyph keeps its colours");
+      }
       await isSquare(page, ".status1 .f svg.ic", 16, "forced colours");
       await isSquare(page, ".status1 .p svg.ic", 16, "forced colours");
     }
     {
       const { page } = await ctx.newPage({ ...VIEWPORTS.tablet, ...still, forcedColors: "active" });
       await page.goto(`${base}${webhook}`);
-      const ring = page.locator("header.bar .health .d.ring");
+      const ring = page.locator("header.bar .health .lb-g.ring");
       assert.ok(await ring.isVisible(), "Webhook at 820: the elsewhere ring shows");
       const border = z.object({ style: z.string(), width: z.number() }).parse(
         await page.evaluate(`(() => {
-          const s = getComputedStyle(document.querySelector("header.bar .health .d.ring"));
+          const s = getComputedStyle(document.querySelector("header.bar .health .lb-g.ring"));
           return { style: s.borderTopStyle, width: parseFloat(s.borderTopWidth) };
         })()`),
       );

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { controlsCss, writerComponentsCss } from "@waypoint/ui";
 import { describe, expect, it } from "vitest";
 
 import { VIEWER_CSS_PARTIALS } from "../src/viewer/css.ts";
@@ -8,7 +9,7 @@ import { VIEWER_CSS_PARTIALS } from "../src/viewer/css.ts";
 // go down. Migrating the existing literals was cut; this stops new drift. When a change removes
 // literals, it lowers the matching ceiling in the same commit.
 export const FONT_SIZE_CEILING = 244;
-export const RADIUS_CEILING = 96;
+export const RADIUS_CEILING = 68;
 export const HEX_CEILING = 3;
 
 const RATCHET_MESSAGE =
@@ -104,9 +105,15 @@ function dimmedStates(list: readonly Declaration[]): string[] {
     .map((d) => `${d.partial}: ${d.ancestry} { opacity: ${d.value} }`);
 }
 
-const viewer = VIEWER_CSS_PARTIALS.flatMap((name) =>
-  declarations(name, readFileSync(new URL(`../src/viewer/css/${name}`, import.meta.url), "utf8")),
-);
+// The partials, and the component layer they build on (@waypoint/ui components-css.ts, D78), so
+// moving a rule into the component system doesn't take it out of the ratchet.
+const viewer = [
+  ...declarations("components-css.ts:controlsCss", controlsCss),
+  ...declarations("components-css.ts:writerComponentsCss", writerComponentsCss),
+  ...VIEWER_CSS_PARTIALS.flatMap((name) =>
+    declarations(name, readFileSync(new URL(`../src/viewer/css/${name}`, import.meta.url), "utf8")),
+  ),
+];
 
 const sample = (css: string, partial = "00-sample.css") => declarations(partial, css);
 /** The ratchet's failure, if a count went over its ceiling. */
@@ -143,7 +150,7 @@ describe("the ratchet's own counters", () => {
   });
   it("counts radii with a non-zero length or percentage", () => {
     const list = sample(
-      ".a{border-radius:8px}.b{border-radius:0}.c{border-radius:var(--r-md)}.d{border-radius:50%}" +
+      ".a{border-radius:8px}.b{border-radius:0}.c{border-radius:var(--rd-box)}.d{border-radius:50%}" +
         ".e{border-top-left-radius:4px 2px}.f{border-radius:0 0 6px 6px}.g{border-start-end-radius:0px}" +
         ".h{border-radius:1ch}.i{border-radius:2vw}.j{border-radius:0 .5lh}.k{border-radius:var(--r-2xl)}" +
         ".l{border-radius:0vw 0cqi}",

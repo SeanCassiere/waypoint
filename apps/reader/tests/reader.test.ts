@@ -1,5 +1,5 @@
 import { hashShareToken, newShareToken, shareShellUrl, WAYPOINT_VERSION } from "@waypoint/core";
-import { iconUse, publicShellCss, publicShellScript } from "@waypoint/ui";
+import { chromeFontPreload, iconUse, publicShellCss, publicShellScript } from "@waypoint/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReaderApp, type ReaderDb, type ReaderEnv } from "../src/app.ts";
@@ -83,9 +83,9 @@ async function sha256(text: string): Promise<string> {
   return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }
 /** Exact policy for the root and denial pages (spec §9.2). */
-const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /** The `/x/` denial card's policy: the same, but framable by the shell. */
-const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const staticHeaderNames = [
   "cache-control",
   "content-security-policy",
@@ -351,9 +351,13 @@ describe("public reader", () => {
     expect(rootPage).toContain("<h1>This address is for shared Waypoint documents</h1>");
     expect(deniedPage).toContain("<title>Link not available · Waypoint</title>");
     expect(deniedPage).toContain("<h1>This link isn't available</h1>");
-    // No data, links, inputs, scripts or style attributes; one <style> covered by one hash.
+    // No data, links, inputs, scripts or style attributes; one <style> covered by one hash. The
+    // one resource is the chrome font's no-Referer preload (D76).
     for (const page of [rootPage, deniedPage, frameDeniedPage]) {
-      expect(page).not.toMatch(/<(?:a|input|form|button|script|select|textarea|link|img)\b/i);
+      expect(page.split(chromeFontPreload)).toHaveLength(2);
+      expect(page.replace(chromeFontPreload, "")).not.toMatch(
+        /<(?:a|input|form|button|script|select|textarea|link|img)\b/i,
+      );
       expect(page).not.toMatch(/\sstyle=|\son[a-z]+=/i);
       expect(page.match(/<style>/g)).toHaveLength(1);
       expect(page).toContain(`<style>${staticCss}</style>`);
@@ -370,8 +374,12 @@ describe("public reader", () => {
     expect(html).toContain(`<script>${publicShellScript}</script>`);
     // The version is markup, not script, so a release doesn't change the script's hash.
     expect(html).toContain(`<html lang="en" data-waypoint-version="${WAYPOINT_VERSION}">`);
-    // No inline handlers, external resources or absolute URLs except the reader's own origin.
-    expect(html).not.toMatch(/\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i);
+    // No inline handlers, external resources (but the chrome font's no-Referer preload, D76) or
+    // absolute URLs except the reader's own origin.
+    expect(html.split(chromeFontPreload)).toHaveLength(2);
+    expect(html.replace(chromeFontPreload, "")).not.toMatch(
+      /\sstyle=|\son[a-z]+=|<link\b|<script\s+src/i,
+    );
     const foreign = (html.match(/https?:\/\/[^"'\s<>]*/gi) ?? []).filter(
       (url) => !isOwnOrigin(url),
     );
@@ -386,7 +394,7 @@ describe("public reader", () => {
     expect(lookalikes.filter(isOwnOrigin)).toEqual([]);
     expect(isOwnOrigin(`${base}/s/x`)).toBe(true);
     expect(shell.headers.get("content-security-policy")).toBe(
-      `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      `default-src 'none'; style-src ${await sha256(publicShellCss)}; script-src ${await sha256(publicShellScript)}; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     );
     expect(shell.headers.get("x-frame-options")).toBe("DENY");
     expect(shell.headers.get("cache-control")).toBe("private");

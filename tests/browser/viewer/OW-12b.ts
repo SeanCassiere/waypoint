@@ -32,14 +32,16 @@ const CH = `(cell) => {
 }`;
 
 /** How far the focused element's focus ring sits inside every ancestor that clips it, up to and
- * including its diff card (.fd): the smallest gap, negative when an edge is clipped. */
+ * including its diff card (.fd): the smallest gap, negative when an edge is clipped. The ring is an
+ * outline, or (inside a box, D78) an inset box-shadow, drawn at the element's own border box. */
 const ringClearance = async (page: Page) => {
   const [clearance = NaN] = numbers.parse(
     await page.evaluate(`(() => {
       const target = document.activeElement;
       const style = getComputedStyle(target);
-      if (style.outlineStyle === "none") return [-1000];
-      const out = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+      const inset = style.outlineStyle === "none" && /inset/.test(style.boxShadow);
+      if (style.outlineStyle === "none" && !inset) return [-1000];
+      const out = inset ? 0 : parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
       const b = target.getBoundingClientRect();
       const gaps = [];
       for (let clip = target.parentElement; clip; clip = clip.parentElement) {

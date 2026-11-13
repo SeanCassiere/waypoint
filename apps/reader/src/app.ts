@@ -11,7 +11,14 @@ import {
   validatePath,
   WAYPOINT_VERSION,
 } from "@waypoint/core";
-import { encodeLinkPath, isStageImage, renderPublicShell } from "@waypoint/ui";
+import {
+  CHROME_FONT_PATH,
+  chromeFontBytes,
+  chromeFontHeaders,
+  encodeLinkPath,
+  isStageImage,
+  renderPublicShell,
+} from "@waypoint/ui";
 import { Hono, type Context } from "hono";
 
 import { shellScriptHash, shellStyleHash, staticStyleHash } from "./csp-hashes.ts";
@@ -83,12 +90,15 @@ const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbo
  *
  * An image shell (RX-04, decision c) may load images only from `imageBase`, this response's own
  * frame base: a trailing `/` makes CSP match by prefix, so only files of the revision it shows.
+ *
+ * `font-src 'self'` lets the shell and the static pages load the chrome's font (D76), which this
+ * Worker serves itself from CHROME_FONT_PATH; nothing else on this origin is a font.
  */
 const shellPolicy = (imageBase: string | null): string =>
-  `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; ${imageBase === null ? "" : `img-src ${imageBase}; `}frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
-const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+  `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; font-src 'self'; ${imageBase === null ? "" : `img-src ${imageBase}; `}frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const staticPolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /** The `/x/` denial card's policy: the static one, but the shell (same origin) may frame it. */
-const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
+const framePolicy = `default-src 'none'; style-src ${staticStyleHash}; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
 const staticHeaders = (cache: string, policy = staticPolicy): Record<string, string> => ({
   "X-Robots-Tag": standard["X-Robots-Tag"],
   "Referrer-Policy": standard["Referrer-Policy"],
@@ -297,6 +307,19 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   const rootHeaders = staticHeaders("public, max-age=3600");
   app.get("/", (c) =>
     c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : deniedFor(c.req.path),
+  );
+  // The chrome's font (D76): fixed public bytes at a content-hashed path, the same as the
+  // writer's. It touches no link, database or bucket, so it isn't counted or rate limited.
+  app.get(
+    CHROME_FONT_PATH,
+    () =>
+      new Response(chromeFontBytes(), {
+        headers: {
+          ...chromeFontHeaders,
+          "X-Robots-Tag": standard["X-Robots-Tag"],
+          "Referrer-Policy": standard["Referrer-Policy"],
+        },
+      }),
   );
   app.get(
     "/robots.txt",

@@ -61,7 +61,7 @@ const app = createReaderApp({
     probe: () => Promise.resolve(new Response("ok")),
   }),
 });
-const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+const shellPolicy = `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 async function open(path: string): Promise<{ html: string; csp: string | null }> {
   const res = await app.request(
     `https://reader.example.test/s/${newShareToken()}/c/aaaaaaaaaaaa/${path}`,
@@ -82,7 +82,7 @@ describe("image shells (RX-04)", () => {
     expect(frameBase).toBeDefined();
     expect(src).toBe(`${frameBase}shots/a.png`);
     expect(csp).toBe(
-      `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; img-src ${frameBase}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      `default-src 'none'; style-src ${shellStyleHash}; script-src ${shellScriptHash}; font-src 'self'; img-src ${frameBase}; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     );
     expect(html).toContain('<main id="main" class="imgmain"><figure class="stage" id="doc"');
     expect(html).not.toContain("<iframe");

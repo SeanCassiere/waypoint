@@ -349,7 +349,7 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
     aria = `Writer status: ${plural(failed.length, "revision")} failed to sync`;
   } else if (offline) {
     state = "offline";
-    label = "Offline · writes queued";
+    label = "Offline, writes queued";
     aria = "Writer status: can't reach the cloud; writes are queued here";
   } else if (stalled.length) {
     state = "stalled";
@@ -367,7 +367,7 @@ export async function getHealth(s: HttpServices, now = Date.now()): Promise<Heal
   return {
     state,
     label,
-    short: label.split(" · ")[0] ?? label,
+    short: label.split(", ")[0] ?? label,
     aria,
     failed,
     pending,

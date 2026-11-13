@@ -1,3 +1,4 @@
+import { controlsCss } from "../components-css.ts";
 import { panelCss, treeCss } from "../panel-css.ts";
 import { PHONE_MAX, WIDE_MIN, sharedTokensCss } from "../tokens.ts";
 
@@ -71,8 +72,8 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
  * The Files row (R1, D74): the "Files N" button that shows, hides or opens the file panel, and the
  * current file's Download control. `.prow` and the letterhead keep the 1120 px column on one-file
  * pages; with a panel (`body.pan`) both span the window, so the title lines up with the panel.
- * The Download control (`.dlb`, RX-06) is a `.btn` (buttonCss, later in the cascade, so these
- * rules use `.btn.dlb`): right-aligned at the row's end, in the letterhead actions with a mono
+ * The Download control (`.dlb`, RX-06) is a `.btn` (controlsCss, packages/ui/src/components-css.ts,
+ * first in the cascade; these rules use `.btn.dlb`): right-aligned at the row's end, in the letterhead actions with a mono
  * name for one file (`.one`), and on phones an icon-only 44 px ghost target. A long name wraps
  * (the button grows, 32 px for one line) rather than being cut, so the file name always shows.
  * Under forced colours the icons inherit the text colour.
@@ -89,7 +90,7 @@ export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px
 .btn.dlb.one .nm{font:12px/16px var(--mono);unicode-bidi:plaintext}
 @media not all and (max-width:${PHONE_MAX}px){.btn.dlb.one{height:auto;padding-block:7px}.btn.dlb.one .nm{max-width:min(44ch,30vw);white-space:normal;overflow-wrap:anywhere}}
 @media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.fbtn{min-height:var(--tap)}
-.btn.dlb,.btn.dlb:hover{width:var(--tap);height:var(--tap);padding:0;border-color:transparent;background:none}
+.btn.dlb,.btn.dlb:hover{width:var(--tap);height:var(--tap);justify-content:center;padding:0;border-color:transparent;background:none}
 .btn.dlb .lbl{display:none}.btn.dlb svg.ic{width:var(--ic-lg);height:var(--ic-lg)}}
 @media(forced-colors:active){.fbtn{border-bottom-color:CanvasText}.fbtn>svg.ic,.fbtn .ti{color:inherit}.btn.dlb,.btn.dlb:hover{border-color:ButtonText}}
 `;
@@ -103,15 +104,14 @@ export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px
  */
 export const menuCss: string = `[popover]{margin:0;inset:auto;padding:0;border:0;background:none;color:var(--ink);overflow:visible}
 .menu{position:fixed;z-index:40;position-area:bottom span-right;position-try-fallbacks:flip-block;margin-block:6px;width:min(400px,calc(100vw - 24px))}
-.mbox{background:var(--dlg);border:1px solid var(--rule-2);border-radius:var(--r-md);box-shadow:var(--sh-2);padding:6px;max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
+.mbox{padding:6px;max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
 .pop-scrim{display:none;opacity:0;position:fixed;inset:0;z-index:50;background:transparent}
 @supports not (position-area:bottom){.menu{top:104px;left:max(12px,calc(50vw - 544px))}}
 @media(max-width:${PHONE_MAX}px){.menu{position-area:none;position-try-fallbacks:none;inset:auto 0 0 0;width:100%;margin:0}
-[popover]>.mbox{border-radius:16px 16px 0 0;border-bottom-width:0;max-height:82dvh;padding:0 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(27,26,23,.16)}
+[popover]>.mbox{border-radius:var(--rd-3) var(--rd-3) 0 0;border-bottom-width:0;max-height:82dvh;padding:0 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(27,26,23,.16)}
 [popover]>.mbox::before{content:"";display:block;width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:8px auto 4px}
 .pop-scrim{background:var(--scrim)}}
 @media(pointer:coarse),(max-width:${PHONE_MAX}px){body:has([popover]:popover-open) .pop-scrim{display:block;opacity:1}.pop-scrim.linger{display:block}}
-@media(forced-colors:active){.mbox{border-color:CanvasText}}
 `;
 /**
  * The reader's side of the file panel (D74), after the shared panelCss and treeCss. `#shell` fills
@@ -154,7 +154,7 @@ export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
 body:has(#files:popover-open) .pop-scrim{display:block;opacity:1;background:var(--scrim)}}
 @media(max-width:${PHONE_MAX}px){.panel:popover-open::before{content:"";display:block;flex:none;width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:8px auto 4px}
 .shd{padding:2px 10px 8px 14px}.shd h2{font-size:15px}.pbody{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
-.done{display:block;min-width:64px;min-height:var(--tap);padding:0 14px;border-radius:var(--r-md);border:1px solid var(--rule-2);background:var(--surface);font:600 14px var(--sans);color:var(--ink);cursor:pointer}
+.done{display:block;min-width:64px;min-height:var(--tap);padding:0 14px;border-radius:var(--rd-2);border:1px solid var(--rule-2);background:var(--surface);font:600 14px var(--sans);color:var(--ink);cursor:pointer}
 .tree a,.tree summary{min-height:var(--tap);font-size:15px}.tree summary{font-size:13.5px}}
 @media(forced-colors:active){.tree a>svg,.tree a[aria-current]>svg,.tree summary>svg.ti{color:inherit}.panel:popover-open{border:1px solid CanvasText}}
 `;
@@ -193,22 +193,9 @@ export const stageCss: string = `.imgmain{overflow:hidden}
 @media(forced-colors:active){.stage img{box-shadow:none;outline:1px solid CanvasText}}
 @media print{.stage{overflow:visible}}
 `;
-/** The shell's one control family: default, primary and ghost; md 32 / sm 28 px; at least 44 px
- *  tall on touch screens. Last in the cascade, so later controls add only placement rules. The
- *  forced-colours border lists the variants' selectors so their equal-or-higher specificity
- *  doesn't win over it. */
-export const buttonCss: string = `.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--ctl-md);padding:0 12px;border-radius:8px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink);font-weight:500;text-decoration:none;white-space:nowrap;cursor:pointer}
-.btn:hover{border-color:var(--muted)}
-.btn.primary,.btn.primary:hover{border-color:var(--ink);background:var(--ink);color:var(--paper);box-shadow:var(--sh-1)}
-.btn.ghost{border-color:transparent;background:none}
-.btn.ghost:hover{background:var(--hover)}
-.btn.sm{height:var(--ctl-sm);padding:0 10px;font-size:12.5px;border-radius:7px}
-@media(pointer:coarse){.btn{min-height:var(--tap)}}
-@media(forced-colors:active){.btn,.btn:hover,.btn.ghost,.btn.primary,.btn.primary:hover{border-color:ButtonText}}
-`;
-
 /** The shell rules, in cascade order. Lanes fill their own segment; the order is fixed here. */
 export const shellCss: string =
+  controlsCss +
   skipCss +
   letterheadCss +
   filesCss +
@@ -217,8 +204,7 @@ export const shellCss: string =
   treeCss +
   sidebarCss +
   documentCss +
-  stageCss +
-  buttonCss;
+  stageCss;
 
-/** The public shell's complete stylesheet: the shared Folio tokens plus the shell rules. */
+/** The public shell's complete stylesheet: the shared tokens plus the shell rules. */
 export const publicShellCss: string = sharedTokensCss + shellCss;

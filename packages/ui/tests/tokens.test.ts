@@ -31,7 +31,7 @@ const mentions = (css: string, token: string): boolean =>
 const CHANGED = ["--changed", "--changed-bg", "--changed-line"];
 const PENDING = ["--pending", "--pending-bg", "--pending-line"];
 
-describe("Folio tokens", () => {
+describe("Logbook tokens", () => {
   it("exports the breakpoints", () => {
     expect(PHONE_MAX).toBe(599.98);
     expect(COMPACT_MAX).toBe(760);
@@ -77,14 +77,51 @@ describe("Folio tokens", () => {
     }
   });
 
-  it("pins the nudged and new values", () => {
+  it("pins Logbook's values and scales (D77)", () => {
     const shared = declarations(sharedTokensCss, "light");
+    const dark = declarations(sharedTokensCss, "dark");
     const writer = declarations(writerTokensCss, "light");
-    expect(shared.get("--faint")).toBe("#6f6a62");
-    expect(declarations(sharedTokensCss, "dark").get("--faint")).toBe("#969188");
+    const writerDark = declarations(writerTokensCss, "dark");
+    expect(shared.get("--paper")).toBe("#f6f7f9");
+    expect(shared.get("--ink")).toBe("#1d2026");
+    expect(dark.get("--paper")).toBe("#131518");
+    expect(shared.get("--faint")).toBe("#5f6772");
+    expect(dark.get("--faint")).toBe("#9098a3");
+    // nudged from Logbook's #1f5fd1 so it reads at 4.5:1 on a selected row over the paper
+    expect(shared.get("--public")).toBe("#1e5ccc");
     expect(writer.get("--ok")).toBe("#2c784b");
-    expect(shared.get("--tap")).toBe("44px");
+    // the films: ink at 7/10/12 % (hover/selected/pressed), 10/14/16 % in dark
+    for (const [token, light, night] of [
+      ["--hover", 7, 10],
+      ["--sel-bg", 10, 14],
+      ["--press", 12, 16],
+    ] as const) {
+      expect(shared.get(token)).toBe(`color-mix(in srgb,var(--ink) ${light}%,transparent)`);
+      expect(dark.get(token)).toBe(`color-mix(in srgb,var(--ink) ${night}%,transparent)`);
+    }
+    expect([shared.get("--ctl-sm"), shared.get("--ctl-md"), shared.get("--tap")]).toEqual([
+      "28px",
+      "32px",
+      "44px",
+    ]);
+    expect([
+      writer.get("--rd-1"),
+      shared.get("--rd-2"),
+      writer.get("--rd-box"),
+      shared.get("--rd-3"),
+    ]).toEqual(["4px", "6px", "8px", "10px"]);
+    expect(writer.get("--rd-2-in")).toBe("calc(var(--rd-2) - 1px)");
+    expect([writer.get("--r1"), writer.get("--r2")]).toEqual(["45px", "45px"]);
+    expect([writer.get("--row-fs"), writer.get("--row-lh")]).toEqual(["13.5px", "20px"]);
+    expect(shared.get("--sans")?.startsWith('"Recursive",')).toBe(true);
+    expect(shared.get("--mono")?.startsWith('"Recursive Mono",')).toBe(true);
+    expect(writerDark.get("--spine")).toBe("#3b424c");
     expect(writer.get("--page-max")).toBe("1096px");
+  });
+
+  it("retires Folio's --r-sm, --r-md and --r-lg for the --rd-* scale", () => {
+    for (const token of ["--r-sm", "--r-md", "--r-lg"])
+      expect(mentions(sharedTokensCss + writerTokensCss, token)).toBe(false);
   });
 
   it("freezes the reading palette (changes only with a RENDERER_VERSION bump)", () => {
