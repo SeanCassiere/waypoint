@@ -356,61 +356,12 @@
   font: 700 22px/1.2 var(--sans);
   margin: 0;
 }
+/* The panel and its peek are panelCss (packages/ui/src/panel-css.ts); the page owns the shell's
+   height and where the panel starts (under the bar, whose height varies with the page and the
+   width, so --panel-top is set on the shell, under body's --bar-h). */
 .shell {
-  display: grid;
-  grid-template-columns: var(--panel-w) minmax(0, 1fr);
   height: calc(100dvh - var(--bar-h));
-}
-.shell.closed {
-  grid-template-columns: 0 minmax(0, 1fr);
-}
-.shell.closed .panel {
-  visibility: hidden;
-}
-/* Peek (D73): with the docked panel collapsed, a mouse resting on the window's left edge (the
-   .peek-edge strip) or on the bar's panel button brings the panel out as a floating card over
-   the document (#shell.peek, client/panel-peek.ts). The panel leaves the grid while collapsed,
-   so #main keeps the whole row and nothing reflows. Touch and narrow windows keep the plain
-   toggle. */
-.peek-edge {
-  display: none;
-}
-@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
-  .shell.closed {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .shell.closed > .peek-edge {
-    display: block;
-    position: fixed;
-    left: 0;
-    top: var(--bar-h);
-    bottom: 0;
-    width: 16px;
-    z-index: 31;
-  }
-  .shell.closed .panel {
-    position: fixed;
-    left: 0;
-    top: calc(var(--bar-h) + 32px);
-    bottom: 24px;
-    width: var(--panel-w);
-    z-index: 32;
-    border: 1px solid var(--rule);
-    border-left: 0;
-    border-radius: 0 var(--r-md) var(--r-md) 0;
-    box-shadow: var(--sh-2);
-  }
-  .shell.closed.peek .panel {
-    visibility: visible;
-  }
-}
-.panel {
-  border-right: 1px solid var(--rule);
-  background: var(--paper);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  --panel-top: var(--bar-h);
 }
 .ptabs {
   display: flex;
@@ -456,11 +407,6 @@
   align-self: center;
   display: none;
 }
-.pbody {
-  flex: 1;
-  overflow: auto;
-  padding: 10px 8px 16px;
-}
 .pfoot {
   border-top: 1px solid var(--rule);
   padding: 9px 14px;
@@ -490,39 +436,9 @@
 .ttools:has(> [hidden]) {
   display: none;
 }
-.tree a,
-.tree .dir,
-.tree summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
-  border-radius: 7px;
-  text-decoration: none;
-  color: var(--ink-2);
-  font-size: 13.5px;
-  min-width: 0;
-}
-/* Touch: folders start collapsed (D72), so their rows are the tree's main target; 44 px rows. */
-@media (pointer: coarse) {
-  .tree a,
-  .tree summary {
-    min-height: var(--tap);
-  }
-}
-.tree a span.nm {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tree a:hover,
-.tree summary:hover {
-  background: var(--hover);
-}
-/* One selection style (VS-04): the Files tree's current file, History's current revision and a
-   menu's current destination. A raised row with a ring and an ink bar at the start edge; change
-   marks keep their role colours on it. History's row is li.rv, so it outranks .rv:hover. */
-.tree a[aria-current],
+/* The tree's rows and the selection style on them are treeCss (packages/ui/src/panel-css.ts);
+   History's current revision and a menu's current destination share that selection style
+   (VS-04). History's row is li.rv, so it outranks .rv:hover. */
 li.rv[aria-current],
 .menu .mi[aria-current] {
   background: var(--sel-bg);
@@ -531,7 +447,6 @@ li.rv[aria-current],
     inset 3px 0 0 var(--sel-bar),
     0 0 0 1px var(--sel-ring);
 }
-.tree a[aria-current] .nm,
 li.rv[aria-current] .msg,
 .menu .mi[aria-current] {
   font-weight: 600;
@@ -544,26 +459,6 @@ li.rv[aria-current] .msg,
 .menu .mi[aria-current]:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: -2px;
-}
-.tree .dir,
-.tree summary {
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.tree summary {
-  list-style: none;
-}
-.tree summary::-webkit-details-marker {
-  display: none;
-}
-/* The folder's chevron points right while closed. */
-.tree details:not([open]) > summary > svg.ic {
-  transform: rotate(-90deg);
-}
-.tree details > div {
-  padding-left: 14px;
 }
 .tree .k {
   width: 12px;

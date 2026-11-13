@@ -8,9 +8,6 @@
 .show-sm {
   display: none !important;
 }
-.panel-scrim {
-  display: none;
-}
 @media (max-width: 1099.98px) {
   /* The elsewhere pill (OW-10b) shows its ring and "1 failed" instead of its icon and words. */
   .health.away .ic,
@@ -23,38 +20,10 @@
   .health.away .mid {
     display: inline;
   }
-  .shell,
-  .shell.closed {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .shell.closed .panel {
-    visibility: visible;
-  }
-  .panel {
-    position: fixed;
-    top: var(--bar-h);
-    bottom: 0;
-    left: 0;
-    width: min(360px, 92vw);
-    z-index: 30;
-    box-shadow: var(--sh-2);
-    transform: translateX(-102%);
-    visibility: hidden;
-  }
-  .shell.open .panel {
-    transform: none;
-    visibility: visible;
-  }
+  /* The panel's side sheet and its scrim are panelCss (packages/ui/src/panel-css.ts); the scrim
+     covers the bar and tab bar too (both are inert while the sheet is open). */
   .ptabs .x {
     display: grid;
-  }
-  /* The scrim covers the bar and tab bar too (both are inert while the sheet is open). */
-  .shell.open ~ .panel-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: var(--scrim);
-    z-index: 29;
   }
   .search {
     min-width: 0;
@@ -420,17 +389,10 @@
     padding-block: calc((var(--tap) - 1lh) / 2);
   }
 }
-/* Phones (below 600 px): the panel, menus and popovers are bottom sheets over a scrim.
-   From 600 px (the iPad mini's 744 included) menus stay anchored to their trigger and the
+/* Phones (below 600 px): the panel (panelCss), menus and popovers are bottom sheets over a
+   scrim. From 600 px (the iPad mini's 744 included) menus stay anchored to their trigger and the
    panel is a side sheet, as on tablets. */
 @media (max-width: 599.98px) {
-  .shell.open .panel {
-    width: 100%;
-    top: auto;
-    bottom: 0;
-    height: 78dvh;
-    border-radius: 16px 16px 0 0;
-  }
   .pop2,
   .menu {
     position-area: none;

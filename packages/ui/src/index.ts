@@ -4,5 +4,7 @@ export * from "./denial-copy.ts";
 export * from "./frame-location.ts";
 export * from "./html.ts";
 export * from "./icons.ts";
+export * from "./panel-css.ts";
+export * from "./panel.ts";
 export * from "./public-shell/index.ts";
 export * from "./tokens.ts";
