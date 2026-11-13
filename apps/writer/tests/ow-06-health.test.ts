@@ -258,15 +258,15 @@ describe("Status and Home (OW-06b)", () => {
       "#2 failed to sync and #3 has stalled. Other machines and public links still see",
     );
     expect(html).toContain("Everything else is synced.");
-    expect(html).toContain('<div class="d">stopped trying; needs Retry or Drop</div>');
-    expect(html).toContain('<div class="d">stalled = no upload progress for 10 min</div>');
-    expect(html).toContain("stalled · 0 uploading normally");
+    expect(html).toContain("<dd>stopped trying; needs Retry or Drop</dd>");
+    expect(html).toContain("<dd>stalled = no upload progress for 10 min</dd>");
+    expect(html).toContain("stalled, 0 uploading normally");
     expect(count(html, "uploading normally")).toBe(1);
     expect(html).toContain('<section aria-labelledby="sec-attn" data-status-section="attention">');
     expect(html).toContain('Needs attention <span class="n">1 collection</span>');
     expect(html).toContain(`<section class="sgrp" id="attn-${pub}" aria-labelledby="sg-${pub}">`);
     expect(html).toContain('<span class="proj">infra</span>');
-    expect(html).toContain("No public links · nothing public is affected");
+    expect(html).toContain("No public links, nothing public is affected");
     expect(html).toContain('<div class="lin2" role="group" aria-label="Revision lines">');
     expect(html).toContain(`<li class="srow" id="${failed.id}">`);
     expect(html).toContain(`<li class="srow" id="${stalled.id}">`);
@@ -317,7 +317,7 @@ describe("Status and Home (OW-06b)", () => {
     expect(after).toContain('<span class="n" data-progress-count="true">1</span>');
     expect(after).not.toContain("Nothing is uploading.");
     expect(after).not.toContain("Everything else is synced.");
-    expect(after).toContain("stalled · 1 uploading normally");
+    expect(after).toContain("stalled, 1 uploading normally");
   });
 
   it("renders Home's card, strip and row chips; sync off shows the note only when queued", async () => {

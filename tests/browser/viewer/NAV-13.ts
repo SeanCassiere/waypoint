@@ -43,11 +43,11 @@ const LONG_HOST = `(() => {
     document.querySelector("h2.sec").after(list);
   }
   const li = document.createElement("li");
-  li.innerHTML = '<a href="/?q=host%3Along"><span class="mono">buildrunner0123456789abcdefghijklmnopqrstuvwxyz0123456789internal</span><span class="m">3 revisions · last 2 h ago</span><span class="go">See its collections <span aria-hidden="true">›</span></span></a>';
+  li.innerHTML = '<a href="/?q=host%3Along"><span class="host">buildrunner0123456789abcdefghijklmnopqrstuvwxyz0123456789internal</span><span class="m">3 revisions, last 2 h ago</span><span class="go">See its collections <span aria-hidden="true">›</span></span></a>';
   list.prepend(li);
   const a = li.querySelector("a");
   // The text's own extent (a range), not its grid cell's, which overflowing text doesn't widen.
-  const [host, meta] = [...a.querySelectorAll(".mono, .m")].map((el) => {
+  const [host, meta] = [...a.querySelectorAll(".host, .m")].map((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
     return range.getBoundingClientRect();

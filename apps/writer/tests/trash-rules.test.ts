@@ -56,12 +56,12 @@ describe("restoreFlashText", () => {
 describe("pausedChipText", () => {
   it("counts every paused link and quotes at most two labels", () => {
     expect(pausedChipText([])).toBe("");
-    expect(pausedChipText([link("Vendor debug")])).toBe("1 link paused · “Vendor debug”");
+    expect(pausedChipText([link("Vendor debug")])).toBe("1 link paused, “Vendor debug”");
     expect(pausedChipText([link(null, 1), link(null, 2)])).toBe("2 links paused");
     expect(pausedChipText([link("A", 1), link("B", 2), link("C", 3)])).toBe(
-      "3 links paused · “A”, “B” +1",
+      "3 links paused, “A”, “B” +1",
     );
-    expect(pausedChipText([link(null, 1), link("A", 2)])).toBe("2 links paused · “A”");
+    expect(pausedChipText([link(null, 1), link("A", 2)])).toBe("2 links paused, “A”");
   });
 });
 

@@ -104,11 +104,10 @@ export async function trashPage(
                         <>
                           {item.deleted_at != null ? (
                             <>
-                              Moved to Trash <Time at={item.deleted_at} fmt="ago" now={now} />{" "}
-                              ·{" "}
+                              Moved to Trash <Time at={item.deleted_at} fmt="ago" now={now} />,{" "}
                             </>
                           ) : null}
-                          {plural(detail?.revisions ?? 0, "revision")} ·{" "}
+                          {plural(detail?.revisions ?? 0, "revision")},{" "}
                           {plural(detail?.files ?? 0, "file")}
                         </>
                       }

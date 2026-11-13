@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 // A queued purge as Trash, Status and the in-Trash page show it (OW-14): its real step
-// (bucket › database › files), why it is where it is, and the links its confirmation revoked.
+// (bucket, database, files), why it is where it is, and the links its confirmation revoked.
 import { icon } from "@waypoint/ui";
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
@@ -9,7 +9,7 @@ import type { JSX } from "hono/jsx/jsx-runtime";
 import { LocalSyncClient } from "../db.ts";
 import type { HttpServices } from "../http.ts";
 import type { PurgingCollection, RevisionRow } from "../read-model.ts";
-import { Time } from "./components.tsx";
+import { StateGlyph, Time } from "./components.tsx";
 
 export type PurgeKind = "running" | "waiting" | "retrying";
 export interface PurgeState {
@@ -97,24 +97,25 @@ export async function purgeLinks(
 
 const STEPS = ["Bucket", "Database, here and in the cloud", "Files only it used"] as const;
 
-/** `Purging · step 2 of 3 · retrying` (Trash), `step 2 of 3` (Status), bold text in the banner. */
+/** `Purging, step 2 of 3, retrying` (Trash), `step 2 of 3` (Status), bold text in the banner. */
 export function PurgeChip(props: {
   state: PurgeState;
   page: "trash" | "status" | "banner";
 }): JSX.Element {
   const { state } = props;
   const retrying = state.kind === "retrying";
-  const text = `step ${state.step} of 3${retrying ? " · retrying" : ""}`;
-  if (props.page === "banner") return <b>Being purged · {text}</b>;
+  const text = `step ${state.step} of 3${retrying ? ", retrying" : ""}`;
+  if (props.page === "banner") return <b>Being purged, {text}</b>;
   return (
     <span class={`chip xs ${retrying ? "failed" : "pending"}`}>
       {raw(icon(retrying ? "alert" : "clock", "sm"))}
-      {props.page === "trash" ? `Purging · ${text}` : text}
+      {props.page === "trash" ? `Purging, ${text}` : text}
     </span>
   );
 }
 
-/** Bucket › Database › Files: done steps checked, the current one marked, later ones dashed. */
+/** Bucket, Database, Files as a track (D78): done steps a node, the current one its state glyph,
+ *  later ones words alone. */
 export function PurgeSteps(props: { state: PurgeState }): JSX.Element {
   const { state } = props;
   return (
@@ -124,7 +125,7 @@ export function PurgeSteps(props: { state: PurgeState }): JSX.Element {
         if (step < state.step)
           return (
             <li class="done">
-              {raw(icon("check", "sm"))}
+              <StateGlyph kind="done" />
               {name}
               <span class="vh"> (done)</span>
             </li>
@@ -133,7 +134,7 @@ export function PurgeSteps(props: { state: PurgeState }): JSX.Element {
           const bad = state.kind === "retrying";
           return (
             <li class={bad ? "now bad" : "now"} aria-current="step">
-              {raw(icon(bad ? "alert" : "clock", "sm"))}
+              <StateGlyph kind={bad ? "failed" : "pending"} />
               {name}
             </li>
           );
@@ -287,11 +288,10 @@ export function PurgeRow(props: {
       <p class="why">{trash ? trashSentence(row, state, now) : statusSentence(row, state, now)}</p>
       {!trash && state.kind === "retrying" ? (
         <p class="raw">
-          {row.last_error} · attempt {row.attempts}
+          {row.last_error}, attempt {row.attempts}
           {state.nextAt === null ? null : (
             <>
-              {" "}
-              · next <Time at={state.nextAt} now={now} />
+              , next <Time at={state.nextAt} now={now} />
             </>
           )}
         </p>
@@ -321,9 +321,10 @@ export function PurgeRow(props: {
 export function PurgeBanner(props: { row: PurgingCollection; now: number }): JSX.Element {
   const state = purgeState(props.row, props.now);
   const pub = props.row.public_id ?? props.row.collection_id;
+  const retrying = state.kind === "retrying";
   return (
-    <div class={`hero ${state.kind === "retrying" ? "bad" : "warn"}`} data-purge-banner>
-      <span class="dot" aria-hidden="true" />
+    <div class={`hero ${retrying ? "bad" : "warn"}`} data-purge-banner>
+      <StateGlyph kind={retrying ? "failed" : "pending"} />
       <div>
         <PurgeChip state={state} page="banner" />
         <span>

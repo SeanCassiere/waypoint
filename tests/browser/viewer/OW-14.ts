@@ -207,7 +207,7 @@ const scenario: ViewerScenario = {
     const purging = page.locator(`${PURGING} li#purge-${leaked}`);
     assert.equal(await purging.count(), 1);
     assert.equal(await purging.getAttribute("aria-busy"), "true");
-    assert.ok((await text(purging.locator(".chip")))?.includes("Purging · step 1 of 3"));
+    assert.ok((await text(purging.locator(".chip")))?.includes("Purging, step 1 of 3"));
     assert.equal(await purging.locator("a, button").count(), 1, "one control");
     assert.equal(await page.locator(IN_TRASH).count(), 0, "nothing else is in Trash");
     assert.deepEqual(

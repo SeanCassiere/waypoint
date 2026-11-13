@@ -9,7 +9,7 @@ import { VIEWER_CSS_PARTIALS } from "../src/viewer/css.ts";
 // go down. Migrating the existing literals was cut; this stops new drift. When a change removes
 // literals, it lowers the matching ceiling in the same commit.
 export const FONT_SIZE_CEILING = 221;
-export const RADIUS_CEILING = 31;
+export const RADIUS_CEILING = 21;
 export const HEX_CEILING = 3;
 
 const RATCHET_MESSAGE =

@@ -70,6 +70,14 @@
   /* Status rows: one column, the actions after the raw error (as .r below). */
   .srow {
     grid-template-columns: minmax(0, 1fr);
+    padding-left: 46px;
+    padding-right: 14px;
+  }
+  .srow::before {
+    left: 21px;
+  }
+  .srow::after {
+    left: 15.5px;
   }
   .srow .acts,
   .srows[data-status-progress] .srow .acts {
@@ -200,9 +208,16 @@
   .dlg .ft .exist {
     display: none;
   }
-  /* Status stat cards stack (OW-06b). */
-  .grid3 {
+  /* Status's facts stack (OW-06b): one ruled column, a rule between the facts. */
+  .facts {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .fact {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+  .fact:first-child {
+    border-top: 0;
   }
   .wrap {
     padding: 20px 16px 80px;

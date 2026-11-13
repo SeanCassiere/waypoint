@@ -40,14 +40,14 @@ export function restoreFlashText(
   return `${text} ${one ? "Its public link works again." : `Its ${linkCount} public links work again.`}`;
 }
 
-/** "1 link paused · “Vendor debug”"; "" when the list is empty. */
+/** "1 link paused, “Vendor debug”"; "" when the list is empty. */
 export function pausedChipText(links: readonly PausedLink[]): string {
   if (!links.length) return "";
   // Unlabelled links are counted but not quoted; two labels at most, then "+n".
   const labels = links.flatMap((link) => (link.label ? [`“${link.label}”`] : []));
   const shown = labels.slice(0, 2).join(", ");
   const more = labels.length > 2 ? ` +${labels.length - 2}` : "";
-  return `${plural(links.length, "link")} paused${shown ? ` · ${shown}${more}` : ""}`;
+  return `${plural(links.length, "link")} paused${shown ? `, ${shown}${more}` : ""}`;
 }
 
 // What Purge accepts and says (OW-14).
