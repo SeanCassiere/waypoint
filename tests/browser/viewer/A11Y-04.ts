@@ -202,7 +202,7 @@ const scenario: ViewerScenario = {
     const trashRow = rowChildren(trash, TRASHED);
     assert.equal(trashRow[3], 'button "Restore…"');
     assert.equal(trashRow[4], 'button "Purge…"');
-    assert.ok(trashRow[2]?.includes("1 link paused · “Vendor debug”"), trashRow.join("\n"));
+    assert.ok(trashRow[2]?.includes("1 link paused, “Vendor debug”"), trashRow.join("\n"));
     const row = page.locator(`li.item[data-pub="${pub.trashed}"]`);
     for (const name of ["Restore…", "Purge…"]) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two buttons.

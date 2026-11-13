@@ -210,9 +210,9 @@ describe("McpBody", () => {
       "/?q=host%3Adevbox",
       "/?q=host%3A%22my+laptop%22",
     ]);
-    expect(text(links[0]![2]!)).toContain("12 revisions · last");
+    expect(text(links[0]![2]!)).toContain("12 revisions, last");
     expect(text(links[0]![2]!)).toContain("See its collections ›");
-    expect(text(links[1]![2]!)).toContain("1 revision · last");
+    expect(text(links[1]![2]!)).toContain("1 revision, last");
     expect(links[0]![2]).toContain('<span aria-hidden="true">›</span>');
 
     // Troubleshooting.

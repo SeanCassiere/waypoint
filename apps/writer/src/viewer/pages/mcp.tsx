@@ -283,9 +283,9 @@ export function McpBody(props: {
           {props.hosts.map((host) => (
             <li>
               <a href={hostHref(host.value)}>
-                <span class="mono">{host.value}</span>
+                <span class="host">{host.value}</span>
                 <span class="m">
-                  {host.count === 1 ? "1 revision" : `${host.count} revisions`} · last{" "}
+                  {host.count === 1 ? "1 revision" : `${host.count} revisions`}, last{" "}
                   <Time at={host.last_written_at} fmt="ago" now={props.now} />
                 </span>
                 <span class="go">
@@ -315,10 +315,10 @@ export function McpBody(props: {
           <li>
             {props.bundle ? (
               <>
-                Server bundle <span class="mono">{props.bundle}</span> ·{" "}
+                Server bundle <span class="mono">{props.bundle}</span>,{" "}
               </>
             ) : null}
-            launcher API {MCP_LAUNCHER_API} · <a href="/mcp.md">Raw setup notes (markdown)</a> · Set{" "}
+            launcher API {MCP_LAUNCHER_API}. <a href="/mcp.md">Raw setup notes (markdown)</a>. Set{" "}
             <span class="mono">WAYPOINT_MCP_PIN=embedded</span> for debugging.
           </li>
         </ul>

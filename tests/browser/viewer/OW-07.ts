@@ -145,9 +145,9 @@ const scenario: ViewerScenario = {
     // The message paragraph holds a time element, so its text is read from the DOM.
     assert.match(
       (await row.locator("p.msg").textContent())?.trim() ?? "",
-      /^Moved to Trash .+ · 1 revision · 1 file$/,
+      /^Moved to Trash .+, 1 revision, 1 file$/,
     );
-    assert.equal(children[2], `paragraph: ${pub.a} 1 link paused · “Vendor debug”`, tree);
+    assert.equal(children[2], `paragraph: ${pub.a} 1 link paused, “Vendor debug”`, tree);
     assert.equal(children[3], 'button "Restore…"');
     assert.equal(children[4], 'button "Purge…"');
     assert.equal(await row.locator("a").count(), 1, "the chip isn't a link");

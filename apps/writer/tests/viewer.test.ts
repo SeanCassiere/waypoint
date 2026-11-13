@@ -514,8 +514,8 @@ describe("viewer routes", () => {
     expect(row).not.toBe("");
     expect(row).toContain(`<a class="tlink" id="it-${pub}" href="/c/${pub}/"`);
     const msg = (/<p class="msg">([\s\S]*?)<\/p>/.exec(row)?.[1] ?? "").replaceAll(/<[^>]*>/g, "");
-    expect(msg).toMatch(/^Moved to Trash .+ · \d+ revisions? · \d+ files?$/);
-    expect(msg).toMatch(/ · 1 revision · 1 file$/);
+    expect(msg).toMatch(/^Moved to Trash .+, \d+ revisions?, \d+ files?$/);
+    expect(msg).toMatch(/, 1 revision, 1 file$/);
     expect(row).not.toContain("deleted");
     expect(row).toContain(`<span class="mono">${pub}</span>`);
     const [restore] = tagsOf(row, "button", 'data-action="restore"');
@@ -557,7 +557,7 @@ describe("viewer routes", () => {
     await app.request(`/api/collections/${created.collection_id}`, { method: "DELETE" });
     const row = trashRow(await (await app.request("/trash")).text(), pub);
     expect(row).toMatch(
-      /<span class="chip xs paused"><svg class="ic sm"[^>]*>[\s\S]*?<\/svg><span class="chip-t">1 link paused · “Vendor debug”<\/span><\/span>/,
+      /<span class="chip xs paused"><svg class="ic sm"[^>]*>[\s\S]*?<\/svg><span class="chip-t">1 link paused, “Vendor debug”<\/span><\/span>/,
     );
     const [restore] = tagsOf(row, "button", 'data-action="restore"');
     const links = pausedLinks.parse(JSON.parse(attrOf(restore ?? "", "data-links") ?? ""));
@@ -947,7 +947,7 @@ describe("purge progress (OW-14)", () => {
     expect(row).toContain(`<li class="item purging" id="purge-${p.publicId}"`);
     expect(row).toContain(`data-flash-target="${p.id}"`);
     expect(row).toContain('aria-busy="true"');
-    expect(textOf(row)).toContain("Purging · step 1 of 3");
+    expect(textOf(row)).toContain("Purging, step 1 of 3");
     expect(row).toContain('aria-current="step"');
     expect(row).toContain(`href="/status#purge-${p.publicId}"`);
     expect(textOf(row)).toContain("Details on Status");
@@ -980,7 +980,7 @@ describe("purge progress (OW-14)", () => {
     const trash = await (await app.request("/trash")).text();
     const row = textOf(purgeRowOf(trash, pub));
     expect(row).toContain("Incident 4411 raw logs");
-    expect(row).toContain("Purging · step 3 of 3");
+    expect(row).toContain("Purging, step 3 of 3");
     expect(row).toContain(
       `Removed from the bucket and the database. Waiting out a 15-minute safety window before deleting files written recently; next try ${clockOf(nextAt)}.`,
     );
@@ -1026,18 +1026,18 @@ describe("purge progress (OW-14)", () => {
       error: "R2 DELETE manifests/x.json 503 Service Unavailable",
     });
     const trash = textOf(purgeRowOf(await (await app.request("/trash")).text(), t.publicId));
-    expect(trash).toContain("Purging · step 1 of 3 · retrying");
+    expect(trash).toContain("Purging, step 1 of 3, retrying");
     expect(trash).toContain(
       `Deleting it from the bucket failed on attempt 3. The writer tries again at ${clockOf(nextAt)} on its own; nothing for you to do unless this keeps happening.`,
     );
     const status = await (await app.request("/status")).text();
     const row = purgeRowOf(status, t.publicId);
-    expect(textOf(row)).toContain("step 1 of 3 · retrying");
+    expect(textOf(row)).toContain("step 1 of 3, retrying");
     expect(textOf(row)).toContain(
       "The writer retries every 5–10 minutes; if this keeps failing, check the bucket credentials in the writer's env file.",
     );
     expect(row).toContain('<p class="raw">');
-    expect(textOf(row)).toContain(`503 Service Unavailable · attempt 3 · next ${clockOf(nextAt)}`);
+    expect(textOf(row)).toContain(`503 Service Unavailable, attempt 3, next ${clockOf(nextAt)}`);
     expect(status).toContain('Background queue errors <span class="n">0</span>');
     expect(status).toContain(
       "No snapshot or bucket-delete errors. Purges are listed under In progress.",
@@ -1061,7 +1061,7 @@ describe("purge progress (OW-14)", () => {
     await insertPurge({ id: a.id, step: 0, title: "Purging", publicId: a.publicId });
     const purging = await (await app.request(`/c/${a.publicId}/`)).text();
     expect(purging).toContain("data-purge-banner");
-    expect(textOf(purging)).toContain("Being purged · step 1 of 3");
+    expect(textOf(purging)).toContain("Being purged, step 1 of 3");
     expect(textOf(purging)).toContain(
       "“Purging” can't be restored. Its public links were revoked when you confirmed.",
     );

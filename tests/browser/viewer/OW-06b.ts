@@ -161,16 +161,16 @@ const scenario: ViewerScenario = {
           ),
         );
       assert.equal(overflow, false, "Home doesn't scroll sideways on a phone");
-      // Status: the three stat cards stack, and nothing scrolls sideways.
+      // Status: the three facts stack, and nothing scrolls sideways.
       await phone.page.goto(`${base}/status`);
       const stats = z
         .string()
         .parse(
           await phone.page.evaluate(
-            `getComputedStyle(document.querySelector("main .grid3")).gridTemplateColumns`,
+            `getComputedStyle(document.querySelector("main .facts")).gridTemplateColumns`,
           ),
         );
-      assert.equal(stats.split(" ").length, 1, `the stat cards stack: ${stats}`);
+      assert.equal(stats.split(" ").length, 1, `the facts stack: ${stats}`);
       const statusOverflow = z
         .boolean()
         .parse(

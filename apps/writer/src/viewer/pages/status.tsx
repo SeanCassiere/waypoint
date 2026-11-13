@@ -16,7 +16,7 @@ import {
 import type { HttpServices } from "../../http.ts";
 import { getStatus, LOCAL_ONLY_DETAIL, LOCAL_ONLY_TITLE } from "../../status-data.ts";
 import { getChrome } from "../chrome.ts";
-import { LineStrip, revisionHref, Time } from "../components.tsx";
+import { LineStrip, revisionHref, StateGlyph, Time } from "../components.tsx";
 import { plural, shortId } from "../format.ts";
 import { chipText, explainItem, itemWord, stripModel, type ItemWord } from "../health-words.ts";
 import { HomeBar, Layout } from "../layout.tsx";
@@ -43,25 +43,26 @@ function describeClient(client: string | null): string {
 }
 
 /**
- * Each hero tone's state icon (VS-03): alert failed, clock pending, okcircle synced, dot sync off.
- * The sync-off dot carries its own `off` class, so it stays muted on prod's warning-toned hero.
+ * Each hero tone's state mark (VS-03, D78): the failed, pending and done glyphs, and the muted
+ * sync-off dot. The dot is an icon with its own `off` class, so it stays muted on prod's
+ * warning-toned hero.
  */
-const HERO_ICONS = {
-  bad: icon("alert"),
-  warn: icon("clock"),
-  ok: icon("okcircle"),
-  off: icon("dot", "off"),
-} as const;
+const HERO_GLYPHS = { bad: "failed", warn: "pending", ok: "done" } as const;
+const SYNC_OFF_ICON = icon("dot", "off");
 function Hero(props: {
   tone: "bad" | "warn" | "ok" | "off";
   title: Child;
   body?: Child;
-  /** The state icon, when it isn't the tone's (sync off on prod is a warning). */
-  icon?: string;
+  /** Sync off: the muted dot, whatever the tone (sync off on prod is a warning). */
+  syncOff?: boolean;
 }) {
   return (
     <div class={`hero ${props.tone}`} role={props.tone === "bad" ? "alert" : undefined}>
-      {raw(props.icon ?? HERO_ICONS[props.tone])}
+      {props.syncOff || props.tone === "off" ? (
+        raw(SYNC_OFF_ICON)
+      ) : (
+        <StateGlyph kind={HERO_GLYPHS[props.tone]} />
+      )}
       <div>
         <b>{props.title}</b>
         {props.body ? <span>{props.body}</span> : null}
@@ -102,9 +103,9 @@ function ListMore(props: { param: string; from: number; shown: number; total: nu
       {from > 0 ? `Showing ${from + 1}–${from + shown} of ${total}. ` : null}
       {after > 0 ? `and ${after} more… ` : null}
       {from > 0 ? <a href={at(Math.max(0, from - STATUS_LIST))}>Previous {STATUS_LIST}</a> : null}
-      {from > 0 && after > 0 ? " · " : null}
+      {from > 0 && after > 0 ? ", " : null}
       {after > 0 ? <a href={at(from + shown)}>Next {Math.min(after, STATUS_LIST)}</a> : null}
-      {" · "}
+      {". "}
       <a href="/api/status">All as JSON</a>
     </p>
   );
@@ -161,7 +162,7 @@ function AttentionRow(props: { item: HealthItem; parentN: number | null; now: nu
     <li class="srow" id={item.id}>
       <div class="h">
         <RowState item={item} word={word} waitingFor={word === "waiting" ? props.parentN : null} />{" "}
-        {item.message ? <span class="msg">“{item.message}”</span> : null}
+        {item.message ? <span class="msg">{item.message}</span> : null}
       </div>
       <span class="acts">
         {word === "failed" ? (
@@ -190,7 +191,7 @@ function AttentionRow(props: { item: HealthItem; parentN: number | null; now: nu
         <span>{item.error_kind ?? "unknown kind"}</span>{" "}
         {item.source_host ? (
           <>
-            <span class="mono">{item.source_host}</span>{" "}
+            <span class="host">{item.source_host}</span>{" "}
           </>
         ) : null}
         <span>
@@ -224,7 +225,7 @@ function AttentionGroup(props: { group: CollectionHealth; items: HealthItem[]; n
         <span class="imp">
           {group.liveLinks
             ? plural(group.liveLinks, "live link")
-            : "No public links · nothing public is affected"}
+            : "No public links, nothing public is affected"}
         </span>
       </header>
       <LineStrip model={stripModel(group)} />
@@ -332,7 +333,7 @@ export function InProgressSection(props: {
                   word={word}
                   waitingFor={word === "waiting" ? (parent ?? null) : null}
                 />{" "}
-                {item.message ? <span class="msg">“{item.message}”</span> : null}
+                {item.message ? <span class="msg">{item.message}</span> : null}
               </div>
               <span class="acts">
                 <DropButton item={item} describedBy={`pt-${item.id}`} />
@@ -340,7 +341,7 @@ export function InProgressSection(props: {
               <p class="raw">
                 {item.source_host ? (
                   <>
-                    <span class="mono">{item.source_host}</span>{" "}
+                    <span class="host">{item.source_host}</span>{" "}
                   </>
                 ) : null}
                 <span>
@@ -416,7 +417,7 @@ export async function statusPage(
     heroes.push(
       <Hero
         tone={status.environment === "prod" ? "warn" : "off"}
-        icon={HERO_ICONS.off}
+        syncOff
         title={LOCAL_ONLY_TITLE}
         body={LOCAL_ONLY_DETAIL}
       />,
@@ -528,54 +529,57 @@ export async function statusPage(
             <div>
               <h1>Status</h1>
               <p>
-                Writer <span class="mono">{chrome.host}</span> · environment{" "}
-                <span class="mono">{status.environment}</span> · version{" "}
+                Writer <span class="mono">{chrome.host}</span>, environment{" "}
+                <span class="mono">{status.environment}</span>, version{" "}
                 <span class="mono" data-version>
                   {status.version}
                   {status.sha ? ` (${status.sha.slice(0, 12)})` : ""}
                 </span>
                 {bundle ? (
                   <>
-                    {" "}
-                    · server bundle <span class="mono">{bundle}</span>
+                    , server bundle <span class="mono">{bundle}</span>
                   </>
                 ) : null}
               </p>
             </div>
           </div>
           {heroes}
-          <div class="grid3">
-            <div class={`stat ${health.failed.length ? "bad" : "zero"}`}>
-              <div class="n">{health.failed.length}</div>
-              <div class="l">failed {health.failed.length === 1 ? "revision" : "revisions"}</div>
-              <div class="d">stopped trying; needs Retry or Drop</div>
+          {/* The facts row (D86): one ruled row, not tiles; the last cloud sync is only here. */}
+          <dl class="facts">
+            <div class={`fact ${health.failed.length ? "bad" : "zero"}`}>
+              <dt>
+                <span class="n">{health.failed.length}</span> failed{" "}
+                {health.failed.length === 1 ? "revision" : "revisions"}
+              </dt>
+              <dd>stopped trying; needs Retry or Drop</dd>
             </div>
             {health.syncEnabled ? (
-              <div class={`stat ${health.stalled.length ? "" : "zero"}`}>
-                <div class="n">{health.stalled.length}</div>
-                <div class="l">
-                  stalled · {health.pending.length - health.stalled.length} uploading normally
-                </div>
-                <div class="d">stalled = no upload progress for {STALLED_MINUTES} min</div>
+              <div class={`fact ${health.stalled.length ? "" : "zero"}`}>
+                <dt>
+                  <span class="n">{health.stalled.length}</span> stalled,{" "}
+                  {health.pending.length - health.stalled.length} uploading normally
+                </dt>
+                <dd>stalled = no upload progress for {STALLED_MINUTES} min</dd>
               </div>
             ) : (
-              <div class={`stat ${health.pending.length ? "" : "zero"}`}>
-                <div class="n">{health.pending.length}</div>
-                <div class="l">waiting here</div>
-                <div class="d">sync is off, so nothing uploads</div>
+              <div class={`fact ${health.pending.length ? "" : "zero"}`}>
+                <dt>
+                  <span class="n">{health.pending.length}</span> waiting here
+                </dt>
+                <dd>sync is off, so nothing uploads</dd>
               </div>
             )}
-            <div class={`stat ${health.cloudLastOkAt === null ? "zero" : ""}`}>
-              <div class="n">
-                {!health.syncEnabled ? (
-                  "Off"
-                ) : health.cloudLastOkAt === null ? (
-                  "Never"
-                ) : (
-                  <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
-                )}
-              </div>
-              <div class="l">
+            <div class={`fact ${health.cloudLastOkAt === null ? "zero" : ""}`}>
+              <dt>
+                <span class="n">
+                  {!health.syncEnabled ? (
+                    "Off"
+                  ) : health.cloudLastOkAt === null ? (
+                    "Never"
+                  ) : (
+                    <Time at={health.cloudLastOkAt} fmt="ago" now={now} />
+                  )}
+                </span>{" "}
                 last cloud sync
                 {status.last_push_at !== null ? (
                   <span class="sr">
@@ -585,12 +589,12 @@ export async function statusPage(
                     </time>
                   </span>
                 ) : null}
-              </div>
-              <div class="d">
-                push {pushAgo} · pull {pullAgo}
-              </div>
+              </dt>
+              <dd>
+                push {pushAgo}, pull {pullAgo}
+              </dd>
             </div>
-          </div>
+          </dl>
           <section aria-labelledby="sec-attn" data-status-section="attention">
             <h2 class="sec" id="sec-attn">
               Needs attention <span class="n">{plural(attention.length, "collection")}</span>

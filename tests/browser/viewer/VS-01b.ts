@@ -1,7 +1,7 @@
 // VS-01b: one page frame. On the seeded demo writer (and an empty one, for the first-run Recent),
 // at 1280 × 800, 820 × 1180 touch and 390 × 844 touch: every global-bar page's H1 (Recent, a
 // search, Links, Status, Trash, Connect an agent, the 404, the empty Recent) starts at the frame's
-// content edge (x = 92 / 32 / 16), is the one 26 px bold heading and sits at the same height (on a
+// content edge (x = 92 / 32 / 16), is the one 30 px heading at weight 760 (Logbook) and sits at the same height (on a
 // phone search, the query field above it does); Trash's narrow column starts at the frame's left
 // edge; the Leaked collection's in-Trash page (no h1 in main) puts its hero there; nothing scrolls
 // sideways. With classic 15 px scrollbars at 1280, the H1 stays at x = 92 on short and long pages
@@ -97,8 +97,8 @@ const scenario: ViewerScenario = {
         // oxlint-disable-next-line eslint/no-await-in-loop -- One page, visited in turn.
         const h1 = await h1Of(page);
         near(h1.left, x, 0.5, `${where} ${path}: the H1's left edge`);
-        assert.equal(h1.size, "26px", `${where} ${path}: the H1 is 26 px`);
-        assert.equal(h1.weight, "700", `${where} ${path}: the H1 is bold`);
+        assert.equal(h1.size, "30px", `${where} ${path}: the H1 is 30 px`);
+        assert.equal(h1.weight, "760", `${where} ${path}: the H1 is weight 760`);
         assert.equal(h1.scroll, viewport.width, `${where} ${path}: no horizontal scroll`);
         if (path.startsWith("/?q=") && viewport.width <= 760) {
           // Below 761 px a search shows its own query field first, then the H1 (NAV-03's

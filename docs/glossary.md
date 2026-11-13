@@ -179,7 +179,7 @@ A row marking a collection as deleted (soft delete). Tombstoned collections disa
 Permanent deletion of a collection: all its revisions, files, DR manifests, snapshot, and any blobs no longer referenced elsewhere, both in the cloud and locally. It is the one exception to "nothing is ever deleted", meant for content that should never have been stored, such as a leaked secret.
 
 **Being purged**
-A collection whose purge was accepted and is still erasing. It is listed first on Trash and under In progress on Status, with its step (bucket › database › files); it can't be restored. Its links were revoked when the purge was confirmed.
+A collection whose purge was accepted and is still erasing. It is listed first on Trash and under In progress on Status, with its step (bucket, database, files); it can't be restored. Its links were revoked when the purge was confirmed.
 
 **Restore**
 Rebuilding state from durable storage. A new writer bootstraps from the cloud DB. If the cloud DB is lost, it is rebuilt from the bucket's DR manifests and collection snapshots. Restore is an operator subcommand of the writer (`waypoint-writer restore`), not an agent-facing CLI.

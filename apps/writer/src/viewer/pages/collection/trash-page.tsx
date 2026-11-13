@@ -161,7 +161,8 @@ export function DeletedPage(props: {
         {purging ? (
           <PurgeBanner row={purging} now={props.now ?? Date.now()} />
         ) : (
-          <div class="hero warn">
+          // Neutral, not amber (D87): amber means uploading, and nothing here is in progress.
+          <div class="hero note">
             <span class="dot" aria-hidden="true" />
             <div>
               <b>“{props.collection.title}” is in Trash.</b>

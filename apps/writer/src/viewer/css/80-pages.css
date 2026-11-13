@@ -1,6 +1,6 @@
-/* status, trash, links, mcp. One page frame (VS-01b): .home and .wrap are --page-max plus a
-   --page-pad gutter each side; .wrap.narrow is a 760 px reading column whose left edge is the
-   frame's content edge. The left margin is measured against 100vw, not centred with auto: a
+/* status, trash, links, mcp, not found. One page frame (VS-01b): .home and .wrap are --page-max
+   plus a --page-pad gutter each side; .wrap.narrow is a 760 px reading column whose left edge is
+   the frame's content edge. The left margin is measured against 100vw, not centred with auto: a
    classic scrollbar narrows the body only on long pages, and auto margins would then move the H1
    7.5 px between pages. 100vw doesn't change, and the frame still fits beside the scrollbar. */
 .wrap {
@@ -15,8 +15,8 @@
 /* One H1 rule for every page heading; the missing-file page's h2 under the collection bar looks
    the same. */
 :is(h1.page, .ph h1, .notfound > :is(h1, h2)) {
-  font: 700 26px/1.15 var(--sans);
-  letter-spacing: -0.02em;
+  font: 760 30px/1.1 var(--sans);
+  letter-spacing: -0.025em;
   margin: 0;
 }
 .ph {
@@ -32,34 +32,74 @@
   gap: 10px;
 }
 .ph p {
-  margin: 4px 0 0;
-  color: var(--muted);
+  margin: 8px 0 0;
+  max-width: 72ch;
+  color: var(--ink-2);
 }
+/* A page's state banner: a ruled box on the surface, its state glyph (D78) on the first line. A
+   failed or pending banner takes a coloured hairline; the tint stays off (amber means uploading,
+   and a solid fill outshouts the rows below). */
 .hero {
   display: flex;
-  gap: 14px;
-  align-items: center;
-  border: 1px solid var(--rule);
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid var(--rule-2);
   border-radius: var(--rd-box);
-  padding: 16px 18px;
+  padding: 16px 20px;
   background: var(--surface);
-  box-shadow: var(--sh-1);
   margin-bottom: 22px;
 }
-.hero .dot {
+.hero.warn {
+  border-color: var(--pending-line);
+}
+.hero.bad {
+  border-color: var(--failed-line);
+}
+/* The glyph and the icons sit on the title's line (16.5 px over a 24 px line). */
+.hero > .lb-g {
+  width: 13px;
+  height: 13px;
+  margin-top: 5.5px;
+}
+.hero > .lb-g.failed {
+  box-shadow:
+    inset 0 0 0 2px var(--failed),
+    inset 0 0 0 3.5px var(--surface);
+}
+.hero > .ic {
+  margin-top: 4px;
+}
+/* The in-Trash page's revision (its bar's only control-like mark): a box like the bar's controls,
+   though it doesn't act. */
+.revbtn.static {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border: 1px solid var(--control);
+  border-radius: var(--rd-2);
+  background: var(--surface);
+  font-size: var(--row-fs);
+  font-weight: 650;
+  cursor: default;
+}
+.revbtn.static .l {
+  font-weight: 450;
+  color: var(--ink-2);
+}
+/* The in-Trash notice (D87): neutral, a dot in ink. Nothing in Trash is in progress. */
+.hero > .dot {
   width: 12px;
   height: 12px;
+  margin-top: 6px;
   border-radius: 50%;
   flex: none;
-  background: var(--ok);
+  background: var(--ink-2);
 }
-.hero.warn .dot {
-  background: var(--pending);
-}
-.hero.bad .dot {
-  background: var(--failed);
-}
-/* A state hero's icon (VS-03): okcircle synced, clock pending, alert failed, dot sync off. */
+/* A state hero's icon (VS-03): the sync-off dot is muted on every tone; the preview's icons keep
+   their state colour. */
 .hero > .ic {
   color: var(--ok);
 }
@@ -78,23 +118,20 @@
   overflow-wrap: anywhere;
 }
 .hero b {
-  font-size: 16px;
   display: block;
+  font-size: 16.5px;
+  line-height: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.hero.bad > div > b {
+  color: var(--failed);
 }
 .hero span {
-  color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
+  color: var(--ink);
 }
-.hero.warn {
-  border-color: var(--pending-line);
-  background: var(--pending-bg);
-}
-.hero.bad {
-  border-color: var(--failed-line);
-  background: var(--failed-bg);
-}
-.hero.warn span,
-.hero.bad span {
+.hero.note span {
   color: var(--ink-2);
 }
 /* ?as=public on a revision that isn't public: what Latest links show, the revision, the latest */
@@ -104,7 +141,7 @@
   list-style: none;
   display: grid;
   gap: 8px;
-  font-size: 13.5px;
+  font-size: var(--row-fs);
   color: var(--ink-2);
 }
 .pv-facts li {
@@ -142,73 +179,93 @@
   margin: 14px 0 0;
   max-width: 64ch;
 }
-.grid3 {
+/* Status's facts row (D86): the failed, stalled and last-sync facts as one ruled row of three
+   cells, not tiles. Each cell is the number and its words, then the rule behind it. */
+.facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 26px;
-}
-.stat {
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  padding: 12px 14px;
+  margin: 0 0 26px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
 }
-.stat .n {
-  font: 700 22px/1.1 var(--sans);
+.fact {
+  min-width: 0;
+  padding: 12px 18px 13px;
+  border-left: 1px solid var(--rule);
+}
+.fact:first-child {
+  border-left: 0;
+}
+.fact dt {
+  font-size: 14px;
+  font-weight: 560;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.fact .n {
+  margin-right: 4px;
+  font: 700 19px/1.2 var(--sans);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
-.stat .l {
-  font-size: 12.5px;
-  color: var(--muted);
-  margin-top: 2px;
+.fact.zero .n {
+  color: var(--ink-2);
 }
-.stat.zero .n {
-  color: var(--faint);
-}
-.stat.bad .n {
+.fact.bad .n {
   color: var(--failed);
 }
-.stat .d {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
+.fact dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
 }
-/* Status: one group per collection that needs you, rows that explain each revision (OW-06b). */
+/* Status: one group per collection that needs you, rows that explain each revision (OW-06b). A
+   group is a ruled box: a header row, the latest line, then the revision rows on a spine. */
 .sgrp {
-  border: 1px solid var(--rule);
+  border: 1px solid var(--rule-2);
   border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .sgrp > header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rule);
+  min-height: var(--r1);
+  box-sizing: border-box;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--rule-2);
 }
 .sgrp h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .sgrp h3 a {
   color: var(--ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--spine);
+}
+.sgrp h3 a:hover {
+  text-decoration-color: currentColor;
 }
 .sgrp .proj {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--row-fs);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .sgrp .imp {
   margin-left: auto;
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: var(--row-fs);
+  color: var(--ink-2);
 }
 .sgrp .lin2 {
   padding: 14px 18px;
@@ -222,39 +279,94 @@
   padding: 0;
 }
 .srows[data-status-progress] {
-  border: 1px solid var(--rule);
-  border-radius: 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
 }
 .srows[data-status-progress]:empty {
   display: none;
 }
+/* A revision row hangs off the spine: its node is the row's state (the glyph moves out of the
+   state words), and the spine joins the group's nodes. */
 .srow {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 16px;
-  padding: 12px 14px;
+  gap: 4px 16px;
+  padding: 14px 18px 15px 52px;
   border-top: 1px solid var(--rule);
 }
 .srow:first-child {
   border-top: 0;
 }
+.srow::before {
+  content: "";
+  position: absolute;
+  left: 25px;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--spine);
+}
+/* The spine runs from the first row's node to the last's; In progress also holds purge rows
+   (li.item.purging), which have no node, so "first" and "last" count revision rows only. */
+.srow:not(.srow ~ .srow)::before {
+  top: 23px;
+}
+.srow:not(:has(~ .srow))::before {
+  bottom: auto;
+  height: 23px;
+}
+.srow:not(.srow ~ .srow):not(:has(~ .srow))::before {
+  display: none;
+}
+.srow::after {
+  content: "";
+  position: absolute;
+  left: 19.5px;
+  top: 16.5px;
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--node);
+  box-shadow: 0 0 0 4px var(--surface);
+}
+.srow:has(.h .sc.f)::after {
+  background: var(--failed);
+  box-shadow:
+    0 0 0 4px var(--surface),
+    inset 0 0 0 2px var(--failed),
+    inset 0 0 0 3.5px var(--surface);
+}
+.srow:has(.h .sc.p)::after {
+  background: var(--surface);
+  border: 2px dashed var(--pending);
+}
+.srow:has(.h .sc.w)::after {
+  background: var(--surface);
+  border: 1.5px dashed var(--ink-2);
+}
+.srow .h .sc::before {
+  display: none;
+}
 .srow .h {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 4px 8px;
   min-width: 0;
 }
 .srow .ct {
-  font-weight: 600;
+  font-weight: 650;
   color: var(--ink);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .srow .msg {
-  color: var(--ink-2);
+  font-weight: 600;
+  color: var(--ink);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -279,59 +391,85 @@
   min-width: 0;
 }
 .srow .x {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
-  color: var(--ink-2);
+  color: var(--ink);
 }
 .srow .nx {
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: var(--row-fs);
+  color: var(--ink-2);
 }
+/* The raw facts: the error code and IDs in mono, the words and the host in sans. */
 .srow .raw {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  font: 11.5px/1.5 var(--mono);
-  color: var(--muted);
+  align-items: baseline;
+  gap: 4px 14px;
+  margin-top: 3px;
+  font: 400 12.5px/1.5 var(--sans);
+  color: var(--ink-2);
 }
 .srow .raw > * {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .srow .raw .e {
-  font: inherit;
+  font: 12px/1.5 var(--mono);
   color: var(--failed);
   background: var(--failed-bg);
-  border-radius: 4px;
-  padding: 0 5px;
+  border-radius: var(--rd-1);
+  padding: 1px 6px;
 }
 .srow .raw .e.none {
+  font: inherit;
   color: inherit;
   background: none;
   padding: 0;
 }
+.srow .raw .host {
+  font-family: var(--sans);
+  font-weight: 520;
+  color: var(--ink);
+}
 h2.sec {
-  font: 650 13px/1 var(--sans);
-  margin: 28px 0 10px;
+  font: 740 16px/1.2 var(--sans);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 30px 0 10px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 14px;
 }
 h2.sec .n {
-  color: var(--faint);
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 450;
+  letter-spacing: normal;
+  color: var(--ink-2);
 }
+body[data-page="status"] .legend {
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* Status's other lists, and the empty lists, are ruled boxes like the groups. */
 .rows {
-  border: 1px solid var(--rule);
-  border-radius: 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
+}
+.rows > .empty {
+  padding: 16px 18px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-2);
 }
 .r {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px 16px;
-  padding: 12px 14px;
+  padding: 12px 18px;
   border-top: 1px solid var(--rule);
   align-items: center;
 }
@@ -344,10 +482,10 @@ h2.sec .n {
   overflow-wrap: anywhere;
 }
 .r .s {
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: var(--row-fs);
+  color: var(--ink-2);
   display: flex;
-  gap: 10px;
+  gap: 4px 16px;
   flex-wrap: wrap;
   grid-column: 1;
   align-items: center;
@@ -373,8 +511,8 @@ h2.sec .n {
 .r .aside {
   grid-column: 2;
   grid-row: 1;
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
   white-space: nowrap;
 }
 .r .e {
@@ -382,7 +520,7 @@ h2.sec .n {
   font: 12px/1.45 var(--mono);
   color: var(--failed);
   background: var(--failed-bg);
-  border-radius: 6px;
+  border-radius: var(--rd-2);
   padding: 6px 8px;
   margin-top: 4px;
   overflow-wrap: anywhere;
@@ -400,13 +538,54 @@ h2.sec .n {
     outline-offset: -3px;
   }
 }
+/* Trash: each list is a ruled box of rows, like Status's groups. The rows are Recent's
+   (li.item.trash, 10-home); only their box and spacing are set here. */
+body[data-page="trash"] main > section > ul.list {
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+  background: var(--surface);
+  overflow: hidden;
+}
+body[data-page="trash"] main > section > ul.list > li.item {
+  margin: 0;
+  padding: 14px 18px 15px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+}
+body[data-page="trash"] main > section > ul.list > li.item:first-child {
+  border-top: 0;
+}
+body[data-page="trash"] li.item .tt {
+  font-size: 16.5px;
+  font-weight: 680;
+  letter-spacing: -0.012em;
+}
+body[data-page="trash"] li.item .msg {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--ink);
+}
+body[data-page="trash"] li.item .meta {
+  margin-top: 6px;
+  gap: 4px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+body[data-page="trash"] li.item .meta .mono {
+  color: var(--ink-2);
+}
+/* A paused link is neutral (D87): the globe and words in --ink-2, never amber. */
+body[data-page="trash"] li.item .chip.paused {
+  font-weight: 600;
+}
 /* purge progress (OW-14): Being purged rows on Trash and In progress rows on Status (li.item.purging,
    never .srow), and the in-Trash page's banner. Every rule is scoped: .raw, .meta, .steps and .why
    are shared class names elsewhere. */
 .tlegend {
   margin: -4px 0 10px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 li.item.purging {
   gap: 5px 16px;
@@ -424,7 +603,7 @@ li.item.purging .acts {
 }
 li.item.purging:where([data-status-progress] > *) {
   margin: 0;
-  padding: 12px 14px;
+  padding: 14px 18px 15px;
   border-radius: 0;
   border-top: 1px solid var(--rule);
 }
@@ -432,22 +611,24 @@ li.item.purging:where([data-status-progress] > *):first-child {
   border-top: 0;
 }
 li.item.purging:where([data-status-progress] > *) .t {
-  font-size: 14px;
+  font-size: 14.5px;
 }
+/* The steps are a track (D78): a glyph and words per stop, joined by a spine segment. Done is a
+   node, the current step its state glyph, later steps words alone. */
 li.item.purging .steps,
 [data-purge-banner] .steps {
   grid-column: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 16px;
+  gap: 6px 26px;
   margin: 2px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
+  font-size: var(--row-fs);
   color: var(--ink-2);
-  /* When the track wraps, the separator of the line's first pill would hang in the page gutter:
-     clip it at the track's edge (separators between pills sit inside the 16 px gap). */
+  /* When the track wraps, the segment before the line's first stop would hang in the page
+     gutter: clip it at the track's edge (segments between stops sit inside the 26 px gap). */
   overflow: clip;
 }
 li.item.purging .steps li,
@@ -455,50 +636,42 @@ li.item.purging .steps li,
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 9px;
-  border: 1px solid var(--rule-2);
-  border-radius: 99px;
-  background: var(--surface);
+  gap: 7px;
   white-space: nowrap;
 }
-/* The separator is generated content with empty alt text: never read, never a list item. */
 li.item.purging .steps li + li::before,
 [data-purge-banner] .steps li + li::before {
-  content: "›";
-  content: "›" / "";
+  content: "";
   position: absolute;
-  left: -12px;
-  color: var(--faint);
+  left: -20px;
+  top: calc(50% - 0.75px);
+  width: 14px;
+  height: 1.5px;
+  background: var(--spine);
 }
 li.item.purging .steps .done,
 [data-purge-banner] .steps .done {
-  color: var(--ok);
+  color: var(--ink);
 }
 li.item.purging .steps .now,
 [data-purge-banner] .steps .now {
   color: var(--pending);
-  border-color: var(--pending-line);
-  background: var(--pending-bg);
   font-weight: 650;
 }
 li.item.purging .steps .now.bad,
 [data-purge-banner] .steps .now.bad {
   color: var(--failed);
-  border-color: var(--failed-line);
-  background: var(--failed-bg);
 }
 li.item.purging .steps .next,
 [data-purge-banner] .steps .next {
-  color: var(--muted);
-  border-style: dashed;
+  color: var(--ink-2);
 }
 li.item.purging .why,
 [data-purge-banner] .why {
   grid-column: 1;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
-  color: var(--ink-2);
+  color: var(--ink);
 }
 li.item.purging .why b {
   font-weight: 650;
@@ -509,25 +682,24 @@ li.item.purging .raw {
   justify-self: start;
   max-width: 100%;
   padding: 1px 6px;
-  border-radius: 4px;
-  font: 11.5px/1.5 var(--mono);
+  border-radius: var(--rd-1);
+  font: 12px/1.5 var(--mono);
   color: var(--failed);
   background: var(--failed-bg);
   overflow-wrap: anywhere;
 }
 li.item.purging .meta {
   grid-column: 1;
-  gap: 4px 12px;
+  gap: 4px 16px;
   margin-top: 0;
-}
-li.item.purging .meta .mono {
-  font-size: 11.5px;
+  font-size: 13px;
+  color: var(--ink-2);
 }
 [data-purge-banner] .steps {
   margin: 8px 0;
 }
 [data-purge-banner] a {
-  font-size: 13px;
+  font-size: var(--row-fs);
   font-weight: 600;
   color: var(--ink);
 }
@@ -543,7 +715,7 @@ li.item.purging .meta .mono {
 .empty {
   padding: 28px;
   text-align: center;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .empty b {
   display: block;
@@ -561,12 +733,12 @@ li.item.purging .meta .mono {
 }
 .mcp .req {
   margin: 0 0 22px;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
-  font-size: 13px;
-  color: var(--ink-2);
+  font-size: 14px;
+  color: var(--ink);
 }
 /* A long writer address wraps inside the box instead of widening the page on a phone. */
 .mcp .req .mono {
@@ -589,8 +761,10 @@ li.item.purging .meta .mono {
   align-items: center;
   gap: 10px;
   margin: 0 0 10px;
-  font: 650 15px/1.3 var(--sans);
+  font: 720 16px/1.3 var(--sans);
+  letter-spacing: -0.01em;
 }
+/* The step's number is a node of the sequence: an ink ring, the number in mono. */
 .steps h2::before {
   content: counter(step) / "";
   display: inline-grid;
@@ -602,18 +776,20 @@ li.item.purging .meta .mono {
   /* Transparent until forced colours paint it, so the circle survives there. */
   border: 1px solid transparent;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--paper);
-  font: 700 12.5px/1 var(--sans);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+  color: var(--ink);
+  font: 600 12.5px/1 var(--mono);
+  letter-spacing: normal;
 }
 .steps > li > p {
   margin: 0 0 8px;
 }
 .codeblock {
   position: relative;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: var(--sunken);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
+  background: var(--surface);
   margin: 8px 0 0;
 }
 /* Wrapping is display-only: lines break only between tokens, continuations hang under the first
@@ -621,11 +797,17 @@ li.item.purging .meta .mono {
 .codeblock pre {
   margin: 0;
   padding: 12px 14px;
-  font: 12.5px/1.6 var(--mono);
+  font: 12.5px/1.65 var(--mono);
+  color: var(--ink);
+  background: var(--sunken);
   white-space: pre-wrap;
   word-break: normal;
   overflow-wrap: normal;
   overflow-x: auto;
+}
+/* Flush with the box's bottom corners: the box's radius less its border. */
+.codeblock > pre:last-child {
+  border-radius: 0 0 var(--rd-box-in) var(--rd-box-in);
 }
 .codeblock pre:focus-visible {
   outline-offset: -2px;
@@ -643,17 +825,19 @@ li.item.purging .meta .mono {
 }
 .codeblock pre.sh .ln::before {
   content: "$ " / "";
-  color: var(--faint);
+  color: var(--ink-2);
 }
 .cbh {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px 6px 14px;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--rule);
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
 }
 .ask {
   display: flex;
@@ -662,7 +846,7 @@ li.item.purging .meta .mono {
   gap: 10px;
   padding: 10px 10px 10px 14px;
   border: 1px dashed var(--rule-2);
-  border-radius: 10px;
+  border-radius: var(--rd-box);
   background: var(--surface);
 }
 .ask q {
@@ -670,15 +854,21 @@ li.item.purging .meta .mono {
 }
 .mcp .note {
   margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* The machines' heading is a list label under the steps, not a section of its own. */
+.mcp > h2.sec {
+  margin-top: 34px;
+  font-size: 14px;
+  font-weight: 700;
 }
 .hosts {
   list-style: none;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--rule);
-  border-radius: 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--rd-box);
   background: var(--surface);
   overflow: hidden;
 }
@@ -694,6 +884,14 @@ li.item.purging .meta .mono {
   text-decoration: none;
   color: var(--ink);
 }
+/* The rows' hover and focus follow the box's corners. */
+.hosts > li:first-child > a {
+  border-radius: var(--rd-box-in) var(--rd-box-in) 0 0;
+}
+.hosts > li:last-child > a {
+  border-bottom-left-radius: var(--rd-box-in);
+  border-bottom-right-radius: var(--rd-box-in);
+}
 .hosts a:hover {
   background: var(--hover);
 }
@@ -701,24 +899,27 @@ li.item.purging .meta .mono {
 .hosts a:focus-visible {
   outline-offset: -2px;
 }
-.hosts .mono {
+/* A machine's name is a name, not an ID: sans (D76). */
+.hosts .host {
   min-width: 0;
+  font-family: var(--sans);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .hosts .m {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--row-fs);
 }
 .hosts .go {
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--row-fs);
 }
 details.tr {
   margin-top: 22px;
 }
 details.tr summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 650;
 }
 details.tr ul {
   margin: 8px 0 0;
@@ -742,24 +943,31 @@ details.tr ul {
     justify-content: center;
   }
 }
+/* The agent tabs switch what's shown: underlined tabs in a ruled row (D78). */
 .tabs2 {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--rule);
+  gap: 20px;
+  border-bottom: 1px solid var(--rule-2);
   margin-bottom: 10px;
 }
 .tabs2 a,
 .tabs2 button {
   display: inline-flex;
   align-items: center;
-  padding: 8px 12px;
+  height: 38px;
+  padding: 0;
+  margin-bottom: -1px;
   text-decoration: none;
-  color: var(--muted);
+  color: var(--ink-2);
   border: 0;
   border-bottom: 2px solid transparent;
-  font-weight: 550;
+  font-weight: 600;
   background: none;
   cursor: pointer;
+}
+.tabs2 :is(a, button):not([aria-current="page"]):hover {
+  color: var(--ink);
+  border-bottom-color: var(--spine);
 }
 .tabs2 [aria-current="page"] {
   color: var(--ink);
@@ -781,6 +989,19 @@ details.tr ul {
   .mcp .tabs2 a {
     min-height: var(--tap);
   }
+}
+/* Not found: the path asked for, as code. */
+.notfound > p.muted {
+  margin: 14px 0 16px;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.notfound .mono {
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--rd-1);
+  background: var(--sunken);
+  overflow-wrap: anywhere;
 }
 .small {
   font-size: 13px;
