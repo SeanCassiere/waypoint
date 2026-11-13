@@ -690,7 +690,7 @@ describe("rerender", () => {
     const first = await rerender(waypoint, queue, blobs, text, { dryRun: false });
     expect(first).toMatchObject({
       renderer: "text",
-      renderer_version: 1,
+      renderer_version: text.rendererVersion,
       sources: 2,
       current: 0,
       queued: 2,

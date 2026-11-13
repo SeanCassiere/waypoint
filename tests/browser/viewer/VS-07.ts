@@ -1,7 +1,9 @@
-// VS-07: documents on the warm Folio palette (markdown renderer v3). In light and dark, the
-// Contents box, code wells and rules take the chrome's warm colours, links the public blue, and
-// keyboard focus the chrome's 2px ink ring; alert hues and Shiki colours are unchanged, and the
-// diff colour (--changed) isn't in the reading palette.
+// VS-07: documents on Logbook's palette (markdown renderer v4, D88). In light and dark, the
+// document's page is the paper its frame sits on (no band at the frame's edge), the Contents box,
+// code wells and rules take the chrome's cool colours, links the public blue, <mark> the chrome's
+// neutral mark, the warning title the pending amber, and keyboard focus the chrome's 2px ink
+// ring; a Shiki token shows its own colour, and the diff colour (--changed) isn't in the reading
+// palette.
 import type { Frame, Page } from "playwright";
 import { z } from "zod";
 
@@ -9,7 +11,7 @@ import { assert, VIEWPORTS, type ViewerContext, type ViewerScenario } from "../h
 
 const DOC =
   "# Palette\n\n[Link](#one)\n\n## One\n\n```js\nlet x = 1\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n" +
-  "> [!WARNING]\n> Careful.\n\n## Two\n\n## Three\n\n## Four\n";
+  "> [!WARNING]\n> Careful.\n\n<mark>Marked</mark>\n\n## Two\n\n## Three\n\n## Four\n";
 
 /** A `#rrggbb` colour as getComputedStyle reports it. */
 const rgb = (hex: string) => {
@@ -18,11 +20,13 @@ const rgb = (hex: string) => {
 };
 
 const SCHEMES = {
-  light: { well: "#f4f2ee", rule: "#e7e3dc", link: "#1f5fd1", warn: "#9a6700", ink: "#1b1a17" },
-  dark: { well: "#1e1d1a", rule: "#2b2a27", link: "#82adff", warn: "#e3b341", ink: "#ebe8e2" },
+  light: { well: "#eef0f3", rule: "#e1e5ea", link: "#1e5ccc", warn: "#8f5400", ink: "#1d2026" },
+  dark: { well: "#1a1d21", rule: "#262a30", link: "#82adff", warn: "#f0b452", ink: "#e6e8ec" },
 } as const;
 
 const styles = z.object({
+  page: z.string(),
+  mark: z.string(),
   tocBg: z.string(),
   tocBorder: z.string(),
   preBg: z.string(),
@@ -97,6 +101,8 @@ async function checkScheme(
       const ownColor = getComputedStyle(probe).color;
       probe.remove();
       return {
+        page: getComputedStyle(document.documentElement).backgroundColor,
+        mark: cs("mark").backgroundColor,
         tocBg: cs("details.toc").backgroundColor,
         tocBorder: cs("details.toc").borderTopColor,
         preBg: cs("pre").backgroundColor,
@@ -108,14 +114,29 @@ async function checkScheme(
       };
     })()`),
   );
-  assert.equal(got.tocBg, rgb(want.well), `${colorScheme}: the Contents box is a warm well`);
+  // The chrome around the frame: what the frame sits on, and the chrome's own mark.
+  const chrome = z.object({ main: z.string(), frame: z.string(), mark: z.string() }).parse(
+    await page.evaluate(`(() => {
+      const probe = document.createElement("i");
+      probe.style.backgroundColor = "var(--mark-bg)";
+      document.body.append(probe);
+      const mark = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { main: getComputedStyle(document.querySelector(".main")).backgroundColor,
+        frame: getComputedStyle(document.querySelector("[data-frame]")).backgroundColor, mark };
+    })()`),
+  );
+  assert.equal(got.page, chrome.main, `${colorScheme}: the document's page is the shell's paper`);
+  assert.equal(got.page, chrome.frame, `${colorScheme}: and the frame's own background`);
+  assert.equal(got.mark, chrome.mark, `${colorScheme}: <mark> is the chrome's neutral mark`);
+  assert.equal(got.tocBg, rgb(want.well), `${colorScheme}: the Contents box is a cool well`);
   assert.equal(got.tocBorder, rgb(want.rule), `${colorScheme}: the Contents border is a rule`);
   assert.equal(got.preBg, rgb(want.well), `${colorScheme}: code wells match the Contents box`);
-  assert.equal(got.h2Rule, rgb(want.rule), `${colorScheme}: h2 rules are warm`);
+  assert.equal(got.h2Rule, rgb(want.rule), `${colorScheme}: h2 rules are the chrome's rule`);
   assert.equal(got.tocLink, rgb(want.link), `${colorScheme}: links are the public blue`);
-  assert.equal(got.warnTitle, rgb(want.warn), `${colorScheme}: alert hues are unchanged`);
+  assert.equal(got.warnTitle, rgb(want.warn), `${colorScheme}: the warning is the pending amber`);
   assert.equal(got.changed, "", `${colorScheme}: --changed isn't in the reading palette`);
-  assert.equal(got.shiki.color, got.shiki.own, `${colorScheme}: Shiki colours are unchanged`);
+  assert.equal(got.shiki.color, got.shiki.own, `${colorScheme}: a token shows its own colour`);
 
   // Keyboard focus: the first Contents link, then the Contents summary, take the ink ring.
   const ink = { style: "solid", width: "2px", offset: "2px", color: rgb(want.ink), radius: "4px" };
@@ -141,7 +162,7 @@ async function checkScheme(
 }
 
 export default {
-  name: "VS-07 documents on the warm palette",
+  name: "VS-07 documents on the Logbook palette",
   async run(ctx) {
     const { base } = ctx.writer;
     const ref = await ctx.writer.write("doc.md", DOC);

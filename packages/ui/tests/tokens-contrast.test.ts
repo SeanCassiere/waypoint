@@ -116,9 +116,19 @@ const chromePairs: [string, string][] = [
   ["on-solid", "ok-solid"],
   ["on-sel", "sel"],
 ];
-const readingPairs: [string, string][] = ["fg", "fg-2", "muted", "link"].flatMap((role) =>
-  ["bg", "subtle", "code-bg"].map((ground): [string, string] => [role, ground]),
-);
+/**
+ * Documents (D88): text on the page, the wells (tables' heads, Contents, code), and the mark
+ * (`<mark>`, the `:target` line under the text view's numbers); callout titles on their tinted box
+ * (`--subtle`) and the page. Syntax colours: packages/render/tests/syntax-contrast.test.ts.
+ */
+const readingPairs: [string, string][] = [
+  ...["fg", "fg-2", "muted", "link"].flatMap((role) =>
+    ["bg", "subtle", "code-bg", "mark"].map((ground): [string, string] => [role, ground]),
+  ),
+  ...["note", "tip", "warn", "caution"].flatMap((role) =>
+    ["bg", "subtle"].map((ground): [string, string] => [role, ground]),
+  ),
+];
 
 describe("token contrast (WCAG 2, at least 4.5:1, no exceptions)", () => {
   it("covers every role that has its own tint", () => {

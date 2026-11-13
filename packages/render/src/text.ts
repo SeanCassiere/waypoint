@@ -1,6 +1,6 @@
 import { rendererFor } from "@waypoint/core";
 
-import { getHighlighter, type ShikiLanguage } from "./render.ts";
+import { getHighlighter, SYNTAX_COLOURS, type ShikiLanguage } from "./render.ts";
 import {
   counted,
   escapeView,
@@ -19,7 +19,8 @@ export const TEXT_RENDERER_NAME = "text";
 // highlighting, formatting or limits), and update TEXT_GOLDEN_HASH in tests/golden-text.ts in the
 // same change. Renditions are keyed by (source hash, renderer, version); see RENDERER_VERSION.
 // v1: header, numbered lines with #L<n> anchors, Shiki highlighting, JSON formatting, markers.
-export const TEXT_RENDERER_VERSION = 1;
+// v2: Logbook's reading palette and the contrast-checked syntax colours (markdown v4, D88).
+export const TEXT_RENDERER_VERSION = 2;
 
 export const TEXT_LIMITS: {
   readonly maxBytes: 2097152;
@@ -48,6 +49,7 @@ async function highlightLines(
       lang: language,
       themes: { light: "github-light", dark: "github-dark" },
       defaultColor: false,
+      colorReplacements: SYNTAX_COLOURS,
       tokenizeTimeLimit: 0,
       tokenizeMaxLineLength: 5000,
     });

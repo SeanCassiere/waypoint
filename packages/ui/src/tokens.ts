@@ -16,8 +16,15 @@
  *    `--panel-top` (where the panel starts) is 0 in the reader, and the writer sets it to its
  *    bar's height on `.shell`.
  *  - `readingTokensCss`: a frozen copy of the reading palette, in the renderer's own variable
- *    names, for the renderer (VS-07). Its snapshot changes only with a `RENDERER_VERSION` bump. The
- *    document keeps Folio's warm paper inside Logbook's cool shell.
+ *    names, for the renderer (VS-07). Its snapshot changes only with a `RENDERER_VERSION` bump.
+ *    Since renderer v4 (D88) it is Logbook's palette, so a document and the chrome around it read
+ *    as one surface: `--bg` is the shell's `--paper` (what the frame sits on in the writer and the
+ *    reader), the wells (`--subtle`, `--code-bg`) are `--sunken` in light and `--surface` in dark,
+ *    the rules are `--rule`/`--rule-2`, the text `--ink`/`--ink-2`/`--muted` (dark `--muted` a
+ *    shade lighter, #9ea6b1, so line numbers read at 4.5:1 on the mark), links the public
+ *    blue, `--mark` the neutral `--mark-bg`, and the callouts the chrome's state colours (note
+ *    public, tip ok, warning pending, caution failed). These are copies, not references: the
+ *    rendition is stored, so a chrome token change must not reach it without a bump.
  *
  * The scales: heights `--ctl-sm` 28, `--ctl-md` 32, `--tap` 44; radii `--rd-1` 4 (keys, tags),
  * `--rd-2` 6 (controls, boxes inside dialogs), `--rd-box` 8 (boxes on a page), `--rd-3` 10
@@ -58,8 +65,8 @@ export const writerTokensCss: string = `:root{--muted:#565e68;--sel-bar:#1d2026;
 `;
 
 /** The reading palette in the renderer's variable names. Frozen: see the file comment. */
-export const readingTokensCss: string = `:root{color-scheme:light dark;--fg:#1b1a17;--fg-2:#46433d;--muted:#66615a;--bg:#fcfbf9;--line:#e7e3dc;--line-2:#d6d1c7;--subtle:#f4f2ee;--code-bg:#f4f2ee;--link:#1f5fd1;--link-u:#9dbcf3;--focus:#1b1a17;--mark:#fff1a8;--note:#1d5bd6;--tip:#18794e;--warn:#9a6700;--caution:#c4320a;--measure:68ch}
-@media(prefers-color-scheme:dark){:root{--fg:#ebe8e2;--fg-2:#c6c1b8;--muted:#958f86;--bg:#151514;--line:#2b2a27;--line-2:#3a3935;--subtle:#1e1d1a;--code-bg:#1e1d1a;--link:#82adff;--link-u:#2f4f8a;--focus:#ebe8e2;--mark:#5a4a00;--note:#8db4ff;--tip:#5fd39a;--warn:#e3b341;--caution:#ff8a65}}
+export const readingTokensCss: string = `:root{color-scheme:light dark;--fg:#1d2026;--fg-2:#4b525c;--muted:#565e68;--bg:#f6f7f9;--line:#e1e5ea;--line-2:#cdd3db;--subtle:#eef0f3;--code-bg:#eef0f3;--link:#1e5ccc;--link-u:#9dbcf3;--focus:#1d2026;--mark:#dde2e8;--note:#1e5ccc;--tip:#2c784b;--warn:#8f5400;--caution:#b42318;--measure:68ch}
+@media(prefers-color-scheme:dark){:root{--fg:#e6e8ec;--fg-2:#a9b0ba;--muted:#9ea6b1;--bg:#131518;--line:#262a30;--line-2:#353b44;--subtle:#1a1d21;--code-bg:#1a1d21;--link:#82adff;--link-u:#2f4f8a;--focus:#e6e8ec;--mark:#343b45;--note:#82adff;--tip:#6cc391;--warn:#f0b452;--caution:#ff8a7e}}
 `;
 
 /** @deprecated One-release alias: the writer bundle is `sharedTokensCss + writerTokensCss`. */

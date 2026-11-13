@@ -204,18 +204,18 @@ const scenario: ReaderScenario = {
       assert.equal(copied, DRAIN_SCRIPT.split("\n").slice(0, 3).join("\n"), "copy has no numbers");
     }
 
-    // Desktop, dark: the warm paper and well, tokens in their dark colours.
+    // Desktop, dark: the shell's paper and the well (D88), tokens in their dark colours.
     {
       const { frame } = await open("drain.sh", { ...VIEWPORTS.desktop, colorScheme: "dark" });
       assert.equal(
         await frame.evaluate(`getComputedStyle(document.documentElement).backgroundColor`),
-        "rgb(21, 21, 20)",
+        "rgb(19, 21, 24)",
       );
       assert.equal(
         await frame.evaluate(
           `getComputedStyle(document.querySelector("pre.lines")).backgroundColor`,
         ),
-        "rgb(30, 29, 26)",
+        "rgb(26, 29, 33)",
       );
       const colours = await json(
         frame,
@@ -251,7 +251,7 @@ const scenario: ReaderScenario = {
       assert.ok(top >= 0 && bottom <= height, `#L23 is in view: ${top}..${bottom} of ${height}`);
       assert.equal(
         await frame.evaluate(`getComputedStyle(document.getElementById("L23")).backgroundColor`),
-        "rgb(255, 241, 168)",
+        "rgb(221, 226, 232)",
       );
       assert.equal(await page.evaluate("location.hash"), "#L23", "the address bar keeps #L23");
     }

@@ -5,9 +5,9 @@
 // results CSV are the RX-08 mockups' files, shared with the browser scenarios.
 
 /** SHA-256 of every text golden input's rendered HTML (the literal `null` for null), in order. */
-export const TEXT_GOLDEN_HASH = "434de6b09ca4d4da52bb4875d1385330b8420fb86f4228b26721446071bc3b3b";
+export const TEXT_GOLDEN_HASH = "c7ca99c314014aba9448a70f9e4e563afd786a998b922b4a2a97323146db9123";
 /** SHA-256 of every CSV golden input's rendered HTML (the literal `null` for null), in order. */
-export const CSV_GOLDEN_HASH = "9ac580c516e9c45dea62895762d7cf909c8e2cea627ff67a44c67046fccfea96";
+export const CSV_GOLDEN_HASH = "2a7adc52a59e99a02a9292477d4b11bbda21cdf786287185de6992048f4c9a36";
 
 /** The mockup's shell script: 37 lines, 1,094 bytes. */
 export const DRAIN_SCRIPT: string =
