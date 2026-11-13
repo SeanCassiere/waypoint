@@ -385,6 +385,11 @@ export async function startReader(options: {
       },
       port: 0,
       hostname: "127.0.0.1",
+      // Keep Node's own Request and Response: the scenarios render renditions in this process,
+      // and Shiki (4.6+) loads its WASM with `Response.bytes()`, which @hono/node-server's
+      // lightweight global Response doesn't support (honojs/node-server#422), so highlighting
+      // would silently fall back to plain text. The writer renders in worker threads.
+      overrideGlobalObjects: false,
     },
     (info) => listening.resolve(info.port),
   );
