@@ -12,7 +12,7 @@ import {
 import { filesCss } from "../src/public-shell/css.ts";
 import { downloadLink } from "../src/public-shell/download.ts";
 
-// RX-06: the current file's Download control, at the end of the tab or Files row, or in the
+// RX-06: the current file's Download control, at the end of the Files row, or in the
 // letterhead actions for a one-file link.
 const base: PublicShellOptions = {
   title: "Plan",
@@ -32,30 +32,25 @@ const controls = (html: string): string[] =>
   markup(html).match(/<a class="btn dlb[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
 const attribute = (tag: string, name: string): string | undefined =>
   new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
-/** The `.prow` row's markup, up to its matching `</nav>`. */
+/** The `.prow` row's markup, up to the end of the banner it closes. */
 function row(html: string): string {
-  const start = html.indexOf('<nav class="prow" aria-label="Files">');
+  const start = html.indexOf('<div class="prow">');
   expect(start).toBeGreaterThanOrEqual(0);
-  let depth = 0;
-  const tags = /<\/?nav\b[^>]*>/g;
-  tags.lastIndex = start;
-  for (let match = tags.exec(html); match; match = tags.exec(html)) {
-    depth += match[0].startsWith("</") ? -1 : 1;
-    if (depth === 0) return html.slice(start, match.index + match[0].length);
-  }
-  throw new Error("unbalanced .prow");
+  const end = html.indexOf("</div></header>", start);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end + "</div>".length);
 }
 const three = ["index.md", "docs/a b.md", "notes/day-1.md"];
 const twelve = ["index.md", ...Array.from({ length: 11 }, (_, i) => `a/b${i}.md`)];
 
 describe("Download control (RX-06)", () => {
-  it("ends the tab row of a 3-file shell", () => {
+  it("ends the Files row of a 3-file shell", () => {
     const html = markup(shell(three, "docs/a b.md"));
     const found = controls(html);
     expect(found).toHaveLength(1);
     const control = found[0]!;
     const prow = row(html);
-    expect(prow.endsWith(`</div>${control}</nav>`)).toBe(true);
+    expect(prow.endsWith(`</button>${control}</div>`)).toBe(true);
     expect(attribute(control, "href")).toBe(
       `${base.frameBase}${encodePathSegments("docs/a b.md")}?download`,
     );
@@ -65,16 +60,16 @@ describe("Download control (RX-06)", () => {
     expect(control).toContain(icon("download"));
     expect(control).toContain('<span class="lbl">Download</span>');
     expect(control.startsWith('<a class="btn dlb" ')).toBe(true);
-    expect(html.slice(html.indexOf('<div class="acts">'), html.indexOf("</header>"))).not.toContain(
-      "dlb",
-    );
+    expect(
+      html.slice(html.indexOf('<div class="acts">'), html.indexOf('<div class="prow">')),
+    ).not.toContain("dlb");
   });
-  it("ends the Files row of a 12-file shell, after the Files nav", () => {
+  it("ends the Files row of a 12-file shell, after the Files button", () => {
     const html = markup(shell(twelve, "a/b3.md"));
     const found = controls(html);
     expect(found).toHaveLength(1);
     const control = found[0]!;
-    expect(row(html).endsWith(`</div></div></div>${control}</nav>`)).toBe(true);
+    expect(row(html).endsWith(`</span></span></button>${control}</div>`)).toBe(true);
     expect(attribute(control, "href")).toBe(`${base.frameBase}a/b3.md?download`);
     expect(attribute(control, "download")).toBe("b3.md");
     expect(attribute(control, "aria-label")).toBe("Download a/b3.md");
@@ -95,7 +90,7 @@ describe("Download control (RX-06)", () => {
   });
   it("never puts the control in the letterhead of a multi-file shell", () => {
     const html = markup(shell(["a.md", "b.md"]));
-    const acts = html.slice(html.indexOf('<div class="acts">'), html.indexOf("</header>"));
+    const acts = html.slice(html.indexOf('<div class="acts">'), html.indexOf('<div class="prow">'));
     expect(acts).not.toContain("dlb");
     expect(controls(html)).toHaveLength(1);
   });

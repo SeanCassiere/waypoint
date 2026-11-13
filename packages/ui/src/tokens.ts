@@ -8,9 +8,10 @@
  *    shell and static style hashes (regenerate apps/reader/src/csp-hashes.ts).
  *  - `writerTokensCss`: roles only the writer uses, including any role that neither reader CSS
  *    nor the preview band references. Appended only by apps/writer/viewer.build.ts; it never
- *    reaches the reader, so editing it never moves a reader hash. The shared panel and tree
- *    styles (panel-css.ts) still use two of its roles, `--panel-w` and `--sel-bg`: they move to
- *    `sharedTokensCss` when the reader takes those styles.
+ *    reaches the reader, so editing it never moves a reader hash. The panel and tree styles
+ *    (panel-css.ts) are shared, so their roles (`--panel-w`, `--panel-top`, `--sel-bg`) are too;
+ *    `--panel-top` (where the panel starts) is 0 in the reader, and the writer sets it to its
+ *    bar's height on `.shell`.
  *  - `readingTokensCss`: a frozen copy of the reading palette, in the renderer's own variable
  *    names, for the renderer (VS-07). Its snapshot changes only with a `RENDERER_VERSION` bump.
  */
@@ -26,8 +27,8 @@ export const WIDE_MIN = 1100;
 
 /** Roles shared by the reader shell, the reader's static pages and the writer. */
 export const sharedTokensCss: string =
-  `:root{color-scheme:light dark;--paper:#fcfbf9;--surface:#fff;--sunken:#f4f2ee;--dlg:#fff;--hover:#f0ede7;--stage:#efece6;--ink:#1b1a17;--ink-2:#46433d;--muted:#66615a;--faint:#6f6a62;--rule:#e7e3dc;--rule-2:#d6d1c7;--sel-ring:#d6d1c7;--sel-bar:#1b1a17;--pending:#9a5b00;--pending-bg:#fdf1dc;--pending-line:#e9c27a;--public:#1f5fd1;--public-bg:#e8f0fd;--public-line:#9dbcf3;--img-frame:rgba(27,26,23,.14);--check-a:#f4f2ee;--check-b:#e9e6e0;--scrim:rgba(20,18,14,.42);--sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--r-md:10px;--sh-1:0 1px 2px rgba(27,26,23,.06),0 1px 1px rgba(27,26,23,.04);--sh-2:0 16px 48px rgba(27,26,23,.16),0 2px 8px rgba(27,26,23,.08);--ic-sm:12px;--ic-md:16px;--ic-lg:18px;--ic-xl:20px;--tap:44px;--ctl-sm:28px;--ctl-md:32px;font:14px/1.45 var(--sans)}
-@media(prefers-color-scheme:dark){:root{--paper:#151514;--surface:#1c1c1a;--sunken:#11110f;--dlg:#222220;--hover:#232320;--stage:#0e0e0d;--ink:#ebe8e2;--ink-2:#c6c1b8;--muted:#9a958b;--faint:#969188;--rule:#2b2a27;--rule-2:#3a3935;--sel-ring:#45433e;--sel-bar:#ebe8e2;--pending:#f0b452;--pending-bg:#33270f;--pending-line:#6d5220;--public:#82adff;--public-bg:#172540;--public-line:#2f4f8a;--img-frame:rgba(255,255,255,.12);--check-a:#1a1a18;--check-b:#222220;--scrim:rgba(0,0,0,.62);--sh-1:0 1px 2px rgba(0,0,0,.4);--sh-2:0 16px 48px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}}
+  `:root{color-scheme:light dark;--paper:#fcfbf9;--surface:#fff;--sunken:#f4f2ee;--dlg:#fff;--hover:#f0ede7;--stage:#efece6;--ink:#1b1a17;--ink-2:#46433d;--muted:#66615a;--faint:#6f6a62;--rule:#e7e3dc;--rule-2:#d6d1c7;--sel-ring:#d6d1c7;--sel-bar:#1b1a17;--pending:#9a5b00;--pending-bg:#fdf1dc;--pending-line:#e9c27a;--public:#1f5fd1;--public-bg:#e8f0fd;--public-line:#9dbcf3;--img-frame:rgba(27,26,23,.14);--check-a:#f4f2ee;--check-b:#e9e6e0;--scrim:rgba(20,18,14,.42);--sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--r-md:10px;--sh-1:0 1px 2px rgba(27,26,23,.06),0 1px 1px rgba(27,26,23,.04);--sh-2:0 16px 48px rgba(27,26,23,.16),0 2px 8px rgba(27,26,23,.08);--ic-sm:12px;--ic-md:16px;--ic-lg:18px;--ic-xl:20px;--tap:44px;--ctl-sm:28px;--ctl-md:32px;--panel-w:300px;--panel-top:0px;--sel-bg:#fff;font:14px/1.45 var(--sans)}
+@media(prefers-color-scheme:dark){:root{--paper:#151514;--surface:#1c1c1a;--sunken:#11110f;--dlg:#222220;--hover:#232320;--stage:#0e0e0d;--ink:#ebe8e2;--ink-2:#c6c1b8;--muted:#9a958b;--faint:#969188;--rule:#2b2a27;--rule-2:#3a3935;--sel-ring:#45433e;--sel-bar:#ebe8e2;--pending:#f0b452;--pending-bg:#33270f;--pending-line:#6d5220;--public:#82adff;--public-bg:#172540;--public-line:#2f4f8a;--img-frame:rgba(255,255,255,.12);--check-a:#1a1a18;--check-b:#222220;--scrim:rgba(0,0,0,.62);--sh-1:0 1px 2px rgba(0,0,0,.4);--sh-2:0 16px 48px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4);--sel-bg:#2a2926}}
 *{box-sizing:border-box}html,body{margin:0}body{background:var(--paper);color:var(--ink)}
 a{color:inherit}button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:4px}
@@ -35,8 +36,8 @@ a{color:inherit}button,input,select,textarea{font:inherit;color:inherit}
 ` + iconCss;
 
 /** Roles only the writer uses; appended to `sharedTokensCss` by the writer's viewer build. */
-export const writerTokensCss: string = `:root{--control:#8c867c;--ok:#2c784b;--failed:#b42318;--failed-bg:#fde8e6;--failed-line:#f1a59d;--on-public:#fff;--add:#17663a;--add-bg:#e3f3e8;--add-word:#b9e3c6;--del:#a4221a;--del-bg:#fbe9e7;--del-word:#f4c1bb;--changed:#7d3c98;--changed-bg:#f6eff9;--changed-line:#d9bfe6;--public-solid:#1f5fd1;--failed-solid:#b42318;--ok-solid:#2d7a4c;--on-solid:#fff;--panel-w:300px;--bar-h:52px;--page-max:1096px;--page-pad:clamp(16px,4vw,32px);--sel:#1b1a17;--on-sel:#fcfbf9;--sel-bg:#fff;--r-sm:6px;--r-lg:14px}
-@media(prefers-color-scheme:dark){:root{--control:#75716a;--ok:#6cc391;--failed:#ff8a7e;--failed-bg:#3b1a17;--failed-line:#7a2e27;--on-public:#0b1530;--add:#7fd6a0;--add-bg:#14291c;--add-word:#235238;--del:#ff9b90;--del-bg:#2f1715;--del-word:#5e2620;--changed:#d4b4ee;--changed-bg:#2a2130;--changed-line:#5a4468;--public-solid:#2b5bc4;--failed-solid:#b3372b;--ok-solid:#2d7a4c;--sel:#ebe8e2;--on-sel:#151514;--sel-bg:#2a2926}}
+export const writerTokensCss: string = `:root{--control:#8c867c;--ok:#2c784b;--failed:#b42318;--failed-bg:#fde8e6;--failed-line:#f1a59d;--on-public:#fff;--add:#17663a;--add-bg:#e3f3e8;--add-word:#b9e3c6;--del:#a4221a;--del-bg:#fbe9e7;--del-word:#f4c1bb;--changed:#7d3c98;--changed-bg:#f6eff9;--changed-line:#d9bfe6;--public-solid:#1f5fd1;--failed-solid:#b42318;--ok-solid:#2d7a4c;--on-solid:#fff;--bar-h:52px;--page-max:1096px;--page-pad:clamp(16px,4vw,32px);--sel:#1b1a17;--on-sel:#fcfbf9;--r-sm:6px;--r-lg:14px}
+@media(prefers-color-scheme:dark){:root{--control:#75716a;--ok:#6cc391;--failed:#ff8a7e;--failed-bg:#3b1a17;--failed-line:#7a2e27;--on-public:#0b1530;--add:#7fd6a0;--add-bg:#14291c;--add-word:#235238;--del:#ff9b90;--del-bg:#2f1715;--del-word:#5e2620;--changed:#d4b4ee;--changed-bg:#2a2130;--changed-line:#5a4468;--public-solid:#2b5bc4;--failed-solid:#b3372b;--ok-solid:#2d7a4c;--sel:#ebe8e2;--on-sel:#151514}}
 `;
 
 /** The reading palette in the renderer's variable names. Frozen: see the file comment. */

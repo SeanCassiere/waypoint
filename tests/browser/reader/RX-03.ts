@@ -1,6 +1,6 @@
-// RX-03: every tab and tree row shows a type icon from the page's one sprite; files that can't be
-// previewed end with "download · size"; the page title is "<file name> · <collection title>" and
-// follows in-frame navigation; moving the current tab changes no tab's width.
+// RX-03: every row of the Files panel shows a type icon from the page's one sprite; files that
+// can't be previewed end with "download · size"; the page title is "<file name> · <collection
+// title>" and follows in-frame navigation; moving the current row changes no row's size.
 import { hashShareToken, newShareToken } from "@waypoint/core";
 import type { Page } from "playwright";
 
@@ -37,8 +37,8 @@ const FIXTURES = {
       ]),
     ],
   },
-  // 3 files: tabs, names well under 80 characters (the reserved width measures the raw path).
-  tabs: {
+  // 3 files: a small panel, one long name (cut with an ellipsis at 300 px).
+  small: {
     title: "Webhook idempotency research",
     col: { id: "col_" + "j".repeat(26), pub: "jjjjjjjjjjjj" },
     rev: { id: "rev_" + "0".repeat(25) + "a", pub: "jajajajajaja" },
@@ -68,7 +68,7 @@ async function until(page: Page, expression: string, timeout = 5000): Promise<vo
 }
 
 const scenario: ReaderScenario = {
-  name: "RX-03 file type icons, download marker, per-file title and stable tab widths",
+  name: "RX-03 file type icons, download marker, per-file title and stable row sizes",
   async run(ctx) {
     const db = readerTestDb();
     const ins = (sql: string, ...a: (string | number | null)[]) => db.prepare(sql).run(...a);
@@ -140,7 +140,7 @@ const scenario: ReaderScenario = {
       );
     };
     const T = FIXTURES.tree;
-    const S = FIXTURES.tabs;
+    const S = FIXTURES.small;
 
     // The Files tree: icons render, the archive's accessible name carries its marker.
     {
@@ -150,11 +150,10 @@ const scenario: ReaderScenario = {
       assert.equal(await page.title(), "doc.md · Field kit", "title on load");
       assert.equal(
         await page.evaluate(`document.querySelectorAll("svg.sprite symbol").length`),
-        6,
-        "one sprite with six symbols",
+        7,
+        "one sprite with seven symbols",
       );
-      await page.click(".fbtn");
-      await until(page, `document.getElementById("files").matches(":popover-open")`);
+      assert.ok(await page.locator("#files").isVisible(), "the panel is docked");
       assert.equal(
         await page
           .getByRole("link", { name: "archive/build-output.tar.gz download · 4.1 MB" })
@@ -165,7 +164,7 @@ const scenario: ReaderScenario = {
       assert.equal(await page.locator("#files small").count(), 1, "one download marker");
       const boxes = await json(
         page,
-        `[...document.querySelectorAll("#files svg.ti")]
+        `[...document.querySelectorAll("#files a > svg, #files summary svg.ti")]
           .filter((svg) => svg.closest("details") === null || svg.closest("details").open)
           .map((svg) => {
             const r = svg.getBoundingClientRect();
@@ -179,7 +178,6 @@ const scenario: ReaderScenario = {
           Array.isArray(box) && box.every((value) => Number(value) > 0),
           `icon has a box: ${JSON.stringify(box)}`,
         );
-      await page.keyboard.press("Escape");
 
       // In-frame navigation: the title and the Files button's icon follow.
       await post(page, T, "data/x.csv");
@@ -191,8 +189,8 @@ const scenario: ReaderScenario = {
       );
     }
 
-    // Tabs: moving aria-current changes no tab's width, on desktop and on a phone, where this
-    // strip overflows and scrolls (tabs never shrink).
+    // Moving aria-current changes no row's size (the current row's bold name is cut, never
+    // wrapped), docked on desktop and in the open bottom sheet on a phone.
     for (const [viewport, size] of [
       ["desktop", VIEWPORTS.desktop],
       ["phone", VIEWPORTS.phone],
@@ -202,31 +200,35 @@ const scenario: ReaderScenario = {
       logs.push(collectConsole(page));
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
       await open(page, S);
-      const widths = () =>
+      if (viewport === "phone") {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
+        await page.click(".fbtn");
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
+        await until(page, `document.getElementById("files").matches(":popover-open")`);
+      }
+      const sizes = () =>
         json(
           page,
-          `[...document.querySelectorAll(".ptabs2 a")].map((a) => a.getBoundingClientRect().width)`,
+          `[...document.querySelectorAll("#files a")].map((a) => {
+            const r = a.getBoundingClientRect();
+            return [r.width, r.height];
+          })`,
         );
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
-      const before = await widths();
-      assert.ok(Array.isArray(before) && before.length === 3, `${viewport}: three tabs`);
+      const before = await sizes();
+      assert.ok(Array.isArray(before) && before.length === 3, `${viewport}: three rows`);
       assert.equal(
         // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
-        await page.locator(".ptabs2 svg.ti").count(),
+        await page.locator("#files a > svg").count(),
         3,
-        `${viewport}: an icon on every tab`,
+        `${viewport}: an icon on every row`,
       );
       for (const path of ["checklist.md", "notes/retry-semantics-across-providers.md"]) {
         // oxlint-disable-next-line eslint/no-await-in-loop -- One navigation at a time.
         await post(page, S, path);
         // oxlint-disable-next-line eslint/no-await-in-loop -- One navigation at a time.
-        const after = await widths();
-        assert.ok(Array.isArray(after) && after.length === 3);
-        for (const [i, width] of before.entries())
-          assert.ok(
-            Math.abs(Number(width) - Number(after[i])) <= 0.5,
-            `${viewport}, ${path} current: tab ${i} width ${String(width)} → ${String(after[i])}`,
-          );
+        const after = await sizes();
+        assert.deepEqual(after, before, `${viewport}, ${path} current: row sizes`);
       }
       assert.equal(
         // oxlint-disable-next-line eslint/no-await-in-loop -- Two viewports, checked in order.
@@ -235,26 +237,20 @@ const scenario: ReaderScenario = {
       );
     }
 
-    // Forced colours: every icon's stroke follows its row's, tab's or button's text colour, the
-    // current row's and tab's included.
+    // Forced colours: every icon's stroke follows its row's or button's text colour, the current
+    // row's included.
     for (const f of [T, S]) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, checked in order.
       const { page } = await ctx.newPage({ ...VIEWPORTS.desktop, forcedColors: "active" });
       logs.push(collectConsole(page));
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, checked in order.
       await open(page, f);
-      if (f === T) {
-        // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, checked in order.
-        await page.click(".fbtn");
-        // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, checked in order.
-        await until(page, `document.getElementById("files").matches(":popover-open")`);
-      }
       // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, checked in order.
       const pairs = await json(
         page,
-        `[...document.querySelectorAll("#files a svg.ti, .fbtn svg.ti, .ptabs2 svg.ti")].map((svg) => [
+        `[...document.querySelectorAll("#files a > svg, #files summary svg, .fbtn svg")].map((svg) => [
           getComputedStyle(svg).stroke,
-          getComputedStyle(svg.closest("a, button")).color,
+          getComputedStyle(svg.closest("a, button, summary")).color,
         ])`,
       );
       assert.ok(

@@ -1,4 +1,8 @@
-import { PHONE_MAX, sharedTokensCss } from "../tokens.ts";
+import { panelCss, treeCss } from "../panel-css.ts";
+import { PHONE_MAX, WIDE_MIN, sharedTokensCss } from "../tokens.ts";
+
+/** Below WIDE_MIN the file panel is a sheet (panelCss's breakpoint). */
+const NARROW_MAX = 1099.98;
 
 /** The skip link's print rule; the base rule is in sharedTokensCss. */
 export const skipCss: string = `@media print{.skip{display:none}}
@@ -48,7 +52,7 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
 .wmark{width:16px;height:16px;flex:none}.wmark rect{fill:var(--muted)}.wmark path{fill:none;stroke:var(--paper);stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
 @media(pointer:coarse){.abt::before{content:"";position:absolute;inset:-7px -3px}}
 @media not all and (max-width:${PHONE_MAX}px){.menu.about{position-area:bottom span-left;width:min(372px,calc(100vw - 24px))}.menu.about>.mbox{padding:14px 16px 12px}}
-@supports not (position-area:bottom){@media not all and (max-width:${PHONE_MAX}px){.menu.about{top:52px;left:auto;right:max(20px,calc(50vw - 540px))}}}
+@supports not (position-area:bottom){@media not all and (max-width:${PHONE_MAX}px){.menu.about{top:52px;left:auto;right:max(20px,calc(50vw - 540px))}.pan .menu.about{right:20px}}}
 @media(max-width:${PHONE_MAX}px){.lh{gap:0 10px;padding:10px 14px 8px}
 .lh h1{align-self:center;font-size:14.5px}
 .lh .note{grid-column:1/-1}
@@ -64,84 +68,90 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
 @media print{.pwrap{display:none}html,body{height:auto;overflow:visible}}
 `;
 /**
- * The Files row (R1): tabs, or the "Files N" button that opens the tree popover. `.prow` owns the
- * 1120 px column, so a later control at the row's end leaves the tab strip scrolling; the
- * strip's edge fades follow its `data-more` (set by filesMenuScript). A tab is a grid of icon,
- * name and marker; a hidden bold copy of its path (`::after`, a zero-height row under the name)
- * reserves the bold width and tabs never shrink (`flex:none`; the strip scrolls instead), so moving
- * `aria-current` resizes no tab. Under forced colours the icons inherit the text colour.
+ * The Files row (R1, D74): the "Files N" button that shows, hides or opens the file panel, and the
+ * current file's Download control. `.prow` and the letterhead keep the 1120 px column on one-file
+ * pages; with a panel (`body.pan`) both span the window, so the title lines up with the panel.
  * The Download control (`.dlb`, RX-06) is a `.btn` (buttonCss, later in the cascade, so these
  * rules use `.btn.dlb`): right-aligned at the row's end, in the letterhead actions with a mono
  * name for one file (`.one`), and on phones an icon-only 44 px ghost target. A long name wraps
  * (the button grows, 32 px for one line) rather than being cut, so the file name always shows.
+ * Under forced colours the icons inherit the text colour.
  */
 export const filesCss: string = `.prow{display:flex;align-items:flex-end;gap:8px;max-width:1120px;margin:0 auto;padding:0 16px}
-.ptabs2,.pfiles{min-width:0;flex:1 1 auto}
-.ptabs2{display:flex;gap:4px;overflow-x:auto;scrollbar-width:thin}
-.ptabs2 a{flex:none;display:grid;grid-template-rows:auto 0;column-gap:8px;align-items:center;padding:8px 10px 10px;font-size:13px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;outline-offset:-2px}
-.ptabs2 a:hover{color:var(--ink)}
-.ptabs2 a[aria-current]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
-.ptabs2 .ti{grid-area:1/1;color:var(--faint)}.ptabs2 a[aria-current] .ti{color:var(--ink)}
-.ptabs2 small{grid-area:1/3;font-size:12px;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
-.ptabs2 a::after{content:attr(data-p);grid-area:2/2;height:0;visibility:hidden;overflow:hidden;font-weight:600}
-.ptabs2[data-more=start]{mask-image:linear-gradient(90deg,transparent,#000 28px)}
-.ptabs2[data-more=end]{mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
-.ptabs2[data-more="start end"]{mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
-.pfiles{display:flex}
+.pan .lh,.pan .prow{max-width:none}
 .fbtn{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;margin:0;padding:8px 10px 10px;border:0;border-bottom:2px solid var(--ink);border-radius:0;background:none;font:600 13px var(--sans);color:var(--ink);cursor:pointer;outline-offset:-2px}
+.fbtn>svg.ic{color:var(--muted)}
 .fbtn .n{color:var(--faint);font-weight:500}
 .fbtn .cur{display:inline-flex;align-items:center;gap:6px;min-width:0;font-weight:500;color:var(--muted)}
 .fbtn .ti{color:var(--faint)}
-.fbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fbtn .chev{color:var(--muted)}
-.fbtn .t{unicode-bidi:isolate}.ptabs2 a{unicode-bidi:plaintext}
+.fbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;unicode-bidi:isolate}
 .prow>.dlb{margin-left:auto;flex:none;align-self:center}
 .btn.dlb.one .nm{font:12px/16px var(--mono);unicode-bidi:plaintext}
 @media not all and (max-width:${PHONE_MAX}px){.btn.dlb.one{height:auto;padding-block:7px}.btn.dlb.one .nm{max-width:min(44ch,30vw);white-space:normal;overflow-wrap:anywhere}}
-@media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.ptabs2 a{min-height:var(--tap)}.fbtn{min-height:var(--tap)}
+@media(max-width:${PHONE_MAX}px){.prow{padding:0 10px}.fbtn{min-height:var(--tap)}
 .btn.dlb,.btn.dlb:hover{width:var(--tap);height:var(--tap);padding:0;border-color:transparent;background:none}
 .btn.dlb .lbl{display:none}.btn.dlb svg.ic{width:var(--ic-lg);height:var(--ic-lg)}}
-@media(forced-colors:active){.ptabs2 a[aria-current],.fbtn{border-bottom-color:CanvasText}.ptabs2 .ti,.ptabs2 a[aria-current] .ti,.fbtn .ti{color:inherit}.btn.dlb,.btn.dlb:hover{border-color:ButtonText}}
+@media(forced-colors:active){.fbtn{border-bottom-color:CanvasText}.fbtn>svg.ic,.fbtn .ti{color:inherit}.btn.dlb,.btn.dlb:hover{border-color:ButtonText}}
 `;
 /**
- * Popovers (D51) and the tree rows (R1). Every `[popover]` is an invisible positioning shell
- * whose one child, `.mbox`, is the visible box: a `.menu` is anchored to its invoker from 600 px
- * and a bottom sheet below. A popover's ::backdrop never takes pointer events, so on touch
- * screens and under sheets a real scrim (`.pop-scrim`, tinted on phones) takes the closing tap;
- * filesMenuScript keeps it a moment after close (`.linger`) so the tap's click lands there too.
- * Generic: RX-01's About popover reuses all of it.
+ * Popovers (D51). Every `.menu` popover is an invisible positioning shell whose one child, `.mbox`,
+ * is the visible box, anchored to its invoker from 600 px and a bottom sheet below (RX-01's
+ * About). A popover's ::backdrop never takes pointer events, so on touch screens and under sheets
+ * a real scrim (`.pop-scrim`, tinted on phones) takes the closing tap; filesMenuScript keeps it a
+ * moment after close (`.linger`) so the tap's click lands there too. The file panel is a popover
+ * too, styled by panelCss and sidebarCss.
  */
 export const menuCss: string = `[popover]{margin:0;inset:auto;padding:0;border:0;background:none;color:var(--ink);overflow:visible}
 .menu{position:fixed;z-index:40;position-area:bottom span-right;position-try-fallbacks:flip-block;margin-block:6px;width:min(400px,calc(100vw - 24px))}
 .mbox{background:var(--dlg);border:1px solid var(--rule-2);border-radius:var(--r-md);box-shadow:var(--sh-2);padding:6px;max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
-.files{width:min(440px,calc(100vw - 24px))}
-.files>.mbox{max-height:min(70dvh,600px)}
-.shd{display:none}
 .pop-scrim{display:none;opacity:0;position:fixed;inset:0;z-index:50;background:transparent}
-.tree a,.tree summary{display:flex;align-items:center;gap:8px;min-height:30px;padding:5px 8px;border-radius:7px;text-decoration:none;color:var(--ink-2);font-size:13.5px;line-height:1.35;overflow-wrap:anywhere}
-.tree a:hover,.tree summary:hover{background:var(--hover)}
-.tree a[aria-current]{background:var(--sunken);box-shadow:inset 3px 0 0 var(--sel-bar),inset 0 0 0 1px var(--sel-ring);color:var(--ink);font-weight:600}
-.tree summary{color:var(--muted);font-weight:600;font-size:12.5px;cursor:pointer;list-style:none}
-.tree summary::-webkit-details-marker{display:none}
-.tree .ti{flex:none;color:var(--faint)}.tree a[aria-current] .ti{color:var(--ink)}
-.tree small{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.tree summary::before{content:"";flex:none;width:5px;height:5px;margin:0 3px 0 1px;border:solid currentColor;border-width:0 1.5px 1.5px 0;rotate:-45deg}
-.tree details[open]>summary::before{rotate:45deg}
-.tree .in{padding-left:14px}
-.tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
-.tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
-.tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
 @supports not (position-area:bottom){.menu{top:104px;left:max(12px,calc(50vw - 544px))}}
 @media(max-width:${PHONE_MAX}px){.menu{position-area:none;position-try-fallbacks:none;inset:auto 0 0 0;width:100%;margin:0}
 [popover]>.mbox{border-radius:16px 16px 0 0;border-bottom-width:0;max-height:82dvh;padding:0 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(27,26,23,.16)}
 [popover]>.mbox::before{content:"";display:block;width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:8px auto 4px}
-.shd{display:flex;align-items:center;gap:8px;position:sticky;top:0;z-index:1;background:var(--dlg);padding:2px 4px 8px;border-bottom:1px solid var(--rule);margin-bottom:6px}
-.shd h2{flex:1;margin:0;font:650 15px var(--sans)}.shd .n{color:var(--faint);font-weight:500}
-.done{min-width:64px;min-height:var(--tap);padding:0 14px;border-radius:var(--r-md);border:1px solid var(--rule-2);background:var(--surface);font:600 14px var(--sans);color:var(--ink);cursor:pointer}
-.tree a,.tree summary{min-height:var(--tap);font-size:15px}.tree summary{font-size:13.5px}
 .pop-scrim{background:var(--scrim)}}
 @media(pointer:coarse),(max-width:${PHONE_MAX}px){body:has([popover]:popover-open) .pop-scrim{display:block;opacity:1}.pop-scrim.linger{display:block}}
-@media(forced-colors:active){.tree a[aria-current]{outline:2px solid CanvasText}.mbox{border-color:CanvasText}.tree .ti,.tree a[aria-current] .ti{color:inherit}}
+@media(forced-colors:active){.mbox{border-color:CanvasText}}
+`;
+/**
+ * The reader's side of the file panel (D74), after the shared panelCss and treeCss. `#shell` fills
+ * the page under the banner; the panel is `nav#files[popover]`, so:
+ *  - From WIDE_MIN it's docked without being open: `.panel{display:flex}` (panelCss) beats the
+ *    UA's `display:none` for a closed popover, and `position:static` puts it back in the grid.
+ *    The document always takes the grid's last column. Collapsed, the peek card and strip are
+ *    placed inside `#shell` (`position:absolute`), since the banner's height varies. Without
+ *    script the button can't collapse it, so it's hidden; a sheet left open across WIDE_MIN floats.
+ *  - Below WIDE_MIN a closed panel is `display:none` (never off-screen and focusable) and the open
+ *    one is panelCss's side sheet, a bottom sheet with a grab handle and Done on phones, over a
+ *    tinted scrim.
+ * The header ("Files N") shows at every width. Rows: icon, name (`b`, one line with an ellipsis;
+ * wrapped without script, which sets the full path as `title`), "download · size" marker.
+ */
+export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
+.shell>main{grid-column:-2;min-width:0;min-height:0}
+.panel{height:auto}
+.shd{display:flex;align-items:center;gap:8px;flex:none;min-height:41px;padding:6px 10px 6px 16px;border-bottom:1px solid var(--rule)}
+.shd h2{flex:1;margin:0;font:650 13px var(--sans)}.shd .n{color:var(--faint);font-weight:500}
+.done{display:none}
+.tree a>svg,.tree summary>svg.ti{color:var(--faint)}.tree a[aria-current]>svg{color:var(--ink)}
+.tree a>b{font-weight:400}
+html:not(.js) .tree a>b{white-space:normal;overflow-wrap:anywhere}
+.tree small{margin-left:auto;flex:none;font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tree details:not([open])>summary>svg.ti{transform:none}
+.tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
+.tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
+.tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
+@media(min-width:${WIDE_MIN}px){.panel{display:flex;position:static;width:auto}
+html:not(.js) .ptog{display:none}
+.panel:popover-open{position:fixed;inset:0 auto 0 0;width:var(--panel-w);box-shadow:var(--sh-2)}}
+@media(min-width:${WIDE_MIN}px) and (hover:hover) and (pointer:fine){.shell.closed>.peek-edge,.shell.closed .panel{position:absolute}}
+@media(max-width:${NARROW_MAX}px){.panel:not(:popover-open){display:none}
+body:has(#files:popover-open) .pop-scrim{display:block;opacity:1;background:var(--scrim)}}
+@media(max-width:${PHONE_MAX}px){.panel:popover-open::before{content:"";display:block;flex:none;width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:8px auto 4px}
+.shd{padding:2px 10px 8px 14px}.shd h2{font-size:15px}.pbody{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.done{display:block;min-width:64px;min-height:var(--tap);padding:0 14px;border-radius:var(--r-md);border:1px solid var(--rule-2);background:var(--surface);font:600 14px var(--sans);color:var(--ink);cursor:pointer}
+.tree a,.tree summary{min-height:var(--tap);font-size:15px}.tree summary{font-size:13.5px}}
+@media(forced-colors:active){.tree a>svg,.tree a[aria-current]>svg,.tree summary>svg.ti{color:inherit}.panel:popover-open{border:1px solid CanvasText}}
 `;
 /** The document area: frame, scroller, download card (shared by R1 and R2; see Risks). */
 export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--paper)}
@@ -194,7 +204,16 @@ export const buttonCss: string = `.btn{display:inline-flex;align-items:center;ju
 
 /** The shell rules, in cascade order. Lanes fill their own segment; the order is fixed here. */
 export const shellCss: string =
-  skipCss + letterheadCss + filesCss + menuCss + documentCss + stageCss + buttonCss;
+  skipCss +
+  letterheadCss +
+  filesCss +
+  menuCss +
+  panelCss +
+  treeCss +
+  sidebarCss +
+  documentCss +
+  stageCss +
+  buttonCss;
 
 /** The public shell's complete stylesheet: the shared Folio tokens plus the shell rules. */
 export const publicShellCss: string = sharedTokensCss + shellCss;

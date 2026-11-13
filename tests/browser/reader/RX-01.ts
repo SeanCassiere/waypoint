@@ -303,9 +303,9 @@ const scenario: ReaderScenario = {
       const { page } = await ctx.newPage({ ...VIEWPORTS.phone, mobile: true });
       watch(page);
       await open(page, url(plain));
-      const following = await rect(page, "header.lh");
+      const following = await rect(page, ".lh");
       await open(page, pinnedUrl);
-      const snapshot = await rect(page, "header.lh");
+      const snapshot = await rect(page, ".lh");
       near(snapshot.height, following.height, 1, "letterhead height, following vs pinned");
       await open(page, url(long, LONG));
       const h1 = await rect(page, "h1");

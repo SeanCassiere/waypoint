@@ -1,3 +1,6 @@
+import { PANEL_STORAGE_KEY, PEEK_CLOSE_GRACE, PEEK_OPEN_DELAY, PEEK_SLIDE_OUT } from "../panel.ts";
+import { WIDE_MIN } from "../tokens.ts";
+
 /**
  * Formats `<time datetime>` elements once at load, in the reader's own time zone (R2; RX-01). No
  * timers: relative times are as of page load. `data-t="rel"` becomes a relative time with a phone
@@ -84,9 +87,11 @@ export const timeScript: string = `(() => {
  * Follows navigation inside the sandboxed frame (spec §8) (R1). Accepts `{ type:
  * "waypoint:location", href }` only from the frame's own window; `href` is untrusted: it must be
  * under the frame's raw prefix and name a file already linked in the shell. Then it moves
- * `aria-current` (and the Files popover's `autofocus`, so it opens on the new file; a tab is
- * scrolled into view instead), updates the Files button's current path and icon and the page
- * title ("<file name> · <the h1's text>", RX-03), and replaces the URL with that link's own
+ * `aria-current` (and the panel's `autofocus`, so the Files sheet opens on the new file), opens
+ * the folders around the new row and scrolls the panel just enough to show it (by setting the
+ * panel body's `scrollTop`, never with `scrollIntoView`: in Chromium that moves the sequential
+ * focus starting point to the row, RX-10 d-1), updates the Files button's current path and icon
+ * and the page title ("<file name> · <the h1's text>", RX-03), and replaces the URL with that link's own
  * server-rendered href, plus the report's section fragment when it matches `^#[\w.~%-]{1,256}$`
  * (RX-09). A report for the current file changes only the URL, and only when it has a fragment;
  * a file switch drops it. Before the first `replaceState` it pins every file link to its absolute
@@ -147,11 +152,17 @@ export const locationScript: string = `(() => {
     for (const a of document.querySelectorAll("#files a[data-p]")) {
       a.toggleAttribute("autofocus", a === hit);
     }
-    const strip = hit.closest(".ptabs2");
-    if (strip) {
-      const s = strip.getBoundingClientRect();
+    const panel = document.getElementById("files");
+    for (let d = hit.closest("details"); d && panel && panel.contains(d);) {
+      d.open = true;
+      d = d.parentElement && d.parentElement.closest("details");
+    }
+    const body = hit.closest(".pbody");
+    if (body && body.clientHeight) {
+      const b = body.getBoundingClientRect();
       const r = hit.getBoundingClientRect();
-      strip.scrollLeft += r.left + r.width / 2 - (s.left + s.width / 2);
+      if (r.top < b.top) body.scrollTop += r.top - b.top;
+      else if (r.bottom > b.bottom) body.scrollTop += r.bottom - b.bottom;
     }
     frame.title = path;
     const shown = path.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
@@ -180,7 +191,7 @@ export const locationScript: string = `(() => {
 })();`;
 
 /**
- * Popover light dismiss and the tab strip (A11Y-07, R1; D51). For every `[popover]`: opening it
+ * Popover light dismiss (A11Y-07, R1; D51). For every `[popover]`: opening it
  * first expands any folder around its `autofocus` row, so the native autofocus can reach that
  * row. A press inside the document frame never reaches this document, but it moves focus into
  * the frame, which blurs this window, so that closes them (deferred, and only when the frame took
@@ -188,11 +199,7 @@ export const locationScript: string = `(() => {
  * (`linger`), so the closing tap's click lands on it, not on what's beneath. When focus was inside
  * a popover that closes and is left nowhere (an outside press on something not focusable; Esc and
  * Done already restore it natively) while no other popover opened, it returns to the popover's
- * invoker. The tab strip scrolls
- * its current tab into view on load and keeps `data-more` ("start", "end", "start end") for its
- * edge fades. Both here and in `locationScript` the tab is centred by setting the strip's
- * `scrollLeft`, never with `scrollIntoView`: in Chromium that moves the sequential focus starting
- * point to the tab, so a first Tab from load would skip the skip link (RX-10, decision d-1).
+ * invoker.
  */
 export const filesMenuScript: string = `(() => {
   const scrim = document.querySelector(".pop-scrim");
@@ -238,24 +245,234 @@ export const filesMenuScript: string = `(() => {
       }
     }, 0);
   });
-  const strip = document.querySelector(".ptabs2");
-  if (!strip) return;
-  const more = () => {
-    const end = strip.scrollWidth - strip.clientWidth - 1;
-    const at = Math.abs(strip.scrollLeft);
-    const value = [at > 1 ? "start" : "", at < end ? "end" : ""].join(" ").trim();
-    if (value) strip.dataset.more = value;
-    else delete strip.dataset.more;
+})();`;
+/**
+ * The file panel (D74), a port of the writer's client/panel.ts and client/panel-peek.ts without
+ * tabs, dialogs or shortcuts. It marks `<html>` with `js` (the CSS shows the panel button from
+ * WIDE_MIN only then) and puts `autofocus` on the current row after parsing, so the Files sheet
+ * opens on it without the docked panel taking the focus at load. Rows get their full path as
+ * `title` when first hovered or focused, so 2,000 rows don't carry it twice.
+ * From WIDE_MIN the panel is docked: the button collapses and docks it (`#shell.closed`), saved
+ * as "open" or "closed" under PANEL_STORAGE_KEY in localStorage (never with the share token: the
+ * key and values are fixed), and its `popovertarget` is removed there, since Chromium reports a
+ * popover invoker's expanded state from the popover alone; `aria-expanded` says whether the panel
+ * shows. Below WIDE_MIN the button opens the native popover (filesMenuScript's light dismiss and
+ * focus return apply) and nothing is saved. Crossing WIDE_MIN closes an open sheet.
+ * Peek (D73): collapsed, from WIDE_MIN, with a mouse, resting PEEK_OPEN_DELAY ms on the shell's
+ * left-edge strip or on the button brings the panel out as a card (`.peek`). It stays while the
+ * pointer is over the card, the strip, the button or an open popover, or while something holds
+ * it (keyboard focus in it, a text selection in it, a press, an open popover), and slides away
+ * (`.peek-out`, PEEK_SLIDE_OUT ms) PEEK_CLOSE_GRACE ms after the pointer leaves. Esc, a followed
+ * link, the window losing focus or the layout changing close it at once. It listens to no
+ * messages: the document frame can't drive the panel.
+ */
+export const panelScript: string = `(() => {
+  const shell = document.getElementById("shell");
+  const panel = document.getElementById("files");
+  const toggle = document.querySelector(".ptog");
+  const edge = document.querySelector("#shell > .peek-edge");
+  if (!shell || !panel || !toggle || !edge) return;
+  document.documentElement.classList.add("js");
+  const WIDE = matchMedia("(min-width: ${WIDE_MIN}px)");
+  const FINE = matchMedia("(hover: hover) and (pointer: fine)");
+  const KEY = "${PANEL_STORAGE_KEY}";
+  const stored = () => {
+    try {
+      return localStorage.getItem(KEY);
+    } catch {
+      return null;
+    }
   };
-  const current = strip.querySelector("a[aria-current]");
-  if (current) {
-    const s = strip.getBoundingClientRect();
-    const r = current.getBoundingClientRect();
-    strip.scrollLeft += r.left + r.width / 2 - (s.left + s.width / 2);
-  }
-  more();
-  strip.addEventListener("scroll", more, { passive: true });
-  addEventListener("resize", more);
+  const save = (value) => {
+    try {
+      localStorage.setItem(KEY, value);
+    } catch {
+      return;
+    }
+  };
+  if (stored() === "closed") shell.classList.add("closed");
+  const current = panel.querySelector("a[aria-current]");
+  if (current) current.setAttribute("autofocus", "");
+  const title = (e) => {
+    const a = e.target instanceof Element ? e.target.closest("a[data-p]") : null;
+    if (a && !a.title) a.title = a.dataset.p.replace(/[\\u202a-\\u202e\\u2066-\\u2069]/g, "\\ufffd");
+  };
+  panel.addEventListener("pointerover", title);
+  panel.addEventListener("focusin", title);
+  const peeking = () => shell.classList.contains("peek");
+  const closed = () => shell.classList.contains("closed");
+  const sync = () => {
+    if (WIDE.matches) toggle.removeAttribute("popovertarget");
+    else toggle.setAttribute("popovertarget", "files");
+    const open = WIDE.matches ? !closed() || peeking() : panel.matches(":popover-open");
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  const reveal = () => {
+    const row = panel.querySelector("a[aria-current]");
+    const body = row && row.closest(".pbody");
+    if (!body || !body.clientHeight) return;
+    const b = body.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    if (r.top < b.top) body.scrollTop += r.top - b.top;
+    else if (r.bottom > b.bottom) body.scrollTop += r.bottom - b.bottom;
+  };
+  let openTimer;
+  let closeTimer;
+  let outTimer;
+  let inside = false;
+  let pressed = false;
+  let suppressed = false;
+  const enabled = () => closed() && WIDE.matches && FINE.matches;
+  const hovered = () => edge.matches(":hover") || toggle.matches(":hover");
+  const cancelOpen = () => {
+    clearTimeout(openTimer);
+    openTimer = undefined;
+  };
+  const open = () => {
+    cancelOpen();
+    if (!enabled() || peeking()) return;
+    clearTimeout(outTimer);
+    shell.classList.remove("peek-out");
+    shell.classList.add("peek");
+    inside = true;
+    sync();
+    reveal();
+  };
+  const stop = () => {
+    cancelOpen();
+    clearTimeout(closeTimer);
+    clearTimeout(outTimer);
+    inside = false;
+    pressed = false;
+    if (!peeking()) return;
+    shell.classList.remove("peek", "peek-out");
+    sync();
+  };
+  const close = (slide) => {
+    cancelOpen();
+    clearTimeout(closeTimer);
+    if (!peeking()) return;
+    const focused = panel.contains(document.activeElement);
+    if (slide) {
+      shell.classList.add("peek-out");
+      clearTimeout(outTimer);
+      outTimer = setTimeout(() => shell.classList.remove("peek-out"), ${PEEK_SLIDE_OUT + 50});
+    }
+    shell.classList.remove("peek");
+    inside = false;
+    pressed = false;
+    suppressed = hovered();
+    if (focused) toggle.focus({ preventScroll: true });
+    sync();
+  };
+  const arm = (e) => {
+    if (e.pointerType !== "mouse" || e.buttons !== 0) return;
+    if (!enabled() || peeking() || suppressed || openTimer !== undefined) return;
+    openTimer = setTimeout(() => {
+      openTimer = undefined;
+      open();
+    }, ${PEEK_OPEN_DELAY});
+  };
+  const held = () => {
+    const active = document.activeElement;
+    if (active && panel.contains(active) && active.matches(":focus-visible")) return true;
+    if (document.querySelector("[popover]:popover-open")) return true;
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed && panel.contains(selection.anchorNode)) return true;
+    return pressed;
+  };
+  const schedule = () => {
+    clearTimeout(closeTimer);
+    if (!peeking() || inside) return;
+    closeTimer = setTimeout(() => {
+      if (!peeking() || inside || held()) return;
+      close(true);
+    }, ${PEEK_CLOSE_GRACE});
+  };
+  const recheck = () => {
+    if (peeking() && !inside) schedule();
+  };
+  const inArea = (node) => node instanceof Element && (panel.contains(node) || node === edge ||
+    toggle.contains(node) || node.closest("[popover]:popover-open") !== null);
+  toggle.addEventListener("click", (e) => {
+    if (!WIDE.matches) return;
+    e.preventDefault();
+    stop();
+    const collapse = !closed();
+    shell.classList.toggle("closed", collapse);
+    save(collapse ? "closed" : "open");
+    if (collapse) suppressed = hovered();
+    sync();
+    if (!collapse) reveal();
+  });
+  panel.addEventListener("beforetoggle", (e) => {
+    if (!WIDE.matches) toggle.setAttribute("aria-expanded", String(e.newState === "open"));
+  });
+  panel.addEventListener("toggle", sync);
+  const layout = () => {
+    if (WIDE.matches && panel.matches(":popover-open")) panel.hidePopover();
+    if (!enabled()) stop();
+    sync();
+  };
+  WIDE.addEventListener("change", layout);
+  FINE.addEventListener("change", layout);
+  document.addEventListener("pointerover", (e) => {
+    if (e.pointerType !== "mouse") return;
+    if (peeking()) {
+      const now = inArea(e.target);
+      if (now === inside) return;
+      inside = now;
+      if (now) clearTimeout(closeTimer);
+      else schedule();
+      return;
+    }
+    if (e.target === edge || (e.target instanceof Node && toggle.contains(e.target))) arm(e);
+    else {
+      cancelOpen();
+      suppressed = false;
+    }
+  }, true);
+  document.addEventListener("pointerout", (e) => {
+    if (e.pointerType !== "mouse" || !peeking()) return;
+    const to = e.relatedTarget;
+    if (to instanceof Element && to.tagName !== "IFRAME") return;
+    if (!to && e.clientX <= 0) return;
+    inside = false;
+    schedule();
+  }, true);
+  edge.addEventListener("pointermove", arm);
+  edge.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    suppressed = false;
+    open();
+  });
+  panel.addEventListener("pointerdown", () => {
+    pressed = true;
+  });
+  document.addEventListener("pointerup", () => {
+    if (!pressed) return;
+    pressed = false;
+    recheck();
+  });
+  document.addEventListener("selectionchange", recheck);
+  panel.addEventListener("focusout", () => setTimeout(recheck));
+  document.addEventListener("beforetoggle", recheck, true);
+  document.addEventListener("toggle", recheck, true);
+  panel.addEventListener("click", (e) => {
+    if (!peeking() || e.button !== 0) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.target instanceof Element && e.target.closest("a[href]")) close(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !peeking() || document.querySelector(":popover-open")) return;
+    close(false);
+  });
+  addEventListener("blur", () => close(false));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") close(false);
+  });
+  sync();
+  reveal();
 })();`;
 /** RX-01's About popover (R2). Empty: About is a native popover; timeScript formats its times. */
 export const aboutScript: string = "";
@@ -347,6 +564,7 @@ export const publicShellScript: string = [
   timeScript,
   locationScript,
   filesMenuScript,
+  panelScript,
   aboutScript,
   hashScript,
   loadingScript,

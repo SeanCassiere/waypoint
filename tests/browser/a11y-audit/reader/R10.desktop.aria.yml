@@ -1,4 +1,5 @@
 - banner:
   - heading "Postgres 17 upgrade runbook" [level=1]
 - navigation "Files":
+  - heading "Files 2" [level=2]
 - main:

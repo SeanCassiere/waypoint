@@ -1,6 +1,6 @@
-// A11Y-07: the reader's Files list is a light-dismiss popover (a bottom sheet over a tinted scrim
-// on phones) that opens on the current file and gives focus back to the Files button; the tab
-// strip scrolls its current tab into view and marks overflowing edges; the row fits the column.
+// A11Y-07 (D74): from 1100 px the reader's Files panel is docked beside the document; below that
+// it's a light-dismiss popover (a side sheet, a bottom sheet on phones, over a tinted scrim) that
+// opens on the current file and gives focus back to the Files button. The banner spans the window.
 import { hashShareToken, newShareToken } from "@waypoint/core";
 import type { Page } from "playwright";
 
@@ -30,22 +30,6 @@ const FIXTURES = {
       "sub/x.html",
       "sub/y.html",
       "sub/z.html",
-    ],
-  },
-  // S: 7 files with long names, tabs that overflow a phone.
-  tabs: {
-    title: "Overflowing tabs",
-    col: { id: "col_" + "g".repeat(26), pub: "gggggggggggg" },
-    rev: { id: "rev_" + "0".repeat(25) + "8", pub: "g8g8g8g8g8g8" },
-    link: "shl_" + "0".repeat(25) + "8",
-    files: [
-      "index.html",
-      "shots/cart-overview-with-promotions.html",
-      "shots/confirmation-screen-final.html",
-      "shots/payment-details-card-entry.html",
-      "shots/receipt-email-preview-long.html",
-      "shots/shipping-address-autocomplete.html",
-      "shots/zz-order-history-after-checkout.html",
     ],
   },
 } as const;
@@ -94,7 +78,7 @@ const NESTED =
   "button a, button button, a a, a button, button [tabindex], a [tabindex], summary a, summary button";
 
 const scenario: ReaderScenario = {
-  name: "A11Y-07 Files popover and phone sheet, focus contract, tab overflow, row layout",
+  name: "A11Y-07 docked Files panel, side and bottom sheets, focus contract, row layout",
   async run(ctx) {
     const db = readerTestDb();
     const ins = (sql: string, ...a: (string | number | null)[]) => db.prepare(sql).run(...a);
@@ -127,7 +111,7 @@ const scenario: ReaderScenario = {
       ins(
         "INSERT INTO share_links (id,token_hash,collection_id,revision_id,expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,1)",
         f.link,
-        // oxlint-disable-next-line eslint/no-await-in-loop -- Two fixtures, seeded in order.
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Fixtures are seeded in order.
         await hashShareToken(token),
         f.col.id,
         null,
@@ -167,54 +151,87 @@ const scenario: ReaderScenario = {
       );
     };
     const T = FIXTURES.tree;
-    const S = FIXTURES.tabs;
 
-    // Desktop: an anchored panel under the Files button.
+    // Desktop: the panel is docked, the banner spans the window, and nothing takes the focus.
     {
       const { page } = await ctx.newPage({ ...VIEWPORTS.desktop });
       logs.push(collectConsole(page));
       await open(page, T, "sub/x.html");
       const row = await rect(page, ".prow");
-      assert.ok(row.width <= 1120, `.prow width ${row.width}`);
-      near((row.left + row.right) / 2, 640, 1, ".prow centred");
-
-      await page.click(".fbtn");
-      assert.ok(await isOpen(page), "opens");
-      assert.ok(await active(page, "a[aria-current]"), "focus on the current row");
-      const button = await rect(page, ".fbtn");
+      near(row.left, 0, 1, ".prow starts at the window's edge");
+      near(row.width, 1280, 1, ".prow spans the window");
+      near((await rect(page, ".lh")).width, 1280, 1, ".lh spans the window");
       const panel = await rect(page, "#files");
-      const gap = panel.top - button.bottom;
-      assert.ok(gap >= 2 && gap <= 12, `panel ${gap}px below the button`);
-      near(panel.left, button.left, 4, "panel left-aligned to the button");
-      near(panel.width, 440, 1, "panel width");
-      assert.equal(await page.locator("#files .shd").isVisible(), false, "no sheet header");
+      near(panel.left, 0, 1, "panel docked at the left edge");
+      near(panel.width, 300, 1, "panel width");
+      near(panel.top, row.bottom + 1, 1, "panel under the banner");
+      near(panel.bottom, 800, 1, "panel to the window's foot");
+      near((await rect(page, "#doc")).left, 300, 1, "the document beside the panel");
+      assert.equal(await isOpen(page), false, "docked, not open as a popover");
+      assert.ok(await page.locator("#files .shd").isVisible(), "the Files header shows");
+      assert.equal(await page.locator("#files .done").isVisible(), false, "no Done");
+      assert.deepEqual(await autofocused(page), ["sub/x.html"], "autofocus set after load");
       assert.deepEqual(await axe(page, { rules: ["nested-interactive"] }), []);
       assert.equal(
         await page.evaluate(`document.querySelectorAll(${JSON.stringify(NESTED)}).length`),
         0,
       );
       assert.equal(await page.evaluate(`!!document.querySelector(".fbtn #files")`), false);
+      // Every row is one line, cut with an ellipsis; its full path shows as a tooltip on hover.
+      const heights = await json(
+        page,
+        `[...document.querySelectorAll("#files a")].map((a) => Math.round(a.getBoundingClientRect().height))`,
+      );
+      assert.ok(
+        Array.isArray(heights) && new Set(heights).size === 1,
+        `one row height ${JSON.stringify(heights)}`,
+      );
+      await page.hover('#files a[data-p="sub/z.html"]');
+      assert.equal(
+        await page.getAttribute('#files a[data-p="sub/z.html"]', "title"),
+        "sub/z.html",
+        "lazy title",
+      );
+      // In-frame navigation moves the current row and the autofocus.
+      await post(page, T, "sub/y.html");
+      assert.equal((await page.textContent("#files-cur .t"))?.trim(), "sub/y.html");
+      assert.deepEqual(await autofocused(page), ["sub/y.html"]);
+    }
+
+    // Tablet: a side sheet over a tinted scrim. It opens on the current row, Esc and a press
+    // outside close it, and focus goes back to the Files button.
+    {
+      const { page } = await ctx.newPage({ width: 820, height: 1180 });
+      logs.push(collectConsole(page));
+      await open(page, T, "sub/x.html");
+      assert.equal(await page.locator("#files").isVisible(), false, "closed below 1100 px");
+      assert.equal(await page.getAttribute(".fbtn", "aria-expanded"), "false");
+      await page.click(".fbtn");
+      assert.ok(await isOpen(page), "opens");
+      assert.equal(await page.getAttribute(".fbtn", "aria-expanded"), "true");
+      assert.ok(await active(page, "a[aria-current]"), "focus on the current row");
+      const sheet = await rect(page, "#files");
+      near(sheet.left, 0, 1, "sheet at the left edge");
+      near(sheet.top, 0, 1, "sheet top");
+      near(sheet.bottom, 1180, 1, "sheet bottom");
+      near(sheet.width, 360, 1, "sheet width");
+      assert.notEqual(
+        await page.evaluate(`getComputedStyle(document.querySelector(".pop-scrim")).display`),
+        "none",
+        "scrim shown",
+      );
+      assert.deepEqual(await axe(page, { rules: ["nested-interactive"] }), []);
 
       await page.keyboard.press("Escape");
       assert.equal(await isOpen(page), false, "Esc closes");
       assert.ok(await active(page, ".fbtn"), "Esc returns focus to Files");
+      assert.equal(await page.getAttribute(".fbtn", "aria-expanded"), "false");
 
       await page.click(".fbtn");
       assert.ok(await isOpen(page));
-      await page.click("h1");
-      assert.equal(await isOpen(page), false, "a press outside closes");
-      await until(page, `document.activeElement?.matches(".fbtn") === true`, 1000);
-
-      await page.click(".fbtn");
-      assert.ok(await isOpen(page));
-      const frame = await rect(page, "#doc");
-      const pressed = performance.now();
-      await page.mouse.click(frame.left + frame.width / 2, frame.top + frame.height / 2);
+      await page.mouse.click(700, 600);
       await until(page, `!${OPEN}`, 1000);
-      const took = performance.now() - pressed;
-      assert.ok(took <= 200, `a press in the document closes it (${Math.round(took)} ms)`);
-      await page.waitForTimeout(50);
-      assert.ok(await active(page, "#doc"), "a press in the document keeps focus there");
+      await until(page, `document.activeElement?.matches(".fbtn") === true`, 1000);
 
       // Keyboard: Enter opens on the current row; every row is in Tab order.
       await page.focus(".fbtn");
@@ -256,9 +273,9 @@ const scenario: ReaderScenario = {
       await page.keyboard.press("Escape");
     }
 
-    // Desktop, on the head file: the head row (before the rule) takes focus.
+    // Tablet, on the head file: the head row (before the rule) takes focus.
     {
-      const { page } = await ctx.newPage({ ...VIEWPORTS.desktop });
+      const { page } = await ctx.newPage({ ...VIEWPORTS.tablet });
       logs.push(collectConsole(page));
       await open(page, T);
       await page.click(".fbtn");
@@ -282,7 +299,6 @@ const scenario: ReaderScenario = {
       const { page } = await ctx.newPage({ ...VIEWPORTS.desktop, forcedColors: "active" });
       logs.push(collectConsole(page));
       await open(page, T, "sub/x.html");
-      await page.click(".fbtn");
       assert.deepEqual(
         await json(
           page,
@@ -346,56 +362,6 @@ const scenario: ReaderScenario = {
       await page.tap("#files .done");
       assert.equal(await isOpen(page), false, "Done closes");
       assert.ok(await active(page, ".fbtn"), "Done returns focus to Files");
-    }
-
-    // Phone tabs: the current tab is scrolled into view; the strip marks its overflowing edges.
-    {
-      const { page } = await ctx.newPage({ ...VIEWPORTS.phone, mobile: true });
-      logs.push(collectConsole(page));
-      const last = S.files.at(-1)!;
-      await open(page, S, last);
-      const strip = await rect(page, ".ptabs2");
-      const tab = await rect(page, "a[aria-current]");
-      // RX-06's 44 px Download control shares the row, so a long tab can be wider than the strip
-      // (by how much depends on the fonts): then it must fill the strip, otherwise show whole.
-      const visible = (t: Rect) => Math.min(t.right, strip.right) - Math.max(t.left, strip.left);
-      assert.ok(
-        visible(tab) >= Math.min(tab.width, strip.width) - 1,
-        `current tab visible: ${visible(tab)} of ${tab.width} in ${strip.width}`,
-      );
-      assert.ok(strip.left >= 0 && strip.right <= 390, "strip inside the viewport");
-      assert.ok(
-        await page.evaluate(
-          `(() => { const s = document.querySelector(".ptabs2"); return s.scrollWidth > s.clientWidth; })()`,
-        ),
-        "the strip overflows",
-      );
-      assert.ok(
-        Number(await page.evaluate("document.scrollingElement.scrollWidth")) <= 390,
-        "the page doesn't scroll sideways",
-      );
-      assert.equal(await page.evaluate("document.scrollingElement.scrollTop"), 0, "no page jump");
-      const more = () => page.evaluate(`document.querySelector(".ptabs2").dataset.more ?? ""`);
-      assert.ok(
-        String(await more())
-          .split(" ")
-          .includes("start"),
-        "a start fade",
-      );
-      await page.evaluate(`document.querySelector(".ptabs2").scrollLeft = 0`);
-      await until(
-        page,
-        `!(document.querySelector(".ptabs2").dataset.more ?? "").includes("start")`,
-      );
-      assert.deepEqual(String(await more()).split(" "), ["end"], "only an end fade at the start");
-      // In-frame navigation to a tab out of view scrolls it into view.
-      await post(page, S, S.files[5]);
-      const shown = await rect(page, "a[aria-current]");
-      assert.ok(
-        visible(shown) >= Math.min(shown.width, strip.width) - 1,
-        `followed tab visible: ${visible(shown)} of ${shown.width} in ${strip.width}`,
-      );
-      assert.deepEqual(await autofocused(page), [], "never autofocus on tabs");
     }
 
     for (const log of logs) assert.deepEqual(cspProblems(log), []);

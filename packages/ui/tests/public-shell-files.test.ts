@@ -10,9 +10,11 @@ import {
   type PublicShellFile,
   type PublicShellOptions,
 } from "../src/index.ts";
-import { filesCss, menuCss } from "../src/public-shell/css.ts";
+import { panelCss, treeCss } from "../src/panel-css.ts";
+import { filesCss, menuCss, sidebarCss } from "../src/public-shell/css.ts";
 
-// A11Y-07: the Files popover (a bottom sheet on phones), tab rows, the `.prow` row and the scrim.
+// A11Y-07 and D74: the Files row, the file panel (a popover below WIDE_MIN, a bottom sheet on
+// phones) and the scrim.
 const base: PublicShellOptions = {
   title: "Plan",
   files: [{ path: "index.md" }],
@@ -30,23 +32,37 @@ const markup = (html: string): string =>
 const count = (html: string, text: string): number => html.split(text).length - 1;
 const twelve = ["index.md", ...Array.from({ length: 11 }, (_, i) => `a/b${i}.md`)];
 const three = ["index.md", "a.md", "b.md"];
+/** A row's type icon: a sprite reference drawn by `.tree a>svg`, so without a class of its own. */
+const rowIcon = (kind: string): string => `<svg aria-hidden="true"><use href="#i-${kind}"/></svg>`;
+/** One file row: a bare link, its sprite icon, the label in a `b`, an optional download marker. */
+const ROW =
+  /^<a href="[^"]*" data-p="[^"]*"(?: aria-current="page")?><svg aria-hidden="true"><use href="#i-[a-z]+"\/><\/svg><b>[^<]*<\/b>(?:<small> download[^<]*<\/small>)?<\/a>$/;
 
-describe("Files popover", () => {
-  it("opens the tree from a Files button, focusing the current row", () => {
+describe("Files panel", () => {
+  it("puts the tree in a Files panel beside the document, opened from the Files button", () => {
     const html = markup(shell(twelve, "a/b3.md"));
     expect(count(html, 'popovertarget="files"')).toBe(2);
-    expect(count(html, '<button type="button" class="fbtn" popovertarget="files"')).toBe(1);
-    const button = /<button type="button" class="fbtn"[^>]*>([\s\S]*?)<\/button>/.exec(html);
+    const button = /<button type="button" class="fbtn ptog"[^>]*>([\s\S]*?)<\/button>/.exec(html);
+    expect(button?.[0]).toContain('popovertarget="files" aria-controls="files"');
     expect(button?.[0]).toContain('aria-describedby="files-cur"');
+    expect(button?.[1]).toMatch(/^<svg class="ic" /);
     expect(button?.[1]?.replace(/<[^>]*>/g, "")).toMatch(/^Files 12/);
-    expect(html).toContain('<div id="files" class="menu files" popover="auto">');
-    expect(html).toContain('<div class="mbox tree" role="group" aria-labelledby="files-h">');
-    expect(html).toContain('<h2 id="files-h">Files <span class="n">12</span></h2>');
+    expect(html).toContain('<body class="pan">');
+    expect(html).toContain(`<header class="pwrap"><div class="lh">`);
+    expect(html).toMatch(/<\/div><div class="prow"><button type="button" class="fbtn ptog"/);
     expect(html).toContain(
-      '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button>',
+      '</header><div id="shell" class="shell"><nav id="files" class="panel" popover="auto" aria-label="Files"><div class="shd"><h2 id="files-h">Files <span class="n">12</span></h2>',
     );
-    expect(count(html, "autofocus")).toBe(1);
-    expect(html).toMatch(/<a [^>]*data-p="a\/b3\.md" aria-current="page" autofocus>/);
+    expect(html).toContain(
+      '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div><div class="pbody"><div class="tree">',
+    );
+    expect(html).toMatch(
+      /<\/div><\/div><\/nav><main id="main">[\s\S]*<\/main><div class="peek-edge" aria-hidden="true"><\/div><\/div><svg/,
+    );
+    // The script puts autofocus on the current row after parsing: a docked panel must not take
+    // the focus from the skip link at load.
+    expect(html).not.toContain("autofocus");
+    expect(html).toMatch(/<a [^>]*data-p="a\/b3\.md" aria-current="page">/);
     for (const banned of [
       "<details class=",
       "<summary>Files",
@@ -54,37 +70,39 @@ describe("Files popover", () => {
       'class="ti"',
       'class="nm"',
       'class="sz"',
+      'class="in"',
+      "title=",
     ])
-      expect(html).not.toContain(banned);
+      expect(html.slice(html.indexOf('<div class="tree">'), html.indexOf("</nav>"))).not.toContain(
+        banned,
+      );
     // Every row is a bare link: no classes, no wrapper spans; one sprite icon after the opening
     // tag, and a download marker only on files that can't be previewed (RX-03).
     const rows = html.match(/<a href="[^"]*" data-p="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
     expect(rows).toHaveLength(12);
-    for (const row of rows)
-      expect(row).toMatch(
-        /^<a href="[^"]*" data-p="[^"]*"(?: aria-current="page"(?: autofocus)?)?><svg class="ic ti" aria-hidden="true"><use href="#i-[a-z]+"\/><\/svg>[^<]*(?:<small> download[^<]*<\/small>)?<\/a>$/,
-      );
+    for (const row of rows) expect(row).toMatch(ROW);
   });
-  it("puts autofocus on the head row when the head is the current file", () => {
+  it("lists the head first, above a rule", () => {
     const html = markup(shell(twelve));
-    expect(count(html, "autofocus")).toBe(1);
-    const menu = html.slice(html.indexOf('<div class="mbox tree"'));
-    const head = menu.slice(0, menu.indexOf("<hr>"));
+    const tree = html.slice(html.indexOf('<div class="tree">'));
+    const head = tree.slice(0, tree.indexOf("<hr>"));
     expect(head).toMatch(
-      /<a href="[^"]*" data-p="index\.md" aria-current="page" autofocus><svg [^>]*><use href="#i-doc"\/><\/svg>index\.md<\/a>$/,
+      /<a href="[^"]*" data-p="index\.md" aria-current="page"><svg [^>]*><use href="#i-doc"\/><\/svg><b>index\.md<\/b><\/a>$/,
     );
   });
-  it("uses tabs in a .prow row for 2–8 files, without popover or autofocus", () => {
+  it("uses the panel for two files too: no tab strip", () => {
     const html = markup(shell(three));
-    // The row is the Files landmark, so its Download control is inside one too (A11Y-AUDIT).
-    expect(html).toContain('<nav class="prow" aria-label="Files"><div class="ptabs2">');
-    // The letterhead's About popover (RX-01) is not part of the Files row.
-    expect(html.slice(html.indexOf("</header>"))).not.toContain("popover");
-    expect(html).not.toContain("autofocus");
+    expect(html).toContain('<nav id="files" class="panel" popover="auto" aria-label="Files">');
+    expect(html).not.toContain("ptabs2");
+    expect(count(html, 'aria-label="Files"')).toBe(1);
+    expect(markup(shell(["index.md", "a.md"]))).toContain('id="shell"');
   });
-  it("has no row for one file", () => {
+  it("has no row, panel or shell for one file", () => {
     const html = markup(shell(["index.md"]));
     expect(html).not.toContain('class="prow"');
+    expect(html).not.toContain('id="shell"');
+    expect(html).not.toContain('class="pan"');
+    expect(html).toContain('</header><main id="main">');
     expect(html.slice(html.indexOf("</header>"))).not.toContain("popover=");
   });
   it("emits the scrim once on every page", () => {
@@ -105,7 +123,7 @@ describe("Files popover", () => {
         head: paths[0]!,
         current: paths[7]!,
       });
-      const menu = html.slice(html.indexOf('<div id="files"'));
+      const menu = html.slice(html.indexOf('<nav id="files"'));
       expect(count(menu, "data-p=")).toBe(2000);
       expect(count(menu, "<use href=")).toBeGreaterThanOrEqual(2000);
       expect(html).not.toContain('class="more"');
@@ -113,7 +131,7 @@ describe("Files popover", () => {
   });
   it("lists most of the repository shape on a page 9 folders deep, and says how many are missing", () => {
     // Decision c-2: the reader links with "../" once per folder level, so rows grow with depth.
-    // A file of this shape sits 9 folders deep; its page lists 1,756 of 2,000 at 340,000. Pin a
+    // A file of this shape sits 9 folders deep; its page lists 1,822 of 2,000 at 340,000. Pin a
     // floor so a markup change that shrinks the list further fails here.
     const paths = Array.from(
       { length: 2000 },
@@ -126,7 +144,7 @@ describe("Files popover", () => {
       current: paths[7]!,
       fileHref: (path) => `${"../".repeat(9)}${encodeLinkPath(path)}`,
     });
-    const menu = html.slice(html.indexOf('<div id="files"'));
+    const menu = html.slice(html.indexOf('<nav id="files"'));
     const listed = count(menu, "data-p=");
     expect(listed).toBeGreaterThanOrEqual(1700);
     expect(listed).toBeLessThan(2000);
@@ -180,21 +198,27 @@ describe("file type icons", () => {
     renderPublicShell({ ...base, files: typed, current });
   it("puts the kind's icon on every row, and the download marker only where it can't preview", () => {
     const html = markup(typedShell());
-    expect(html).toContain("archive/build-output.tar.gz<small> download · 4.1 MB</small></a>");
-    expect(html).toContain("y.bin<small> download</small></a>");
+    expect(html).toContain(
+      "<b>archive/build-output.tar.gz</b><small> download · 4.1 MB</small></a>",
+    );
+    expect(html).toContain("<b>y.bin</b><small> download</small></a>");
     const rows = html.match(/<a href="[^"]*" data-p="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
     expect(rows).toHaveLength(12);
     expect(rows.filter((row) => row.includes("<small>"))).toHaveLength(2);
     for (const file of typed) {
       const row = rows.find((r) => r.includes(`data-p="${file.path}"`)) ?? "";
       expect(row.slice(row.indexOf(">") + 1)).toMatch(
-        new RegExp(`^${iconUse(shellFileKind(file.mime))}`),
+        new RegExp(`^${rowIcon(shellFileKind(file.mime))}`),
       );
     }
     const summaries = html.match(/<summary dir="auto">[\s\S]*?<\/summary>/g) ?? [];
     expect(summaries.length).toBeGreaterThan(0);
     for (const summary of summaries)
-      expect(summary.startsWith(`<summary dir="auto">${iconUse("folder")}`)).toBe(true);
+      expect(
+        summary.startsWith(
+          `<summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}`,
+        ),
+      ).toBe(true);
     expect(html).toContain(`id="files-cur">${iconUse("doc")}<span class="t"`);
     expect(markup(typedShell("data/x.csv"))).toContain(
       `id="files-cur">${iconUse("table")}<span class="t"`,
@@ -202,7 +226,7 @@ describe("file type icons", () => {
   });
   it("emits one sprite before the scrim, and none for one file", () => {
     const html = typedShell();
-    expect(count(html, "<symbol")).toBe(6);
+    expect(count(html, "<symbol")).toBe(7);
     expect([...html.matchAll(/<symbol id="([^"]+)"/g)].map((m) => m[1])).toEqual([
       "i-doc",
       "i-image",
@@ -210,12 +234,14 @@ describe("file type icons", () => {
       "i-code",
       "i-binary",
       "i-folder",
+      "i-chevronDown",
     ]);
     expect(html).toContain(
-      `${iconSprite(["doc", "image", "table", "code", "binary", "folder"])}<div class="pop-scrim"`,
+      `${iconSprite(["doc", "image", "table", "code", "binary", "folder", "chevronDown"])}<div class="pop-scrim"`,
     );
-    expect(html).toContain('<body><a class="skip"');
-    expect(count(shell(three), "<symbol")).toBe(6);
+    expect(html).toContain('<body class="pan"><a class="skip"');
+    expect(shell(["index.md"])).toContain('<body><a class="skip"');
+    expect(count(shell(three), "<symbol")).toBe(7);
     expect(shell(["index.md"])).not.toContain("<symbol");
   });
   it("titles the page with the current file's name and the collection title", () => {
@@ -227,16 +253,25 @@ describe("file type icons", () => {
   });
 });
 describe("Files CSS", () => {
-  it("pins the .prow row and moves the column off the navs", () => {
+  it("pins the .prow row, full width beside a panel, and drops the tab strip", () => {
     expect(filesCss).toContain(
       ".prow{display:flex;align-items:flex-end;gap:8px;max-width:1120px;margin:0 auto;padding:0 16px}",
     );
+    expect(filesCss).toContain(".pan .lh,.pan .prow{max-width:none}");
     expect(filesCss).toMatch(
       /@media\s*\(max-width:\s*599\.98px\)\s*\{[^@]*\.prow\{padding:0 10px\}/,
     );
-    expect(filesCss).toContain(".ptabs2,.pfiles{min-width:0;flex:1 1 auto}");
-    expect(filesCss).not.toMatch(/\.ptabs2\{[^}]*max-width/);
-    expect(filesCss).not.toMatch(/\.pfiles\{[^}]*max-width/);
+    expect(publicShellCss).not.toMatch(/ptabs2|pfiles|\.files\b/);
+  });
+  it("docks the panel from WIDE_MIN without opening it, and hides a closed sheet below", () => {
+    expect(publicShellCss).toContain(panelCss + treeCss + sidebarCss);
+    expect(sidebarCss).toContain(
+      "@media(min-width:1100px){.panel{display:flex;position:static;width:auto}",
+    );
+    expect(sidebarCss).toContain("html:not(.js) .ptog{display:none}");
+    expect(sidebarCss).toContain(
+      "@media(max-width:1099.98px){.panel:not(:popover-open){display:none}",
+    );
   });
   it("adds no motion, and has the scrim and the phone breakpoint", () => {
     expect(filesCss + menuCss).not.toMatch(/transition|animation|view-transition/);

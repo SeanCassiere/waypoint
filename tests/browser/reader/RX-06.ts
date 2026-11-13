@@ -29,7 +29,7 @@ const BODIES = new Map<string, string>([
 ]);
 type FileRow = readonly [path: string, mime: string, blob: string];
 const FIXTURES = {
-  // Four files: tabs, a markdown head with a rendition, CSV, a nested note and an archive.
+  // Four files: the Files panel, a markdown head with a rendition, CSV, a nested note and an archive.
   multi: {
     title: "Field kit",
     col: { id: "col_" + "k".repeat(26), pub: "kkkkkkkkkkkk" },
@@ -43,9 +43,9 @@ const FIXTURES = {
       ["bin.tar.gz", "application/gzip", hash("5")],
     ] as readonly FileRow[],
   },
-  // Seven long names: tabs that overflow a phone, with the control beside them.
-  tabs: {
-    title: "Overflowing tabs",
+  // Seven long names: on a phone the Files button's current path is cut, beside the control.
+  long: {
+    title: "Long names",
     col: { id: "col_" + "m".repeat(26), pub: "mmmmmmmmmmmm" },
     rev: { id: "rev_" + "0".repeat(25) + "c", pub: "mcmcmcmcmcmc" },
     link: "shl_" + "0".repeat(25) + "c",
@@ -264,14 +264,15 @@ const scenario: ReaderScenario = {
       assert.ok(box && box.width >= 44 && box.height >= 44, `44×44: ${JSON.stringify(box)}`);
       assert.equal(await page.locator(".dlb .lbl").isVisible(), false, "label hidden");
 
-      // Seven tabs: the strip still scrolls, the control stays inside the row, nothing overflows.
-      const T = FIXTURES.tabs;
-      await open(page, T);
+      // A long current path: the Files button cuts it, the control stays inside the row, nothing
+      // overflows.
+      const L = FIXTURES.long;
+      await open(page, L, L.files.at(-1)![0]);
       const [scrollWidth, clientWidth] = await numbers(
         page,
-        `(() => { const s = document.querySelector(".ptabs2"); return [s.scrollWidth, s.clientWidth]; })()`,
+        `(() => { const s = document.querySelector(".fbtn .t"); return [s.scrollWidth, s.clientWidth]; })()`,
       );
-      assert.ok(scrollWidth! > clientWidth!, `strip scrolls: ${scrollWidth} > ${clientWidth}`);
+      assert.ok(scrollWidth! > clientWidth!, `path cut: ${scrollWidth} > ${clientWidth}`);
       const [right, contentRight] = await numbers(
         page,
         `(() => { const row = document.querySelector(".prow"); const r = row.getBoundingClientRect();

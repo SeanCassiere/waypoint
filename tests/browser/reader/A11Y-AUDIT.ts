@@ -93,6 +93,8 @@ interface State {
   shell: boolean;
   popover?: string;
   trigger?: string;
+  /** At 1280 px the popover is docked (the Files panel, D74): audited as a page state there. */
+  docked?: boolean;
   /** Extra page-specific checks, run after the common ones (light scheme). */
   extra?: (page: Page, audit: Audit, label: string) => Promise<void>;
 }
@@ -103,9 +105,9 @@ const filesList = z.object({
   current: z.array(z.string()),
   shown: z.string(),
 });
-/** R05 (acceptance check 6): the open Files popover has one link per file and marks the current
- *  one aria-current="page". Its rows are A11Y-07's bare links in a group named by its heading
- *  (A11Y-07's markup, inside RX-03's list budget), not list items. */
+/** R05 (acceptance check 6): the Files panel (docked, or open as a sheet) has one link per file
+ *  and marks the current one aria-current="page". Its rows are A11Y-07's bare links in the Files
+ *  navigation landmark (A11Y-07's markup, inside RX-03's list budget), not list items. */
 async function filesLinks(page: Page, audit: Audit, label: string): Promise<void> {
   const files = filesList.parse(
     await page.evaluate(`({
@@ -136,8 +138,8 @@ const STATES: readonly State[] = [
   { name: "R02-revoked", url: (u) => u.revoked, kind: "page", shell: false },
   { name: "R03", url: (u) => u.latest, kind: "page", shell: true },
   { name: "R04", url: (u) => u.pinned, kind: "page", shell: true },
-  // Webhook's three files are tabs at every width; the Files popover (A11Y-07) needs more than
-  // eight, so it opens on the demo's reader fixture (twelve files).
+  // The Files panel (A11Y-07, D74) on the demo's reader fixture (twelve files, folders): docked
+  // at 1280 px, a sheet opened from the Files button at 820 and 390.
   {
     name: "R05",
     url: (u) => u.fixture,
@@ -145,6 +147,7 @@ const STATES: readonly State[] = [
     shell: true,
     popover: "files",
     trigger: "button.fbtn",
+    docked: true,
     extra: filesLinks,
   },
   {
@@ -169,6 +172,7 @@ async function audited(
   width: Width,
   urls: Urls,
 ): Promise<void> {
+  const kind = state.docked && width === "desktop" ? "page" : state.kind;
   const response = await page.goto(state.url(urls));
   await settled(page);
   audit.expect(
@@ -176,11 +180,11 @@ async function audited(
     state.shell ? response?.status() === 200 : true,
     `status ${response?.status()}`,
   );
-  if (state.kind === "page") {
+  if (kind === "page") {
     await audit.skipLink(page, label, state.shell);
     await page.evaluate(`document.activeElement?.blur()`);
   }
-  if (state.kind === "popover" && state.trigger && state.popover) {
+  if (kind === "popover" && state.trigger && state.popover) {
     const trigger = page.locator(state.trigger).locator("visible=true").first();
     if (width === "desktop") await trigger.click();
     else await trigger.tap();
@@ -193,7 +197,7 @@ async function audited(
   await audit.skeleton(page, label, `${state.name}.${width}`);
   await audit.invariants(page, label);
   await state.extra?.(page, audit, label);
-  if (state.kind === "popover" && state.trigger && state.popover)
+  if (kind === "popover" && state.trigger && state.popover)
     await audit.popover(page, label, state.popover, state.trigger);
 }
 

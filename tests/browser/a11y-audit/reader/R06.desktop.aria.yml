@@ -3,4 +3,5 @@
     - heading "About this link" [level=2]
     - list:
 - navigation "Files":
+  - heading "Files 3" [level=2]
 - main:

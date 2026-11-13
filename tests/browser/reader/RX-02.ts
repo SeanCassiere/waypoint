@@ -1,4 +1,4 @@
-// RX-02: shell links stay correct after in-frame navigation. Tab and tree links are relative to
+// RX-02: shell links stay correct after in-frame navigation. The Files panel's links are relative to
 // the page; once the address bar follows the frame into another folder, the shell pins them to
 // absolute URLs first, so clicks, reloads and Back+reload never land on the denial page.
 import { hashShareToken, newShareToken } from "@waypoint/core";
@@ -17,8 +17,8 @@ const HASH = "sha256:" + "2".repeat(64);
 const DEEP = ["index.html", "other.html", "sub/page.html", "sub/deep/leaf.html"];
 const FIXTURES = [
   {
-    kind: "tabs",
-    title: "Stable tabs",
+    kind: "small",
+    title: "Stable small tree",
     col: { id: "col_" + "c".repeat(26), pub: "cccccccccccc" },
     rev: { id: "rev_" + "0".repeat(25) + "2", pub: "c2c2c2c2c2c2" },
     link: "shl_" + "0".repeat(25) + "2",
@@ -35,7 +35,7 @@ const FIXTURES = [
 ] as const;
 
 const scenario: ReaderScenario = {
-  name: "RX-02 shell links stay correct after in-frame navigation (tabs and tree)",
+  name: "RX-02 shell links stay correct after in-frame navigation (small and larger trees)",
   async run(ctx) {
     const db = readerTestDb();
     const ins = (sql: string, ...a: (string | number | null)[]) => db.prepare(sql).run(...a);
@@ -123,14 +123,8 @@ const scenario: ReaderScenario = {
         );
         await page.waitForFunction(`location.pathname.endsWith(${JSON.stringify("/" + path)})`);
       };
-      const openFiles = async () => {
-        if (f.kind !== "tree") return;
-        // Today's <details> summary, or A11Y-07's button and popover.
-        await page.locator(".pfiles > details > summary, .pfiles .fbtn").first().click();
-        await page.locator('a[data-p="other.html"]').waitFor({ state: "visible" });
-      };
       const clickFile = async (path: string) => {
-        await openFiles();
+        // At 1280 px the Files panel is docked: its rows are always on screen (D74).
         const target = page.locator(`a[data-p=${JSON.stringify(path)}]`);
         const url = new URL(String(await target.getAttribute("href")), page.url()).href;
         const loaded = page.waitForResponse(url);
@@ -142,21 +136,20 @@ const scenario: ReaderScenario = {
 
       // Lazy: a page that never navigates in-frame keeps its relative links.
       await open(shellBase);
-      // Fixture A shows tabs, fixture B the Files tree.
-      assert.equal(await page.locator(f.kind === "tabs" ? ".ptabs2" : ".pfiles").count(), 1);
-      assert.equal(await page.locator(f.kind === "tabs" ? ".pfiles" : ".ptabs2").count(), 0);
+      // Both fixtures show the docked Files panel; there's no tab strip.
+      assert.ok(await page.locator("#files").isVisible(), label("docked panel"));
+      assert.equal(await page.locator(".ptabs2").count(), 0);
       for (const href of await hrefs()) assert.ok(href.startsWith("./"), label(href));
 
       // In-frame navigation into a subfolder: the URL follows, every link is pinned.
       await post("sub/page.html");
       assert.ok(await page.evaluate("location.pathname.endsWith('/sub/page.html')"));
       assert.deepEqual(await current(), ["sub/page.html"]);
-      if (f.kind === "tree")
-        assert.equal((await page.textContent(".pfiles .cur"))?.trim(), "sub/page.html");
+      assert.equal((await page.textContent(".fbtn .cur"))?.trim(), "sub/page.html");
       for (const href of await hrefs())
         assert.ok(href.startsWith(reader.origin + "/"), label(`pinned ${href}`));
 
-      // A tab or tree click now opens the right file.
+      // A click in the panel now opens the right file.
       await clickFile("other.html");
       assert.equal(page.url(), shellBase + "other.html");
       assert.equal((await page.textContent("h1"))?.trim(), f.title);

@@ -168,10 +168,13 @@ function bandHtml(band: PreviewBand, back: string): string {
 }
 
 // Shared tokens only (the shell doesn't load viewer.css). The column matches the letterhead's
-// `.lh` (1120 px, 20 px; 14 px on phones), so the band's start lines up with the title.
+// `.lh` (1120 px, or the whole width beside a file panel, `body.pan`; 20 px, 14 px on phones), so
+// the band's start lines up with the title. The shell's panel script saves the docked panel's
+// state under the same localStorage key as the writer's own panel, with the same meaning.
 const BANNER_CSS =
   ".wp-pv{flex:none;display:flex;min-height:40px;background:var(--public-bg);border-bottom:1px solid var(--public-line);color:var(--ink-2);font:13px/1.4 var(--sans)}" +
   ".wp-pv-in{flex:1;display:flex;align-items:center;gap:8px;min-width:0;max-width:1120px;margin:0 auto;padding:4px 20px}" +
+  ".pan .wp-pv-in{max-width:none}" +
   ".wp-pv-in>svg.ic,.wp-pv-lead{color:var(--public)}" +
   ".wp-pv-m{flex:1;min-width:0}.wp-pv-lead,.wp-pv-1 b{font-weight:650}.wp-pv-1 b{color:var(--ink)}.wp-pv-s{display:none}" +
   ".wp-pv-back{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px 0 6px;border:1px solid var(--public-line);border-radius:8px;background:var(--surface);color:var(--ink);font-weight:500;text-decoration:none;white-space:nowrap}" +

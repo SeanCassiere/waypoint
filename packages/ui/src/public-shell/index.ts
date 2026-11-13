@@ -13,16 +13,12 @@ export { formatShellTime } from "./letterhead.ts";
 export { publicShellScript } from "./script.ts";
 export { IMAGE_ERROR_HEADING, imageTypeLabel, isStageImage, stageHtml } from "./stage.ts";
 export { encodeLinkPath, encodePathSegments } from "./text.ts";
-export {
-  PUBLIC_SHELL_LIST_BUDGET,
-  PUBLIC_SHELL_TAB_LIMIT,
-  PUBLIC_SHELL_TREE_DEPTH,
-} from "./tree.ts";
+export { PUBLIC_SHELL_LIST_BUDGET, PUBLIC_SHELL_TREE_DEPTH } from "./tree.ts";
 export { shellFileKind, type ShellFileKind } from "./tree.ts";
 
 /**
- * The Folio public shell (spec §9): a quiet letterhead, the file tabs or a "Files (N)" tree,
- * and the document in a sandboxed iframe. Shared by the public reader (Workers) and the
+ * The Folio public shell (spec §9): a quiet letterhead, for two or more files a "Files N" row and
+ * the file panel beside the document (D74), and the document in a sandboxed iframe. Shared by the public reader (Workers) and the
  * writer's `?as=public` preview so both render the same page.
  *
  * Callers own every URL. The shell never builds share or capability URLs itself.
@@ -48,7 +44,7 @@ export interface PublicShellOptions {
   head: string;
   /** The file being shown. */
   current: string;
-  /** URL of the shell page for a file (the tab and tree links). */
+  /** URL of the shell page for a file (the tree's links). */
   fileHref: (path: string) => string;
   /**
    * URL prefix of the raw content for this revision, ending in `/`. The iframe loads
@@ -110,10 +106,10 @@ export function renderPublicShell(options: PublicShellOptions): string {
   const name = options.current.slice(options.current.lastIndexOf("/") + 1);
   const title = `${escapeHtml(showBidi(name))} · ${escapeHtml(showBidi(options.title))}`;
   // One sprite for every row's icon; same-document <use> references resolve forward.
-  const sprite =
-    options.files.length > 1
-      ? iconSprite(["doc", "image", "table", "code", "binary", "folder"])
-      : "";
+  const list = files(options);
+  const sprite = list
+    ? iconSprite(["doc", "image", "table", "code", "binary", "folder", "chevronDown"])
+    : "";
   const style = options.assets
     ? `<link rel="stylesheet" href="${escapeHtml(options.assets.cssHref)}">`
     : `<style>${publicShellCss}</style>`;
@@ -121,5 +117,5 @@ export function renderPublicShell(options: PublicShellOptions): string {
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
   const version = options.version ? ` data-waypoint-version="${escapeHtml(options.version)}"` : "";
-  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head><body><a class="skip" href="#doc">Skip to document</a><div class="pwrap">${letterhead(options, options.files.length <= 1 ? downloadLink(options, "letterhead") : "")}${files(options)}</div>${documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
+  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell">${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : documentArea(options)}${sprite}<div class="pop-scrim" aria-hidden="true"></div>${script}</body></html>`;
 }
