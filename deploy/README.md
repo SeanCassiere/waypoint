@@ -331,8 +331,9 @@ previous rendition, and a later run retries them. Text and CSV files over the re
 dry run counts them as `to render` and every batch reports them as `failed`, so the text or csv
 line never reaches `0 to render`, and each later run still stops the writer for one batch that
 renders nothing. Once a renderer's `to render` count equals its last batch's `failed` count, and
-the failures are such files, its backfill is done. Every step is safe to repeat: sources with a
-current-version rendition, committed or queued, are skipped. Only the writer container is stopped
+the failures are such files, its backfill is done. Every step is safe to repeat: sources whose
+newest rendition, committed or queued, is at or above the current version are skipped (so after a
+rollback, what a newer release rendered is kept). Only the writer container is stopped
 and started; the Tailscale sidecar, Docker and the host are left alone.
 
 If **Status** (`/status`) lists failed revisions, retry or drop them first: their own renditions
