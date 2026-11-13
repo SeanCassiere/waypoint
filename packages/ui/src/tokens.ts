@@ -12,7 +12,7 @@
  *    nor the preview band references. Appended only by apps/writer/viewer.build.ts; it never
  *    reaches the reader, so editing it never moves a reader hash. A writer token moves to the
  *    shared set in the commit whose reader CSS starts using it. The panel and tree styles
- *    (panel-css.ts) are shared, so their roles (`--panel-w`, `--panel-top`, `--sel-bg`) are too;
+ *    (panel-css.ts) are shared, so their roles (`--panel-w`, `--panel-top`, `--sel-bg`, `--sel-ring`) are too;
  *    `--panel-top` (where the panel starts) is 0 in the reader, and the writer sets it to its
  *    bar's height on `.shell`.
  *  - `readingTokensCss`: a frozen copy of the reading palette, in the renderer's own variable

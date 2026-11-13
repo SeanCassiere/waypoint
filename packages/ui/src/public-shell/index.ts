@@ -18,7 +18,7 @@ export { PUBLIC_SHELL_LIST_BUDGET, PUBLIC_SHELL_TREE_DEPTH } from "./tree.ts";
 export { shellFileKind, type ShellFileKind } from "./tree.ts";
 
 /**
- * The Folio public shell (spec §9): a quiet letterhead, for two or more files a "Files N" row and
+ * The public shell (spec §9, Logbook: D79, D80): a quiet letterhead, for two or more files a "Files N" row and
  * the file panel beside the document (D74), and the document in a sandboxed iframe. Shared by the public reader (Workers) and the
  * writer's `?as=public` preview so both render the same page.
  *

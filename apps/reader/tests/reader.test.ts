@@ -426,7 +426,10 @@ describe("public reader", () => {
       // shell's only buttons.
       const markup = html
         .replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "")
-        .replace(/<button type="button" class="btn abt" popovertarget="about">[\s\S]*?<\/button>/, "")
+        .replace(
+          /<button type="button" class="btn abt" popovertarget="about">[\s\S]*?<\/button>/,
+          "",
+        )
         .replace(
           /<button type="button" class="fbtn ptog" popovertarget="files"[\s\S]*?<\/button>/,
           "",

@@ -14,12 +14,13 @@ export const skipCss: string = `@media print{.skip{display:none}}
  * way to the short `.pend` note in the meta row); on phones the meta row spans the width. The
  * link's mode is a sign and words in ink, not a pill; the syncing note is the pending glyph
  * (`.lb-g.pending`, controlsCss) and amber words in a calm pending-tinted box (the health pill's
- * pending look), and its phone short form the glyph and words alone. `.lgo`/`.smo` and `.lgt`/`.smt` are long and
- * phone short forms (the hidden one is `display:none`, so it's out of the accessibility tree);
- * `.vh` is visually hidden. Inside the About button and `.pend` (an inline block, not a flex box,
- * for this reason) `.vh` and its parent stay inline, `.vh` at size 0 (an out-of-flow or flex-item
- * span adds a space to the name, "Read-only , about this link"). The About button is a `.btn`
- * (controlsCss) that stays 32 px tall on touch, with a 44 px hit area around it (RX-01); its popover is a `.menu` (menuCss): anchored by its right edge from 600 px,
+ * pending look), and its phone short form the glyph and words alone. `.lgo`/`.smo` and
+ * `.lgt`/`.smt` are long and phone short forms (the hidden one is `display:none`, so it's out of
+ * the accessibility tree); `.vh` is visually hidden. Inside the About button and `.pend` (an
+ * inline block, not a flex box, for this reason) `.vh` and its parent stay inline, `.vh` at size 0
+ * (an out-of-flow or flex-item span adds a space to the name, "Read-only , about this link"). The
+ * About button is a `.btn` (controlsCss) that stays 32 px tall on touch, with a 44 px hit area
+ * around it (RX-01); its popover is a `.menu` (menuCss): anchored by its right edge from 600 px,
  * A11Y-07's bottom sheet below.
  */
 export const letterheadCss: string = `html,body{height:100%}body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
@@ -76,7 +77,9 @@ export const letterheadCss: string = `html,body{height:100%}body{display:flex;fl
  * pages; with a panel (`body.pan`) both span the window, so the title lines up with the panel.
  * Logbook: the row and its rule are `--r1` tall, the height of the writer's panel tabs, and the
  * button is a tab on it, underlined with an inset shadow and set in the side-by-side rows' text
- * metrics (`--row-fs`/`--row-lh`); its hover is the ink film.
+ * metrics (`--row-fs`/`--row-lh`); its hover is the ink film. The current path is the smaller mono
+ * cut, which sits 1 px high when centred on the row: its 2 px top margin (1 px once centred) puts
+ * it on the label's baseline.
  * The Download control (`.dlb`, RX-06) is a `.btn` (controlsCss, packages/ui/src/components-css.ts,
  * first in the cascade; these rules use `.btn.dlb`): right-aligned at the row's end, in the letterhead actions with a mono
  * name for one file (`.one`), and on phones an icon-only 44 px ghost target. A long name wraps
@@ -89,7 +92,7 @@ export const filesCss: string = `.prow{display:flex;align-items:stretch;gap:8px;
 .fbtn:hover{background-image:linear-gradient(var(--hover),var(--hover))}
 .fbtn>svg.ic{color:var(--ink-2)}
 .fbtn .n{color:var(--ink-2);font-weight:450}
-.fbtn .cur{display:inline-flex;align-items:center;gap:6px;min-width:0;margin-left:4px;font:500 12.5px/16px var(--mono);color:var(--ink-2)}
+.fbtn .cur{display:inline-flex;align-items:center;gap:6px;min-width:0;margin:2px 0 0 4px;font:500 12.5px/var(--row-lh) var(--mono);color:var(--ink-2)}
 .fbtn .ti{color:var(--ink-2)}
 .fbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;unicode-bidi:isolate}
 .prow>.dlb{margin-left:auto;flex:none;align-self:center}
@@ -169,7 +172,7 @@ export const documentCss: string = `main{flex:1;min-height:0;display:flex;flex-d
 .pframe{flex:1;display:block;width:100%;min-height:0;border:0;background:var(--paper)}
 .scroll{flex:1;overflow:auto;padding:0 16px 32px}
 .dl{border:1px solid var(--rule-2);border-radius:var(--rd-box);background:var(--surface);max-width:520px;margin:12dvh auto 0;padding:28px;text-align:center}
-.dl .ic{width:56px;height:56px;border:1px solid var(--rule-2);border-radius:var(--rd-box);background:var(--paper);display:grid;place-items:center;margin:0 auto 12px;font:600 12px var(--mono);color:var(--ink-2)}
+.dl .ic{width:fit-content;min-width:56px;height:56px;padding:0 10px;border:1px solid var(--rule-2);border-radius:var(--rd-box);background:var(--paper);display:grid;place-items:center;margin:0 auto 12px;font:600 12px var(--mono);color:var(--ink-2)}
 .dl h2{margin:0 0 4px;font:650 15.5px/1.3 var(--mono);overflow-wrap:anywhere}
 .dl p{margin:0 0 16px;font-size:13.5px;color:var(--ink-2)}
 @media(max-width:600px){.dl{padding:20px;margin-top:6dvh}}

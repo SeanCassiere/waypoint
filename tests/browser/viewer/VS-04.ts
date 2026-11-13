@@ -4,8 +4,9 @@
 // (D78); inactive links (/links rows, the Links tab's cards, a
 // revoked card's confirmation row) and the gallery's removed image are told apart by colour, never
 // opacity; a disabled button is neutral (the Trash restore dialog's Restore before a choice); the
-// Files tree's current file and History's current revision share one selection style, outlined in
-// forced colours; colour contrast holds on all of them (axe). Also verifies OW-05b's control has
+// Files tree's current file and History's current revision share the selected fill (--sel-bg; the
+// tree's current file adds a hairline --sel-ring, Logbook's collection screen), outlined in forced
+// colours; colour contrast holds on all of them (axe). Also verifies OW-05b's control has
 // no Inactive segment and that an expiry within a day is ink at 600, not amber.
 import type { Page } from "playwright";
 import { z } from "zod";
@@ -184,7 +185,7 @@ async function inactive(page: Page, row: string, title: string, where: string): 
 }
 
 const scenario: ViewerScenario = {
-  name: "VS-04 dark-safe solids, colour (not opacity) for inactive states, one selection style",
+  name: "VS-04 dark-safe solids, colour (not opacity) for inactive states, one selected fill",
   async run(ctx) {
     const writer = await startDemoWriter();
     const { base } = writer;
@@ -344,7 +345,8 @@ const scenario: ViewerScenario = {
       await page.locator("dialog#confirm [data-confirm-cancel]").click();
       await page.locator("dialog#confirm").waitFor({ state: "hidden" });
 
-      // Postgres #5, runbook.md (changed) selected: one selection style in Files and History.
+      // Postgres #5, runbook.md (changed) selected: the selected fill in Files and History; the
+      // tree's current file is a film with a hairline ring, no bar (Logbook's Files panel).
       await page.goto(`${base}${runbook}`);
       const file = await lookOf(page, ".tree a[aria-current]");
       // --sel-bg is a film of ink over the panel (D77)
@@ -353,11 +355,11 @@ const scenario: ViewerScenario = {
         await tok(page, "--sel-bg"),
         `${scheme}: the current file's fill is --sel-bg`,
       );
-      const bar = await tok(page, "--sel-bar");
       const ring = await tok(page, "--sel-ring");
-      assert.ok(
-        file.shadow.includes("inset") && file.shadow.includes(bar) && file.shadow.includes(ring),
-        `${scheme}: the current file has the --sel-bar inset bar and the --sel-ring (${file.shadow})`,
+      assert.equal(
+        file.shadow,
+        `${ring} 0px 0px 0px 1px inset`,
+        `${scheme}: the current file has the --sel-ring hairline and no bar (${file.shadow})`,
       );
       assert.equal(file.color, await tok(page, "--ink"), `${scheme}: the current file is --ink`);
       assert.equal(
@@ -371,19 +373,15 @@ const scenario: ViewerScenario = {
       const meta = await lookOf(page, ".tree a[aria-current] .hd");
       assert.equal(
         meta.color,
-        await tok(page, "--muted"),
-        `${scheme}: the current file's head label is --muted`,
+        await tok(page, "--ink-2"),
+        `${scheme}: the current file's head label is --ink-2 (meta on a selected row)`,
       );
       assert.deepEqual(await dimmed(page), [], `${scheme} #5: nothing dimmed`);
       await contrast(page, `${scheme} #5 Files, runbook.md selected`, ".panel");
       await page.goto(`${base}${runbook}?panel=history`);
       await page.locator("#tp-history").waitFor({ state: "visible" });
       const rev = await lookOf(page, '#tp-history li.rv[aria-current="true"]');
-      assert.deepEqual(
-        [rev.bg, rev.shadow],
-        [file.bg, file.shadow],
-        `${scheme}: History's current row has the current file's fill, bar and ring`,
-      );
+      assert.equal(rev.bg, file.bg, `${scheme}: History's current row has the current file's fill`);
       assert.equal(
         (await lookOf(page, '#tp-history li.rv[aria-current="true"] .msg')).weight,
         "600",

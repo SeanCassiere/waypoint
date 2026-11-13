@@ -451,9 +451,11 @@ li.rv[aria-current] .msg,
 .menu .mi[aria-current] {
   font-weight: 600;
 }
-/* The current file's head label and size are --muted meta on the raised row. */
-.tree a[aria-current] :is(.hd, .sz) {
-  color: var(--muted);
+/* Meta on a selected row (the current file's head label and size, the current revision's facts)
+   is --ink-2: on the selected film over the panel's surface, --muted falls below 4.5:1 in dark. */
+.tree a[aria-current] :is(.hd, .sz),
+li.rv[aria-current] :is(.f, .h .w) {
+  color: var(--ink-2);
 }
 /* The bar and ring replace a menu row's focus shadow, so a focused current row gets an outline. */
 .menu .mi[aria-current]:focus-visible {
