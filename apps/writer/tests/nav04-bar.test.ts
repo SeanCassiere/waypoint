@@ -252,18 +252,19 @@ describe("NAV-04 collection bar", () => {
       'href="?panel=history" data-action="panel-tab" data-tab="history" aria-controls="panel" aria-expanded=',
     );
     expect(pill).toContain('<b>#5</b> <span class="l">older</span>');
-    expect(pill).toContain("<svg");
+    // The revision's state glyph, as on its History node.
+    expect(pill).toContain('<span class="lb-g done" aria-hidden="true"></span>');
     expect(pill).not.toContain("aria-label");
     const file = element(nav, 'class="pill file"', "a");
     expect(file).toContain('data-tab="files"');
     expect(file).toContain('aria-controls="panel"');
-    expect(file).toContain('<span class="mono">runbook.md</span>');
+    expect(file).toContain('<span class="fp">runbook.md</span>');
     // Files is the default tab, so the file crumb is the pressed one.
     expect(tagOf(file, "pill file")).toContain('aria-expanded="true"');
     expect(tagOf(pill, "pill rev")).toContain('aria-expanded="false"');
     const idsub = region(nav, '<span class="idsub"', "</li>");
     expect(tagOf(idsub, "idsub")).toContain('aria-hidden="true"');
-    expect(text(idsub)).toBe("#5 older · runbook.md");
+    expect(text(idsub)).toBe("#5 older, runbook.md");
     const find = tagOf(bar, 'commandfor="find"');
     expect(find).toContain('aria-label="Find"');
     expect(find).toContain('aria-keyshortcuts="/"');
@@ -302,8 +303,8 @@ describe("NAV-04 collection bar", () => {
     expect(shots.html).not.toContain("rev-menu");
   });
 
-  it("words the pill latest · uploading, failed and older", async () => {
-    expect(await words(7)).toBe("#7 latest · uploading");
+  it("words the pill latest, uploading, failed and older", async () => {
+    expect(await words(7)).toBe("#7 latest, uploading");
     expect(await words(6)).toBe("#6 failed");
     expect(await words(5)).toBe("#5 older");
   });

@@ -1,7 +1,6 @@
-// A collection's revision lineage: the latest line, stepping with [ and ], how two revisions
-// relate, and side lanes for the History view. Pure (no Node, DOM or app imports), so pages and,
-// if ever needed, client code can share it. Lanes are an owner-side view of history; nothing here
-// says what share links show.
+// A collection's revision lineage: the latest line, stepping with [ and ], and how two revisions
+// relate. Pure (no Node, DOM or app imports), so pages and, if ever needed, client code can share
+// it. It's an owner-side view of history; nothing here says what share links show.
 
 /** The fields a timeline row already carries; nothing else is read. */
 export interface LineageRow {
@@ -9,11 +8,6 @@ export interface LineageRow {
   parent_revision_id: string | null;
   display_number: number;
   sync_state: string;
-}
-export interface LaneInfo {
-  lane: number;
-  pass: ReadonlySet<number>;
-  join: ReadonlySet<number>;
 }
 export type Relation<R extends LineageRow> =
   | { kind: "same" }
@@ -38,7 +32,6 @@ export interface Lineage<R extends LineageRow> {
   branchPoint(id: string): R | null;
   step(id: string, dir: -1 | 1): Step<R>;
   relation(baseId: string, headId: string): Relation<R>;
-  lanes(): { order: readonly R[]; map: ReadonlyMap<string, LaneInfo> };
 }
 
 export const FIRST_REVISION = "This is the first revision." as const;
@@ -116,47 +109,5 @@ export function makeLineage<R extends LineageRow>(rows: readonly R[]): Lineage<R
     return common ? { kind: "branches", common } : { kind: "unknown" };
   };
 
-  /** Lanes without reordering: rows stay newest first; a revision off the latest line takes a
-   *  side lane from its own row down to the row of its branch point. Lanes are reused once free. */
-  const lanes = (): { order: readonly R[]; map: ReadonlyMap<string, LaneInfo> } => {
-    const order = sorted.toReversed();
-    const cells = order.map((row, i) => ({
-      row,
-      i,
-      info: { lane: 0, pass: new Set<number>(), join: new Set<number>() },
-    }));
-    const cellOf = new Map(cells.map((cell) => [cell.row.id, cell]));
-    const map = new Map(cells.map((cell) => [cell.row.id, cell.info]));
-    const oldest = cells.at(-1);
-    const busy: number[] = []; // busy[lane] = index of the row where that lane ends
-    for (const { row, i, info } of cells) {
-      if (!oldest || onLine.has(row.id)) continue;
-      // A branch revision whose child is already drawn in a side lane continues that lane.
-      const drawn = (children.get(row.id) ?? [])
-        .map((child) => cellOf.get(child.id))
-        .findLast((child) => child !== undefined && !onLine.has(child.row.id) && child.i < i);
-      if (drawn) {
-        info.lane = drawn.info.lane;
-        continue;
-      }
-      const point = branchPoint(row.id);
-      const end = (point && cellOf.get(point.id)) ?? oldest;
-      let lane = 1;
-      while ((busy[lane] ?? -1) > i) lane++;
-      busy[lane] = end.i;
-      info.lane = lane;
-      const own = new Set(
-        ancestors(row.id)
-          .filter((a) => !onLine.has(a.id))
-          .map((a) => a.id),
-      );
-      for (const cell of cells.slice(i + 1, end.i)) {
-        if (!own.has(cell.row.id)) cell.info.pass.add(lane);
-      }
-      end.info.join.add(lane);
-    }
-    return { order, map };
-  };
-
-  return { latest, line, onLine, byId, ancestors, branchPoint, step, relation, lanes };
+  return { latest, line, onLine, byId, ancestors, branchPoint, step, relation };
 }

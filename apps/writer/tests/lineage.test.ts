@@ -71,18 +71,6 @@ function detail(rel: Relation<LineageRow>): string {
   return rel.kind;
 }
 
-/** One line per row, as lineage-verify.out prints lanes. */
-function laneTable(lineage: ReturnType<typeof makeLineage>): string[] {
-  const { order, map } = lineage.lanes();
-  return order.map((row) => {
-    const info = map.get(row.id);
-    if (!info) return `${n(row)} missing`;
-    const pass = info.pass.size ? ` pass ${[...info.pass].join(",")}` : "";
-    const join = info.join.size ? ` join ${[...info.join].join(",")}` : "";
-    return `${n(row)} lane ${info.lane}${pass}${join}`;
-  });
-}
-
 describe("the demo history", () => {
   const lineage = makeLineage(demo);
 
@@ -166,38 +154,13 @@ describe("the demo history", () => {
     expect(separate.relation("r9", "r7")).toEqual({ kind: "unknown" });
     expect(separate.byId.has("r9") && separate.byId.has("r7")).toBe(true);
   });
-
-  it("draws lanes on display order", () => {
-    expect(laneTable(lineage)).toEqual([
-      "#7 lane 0",
-      "#6 lane 1",
-      "#5 lane 0 pass 1",
-      "#4 lane 0 join 1",
-      "#3 lane 0",
-      "#2 lane 0",
-      "#1 lane 0",
-    ]);
-    const { map } = lineage.lanes();
-    expect(map.get("r5")?.pass).not.toBe(map.get("r4")?.pass);
-  });
 });
 
 describe("two overlapping branches", () => {
   const lineage = makeLineage(synthetic);
 
-  it("draws lanes 2/2/1", () => {
+  it("finds the latest line past two branches", () => {
     expect(ns(lineage.line)).toBe("#9 #5 #4 #3 #2 #1");
-    expect(laneTable(lineage)).toEqual([
-      "#9 lane 0",
-      "#8 lane 1",
-      "#7 lane 2 pass 1",
-      "#6 lane 2 pass 1",
-      "#5 lane 0 pass 1,2",
-      "#4 lane 0 pass 2 join 1",
-      "#3 lane 0 pass 2",
-      "#2 lane 0 join 2",
-      "#1 lane 0",
-    ]);
   });
 
   it("steps along a branch to its end", () => {
@@ -215,7 +178,6 @@ describe("edges", () => {
     expect(lineage.latest).toBeUndefined();
     expect(lineage.line).toEqual([]);
     expect(lineage.onLine.size).toBe(0);
-    expect(lineage.lanes().order).toEqual([]);
     expect(lineage.step("x", 1)).toEqual({ end: "No revision in that direction" });
     expect(lineage.step("x", -1)).toEqual({ end: "No revision in that direction" });
     expect(lineage.ancestors("x")).toEqual([]);
@@ -252,12 +214,7 @@ describe("edges", () => {
     expect(ns(lineage.ancestors("r3"))).toBe("#3");
     expect(lineage.step("r3", -1)).toEqual({ end: FIRST_REVISION });
     expect(lineage.branchPoint("r3")).toBeNull();
-    expect(laneTable(lineage)).toEqual([
-      "#4 lane 0",
-      "#3 lane 1",
-      "#2 lane 0 pass 1",
-      "#1 lane 0 join 1",
-    ]);
+    expect(lineage.onLine.has("r3")).toBe(false);
   });
 
   it("stops at a cycle", () => {
@@ -279,7 +236,6 @@ describe("edges", () => {
     expect(newestFirst).toEqual(before);
     expect(newestFirst.map((row) => row.id)).toEqual(before.map((row) => row.id));
     expect(ns(b.line)).toBe(ns(a.line));
-    expect(laneTable(b)).toEqual(laneTable(a));
     for (const row of demo) {
       for (const dir of [-1, 1] as const) {
         expect(stepped(b, row.id, dir)).toBe(stepped(a, row.id, dir));

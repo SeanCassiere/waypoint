@@ -28,7 +28,7 @@ import {
   documentSearch,
   notFound,
 } from "./shell.tsx";
-import { StatusLine } from "./status-line.tsx";
+import { RevisionStrip, StatusLine } from "./status-line.tsx";
 import { DeletedPage } from "./trash-page.tsx";
 
 function decodePath(encoded: string, head: string): string | null {
@@ -224,8 +224,10 @@ export async function collectionPage(
             <StatusLine
               ctx={ctx}
               extra={[publicSegment(ctx.links)].filter((item) => item !== null)}
+              strip
             />
             <h2 class="vh">Document: {path}</h2>
+            <RevisionStrip ctx={ctx} />
             {isStageImage(file.mime) ? (
               <ImageStage
                 ctx={ctx}
@@ -269,5 +271,5 @@ export { CollectionBar, TabBar, HomeBarLite } from "./bar.tsx";
 export { handoffBlock, CopyMenu, MoreMenu } from "./menus.tsx";
 export { CollectionDialogs } from "./dialogs.tsx";
 export { type PanelTab, Panel, HistoryPanel, FilesPanel } from "./panel.tsx";
-export { type Segment, statusSegments, StatusLine } from "./status-line.tsx";
+export { type Segment, statusSegments, StatusLine, RevisionStrip } from "./status-line.tsx";
 export { DeletedPage } from "./trash-page.tsx";

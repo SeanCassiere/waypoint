@@ -1,8 +1,9 @@
 // Date formatting shared by the server (UTC fallback text) and the browser (local time).
 // No DOM and no Node APIs: the client bundle imports this module too.
 
-/** `time` is the clock alone, for rows under a day heading that already names the day. */
-export type TimeFormat = "clock" | "time" | "ago" | "full" | "day" | "date" | "until";
+/** `time` is the clock alone, for rows under a day heading that already names the day (Recent,
+ *  search, History). */
+export type TimeFormat = "clock" | "time" | "ago" | "full" | "day" | "date" | "until" | "at";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG = [
@@ -113,6 +114,8 @@ export function formatTime(time: number, format: TimeFormat, now: number, utc: b
       return `${p.day} ${MONTHS[p.month] ?? ""} ${p.year}`;
     case "until":
       return untilText(time, now);
+    case "at":
+      return atText(time, now, utc);
     case "full":
       return fullDate(time, utc);
     default:
@@ -181,4 +184,36 @@ export function sinceText(time: number, now: number, utc: boolean): string {
   if (days === 1) return `yesterday ${clock(p)}`;
   if (days < 7) return `${DAYS[p.weekday] ?? ""} ${clock(p)}`;
   return shortDate(p, parts(now, utc));
+}
+
+/**
+ * History's day rows (Logbook): the day in words and its date, "Today" "13 November",
+ * "Wednesday" "11 November", with the year when it isn't this year's. `key` names the calendar
+ * day, so rows of one day share it.
+ */
+export function historyDay(
+  time: number,
+  now: number,
+  utc: boolean,
+): { key: string; word: string; date: string } {
+  const p = parts(time, utc);
+  const days = dayDiff(time, now, utc);
+  const word = days === 0 ? "Today" : days === 1 ? "Yesterday" : (WEEKDAYS[p.weekday] ?? "");
+  const year = p.year === parts(now, utc).year ? "" : ` ${p.year}`;
+  return {
+    key: `${p.year}-${p.month}-${p.day}`,
+    word,
+    date: `${p.day} ${MONTHS_LONG[p.month] ?? ""}${year}`,
+  };
+}
+/** The revision strip's when (Logbook): "at 22:02", "yesterday at 02:05", "on Wednesday at
+ *  19:05", and further back "on 3 November at 19:05". */
+function atText(time: number, now: number, utc: boolean): string {
+  const p = parts(time, utc);
+  const days = dayDiff(time, now, utc);
+  if (days === 0) return `at ${clock(p)}`;
+  if (days === 1) return `yesterday at ${clock(p)}`;
+  if (days > 1 && days < 7) return `on ${WEEKDAYS[p.weekday] ?? ""} at ${clock(p)}`;
+  const { date } = historyDay(time, now, utc);
+  return `on ${date} at ${clock(p)}`;
 }

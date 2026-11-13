@@ -41,9 +41,10 @@ const OLD_WORDS: readonly RegExp[] = [
   /\bUnsynced\b/,
   /Files and History/,
 ];
-/** The old fork label, checked only where it lived (History, the compare picker, Recent's and
- *  search's rows): Needs attention's "latest, on #5" names the latest revision's parent (OW-06b). */
-const FORK = /\bon #\d+\b/;
+/** The old fork label, a bare "on #N", checked only where it lived (History, the compare picker,
+ *  Recent's and search's rows): Needs attention's "latest, on #5" names the latest revision's
+ *  parent (OW-06b). History's branch words (D82) always say "on #N, not in latest". */
+const FORK = /\bon #\d+\b(?!, not in latest)/;
 
 /** Every aria-label and title at or under the matched elements. */
 const NAMES = `(root) => [root, ...root.querySelectorAll("[aria-label],[title]")].flatMap((el) => [el.getAttribute("aria-label"), el.getAttribute("title")]).filter((value) => value)`;
@@ -377,7 +378,7 @@ const scenario: ViewerScenario = {
       assert.equal(await heading.locator("svg.ic").count(), 1, "the heading's lock");
       assert.equal(
         norm((await heading.textContent()) ?? ""),
-        "Tailnet links · open only on your tailnet",
+        "Tailnet links, open only on your tailnet",
       );
       assert.equal(
         norm((await page.locator("#copy-menu .mnote").textContent()) ?? ""),
@@ -392,7 +393,7 @@ const scenario: ViewerScenario = {
       await phone.locator("#copy-menu").waitFor({ state: "visible" });
       assert.equal(
         norm((await phone.locator("#copy-menu .lbl").first().textContent()) ?? ""),
-        "Tailnet links · open only on your tailnet",
+        "Tailnet links, open only on your tailnet",
       );
       await footerShare(phone, "390");
     }
@@ -627,11 +628,11 @@ const scenario: ViewerScenario = {
       ["5 public sees"],
     );
     // #7 is the latest and still uploading: its state chip takes precedence over "latest", as
-    // before this brief (decision d-2; the bar's revision pill says "latest · uploading").
+    // before this brief (decision d-2; the bar's revision pill says "latest, uploading").
     assert.deepEqual(
       strings.parse(
         await page.evaluate(
-          `[...document.querySelectorAll('#tp-history li.rv[data-n="7"] .h .chip')].map((chip) => chip.textContent.trim().split(/\\s+/)[0])`,
+          `[...document.querySelectorAll('#tp-history li.rv[data-n="7"] .lb-meta .chip')].map((chip) => chip.textContent.trim().split(/\\s+/)[0])`,
         ),
       ),
       ["uploading"],

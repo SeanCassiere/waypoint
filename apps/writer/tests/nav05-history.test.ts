@@ -19,7 +19,8 @@ import {
 import { ReadModel } from "../src/read-model.ts";
 import { endOfBranch, FIRST_REVISION, LATEST_REVISION } from "../src/viewer/lineage.ts";
 
-// NAV-05b: History is an <ol> in display order with lanes; [ and ] follow parents.
+// NAV-05b: History is an <ol> in display order, a log on one spine (Logbook); [ and ] follow
+// parents.
 // Setup as in viewer.test.ts: an in-process app, sync off, no committer.
 
 let dir: string;
@@ -145,19 +146,26 @@ const rowsOf = (history: string): string[] =>
     .split('<li class="rv')
     .slice(1)
     .map((row) => row.slice(0, row.indexOf("</li>")));
+/** The day rows' words, top to bottom. */
+const daysOf = (history: string): string[] =>
+  [
+    ...history.matchAll(
+      /<li class="lb-day" aria-hidden="true"><b>([^<]*)<\/b> <span>([^<]*)<\/span><\/li>/g,
+    ),
+  ].map(([, word, date]) => `${word} ${date}`);
 /** The shell root's data-* attribute, or undefined when absent. */
 function shellData(html: string, name: string): string | undefined {
   const tag = /<div class="shell" id="shell"[^>]*>/.exec(html)?.[0] ?? "";
   return new RegExp(` data-${name}="([^"]*)"`).exec(tag)?.[1];
 }
 
-describe("NAV-05b History lanes", () => {
-  it("lists rows in display order as an <ol> with one link per row, lanes and a branch line", async () => {
+describe("NAV-05b History", () => {
+  it("lists rows in display order as an <ol> with one link per row, nodes and the branch in words", async () => {
     const revs = await seedFork();
     const pub = revs.map(pubOf);
     const html = await (await app.request(`${pathOf(nth(revs, 5))}?panel=history`)).text();
     const history = historyOf(html);
-    expect(history).toContain('<ol class="tl w1" aria-labelledby="hist-h">');
+    expect(history).toContain('<ol class="tl lb-log" aria-labelledby="hist-h" data-days="true">');
     expect(history).toContain(
       '<h3 id="hist-h" class="hl">Latest line <span>newest first</span></h3>',
     );
@@ -171,7 +179,12 @@ describe("NAV-05b History lanes", () => {
       "2",
       "1",
     ]);
+    // One day row (decorative) above the first row of each day; every row names its day for AT.
+    expect(daysOf(history)).toHaveLength(1);
+    expect(history.indexOf('class="lb-day"')).toBeLessThan(history.indexOf('<li class="rv'));
     for (const [i, row] of rows.entries()) {
+      expect(row).toMatch(/<span class="vh" data-day-words="true">Today \d+ \w+, <\/span>/);
+      expect(row).toMatch(/<time [^>]*data-fmt="time"/);
       const outside = row.replace(/<span class="acts">[\s\S]*$/, "");
       const links = [...outside.matchAll(/<a\b[^>]*>/g)].map(([tag]) => tag);
       expect(links).toHaveLength(1);
@@ -180,26 +193,30 @@ describe("NAV-05b History lanes", () => {
       expect(outside).toMatch(new RegExp(`<a class="rvl"[^>]*><b>#${7 - i}</b></a>`));
     }
     expect(history).not.toContain('aria-label="Revision ');
-    // #6: the branch line, its data hooks and lane; no other row says "Branch off".
+    // #6: the branch in words and its data hooks; no other row says "not in latest".
     const six = rows[1] ?? "";
-    expect(six).toContain("Branch off #4 · not in latest");
+    expect(six).toContain(`<span class="br" id="rvb-${pub[5]}">on #4, not in latest</span>`);
     expect(six).toContain(`id="rvb-${pub[5]}"`);
     expect(six).toContain('data-line="0"');
     expect(six).toContain(`data-parent="${pub[3]}"`);
     expect(six).toContain(`aria-describedby="rvm-${pub[5]} rvb-${pub[5]}"`);
-    expect(rows.filter((row) => row.includes("Branch off"))).toHaveLength(1);
+    expect(rows.filter((row) => row.includes("not in latest"))).toHaveLength(1);
     expect(history).not.toContain('class="fork"');
     expect(rows[0]).toContain('data-line="1"');
     expect(rows[0]).toContain('data-n="7"');
     expect(rows[0]).toContain('data-state="pending"');
     expect(rows[6]).toContain('data-parent=""');
     expect(rows[2]).toContain('aria-current="true"');
-    expect(six).toContain('<span class="lg l1 failed" aria-hidden="true">');
-    expect(rows[2]).toContain('<i class="ps p1">');
-    expect(rows[3]).toContain('<i class="jn p1">');
-    const gutters = [...history.matchAll(/<span class="lg l[^"]*"([^>]*)>/g)];
-    expect(gutters).toHaveLength(7);
-    for (const [, rest] of gutters) expect(rest).toBe(' aria-hidden="true"');
+    // Each row's node says its state to the eye only; the revision on screen is circled.
+    expect(six).toContain('<span class="lb-n failed" aria-hidden="true"></span>');
+    expect(rows[0]).toContain('<span class="lb-n pending" aria-hidden="true"></span>');
+    expect(rows[2]).toContain('<span class="lb-n pending here" aria-hidden="true"></span>');
+    expect(
+      [...history.matchAll(/<span class="lb-n [^"]*"([^>]*)>/g)].map(([, rest]) => rest),
+    ).toEqual(Array.from({ length: 7 }, () => ' aria-hidden="true"'));
+    // No lanes and no lane legend.
+    expect(history).not.toContain('class="lg ');
+    expect(history).not.toContain("lgd");
     // #6's actions keep their names and point at the row's link.
     for (const name of ["Retry", "Drop…", "Details"])
       expect(six).toMatch(new RegExp(`aria-describedby="rv-${pub[5]}"[^>]*>\\s*${name}<`));
@@ -214,16 +231,9 @@ describe("NAV-05b History lanes", () => {
     expect(six.match(new RegExp(`aria-describedby="rv-${pub[5]}" data-n="6"`, "g"))).toHaveLength(
       2,
     );
-    // The legend (both pinned keys) shows because a row is off the latest line.
-    expect(history.replaceAll("&#39;", "'")).toContain(
-      "Latest line: the newest revision that hasn't failed, and the revisions it builds on",
-    );
-    expect(history).toContain("Branch: built on an older revision, off the latest line");
-    expect(history).toContain('<p class="legend lgd">');
-    expect(history).not.toContain("lgjoin");
   });
 
-  it("shows no legend for a linear collection", async () => {
+  it("says nothing about branches for a linear collection", async () => {
     const one = await post("/api/collections", {
       title: "Linear",
       files: [await upload("index.md", "# 1")],
@@ -234,8 +244,7 @@ describe("NAV-05b History lanes", () => {
     });
     const history = historyOf(await (await app.request(`${pathOf(one)}?panel=history`)).text());
     expect(rowsOf(history)).toHaveLength(2);
-    expect(history).toContain('<ol class="tl w0" aria-labelledby="hist-h">');
-    expect(history).not.toContain("lgd");
+    expect(history).not.toContain("not in latest");
   });
 
   it("steps [ and ] along parents, with the end texts from lineage.ts", async () => {
@@ -259,7 +268,7 @@ describe("NAV-05b History lanes", () => {
     expect(shellData(seven, "older")).toBe(pub[4]);
   });
 
-  it("pages History: lanes over the whole history, a joins-at line for lanes off the page", async () => {
+  it("pages History, saying a branch off the page in words", async () => {
     const one = await post("/api/collections", {
       title: "Long",
       files: [await upload("index.md", "# 1")],
@@ -298,15 +307,13 @@ describe("NAV-05b History lanes", () => {
     const rows = rowsOf(page);
     expect(rows).toHaveLength(50);
     expect(/<b>#(\d+)<\/b>/.exec(rows[1] ?? "")?.[1]).toBe("60");
-    expect(rows[1]).toContain("Branch off #5 · not in latest");
+    expect(rows[1]).toContain("on #5, not in latest");
     expect(rows.at(-1)).toContain("<b>#12</b>");
-    expect(rows.at(-1)).toContain('<i class="ps p1">');
     expect(page).toContain(
-      '<p class="legend lgjoin"><a href="?panel=history&amp;history=all">joins at #5 below ›</a></p>',
+      '<p class="legend"><a href="?panel=history&amp;history=all">Show all 61</a></p>',
     );
     const all = historyOf(await (await app.request(`${base}?panel=history&history=all`)).text());
     expect(rowsOf(all)).toHaveLength(61);
-    expect(all).not.toContain("lgjoin");
-    expect(rowsOf(all)[56]).toContain('<i class="jn p1">');
+    expect(all).not.toContain("Show all");
   });
 });

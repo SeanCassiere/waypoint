@@ -7,7 +7,6 @@ import { shellPath } from "../../../viewer-paths.ts";
 import { belowText, lineageBelow, pickSummary } from "../../compare-text.ts";
 import { FileTree, Time, Timeline, type Glyph } from "../../components.tsx";
 import { plural, projectAndTags } from "../../format.ts";
-import { gutterFor } from "../../gutter.ts";
 import { writtenOn } from "./dialogs.tsx";
 import { HISTORY_PAGE, type CollectionContext, changesHref } from "./shell.tsx";
 
@@ -147,10 +146,8 @@ export function HistoryPanel(props: {
   const position = new Map(newest.map((row, index) => [row.id, index]));
   const reach = Math.max(HISTORY_PAGE, ...ticked.map((row) => (position.get(row.id) ?? 0) + 1));
   const shown = props.all ? newest : newest.slice(0, reach);
-  // Lanes come from the whole lineage; one "joins at" line per lane running off this page.
-  const { joinsBelow } = gutterFor(ctx.lineage, shown);
-  // Show all (and "joins at") keep the mode and its ticks, and the page's own query, as Compare…
-  // does; outside the mode they stay NAV-05b's plain link.
+  // Show all keeps the mode and its ticks, and the page's own query, as Compare… does; outside
+  // the mode it stays NAV-05b's plain link.
   const allQuery = keptQuery(ctx);
   allQuery.append("panel", "history");
   allQuery.append("history", "all");
@@ -234,26 +231,9 @@ export function HistoryPanel(props: {
           }}
         />
       </fieldset>
-      {joinsBelow.map((join) => (
-        <p class="legend lgjoin">
-          <a href={allHref}>joins at #{join.at} below ›</a>
-        </p>
-      ))}
       {shown.length < newest.length ? (
         <p class="legend">
           <a href={allHref}>Show all {newest.length}</a>
-        </p>
-      ) : null}
-      {shown.some((row) => !ctx.lineage.onLine.has(row.id)) ? (
-        <p class="legend lgd">
-          <span class="lgk">
-            <i class="k0" aria-hidden="true" />
-            Latest line: the newest revision that hasn't failed, and the revisions it builds on
-          </span>
-          <span class="lgk">
-            <i class="k1" aria-hidden="true" />
-            Branch: built on an older revision, off the latest line
-          </span>
         </p>
       ) : null}
       <div class="cmpfoot">
@@ -280,8 +260,21 @@ export function FilesPanel(props: {
     ? ctx.byId.get(ctx.revision.parent_revision_id)
     : undefined;
   const used = new Set(props.glyphs?.values() ?? []);
+  const n = ctx.revision.display_number ?? "?";
   return (
     <>
+      {/* The tab's tools row, the height of the revision strip beside it (Logbook). */}
+      <div class="ptools">
+        <span>
+          {plural(ctx.files.length, "file")} in #{n}
+        </span>
+        {ctx.files.some((file) => file.path.includes("/")) ? (
+          // Script names it for the folders' state (Expand all / Collapse all) and shows it.
+          <button type="button" class="txtbtn" data-tree-all hidden data-needs-js>
+            Expand all
+          </button>
+        ) : null}
+      </div>
       <FileTree
         files={ctx.files}
         head={ctx.revision.head_path}
@@ -299,9 +292,9 @@ export function FilesPanel(props: {
         {parent
           ? [used.has("+") ? "+ added" : "", used.has("~") ? "~ changed" : ""]
               .filter(Boolean)
-              .join(" · ") || "No file changes"
+              .join(", ") || "No file changes"
           : "Everything is new"}{" "}
-        in #{ctx.revision.display_number ?? "?"}
+        in #{n}
         {parent ? `, compared with its parent #${parent.display_number}` : " (first revision)"}
       </p>
       <AboutCard ctx={ctx} />
@@ -363,7 +356,7 @@ export function AboutCard(props: { ctx: CollectionContext }) {
           <>
             <dt>Written on</dt>
             <dd>
-              <a class="tok mono" href={searchHref(`host:${host}`)}>
+              <a class="tok" href={searchHref(`host:${host}`)}>
                 {host}
               </a>
             </dd>
@@ -372,7 +365,7 @@ export function AboutCard(props: { ctx: CollectionContext }) {
         <dt>Started</dt>
         <dd>
           <span>
-            <Time at={ctx.collection.created_at} fmt="date" now={ctx.chrome.now} /> ·{" "}
+            <Time at={ctx.collection.created_at} fmt="date" now={ctx.chrome.now} />,{" "}
             {plural(ctx.timeline.length, "revision")}
           </span>
         </dd>

@@ -127,7 +127,7 @@ export function pickSummary<R extends LineageRow>(
           )
           .toSorted((x, y) => x.display_number - y.display_number);
   const onLine = steps.every((row) => lin.onLine.has(row.id));
-  let status = `${num(from)} → ${num(to)} · ${steps.length} step${steps.length === 1 ? "" : "s"}${onLine ? " on the latest line" : ""}.`;
+  let status = `${num(from)} → ${num(to)}, ${steps.length} step${steps.length === 1 ? "" : "s"}${onLine ? " on the latest line" : ""}.`;
   const notes = new Map<string, string>();
   for (const [i, row] of excluded.entries()) {
     const parent = branchParent(lin, row);

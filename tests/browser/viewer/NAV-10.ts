@@ -65,7 +65,7 @@ const scenario: ViewerScenario = {
       ),
       true,
     );
-    await statusIs("#1 → #2 · 1 step on the latest line.");
+    await statusIs("#1 → #2, 1 step on the latest line.");
     const inert = await page.evaluate(
       `[...document.querySelectorAll("#tp-history a.rvl")].every((link) => link.inert || link.closest("[inert]") !== null)`,
     );
@@ -80,7 +80,7 @@ const scenario: ViewerScenario = {
     await box(4).check();
     assert.equal(await box(1).isChecked(), false);
     await statusIs(
-      "#2 → #4 · 1 step on the latest line. #3 is a branch off #1, so it isn't included.",
+      "#2 → #4, 1 step on the latest line. #3 is a branch off #1, so it isn't included.",
     );
     assert.equal(
       (await page.locator('#tp-history li.rv[data-n="3"] [data-cmp-note]').textContent())?.trim(),
@@ -93,7 +93,7 @@ const scenario: ViewerScenario = {
     await box(1).check();
     assert.equal(await box(2).isChecked(), false);
     assert.ok(
-      (await status.textContent())?.trim().startsWith("#1 → #4 · 2 steps on the latest line."),
+      (await status.textContent())?.trim().startsWith("#1 → #4, 2 steps on the latest line."),
     );
     assert.equal((await go.textContent())?.trim(), "Compare #1 → #4");
     // Ticked rows take the selection background.
@@ -152,7 +152,7 @@ const scenario: ViewerScenario = {
     await statusIs("Tick one more revision.");
     await reload(one, two, one);
     await box(2).waitFor({ state: "visible" });
-    await statusIs("#1 → #2 · 1 step on the latest line.");
+    await statusIs("#1 → #2, 1 step on the latest line.");
     assert.equal(await go.isDisabled(), false);
     await box(4).check();
     assert.equal(await box(1).isChecked(), false);
@@ -250,7 +250,7 @@ const scenario: ViewerScenario = {
     await box(3).waitFor({ state: "visible" });
     assert.equal(await box(2).isChecked(), true);
     assert.equal(await box(3).isChecked(), true);
-    await statusIs("#2 → #3 · 1 step on the latest line.");
+    await statusIs("#2 → #3, 1 step on the latest line.");
     assert.equal(await focusedOn(page, 3), true, "focus on #3's box after loading the mode");
     assert.equal(await box(1).count(), 0);
     await history.getByRole("link", { name: "Show all 56" }).click();
@@ -260,7 +260,7 @@ const scenario: ViewerScenario = {
     assert.equal(await box(3).isChecked(), true);
     await box(1).check();
     assert.equal(await box(2).isChecked(), false);
-    await statusIs("#1 → #3 · 2 steps on the latest line.");
+    await statusIs("#1 → #3, 2 steps on the latest line.");
 
     // Two branches on the first page that meet below it are still branches (the client's
     // lineage gets the meeting point from the server).

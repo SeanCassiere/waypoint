@@ -76,7 +76,7 @@ const scenario: ViewerScenario = {
     assert.ok(!(await peeking(page)), "no peek before 150 ms");
     await page.clock.runFor(60);
     assert.ok(await peeking(page), "a resting mouse peeks the panel");
-    assert.deepEqual(await rect(page, "#panel"), { left: 0, top: 84, width: 300, bottom: 876 });
+    assert.deepEqual(await rect(page, "#panel"), { left: 0, top: 84, width: 316, bottom: 876 });
     assert.equal(await style(page, "#panel", "visibility"), "visible");
     assert.equal(await style(page, "#panel", "borderTopRightRadius"), "10px");
     assert.equal(await style(page, "#panel", "borderTopLeftRadius"), "0px");
@@ -120,7 +120,7 @@ const scenario: ViewerScenario = {
     await page.mouse.down();
     await page.mouse.up();
     assert.equal(await shellClass(page), "shell");
-    assert.deepEqual(await rect(page, "#panel"), { left: 0, top: 52, width: 300, bottom: 900 });
+    assert.deepEqual(await rect(page, "#panel"), { left: 0, top: 52, width: 316, bottom: 900 });
     assert.equal(await page.evaluate(`localStorage.getItem("wp:panel")`), "open");
     assert.equal(await page.getAttribute(".ptog", "aria-expanded"), "true");
     await page.mouse.down();

@@ -7,7 +7,6 @@ import type { Child } from "hono/jsx";
 import type { Health, HealthItem } from "../health.ts";
 import { shellPath } from "../viewer-paths.ts";
 import { changesTitle, plural } from "./format.ts";
-import { gutterFor, type GutterCell } from "./gutter.ts";
 import {
   elsewhereModel,
   hereRows,
@@ -19,7 +18,7 @@ import {
 } from "./health-scope.ts";
 import { chipText, seesLine, type StripModel, type StripStep } from "./health-words.ts";
 import type { Lineage } from "./lineage.ts";
-import { formatTime, fullDate, type TimeFormat } from "./timefmt.ts";
+import { formatTime, fullDate, historyDay, type TimeFormat } from "./timefmt.ts";
 import { treeOf, type TreeNode } from "./tree-order.ts";
 
 export function LogoMark(props: { size?: number }) {
@@ -589,7 +588,7 @@ export function galleryDirFor(
 /**
  * File tree (spec §4.9, D72). Folders are <details>, listed before files at every level (the head
  * file stays first in its folder), and start collapsed except the ones holding the current file
- * (or `reveal`). Expand all is a script-only button; large manifests also get a filter.
+ * (or `reveal`). Large manifests also get a filter; Expand all is the Files tab's tools row.
  */
 export function FileTree(props: TreeOptions) {
   const root = treeOf(props.files, props.head);
@@ -660,14 +659,6 @@ export function FileTree(props: TreeOptions) {
           data-filter
         />
       ) : null}
-      {root.folders.length ? (
-        <div class="ttools">
-          {/* Script names it for the folders' state (Expand all / Collapse all) and shows it. */}
-          <button type="button" class="txtbtn" data-tree-all hidden data-needs-js>
-            Expand all
-          </button>
-        </div>
-      ) : null}
       <div class="tree" role="group" aria-label="Files">
         {render(root, "")}
       </div>
@@ -688,43 +679,18 @@ export interface TimelineRow {
   last_error?: string | null | undefined;
   progress?: string | undefined;
 }
-/** The lane gutter beside a History row: static segments drawn with borders, hidden from AT. */
-export function LineGutter(props: {
-  cell: GutterCell;
-  state: TimelineRow["sync_state"];
-  current: boolean;
-}) {
-  const { cell } = props;
-  const side = cell.lane > 0;
-  const state = props.state === "failed" ? " failed" : props.state === "pending" ? " pending" : "";
-  return (
-    <span class={`lg l${cell.lane}${props.current ? " cur" : ""}${state}`} aria-hidden="true">
-      {!side || cell.line0 ? (
-        <i
-          class={`ln${!side && !cell.ownUp ? " top" : ""}${!side && !cell.ownDown ? " bot" : ""}`}
-        />
-      ) : null}
-      {cell.pass.map((k) => (
-        <i class={`ps p${k}`} />
-      ))}
-      {side ? <i class={`run p${cell.lane}${cell.ownUp ? " up" : ""}`} /> : null}
-      {cell.join.map((k) => (
-        <i class={`jn p${k}`} />
-      ))}
-      <i class="nd" />
-    </span>
-  );
+/** A History row's node on the spine (Logbook): filled when synced, a dashed amber ring while
+ *  uploading, a ringed red dot when failed; `here` circles the revision on screen. Decorative: the
+ *  row's state words say it. */
+export function RevisionNode(props: { state: TimelineRow["sync_state"]; here: boolean }) {
+  const kind = props.state === "failed" ? "failed" : props.state === "pending" ? "pending" : "done";
+  return <span class={`lb-n ${kind}${props.here ? " here" : ""}`} aria-hidden="true" />;
 }
-const NO_CELL: GutterCell = {
-  lane: 0,
-  pass: [],
-  join: [],
-  ownUp: false,
-  ownDown: false,
-  line0: false,
-};
-/** Timeline (spec §4.10): an <ol>, newest first, in display order; one link per row (its #n),
- *  stretched over the row; lanes from lineage.ts beside it. */
+/** Timeline (spec §4.10, Logbook): an <ol>, newest first, in display order, kept as a log on one
+ *  spine. Each row is a time and #n column (the #n is the row's one link, stretched over it), a
+ *  node, the message and one meta line (state words, the branch in words, host and tally). A day
+ *  row starts each calendar day; it is decorative, as each row's time column names its day for
+ *  AT. The server draws the days in UTC and client/history-days.ts redraws them locally. */
 export function Timeline(props: {
   rows: readonly TimelineRow[];
   pub: string;
@@ -742,7 +708,7 @@ export function Timeline(props: {
   query?: string | undefined;
   lineage: Lineage<TimelineRow>;
   labelledBy: string;
-  /** Row ids are `{p}-<pub>` (link), `{p}m-<pub>` (message) and `{p}b-<pub>` (branch line). */
+  /** Row ids are `{p}-<pub>` (link), `{p}m-<pub>` (message) and `{p}b-<pub>` (branch words). */
   idPrefix?: string;
   /** History's compare mode (NAV-10): a tick column and a note slot per row. Keyed by public ID;
    *  `on` renders the ticks checked, the notes filled and the row links inert. */
@@ -755,10 +721,10 @@ export function Timeline(props: {
 }) {
   const search = [props.path ? "fallback=head" : "", props.query ?? ""].filter(Boolean).join("&");
   const p = props.idPrefix ?? "rv";
-  const gutter = gutterFor(props.lineage, props.rows);
   const cmp = props.compare;
+  let lastDay = "";
   return (
-    <ol class={`tl w${gutter.width}`} aria-labelledby={props.labelledBy}>
+    <ol class="tl lb-log" aria-labelledby={props.labelledBy} data-days>
       {props.rows.map((row) => {
         const parent = row.parent_revision_id ? props.byId.get(row.parent_revision_id) : undefined;
         const onLine = props.lineage.onLine.has(row.id);
@@ -767,6 +733,12 @@ export function Timeline(props: {
         const state = row.sync_state;
         const link = `${p}-${row.public_id}`;
         const note = cmp?.on ? cmp.notes.get(row.public_id) : undefined;
+        const day = historyDay(row.created_at, props.now, true);
+        const newDay = day.key !== lastDay;
+        lastDay = day.key;
+        const tally = row.changes
+          ? row.changes.added + row.changes.modified + row.changes.removed > 0
+          : false;
         // The current revision gets "Changes from #K" whatever its state (spec §4.10).
         const changes =
           !props.compact && current && parent && props.changesHref ? (
@@ -775,22 +747,23 @@ export function Timeline(props: {
             </a>
           ) : null;
         return (
-          <li
-            class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}${cmp?.on && cmp.inRange.has(row.public_id) ? " inr" : ""}`}
-            aria-current={current ? "true" : undefined}
-            data-rev={row.public_id}
-            data-n={String(row.display_number)}
-            data-parent={parent?.public_id ?? ""}
-            data-line={onLine ? "1" : "0"}
-            data-state={state}
-          >
-            <LineGutter
-              cell={gutter.cells.get(row.id) ?? NO_CELL}
-              state={state}
-              current={current}
-            />
-            <span>
-              <span class="h">
+          <>
+            {newDay ? <DayRow word={day.word} date={day.date} /> : null}
+            <li
+              class={`rv${state === "pending" ? " pending" : state === "failed" ? " failed" : ""}${row.parent_revision_id ? "" : " root"}${cmp?.on && cmp.inRange.has(row.public_id) ? " inr" : ""}`}
+              aria-current={current ? "true" : undefined}
+              data-rev={row.public_id}
+              data-n={String(row.display_number)}
+              data-parent={parent?.public_id ?? ""}
+              data-line={onLine ? "1" : "0"}
+              data-state={state}
+              data-at={String(row.created_at)}
+            >
+              <span class="lb-t">
+                <span class="vh" data-day-words>
+                  {day.word} {day.date},{" "}
+                </span>
+                <Time at={row.created_at} fmt="time" now={props.now} />
                 <a
                   class="rvl"
                   id={link}
@@ -800,116 +773,130 @@ export function Timeline(props: {
                 >
                   <b>#{row.display_number}</b>
                 </a>
-                {state === "failed" ? (
-                  <span class="chip xs failed">failed</span>
-                ) : state === "pending" ? (
-                  <span class="chip xs pending">
-                    uploading{row.progress ? ` ${row.progress}` : ""}
+              </span>
+              <RevisionNode state={state} here={current} />
+              <span class="lb-c">
+                <span class="msg" id={`${p}m-${row.public_id}`}>
+                  {row.message ?? "No message"}
+                </span>
+                <span class="lb-meta">
+                  {state === "failed" ? (
+                    <span class="chip failed">failed</span>
+                  ) : state === "pending" ? (
+                    <span class="chip pending">
+                      uploading{row.progress ? ` ${row.progress}` : ""}
+                    </span>
+                  ) : current ? (
+                    <span class="chip ink">{row.id === props.latestId ? "latest" : "viewing"}</span>
+                  ) : row.id === props.latestId ? (
+                    <span class="chip">latest</span>
+                  ) : null}
+                  {props.publicSeesId && row.id === props.publicSeesId ? (
+                    <span class="chip public">{raw(icon("globe", "sm"))}public sees</span>
+                  ) : null}
+                  {onLine ? null : (
+                    <span class="br" id={`${p}b-${row.public_id}`}>
+                      {props.lineage.branchPoint(row.id) && parent
+                        ? `on #${parent.display_number}, not in latest`
+                        : "separate history, not in latest"}
+                    </span>
+                  )}
+                  {row.host || tally ? (
+                    <span class="who">
+                      {row.host ? <span class="host">{row.host}</span> : null}
+                      {row.host && tally ? ", " : null}
+                      <Chg changes={row.changes} />
+                    </span>
+                  ) : null}
+                </span>
+                {cmp ? (
+                  <span class="cmpnote" data-cmp-note hidden={!note}>
+                    {note ?? ""}
                   </span>
-                ) : current ? (
-                  <span class="chip xs ink">
-                    {row.id === props.latestId ? "latest" : "viewing"}
-                  </span>
-                ) : row.id === props.latestId ? (
-                  <span class="chip xs">latest</span>
                 ) : null}
-                {props.publicSeesId && row.id === props.publicSeesId ? (
-                  <span class="chip xs public">{raw(icon("globe", "sm"))}public sees</span>
+                {!props.compact && state === "failed" && row.last_error ? (
+                  <span class="err">{row.last_error}</span>
                 ) : null}
-                <span class="w">
-                  <Time at={row.created_at} now={props.now} />
-                </span>
-              </span>
-              {onLine ? null : (
-                <span class="br" id={`${p}b-${row.public_id}`}>
-                  {raw(icon("branch", "sm"))}{" "}
-                  {props.lineage.branchPoint(row.id) && parent
-                    ? `Branch off #${parent.display_number} · not in latest`
-                    : "Separate history · not in latest"}
-                </span>
-              )}
-              <span class="msg" id={`${p}m-${row.public_id}`}>
-                {row.message ?? "No message"}
-              </span>
-              <span class="f">
-                {row.host ? <span class="host">{row.host}</span> : null}
-                <Chg changes={row.changes} />
-              </span>
-              {cmp ? (
-                <span class="cmpnote" data-cmp-note hidden={!note}>
-                  {note ?? ""}
-                </span>
-              ) : null}
-              {!props.compact && state === "failed" && row.last_error ? (
-                <span class="err">{row.last_error}</span>
-              ) : null}
-              {props.compact ? (
-                current && parent && props.changesHref ? (
+                {props.compact ? (
+                  current && parent && props.changesHref ? (
+                    <span class="acts">
+                      <a
+                        class="btn sm"
+                        href={props.changesHref(row, parent)}
+                        aria-describedby={link}
+                      >
+                        Changes
+                      </a>
+                    </span>
+                  ) : null
+                ) : state === "failed" ? (
                   <span class="acts">
-                    <a class="btn sm" href={props.changesHref(row, parent)} aria-describedby={link}>
-                      Changes
+                    {changes}
+                    <button
+                      type="button"
+                      class="btn sm"
+                      data-action="retry"
+                      data-ids={row.id}
+                      aria-describedby={link}
+                      data-n={row.display_number}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      class="btn sm danger"
+                      data-action="drop"
+                      data-id={row.id}
+                      aria-describedby={link}
+                      data-n={row.display_number}
+                    >
+                      Drop…
+                    </button>
+                    <a class="btn sm ghost" href={`/status#${row.id}`} aria-describedby={link}>
+                      Details
                     </a>
                   </span>
-                ) : null
-              ) : state === "failed" ? (
-                <span class="acts">
-                  {changes}
-                  <button
-                    type="button"
-                    class="btn sm"
-                    data-action="retry"
-                    data-ids={row.id}
-                    aria-describedby={link}
-                    data-n={row.display_number}
-                  >
-                    Retry
-                  </button>
-                  <button
-                    type="button"
-                    class="btn sm danger"
-                    data-action="drop"
-                    data-id={row.id}
-                    aria-describedby={link}
-                    data-n={row.display_number}
-                  >
-                    Drop…
-                  </button>
-                  <a class="btn sm ghost" href={`/status#${row.id}`} aria-describedby={link}>
-                    Details
-                  </a>
-                </span>
-              ) : state === "pending" ? (
-                <span class="acts">
-                  {changes}
-                  <button
-                    type="button"
-                    class="btn sm danger"
-                    data-action="drop"
-                    data-id={row.id}
-                    aria-describedby={link}
-                    data-n={row.display_number}
-                  >
-                    Drop…
-                  </button>
-                </span>
-              ) : changes ? (
-                <span class="acts">{changes}</span>
+                ) : state === "pending" ? (
+                  <span class="acts">
+                    {changes}
+                    <button
+                      type="button"
+                      class="btn sm danger"
+                      data-action="drop"
+                      data-id={row.id}
+                      aria-describedby={link}
+                      data-n={row.display_number}
+                    >
+                      Drop…
+                    </button>
+                  </span>
+                ) : changes ? (
+                  <span class="acts">{changes}</span>
+                ) : null}
+              </span>
+              {cmp ? (
+                <label class="pick">
+                  <input
+                    type="checkbox"
+                    name="r"
+                    value={row.public_id}
+                    aria-labelledby={`${link} ${p}m-${row.public_id}`}
+                    checked={cmp.on && cmp.picked.has(row.public_id)}
+                  />
+                </label>
               ) : null}
-            </span>
-            {cmp ? (
-              <label class="pick">
-                <input
-                  type="checkbox"
-                  name="r"
-                  value={row.public_id}
-                  aria-labelledby={`${link} ${p}m-${row.public_id}`}
-                  checked={cmp.on && cmp.picked.has(row.public_id)}
-                />
-              </label>
-            ) : null}
-          </li>
+            </li>
+          </>
         );
       })}
     </ol>
+  );
+}
+/** A History day row: the day in words and its date (decorative; see Timeline). */
+export function DayRow(props: { word: string; date: string }) {
+  return (
+    <li class="lb-day" aria-hidden="true">
+      <b>{props.word}</b> <span>{props.date}</span>
+    </li>
   );
 }

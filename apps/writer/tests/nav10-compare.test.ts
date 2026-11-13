@@ -451,7 +451,7 @@ describe("NAV-10 History compare mode", () => {
     expect(links).toHaveLength(7);
     for (const link of links) expect(link).toContain('inert=""');
     expect(history).toContain(
-      '<p class="cmpscope" role="status" data-compare-status="true">#4 → #5 · 1 step on the latest line.</p>',
+      '<p class="cmpscope" role="status" data-compare-status="true">#4 → #5, 1 step on the latest line.</p>',
     );
     expect(history).toContain(
       '<button class="btn primary cmpgo" data-compare-go="true">Compare #4 → #5</button>',
@@ -467,7 +467,7 @@ describe("NAV-10 History compare mode", () => {
       (await get(`${path}?panel=history&compare=1&r=${pub[1]}&r=${pub[6]}`)).html,
     );
     expect(range).toContain(
-      "#2 → #7 · 4 steps on the latest line. #6 is a branch off #4, so it isn't included.",
+      "#2 → #7, 4 steps on the latest line. #6 is a branch off #4, so it isn't included.",
     );
     expect(range).toContain(
       '<span class="cmpnote" data-cmp-note="true">Not included: a branch</span>',
@@ -524,7 +524,7 @@ describe("NAV-10 History compare mode", () => {
     const boxes = boxesOf(on.html);
     expect(boxes.map((box) => box.value)).toEqual(pub.slice(1).toReversed());
     expect(boxes.filter((box) => box.checked).map((box) => box.value)).toEqual([pub[2], pub[1]]);
-    expect(historyPanel(on.html)).toContain("#2 → #3 · 1 step on the latest line.");
+    expect(historyPanel(on.html)).toContain("#2 → #3, 1 step on the latest line.");
     expect(historyPanel(on.html)).toContain("Compare #2 → #3");
     // Show all keeps compare mode and its ticks (without script it is the only way down).
     const all = showAll(on.html) ?? "";

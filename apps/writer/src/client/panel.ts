@@ -99,8 +99,11 @@ function revealRevision(): void {
   const row = $('#tp-history:not([hidden]) .rv[aria-current="true"]');
   const body = row?.closest<HTMLElement>(".pbody");
   if (!row || !body) return;
-  const top = body.getBoundingClientRect().top + body.clientTop;
-  const bottom = top + body.clientHeight;
+  // The tab's tools row stays at the top (sticky), so the row must clear it.
+  const head = $$(".hhead", HTMLElement, body).find((node) => node.offsetHeight > 0);
+  const edge = body.getBoundingClientRect().top + body.clientTop;
+  const top = edge + (head?.offsetHeight ?? 0);
+  const bottom = edge + body.clientHeight;
   const at = row.getBoundingClientRect();
   body.scrollTop += nearestDelta(top, bottom, at.top, at.bottom);
 }
@@ -211,7 +214,7 @@ export function bindPanel(): void {
   // shown, which can change by following a link inside it (frame-sync updates the shell's
   // data-path). Download file keeps asking for the stored bytes (?download): frame-sync points
   // the raw links at the frame's own URL in the same task, and this observer runs after it.
-  const named = $$(".cbar .pill.file .mono, .cbar .idsub .mono");
+  const named = $$(".cbar .pill.file .fp, .cbar .idsub .fp");
   const heading = $$("#main > h2.vh").find((node) => node.textContent?.startsWith("Document: "));
   const downloads = $$("[data-download-raw]", HTMLAnchorElement);
   const revision = root.dataset.revision ?? "";
