@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { panelCss, treeCss } from "../src/panel-css.ts";
 import {
   buttonCss,
   documentCss,
@@ -8,6 +9,7 @@ import {
   menuCss,
   publicShellCss,
   shellCss,
+  sidebarCss,
   skipCss,
   stageCss,
 } from "../src/public-shell/css.ts";
@@ -17,6 +19,7 @@ import {
   hashScript,
   loadingScript,
   locationScript,
+  panelScript,
   publicShellScript,
   stageScript,
   timeScript,
@@ -24,12 +27,22 @@ import {
 } from "../src/public-shell/script.ts";
 import { sharedTokensCss } from "../src/tokens.ts";
 
-const cssSegments = { skipCss, letterheadCss, filesCss, menuCss, documentCss, stageCss, buttonCss };
+const cssSegments = {
+  skipCss,
+  letterheadCss,
+  filesCss,
+  menuCss,
+  sidebarCss,
+  documentCss,
+  stageCss,
+  buttonCss,
+};
 const scriptSegments = [
   versionScript,
   timeScript,
   locationScript,
   filesMenuScript,
+  panelScript,
   aboutScript,
   hashScript,
   loadingScript,
@@ -43,7 +56,16 @@ describe("public shell segments", () => {
   it("composes the stylesheet from its segments in the fixed order", () => {
     expect(publicShellCss).toBe(sharedTokensCss + shellCss);
     expect(shellCss).toBe(
-      skipCss + letterheadCss + filesCss + menuCss + documentCss + stageCss + buttonCss,
+      skipCss +
+        letterheadCss +
+        filesCss +
+        menuCss +
+        panelCss +
+        treeCss +
+        sidebarCss +
+        documentCss +
+        stageCss +
+        buttonCss,
     );
   });
 

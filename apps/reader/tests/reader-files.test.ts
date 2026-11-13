@@ -97,7 +97,7 @@ describe("shell file kinds", () => {
     expect(reads).toContain(
       "SELECT path,mime,size FROM revision_files WHERE revision_id=? ORDER BY path",
     );
-    expect(html).toContain("build.tar.gz<small> download · 4.1 MB</small></a>");
+    expect(html).toContain("<b>build.tar.gz</b><small> download · 4.1 MB</small></a>");
     expect(html.split("<small>")).toHaveLength(2);
     expect(html).toContain("<title>index.md · Field kit</title>");
   });

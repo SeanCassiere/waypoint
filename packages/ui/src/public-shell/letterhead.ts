@@ -105,7 +105,8 @@ function about(options: PublicShellOptions, title: string): string {
 /**
  * The letterhead: the title (two lines at most) with the meta row beneath, and on the right
  * "Read-only" and the About button with its popover. `actionsLead` is inserted verbatim as the
- * first action (RX-06's single-file Download). Never shows the link's label.
+ * first action (RX-06's single-file Download). Never shows the link's label. It's a `div`: the
+ * page's banner is the `header.pwrap` around it and the Files row.
  */
 export function letterhead(options: PublicShellOptions, actionsLead = ""): string {
   const title = escapeHtml(showBidi(options.title));
@@ -114,5 +115,5 @@ export function letterhead(options: PublicShellOptions, actionsLead = ""): strin
   const sync = syncingNote(options)
     ? `<p class="sync">${icon("clock", "sm")}<span>A newer version is being synced. It will appear here once it has uploaded.</span></p>`
     : "";
-  return `<header class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options, now)}${sync}</div><div class="acts">${actionsLead}<span class="ro">${icon("lock", "sm")}Read-only</span>${button}${about(options, title)}</div></header>`;
+  return `<div class="lh"><div class="ttl"><h1 dir="auto">${title}</h1>${note(options, now)}${sync}</div><div class="acts">${actionsLead}<span class="ro">${icon("lock", "sm")}Read-only</span>${button}${about(options, title)}</div></div>`;
 }

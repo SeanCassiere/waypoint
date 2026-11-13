@@ -165,7 +165,7 @@ const scenario: ReaderScenario = {
         "Newer version syncing",
       );
       assert.equal(await page.locator(".pend svg").count(), 1, "the clock icon");
-      const tree = await page.locator("header.lh").ariaSnapshot();
+      const tree = await page.locator(".lh").ariaSnapshot();
       assert.ok(
         tree
           .replace(/\s+/g, " ")
@@ -177,7 +177,7 @@ const scenario: ReaderScenario = {
         "no horizontal scroll",
       );
       assert.ok(
-        Number(await page.evaluate(`document.querySelector("header.lh").scrollWidth`)) <= 390,
+        Number(await page.evaluate(`document.querySelector(".lh").scrollWidth`)) <= 390,
         "the letterhead doesn't overflow",
       );
     }

@@ -58,13 +58,13 @@ const BAND_STATE = `(() => {
     back: { height: back.getBoundingClientRect().height, href: back.href },
   };
 })()`;
-/** The tab strip's file links: two or more is the case where the shell centres the current tab. */
-const TABS = `document.querySelectorAll(".ptabs2 a[data-p]").length`;
-/** Whether the strip's current tab is inside the strip's visible box. */
-const CURRENT_TAB_SHOWN = `(() => {
-  const s = document.querySelector(".ptabs2").getBoundingClientRect();
-  const t = document.querySelector(".ptabs2 a[aria-current]").getBoundingClientRect();
-  return t.left >= s.left - 1 && t.right <= s.right + 1;
+/** The Files panel's file links (D74): two or more files give the shell its panel. */
+const ROWS = `document.querySelectorAll("#files a[data-p]").length`;
+/** Whether the panel's current row is on screen: docked beside the document from 1100 px. */
+const CURRENT_ROW_SHOWN = `(() => {
+  const b = document.querySelector("#files .pbody").getBoundingClientRect();
+  const r = document.querySelector("#files a[aria-current]").getBoundingClientRect();
+  return r.width > 0 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1;
 })()`;
 const bandState = async (page: Page) => bandOf.parse(await page.evaluate(BAND_STATE));
 const focused = async (page: Page): Promise<string> =>
@@ -103,10 +103,8 @@ const scenario: ViewerScenario = {
       await page.goto(latest);
       const band = await bandState(page);
       assert.ok(band.next, "the band is the skip link's next sibling");
-      // A real first Tab from load, on a shell page with a tab strip: the shell centres the current
-      // tab without moving the sequential focus starting point (decision d-1).
-      assert.ok(Number(await page.evaluate(TABS)) >= 2, "Postgres has a tab strip");
-      assert.equal(await page.evaluate(CURRENT_TAB_SHOWN), true, "the current tab is in view");
+      // A real first Tab from load, on a shell page with a Files panel (closed on phones).
+      assert.ok(Number(await page.evaluate(ROWS)) >= 2, "Postgres has a Files panel");
       await page.keyboard.press("Tab");
       assert.equal(await focused(page), "Skip to document");
       await page.keyboard.press("Tab");
@@ -136,10 +134,11 @@ const scenario: ViewerScenario = {
       assert.notEqual(band.position, "sticky");
       assert.equal(band.background, band.publicBg);
       if (colorScheme === "light") {
-        // The first Tab from load reaches the skip link and the second the band's Back, with the
-        // current tab centred in the strip (decision d-1) and the page not scrolled.
-        assert.ok(Number(await page.evaluate(TABS)) >= 2, "Postgres has a tab strip");
-        assert.equal(await page.evaluate(CURRENT_TAB_SHOWN), true, "the current tab is in view");
+        // The first Tab from load reaches the skip link and the second the band's Back: the docked
+        // panel, showing its current row, doesn't move the focus starting point (decision d-1)
+        // and the page isn't scrolled.
+        assert.ok(Number(await page.evaluate(ROWS)) >= 2, "Postgres has a Files panel");
+        assert.equal(await page.evaluate(CURRENT_ROW_SHOWN), true, "the current row is in view");
         await page.keyboard.press("Tab");
         assert.equal(await focused(page), "Skip to document");
         await page.keyboard.press("Tab");

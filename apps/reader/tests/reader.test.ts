@@ -414,10 +414,19 @@ describe("public reader", () => {
       await pinnedApp.request(shareShellUrl(base, token, collection, firstPub), {}, bindings)
     ).text();
     for (const html of [latest, pinned]) {
-      // The letterhead's About button (RX-01) is the shell's only button.
+      // The letterhead's About button (RX-01) and the Files panel's button and Done (D74) are the
+      // shell's only buttons.
       const markup = html
         .replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "")
-        .replace(/<button type="button" class="abt" popovertarget="about">[\s\S]*?<\/button>/, "");
+        .replace(/<button type="button" class="abt" popovertarget="about">[\s\S]*?<\/button>/, "")
+        .replace(
+          /<button type="button" class="fbtn ptog" popovertarget="files"[\s\S]*?<\/button>/,
+          "",
+        )
+        .replace(
+          '<button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button>',
+          "",
+        );
       expect(markup).not.toMatch(/<select\b|<button\b|<input\b|revision|history|#\d/i);
       expect(html).not.toContain("rev_");
     }
@@ -435,23 +444,24 @@ describe("public reader", () => {
     for (const href of pinnedLinks) expect(href).toContain(`/r/${firstPub}/`);
     expect(pinned).not.toContain(secondPub);
   });
-  it("shows tabs up to 8 files, a Files tree above, and a download card for binaries", async () => {
+  it("shows the Files panel for two or more files, and a download card for binaries", async () => {
     files = [
       { path: "z.md", blob_hash: hash, mime: "text/markdown" },
       { path: "index.md", blob_hash: hash, mime: "text/markdown" },
       { path: "data/a.bin", blob_hash: hash, mime: "application/octet-stream", size: 2048 },
     ];
     const { app, bindings } = fixture();
-    const tabs = await (
+    const small = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tabs).toContain('<nav class="prow" aria-label="Files"><div class="ptabs2">');
-    expect([...tabs.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
+    expect(small).toContain('<nav id="files" class="panel" popover="auto" aria-label="Files">');
+    expect(small).toContain('<div class="prow"><button type="button" class="fbtn ptog"');
+    expect([...small.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
       "index.md",
       "data/a.bin",
       "z.md",
     ]);
-    expect(tabs).toMatch(/<a href="[^"]+\/index\.md" data-p="index\.md" aria-current="page">/);
+    expect(small).toMatch(/<a href="[^"]+\/index\.md" data-p="index\.md" aria-current="page">/);
     const binary = await (
       await app.request(
         shareShellUrl(base, token, collection, undefined, "data/a.bin"),
@@ -475,17 +485,20 @@ describe("public reader", () => {
     const tree = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
-    expect(tree).not.toContain('class="ptabs2"');
-    expect(tree).toContain('<nav class="prow" aria-label="Files"><div class="pfiles">');
+    expect(tree).toContain('<nav id="files" class="panel"');
     expect(tree).toContain('Files <span class="n">9</span>');
     expect(tree).toContain(
-      '<details open><summary dir="auto">' + iconUse("folder") + "docs/</summary>",
+      '<details open><summary dir="auto">' +
+        iconUse("chevronDown", "sm") +
+        iconUse("folder") +
+        "docs/</summary>",
     );
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
     ).text();
     expect(single).not.toContain('aria-label="Files"');
+    expect(single).not.toContain('id="shell"');
     expect(single).toContain("<iframe");
   });
   it("serves renditions, falls back to source, caches by hash and logs no token", async () => {

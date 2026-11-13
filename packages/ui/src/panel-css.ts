@@ -8,15 +8,15 @@ const PEEK_EASE = `opacity ${PEEK_SLIDE_OUT}ms ease-out,transform ${PEEK_SLIDE_O
 
 /**
  * The file panel (`.shell` > `.panel` > `.pbody`): docked as the shell's first grid column from
- * WIDE_MIN, collapsed by `.shell.closed`; a side sheet below it (`.shell.open`), a bottom sheet
- * below PHONE_MAX. Peek (D73): with the docked panel collapsed, a mouse resting on the window's
+ * WIDE_MIN, collapsed by `.shell.closed`; a side sheet below it (`.shell.open` in the writer; in the
+ * reader the panel is a popover, open as `:popover-open`), a bottom sheet below PHONE_MAX. Peek (D73): with the docked panel collapsed, a mouse resting on the window's
  * left edge (the `.peek-edge` strip) or on the panel button brings the panel out as a floating
  * card over the document (`.shell.closed.peek`); only a close from a peek animates
  * (`.peek-out`), in PEEK_SLIDE_OUT ms. The panel leaves the grid while collapsed, so the document
  * keeps the whole row and nothing reflows. Touch and narrow windows keep the plain toggle.
  *
- * `--panel-top` is where the panel and the peek strip start (the writer sets it to its bar's
- * height on `.shell`). The shell's height belongs to its page, and so does the print height.
+ * `--panel-top` is where the panel and the peek strip start (0 in sharedTokensCss; the writer sets
+ * it to its bar's height on `.shell`). The shell's height belongs to its page, and so does the print height.
  */
 export const panelCss: string = `.shell{display:grid;grid-template-columns:var(--panel-w) minmax(0,1fr)}
 .shell.closed{grid-template-columns:0 minmax(0,1fr)}
@@ -32,9 +32,9 @@ export const panelCss: string = `.shell{display:grid;grid-template-columns:var(-
 @media(max-width:${NARROW_MAX}px){.shell,.shell.closed{grid-template-columns:minmax(0,1fr)}
 .shell.closed .panel{visibility:visible}
 .panel{position:fixed;top:var(--panel-top,0px);bottom:0;left:0;width:min(360px,92vw);z-index:30;box-shadow:var(--sh-2);transform:translateX(-102%);visibility:hidden}
-.shell.open .panel{transform:none;visibility:visible}
+.shell.open .panel,.panel:popover-open{transform:none;visibility:visible}
 .shell.open~.panel-scrim{display:block;position:fixed;inset:0;background:var(--scrim);z-index:29}}
-@media(max-width:${PHONE_MAX}px){.shell.open .panel{width:100%;top:auto;bottom:0;height:78dvh;border-radius:16px 16px 0 0}}
+@media(max-width:${PHONE_MAX}px){.shell.open .panel,.panel:popover-open{width:100%;top:auto;bottom:0;height:78dvh;border-radius:16px 16px 0 0}}
 @media(prefers-reduced-motion:no-preference){.panel{transition:transform 150ms cubic-bezier(.2,0,0,1)}
 @media ${PEEK_MEDIA}{.shell.closed:not(.peek) .panel{opacity:0;transform:translateX(-12px)}
 .shell.closed.peek .panel{transition:${PEEK_EASE}}
@@ -44,16 +44,17 @@ export const panelCss: string = `.shell{display:grid;grid-template-columns:var(-
 
 /**
  * The file tree's rows (`.tree`): files (`a`, the current one `a[aria-current]`, its name in
- * `.nm`) and folders (`details` > `summary` with a chevron `svg.ic`, contents in a `div`). One
+ * `.nm` in the writer and a `b` in the reader, whose rows lead with a type icon `svg`) and folders (`details` > `summary` with a chevron `svg.ic`, contents in a `div`). One
  * selection style (VS-04): a raised row with a ring and an ink bar at the start edge. Touch:
  * folders start collapsed (D72), so their rows are the tree's main target; 44 px rows.
  */
 export const treeCss: string = `.tree a,.tree .dir,.tree summary{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;text-decoration:none;color:var(--ink-2);font-size:13.5px;min-width:0}
 @media(pointer:coarse){.tree a,.tree summary{min-height:var(--tap)}}
-.tree a span.nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tree a span.nm,.tree a>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tree a:hover,.tree summary:hover{background:var(--hover)}
 .tree a[aria-current]{background:var(--sel-bg);color:var(--ink);box-shadow:inset 3px 0 0 var(--sel-bar),0 0 0 1px var(--sel-ring)}
-.tree a[aria-current] .nm{font-weight:600}
+.tree a[aria-current] .nm,.tree a[aria-current]>b{font-weight:600}
+.tree a>svg{flex:none;width:var(--ic-sm);height:var(--ic-sm);fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .tree .dir,.tree summary{color:var(--muted);font-weight:600;font-size:12.5px;cursor:pointer}
 .tree summary{list-style:none}
 .tree summary::-webkit-details-marker{display:none}

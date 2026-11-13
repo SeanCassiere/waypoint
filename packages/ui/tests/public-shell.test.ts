@@ -26,6 +26,12 @@ const base: PublicShellOptions = {
 };
 const markup = (html: string): string =>
   html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "");
+const menuOf = (html: string): string => html.slice(html.indexOf('<div class="tree">'));
+/** A folder row: the fold chevron, the folder icon, the label. */
+const summary = (name: string): string =>
+  `<summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${name}</summary>`;
+/** A file row's icon (drawn by `.tree a>svg`, so no class of its own). */
+const doc = '<svg aria-hidden="true"><use href="#i-doc"/></svg>';
 
 describe("public shell", () => {
   it("escapes agent-controlled titles and paths everywhere", () => {
@@ -85,16 +91,18 @@ describe("public shell", () => {
     // Page navigation is never animated (owner feedback 1).
     expect(publicShellCss).not.toMatch(/view-transition/);
   });
-  it("uses tabs up to 8 files with the head first, and a tree above", () => {
-    const tabs = renderPublicShell({
+  it("lists the head first, then the tree, for any number of files", () => {
+    const small = renderPublicShell({
       ...base,
       files: ["b.md", "a.md", "index.md"].map((path) => ({ path })),
     });
-    expect([...tabs.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
+    expect([...small.matchAll(/data-p="([^"]+)"/g)].map((m) => m[1])).toEqual([
       "index.md",
       "a.md",
       "b.md",
     ]);
+    expect(small).toContain('data-p="index.md" aria-current="page">');
+    expect(small.indexOf("<hr>")).toBeGreaterThan(small.indexOf('data-p="index.md"'));
     const paths = [
       "index.md",
       "z.md",
@@ -114,24 +122,22 @@ describe("public shell", () => {
     expect(tree).toContain(
       `Files <span class="n">9</span><span class="cur" id="files-cur">${iconUse("doc")}<span class="t" dir="auto">a/b/y.md</span></span>`,
     );
-    const menu = tree.slice(tree.indexOf('<div class="mbox tree"'));
+    const menu = menuOf(tree);
     expect(menu.indexOf('data-p="index.md"')).toBeLessThan(menu.indexOf("<details"));
     expect(menu).toContain(
-      `<details open><summary dir="auto">${iconUse("folder")}a/</summary><div class="in"><details open><summary dir="auto">${iconUse("folder")}b/</summary><div class="in">`,
+      `<details open>${summary("a/")}<div><details open>${summary("b/")}<div>`,
     );
-    expect(menu).toContain(
-      `data-p="a/b/y.md" aria-current="page" autofocus>${iconUse("doc")}y.md</a>`,
-    );
-    // Balanced folders: the Files popover isn't a <details>.
+    expect(menu).toContain(`data-p="a/b/y.md" aria-current="page">${doc}<b>y.md</b></a>`);
+    // Balanced folders: the Files panel isn't a <details>.
     expect((menu.match(/<details/g) ?? []).length).toBe((menu.match(/<\/details>/g) ?? []).length);
     expect(renderPublicShell(base)).not.toContain('aria-label="Files"');
   });
   it("collapses folders in large manifests except the current file's", () => {
     const files = Array.from({ length: 300 }, (_, i) => ({ path: `d${i % 3}/f${i}.md` }));
     const html = renderPublicShell({ ...base, files, current: "d1/f4.md" });
-    expect(html).toContain(`<details open><summary dir="auto">${iconUse("folder")}d1/</summary>`);
-    expect(html).toContain(`<details><summary dir="auto">${iconUse("folder")}d0/</summary>`);
-    expect(html).toContain(`<details><summary dir="auto">${iconUse("folder")}d2/</summary>`);
+    expect(html).toContain(`<details open>${summary("d1/")}`);
+    expect(html).toContain(`<details>${summary("d0/")}`);
+    expect(html).toContain(`<details>${summary("d2/")}`);
   });
   it("says Snapshot for single-revision links and Updated for latest", () => {
     const at = Date.UTC(2026, 9, 7, 22, 8);
@@ -179,7 +185,6 @@ describe("encodePathSegments", () => {
       expect(encodePathSegments(path)).toBe(path.split("/").map(encodeURIComponent).join("/"));
   });
 });
-const menuOf = (html: string): string => html.slice(html.indexOf('<div class="mbox tree"'));
 describe("tree limits", () => {
   it("collapses single-folder chains and single-file folders", () => {
     const paths = [
@@ -190,9 +195,9 @@ describe("tree limits", () => {
       ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
     ];
     const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
-    expect(menu).toContain(`<summary dir="auto">${iconUse("folder")}a/b/c/d/</summary>`);
+    expect(menu).toContain(summary("a/b/c/d/"));
     expect(menu).not.toContain(`${iconUse("folder")}b/`);
-    expect(menu).toContain(`data-p="solo/only.md">${iconUse("doc")}solo/only.md</a>`);
+    expect(menu).toContain(`data-p="solo/only.md">${doc}<b>solo/only.md</b></a>`);
     expect(menu).not.toContain("solo/</summary>");
   });
   it("nests at most 6 folders deep and puts deeper folders in the label", () => {
@@ -204,11 +209,11 @@ describe("tree limits", () => {
       ...Array.from({ length: 7 }, (_, i) => `z${i}.md`),
     ];
     const menu = menuOf(renderPublicShell({ ...base, files: paths.map((path) => ({ path })) }));
-    expect(menu).toContain(`<summary dir="auto">${iconUse("folder")}${"a/".repeat(6)}</summary>`);
+    expect(menu).toContain(summary("a/".repeat(6)));
     expect((menu.match(/<details/g) ?? []).length).toBe(1);
     expect(menu).toContain(`data-p="${deep}">`);
     // The label is the rest of the path, shortened in the middle.
-    expect(menu).toMatch(/>(?:a\/){19}…(?:a\/){17}f\.md<\/a>/);
+    expect(menu).toMatch(/><b>(?:a\/){19}…(?:a\/){17}f\.md<\/b><\/a>/);
   });
   it("stops the list at the budget and says how many files aren't listed", () => {
     const paths = Array.from(
@@ -229,8 +234,9 @@ describe("tree limits", () => {
         "'",
       ),
     );
-    // The rest of the page (style, script, letterhead and About) is about 33 KB.
-    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 34_000);
+    // The rest of the page (style, script, letterhead and About, the panel's CSS and script) is
+    // about 42 KB.
+    expect(html.length).toBeLessThan(PUBLIC_SHELL_LIST_BUDGET + 44_000);
     // Ordinary 2,000-file manifests fit entirely.
     const ordinary = Array.from(
       { length: 2000 },
@@ -258,11 +264,10 @@ describe("tree limits", () => {
     });
     const visible = markup(html);
     expect(visible).toContain(
-      `data-p="invoice\u202efdp.exe">${iconUse("doc")}invoice\ufffdfdp.exe</a>`,
+      `data-p="invoice\u202efdp.exe">${doc}<b>invoice\ufffdfdp.exe</b></a>`,
     );
     expect(visible).toContain('<h1 dir="auto">Report \ufffdexe.pdf</h1>');
     expect(visible.replace(/data-p="[^"]*"/g, "")).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
-    expect(publicShellCss).toContain(".ptabs2 a{unicode-bidi:plaintext}");
     expect(publicShellCss).toContain(".tree a{unicode-bidi:plaintext}");
   });
   it("shows bidi controls in the download card and the frame title", () => {

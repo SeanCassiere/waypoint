@@ -61,8 +61,11 @@ describe("panelCss and treeCss", () => {
     expect(panelCss).not.toMatch(/(?<![-\w])height:(?!78dvh)/);
   });
 
-  it("isn't part of the public shell yet", () => {
-    expect(publicShellCss).not.toContain(panelCss);
-    expect(publicShellCss).not.toContain(treeCss);
+  it("is part of the public shell, which opens the panel as a popover", () => {
+    expect(publicShellCss).toContain(panelCss + treeCss);
+    expect(panelCss).toContain(
+      ".shell.open .panel,.panel:popover-open{transform:none;visibility:visible}",
+    );
+    expect(panelCss).toMatch(/\.shell\.open \.panel,\.panel:popover-open\{width:100%/);
   });
 });

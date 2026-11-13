@@ -3,8 +3,6 @@ import { downloadLink } from "./download.ts";
 import type { PublicShellFile, PublicShellOptions } from "./index.ts";
 import { bytes, esc, label } from "./text.ts";
 
-/** Tabs up to this many files; a "Files N" tree above it (spec §9). */
-export const PUBLIC_SHELL_TAB_LIMIT = 8;
 /** Tree folders start collapsed above this many files, except the current file's (spec §4.9). */
 const OPEN_FOLDERS_LIMIT = 200;
 
@@ -18,7 +16,7 @@ export const PUBLIC_SHELL_TREE_DEPTH = 6;
  */
 export const PUBLIC_SHELL_LIST_BUDGET = 340_000;
 
-/** A file's type icon in the tabs and the tree (RX-03); `binary` files can't be previewed. */
+/** A file's type icon in the tree and the Files button (RX-03); `binary` files can't be previewed. */
 export type ShellFileKind = "doc" | "image" | "table" | "code" | "binary";
 // Mirrors the reader's `previewable` (isTextMime or image/*) without depending on @waypoint/core;
 // apps/reader/tests/reader-files.test.ts keeps the two in step.
@@ -65,20 +63,21 @@ interface Budget {
 }
 
 /**
- * One file row: a bare link with its type icon (from the page's sprite), the label, and for files
- * that can't be previewed a "download · size" marker. `popover` rows (inside the Files popover)
- * also carry `autofocus` on the current file, so opening the popover focuses it; tabs never do.
+ * One file row: a bare link with its type icon (from the page's sprite; drawn by `.tree a>svg`, so
+ * without the `ic` classes: 2,000 rows would carry them), the label in a `b` (the part that's cut short with an ellipsis; the script
+ * sets the full path as the row's `title` on hover or focus), and for files that can't be previewed
+ * a "download · size" marker. No `autofocus` here: a docked panel is open at load, and a parsed
+ * `autofocus` would take the focus from the skip link; the script puts it on the current row, so
+ * opening the Files sheet focuses it.
  */
 function link(
   options: PublicShellOptions,
   file: PublicShellFile,
   text: string,
   budget: Budget,
-  popover: boolean,
 ): string {
   const path = file.path;
-  const current =
-    path === options.current ? ` aria-current="page"${popover ? " autofocus" : ""}` : "";
+  const current = path === options.current ? ' aria-current="page"' : "";
   if (file.mime !== budget.mime) {
     budget.mime = file.mime;
     budget.kind = shellFileKind(file.mime);
@@ -91,7 +90,7 @@ function link(
       : typeof file.size === "number"
         ? `<small> download · ${bytes(file.size)}</small>`
         : "<small> download</small>";
-  const out = `<a href="${esc(options.fileHref(path))}" data-p="${esc(path)}"${current}>${iconUse(kind)}${label(text)}${marker}</a>`;
+  const out = `<a href="${esc(options.fileHref(path))}" data-p="${esc(path)}"${current}><svg aria-hidden="true"><use href="#i-${kind}"/></svg><b>${label(text)}</b>${marker}</a>`;
   // Count UTF-8 bytes roughly: non-ASCII names cost up to three bytes per character.
   budget.used += nonAscii.test(path) ? out.length * 3 : out.length;
   budget.listed++;
@@ -149,7 +148,7 @@ function renderFolder(
   for (const entry of node.entries) {
     if (budget.used > PUBLIC_SHELL_LIST_BUDGET) return;
     if (!isFolder(entry)) {
-      out.push(link(options, entry, entry.path.slice(prefix), budget, true));
+      out.push(link(options, entry, entry.path.slice(prefix), budget));
       continue;
     }
     // Collapse chains of folders that hold only one folder into one row.
@@ -162,12 +161,12 @@ function renderFolder(
     // A folder holding a single file shows as that file, labelled with its folders.
     const only = child.entries.length === 1 ? child.entries[0] : undefined;
     if (only && !isFolder(only)) {
-      out.push(link(options, only, only.path.slice(prefix), budget, true));
+      out.push(link(options, only, only.path.slice(prefix), budget));
       continue;
     }
     const open = openAll || child.open ? " open" : "";
     out.push(
-      `<details${open}><summary dir="auto">${iconUse("folder")}${label(name)}</summary><div class="in">`,
+      `<details${open}><summary dir="auto">${iconUse("chevronDown", "sm")}${iconUse("folder")}${label(name)}</summary><div>`,
     );
     renderFolder(options, child, prefix + name.length, openAll, budget, out);
     out.push("</div></details>");
@@ -205,15 +204,25 @@ function tree(
   return out.join("");
 }
 
+/** The Files row and panel of a shell with two or more files; null for one file. */
+export interface ShellFiles {
+  /** The `.prow` row under the letterhead: the panel button, then the current file's Download. */
+  row: string;
+  /** The `#files` panel: the "Files N" header and the tree. */
+  panel: string;
+}
+
 /**
- * The file list, in a `.prow` row: tabs, a "Files N" button past the tab limit that opens the tree
- * in a light-dismiss popover (a bottom sheet on phones), or "" for one file. The current file's
- * Download control (RX-06) ends the row; a one-file shell has it in the letterhead instead. The row
- * is the Files landmark, so Download is inside it too (axe region); the inner div is only layout.
+ * The file list (D74): a "Files N" button in a `.prow` row under the letterhead, and the tree in a
+ * `nav#files.panel` popover beside the document. The popover is the panel at every width: from
+ * WIDE_MIN the CSS shows it docked as the shell's first column without opening it, and the script
+ * collapses it with `#shell.closed`; below that the button opens it natively as a side sheet (a
+ * bottom sheet on phones). The current file's Download control (RX-06) ends the row; a one-file
+ * shell has it in the letterhead instead, and no row or panel.
  */
-export function files(options: PublicShellOptions): string {
+export function files(options: PublicShellOptions): ShellFiles | null {
   let all = options.files;
-  if (all.length <= 1) return "";
+  if (all.length <= 1) return null;
   // Callers usually pass paths in order already (SQL ORDER BY path); sort only if not.
   let sorted = true;
   for (let i = 1; i < all.length && sorted; i++)
@@ -222,11 +231,7 @@ export function files(options: PublicShellOptions): string {
   const head = all.find((file) => file.path === options.head);
   const rest = head ? all.filter((file) => file.path !== options.head) : all;
   const budget: Budget = { used: 0, listed: 0, mime: undefined, kind: "doc" };
-  if (all.length <= PUBLIC_SHELL_TAB_LIMIT) {
-    const ordered = head ? [head, ...rest] : rest;
-    return `<nav class="prow" aria-label="Files"><div class="ptabs2">${ordered.map((file) => link(options, file, file.path, budget, false)).join("")}</div>${downloadLink(options, "row")}</nav>`;
-  }
-  const headRow = head ? `${link(options, head, head.path, budget, true)}<hr>` : "";
+  const headRow = head ? `${link(options, head, head.path, budget)}<hr>` : "";
   const list = tree(options, rest, budget);
   const missing = all.length - budget.listed;
   const more =
@@ -234,9 +239,13 @@ export function files(options: PublicShellOptions): string {
       ? `<p class="more">${missing} more ${missing === 1 ? "file isn't" : "files aren't"} listed here.</p>`
       : "";
   const count = `Files <span class="n">${all.length}</span>`;
-  // The current path is the button's description too; the popover is a sibling, never inside it.
-  const button = `<button type="button" class="fbtn" popovertarget="files" aria-describedby="files-cur">${count}<span class="cur" id="files-cur">${iconUse(shellFileKind(all.find((file) => file.path === options.current)?.mime))}<span class="t" dir="auto">${label(options.current)}</span></span>${icon("chevronDown", "sm chev")}</button>`;
-  // The heading and Done show only on phones, where the popover is a bottom sheet.
-  const sheetHead = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
-  return `<nav class="prow" aria-label="Files"><div class="pfiles">${button}<div id="files" class="menu files" popover="auto"><div class="mbox tree" role="group" aria-labelledby="files-h">${sheetHead}${headRow}${list}${more}</div></div></div>${downloadLink(options, "row")}</nav>`;
+  const kind = shellFileKind(all.find((file) => file.path === options.current)?.mime);
+  // The current path is the button's description too; the panel is a sibling, never inside it.
+  const button = `<button type="button" class="fbtn ptog" popovertarget="files" aria-controls="files" aria-describedby="files-cur">${icon("panel")}${count}<span class="cur" id="files-cur">${iconUse(kind)}<span class="t" dir="auto">${label(options.current)}</span></span></button>`;
+  // Done shows only on phones, where the panel is a bottom sheet.
+  const header = `<div class="shd"><h2 id="files-h">${count}</h2><button type="button" class="done" popovertarget="files" popovertargetaction="hide">Done</button></div>`;
+  return {
+    row: `<div class="prow">${button}${downloadLink(options, "row")}</div>`,
+    panel: `<nav id="files" class="panel" popover="auto" aria-label="Files">${header}<div class="pbody"><div class="tree">${headRow}${list}${more}</div></div></nav>`,
+  };
 }

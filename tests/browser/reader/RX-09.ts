@@ -207,7 +207,7 @@ const scenario: ReaderScenario = {
     // Open with a fragment, then switch files: the fragment goes.
     {
       const page = await openAtHeading(VIEWPORTS.desktop);
-      const other = page.locator('.ptabs2 a[data-p="other.md"]');
+      const other = page.locator('#files a[data-p="other.md"]');
       await other.click();
       await page.waitForURL(`${shell}other.md`);
       await docFrame(page, "other.md");

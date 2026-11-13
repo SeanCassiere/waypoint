@@ -1,5 +1,6 @@
 - banner:
   - heading "Search relevance eval — run 2026-10-06" [level=1]
 - navigation "Files":
+  - heading "Files 2" [level=2]
 - main:
   - heading "data/events.parquet" [level=2]
