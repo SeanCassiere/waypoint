@@ -1,5 +1,5 @@
 /**
- * The chrome's typeface (D79): Recursive, subset by scripts/subset-recursive.sh to the Latin
+ * The chrome's typeface (D76): Recursive, subset by scripts/subset-recursive.sh to the Latin
  * glyphs and the two axes the UI needs (wght 300–1000, MONO 0–1). One file serves both cuts: the
  * sans is MONO 0, and `--mono` is the same file under the family name "Recursive Mono", whose
  * face turns MONO to 1. Documents and renditions never use it (D45 stands for them).

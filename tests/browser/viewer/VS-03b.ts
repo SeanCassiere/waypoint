@@ -349,7 +349,7 @@ const scenario: ViewerScenario = {
       await local.stop();
     }
 
-    // The health pill: one state mark (an icon, or a state glyph, D80), no state dot; visible in
+    // The health pill: one state mark (an icon, or a state glyph, D78), no state dot; visible in
     // forced colours.
     for (const path of [postgres, "/"]) {
       await desk.goto(`${base}${path}`);
@@ -369,7 +369,7 @@ const scenario: ViewerScenario = {
         forcedColors: "active",
       });
       await page.goto(`${base}${five}`);
-      // The pill's mark: an icon with a stroke, or a state glyph (D80) that keeps its colours.
+      // The pill's mark: an icon with a stroke, or a state glyph (D78) that keeps its colours.
       if ((await page.locator("header.bar .health svg.ic").count()) > 0) {
         await isSquare(page, "header.bar .health svg.ic", 16, "forced colours");
         const stroke = await page.evaluate(

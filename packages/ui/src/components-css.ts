@@ -1,5 +1,5 @@
 /**
- * Logbook's component system (D80): every control is styled here, once, and the pages' own CSS
+ * Logbook's component system (D78): every control is styled here, once, and the pages' own CSS
  * only lays things out. Split by consumer like the tokens (tokens.ts):
  *  - `controlsCss`: what the public reader shell uses too. The `.btn` family's shape (default,
  *    primary, ghost; sm 28 / md 32 / 44 on touch) with its hover and press films, the neutral

@@ -28,7 +28,7 @@ export function viewerApp(s: HttpServices, extras: ViewerExtras): Hono {
           },
         }),
     );
-  // The chrome's font (D79): the same bytes and path as the public reader's, from @waypoint/ui.
+  // The chrome's font (D76): the same bytes and path as the public reader's, from @waypoint/ui.
   app.get(CHROME_FONT_PATH, () => new Response(chromeFontBytes(), { headers: chromeFontHeaders }));
   // Browsers also ask for /favicon.ico on pages without a <link rel="icon"> (raw files).
   for (const path of [faviconAsset.url, "/favicon.ico"])

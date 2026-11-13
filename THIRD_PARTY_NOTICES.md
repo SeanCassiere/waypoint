@@ -49,7 +49,7 @@ This file and [LICENSE](LICENSE) ship in the writer image (`/app/`), in each rel
   | [`typeid-js`](#typeid-js) | Apache-2.0 |
   | [`uuid`](#uuid) | MIT |
 
-- **The chrome's font**, a subset of Recursive, is inlined into the writer bundle (in the writer image) and the public reader Worker; both serve it to browsers for their own pages (D79):
+- **The chrome's font**, a subset of Recursive, is inlined into the writer bundle (in the writer image) and the public reader Worker; both serve it to browsers for their own pages (D76):
 
   | Package | License |
   | --- | --- |

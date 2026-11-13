@@ -358,7 +358,7 @@ async function render(): Promise<string> {
     table(await resolveBundle(bundle));
   }
   lines.push(
-    "- **The chrome's font**, a subset of Recursive, is inlined into the writer bundle (in the writer image) and the public reader Worker; both serve it to browsers for their own pages (D79):",
+    "- **The chrome's font**, a subset of Recursive, is inlined into the writer bundle (in the writer image) and the public reader Worker; both serve it to browsers for their own pages (D76):",
   );
   const fonts: Resolved[] = await Promise.all(
     assets.map(async (asset) => ({

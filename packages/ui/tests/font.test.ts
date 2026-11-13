@@ -7,7 +7,7 @@ import { RECURSIVE_SHA256 } from "../src/font-data.ts";
 import { CHROME_FONT_PATH, chromeFontBytes, chromeFontHeaders, fontFaceCss } from "../src/font.ts";
 import { sharedTokensCss } from "../src/tokens.ts";
 
-// The chrome's font (D79): the committed subset, its generated module (scripts/subset-recursive.sh)
+// The chrome's font (D76): the committed subset, its generated module (scripts/subset-recursive.sh)
 // and the URL both apps serve it from must agree, and its license ships beside it.
 const woff2 = readFileSync(new URL("../fonts/recursive-ui.woff2", import.meta.url));
 

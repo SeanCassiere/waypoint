@@ -169,7 +169,7 @@ describe("stripModel and the words", () => {
 
     const markup = await strip(model);
     expect(markup).toContain('<div class="lin2" role="group" aria-label="Revision lines">');
-    // State words (D80): the glyph is the class's ::before, so the words stand alone.
+    // State words (D78): the glyph is the class's ::before, so the words stand alone.
     expect(markup).toContain('<span class="sc ok">#5 synced</span>');
     expect(markup).toContain('<span class="sc p">#7 stalled</span>');
     expect(markup).toContain('<span class="sc f">#6 failed</span>');

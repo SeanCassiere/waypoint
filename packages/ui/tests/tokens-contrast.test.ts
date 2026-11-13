@@ -73,7 +73,7 @@ const ROLES = [
 ];
 const GROUNDS = ["paper", "surface", "sunken", "dlg"];
 /**
- * Hover and selected are films of ink (D80), checked over the grounds that hoverable and
+ * Hover and selected are films of ink (D77), checked over the grounds that hoverable and
  * selectable rows sit on (pages, cards and fields, menus and dialogs; nothing hoverable sits in a
  * sunken well), for the text roles such rows use. Secondary text in a row is --ink-2, never
  * --muted or --faint (in dark, neither reaches 4.5:1 on the selected film), and --ok never labels

@@ -341,7 +341,7 @@ describe("withHealthScope", () => {
 });
 
 describe("HealthPill (OW-10b)", () => {
-  it("names the revision here, with the failed glyph (D80) and no dot", async () => {
+  it("names the revision here, with the failed glyph (D78) and no dot", async () => {
     const pill = await html(HealthPill({ health: healthOf([pgOnlyFailed()], PG_SCOPE) }));
     expect(pill).toContain('class="health failed"');
     expect(pill).toContain('data-scope="here"');

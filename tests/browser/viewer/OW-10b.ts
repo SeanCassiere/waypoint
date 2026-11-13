@@ -50,7 +50,7 @@ async function pillStyles(page: Page): Promise<z.infer<typeof styles>> {
     await page.evaluate(`(() => {
       const pill = document.querySelector(${JSON.stringify(PILL)});
       const style = getComputedStyle(pill);
-      // The state mark (D80): the ok and sync-off icons, or a state glyph; a ring elsewhere (D71).
+      // The state mark (D78): the ok and sync-off icons, or a state glyph; a ring elsewhere (D71).
       const icon = pill.querySelector("svg.ic, .lb-g:not(.ring)");
       const ring = pill.querySelector(".lb-g.ring");
       const shown = (node) => !!node && getComputedStyle(node).display !== "none" &&

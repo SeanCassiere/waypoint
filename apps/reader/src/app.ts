@@ -91,7 +91,7 @@ const rawCsp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbo
  * An image shell (RX-04, decision c) may load images only from `imageBase`, this response's own
  * frame base: a trailing `/` makes CSP match by prefix, so only files of the revision it shows.
  *
- * `font-src 'self'` lets the shell and the static pages load the chrome's font (D79), which this
+ * `font-src 'self'` lets the shell and the static pages load the chrome's font (D76), which this
  * Worker serves itself from CHROME_FONT_PATH; nothing else on this origin is a font.
  */
 const shellPolicy = (imageBase: string | null): string =>
@@ -308,7 +308,7 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
   app.get("/", (c) =>
     c.req.path === "/" ? new Response(rootPage, { headers: rootHeaders }) : deniedFor(c.req.path),
   );
-  // The chrome's font (D79): fixed public bytes at a content-hashed path, the same as the
+  // The chrome's font (D76): fixed public bytes at a content-hashed path, the same as the
   // writer's. It touches no link, database or bucket, so it isn't counted or rate limited.
   app.get(
     CHROME_FONT_PATH,

@@ -6,7 +6,7 @@ import { documentCss, publicShellCss, shellCss } from "../src/public-shell/css.t
 import { sharedTokensCss } from "../src/tokens.ts";
 
 // VS-05b: the shell's one `.btn` family (default, primary, ghost; md and sm; 44 px on touch), the
-// shared controls (D80) the writer's buttons are built on too.
+// shared controls (D78) the writer's buttons are built on too.
 const card = (): string =>
   renderPublicShell({
     title: "Plan",

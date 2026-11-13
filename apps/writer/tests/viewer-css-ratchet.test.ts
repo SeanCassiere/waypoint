@@ -105,7 +105,7 @@ function dimmedStates(list: readonly Declaration[]): string[] {
     .map((d) => `${d.partial}: ${d.ancestry} { opacity: ${d.value} }`);
 }
 
-// The partials, and the component layer they build on (@waypoint/ui components-css.ts, D80), so
+// The partials, and the component layer they build on (@waypoint/ui components-css.ts, D78), so
 // moving a rule into the component system doesn't take it out of the ratchet.
 const viewer = [
   ...declarations("components-css.ts:controlsCss", controlsCss),

@@ -1,5 +1,5 @@
 /**
- * Logbook design tokens (D80; Folio's roles, spec §3, with Logbook's values), split by consumer so a
+ * Logbook design tokens (D77; Folio's roles, spec §3, with Logbook's values), split by consumer so a
  * CSP hash moves only when a role the reader can see moves:
  *  - `sharedTokensCss`: roles the public reader shell, the reader's static pages and the writer
  *    all use, plus the chrome's font faces (font.ts), the base element rules and the skip link.

@@ -77,7 +77,7 @@ describe("Logbook tokens", () => {
     }
   });
 
-  it("pins Logbook's values and scales (D80)", () => {
+  it("pins Logbook's values and scales (D77)", () => {
     const shared = declarations(sharedTokensCss, "light");
     const dark = declarations(sharedTokensCss, "dark");
     const writer = declarations(writerTokensCss, "light");

@@ -31,7 +31,7 @@ export function LogoMark(props: { size?: number }) {
     </svg>
   );
 }
-/** A revision state's glyph (D80): the one vocabulary for spines, notices, the health pill and state
+/** A revision state's glyph (D78): the one vocabulary for spines, notices, the health pill and state
  *  words. `done` is a filled node, `pending` a dashed amber ring, `failed` a ringed red dot; `ring`
  *  is the health pill's elsewhere mark (D71: a fill is here, a ring is elsewhere), red, or amber
  *  and dashed with `pending`. Decorative: the words beside it say the state. */

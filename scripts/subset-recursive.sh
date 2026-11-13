@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuilds the chrome's typeface (D79): Recursive, subset for the writer viewer and the public
+# Rebuilds the chrome's typeface (D76): Recursive, subset for the writer viewer and the public
 # reader shell, and the generated module both apps serve it from.
 #
 #   python3 -m venv /tmp/lb-venv && /tmp/lb-venv/bin/pip install fonttools brotli
