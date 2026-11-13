@@ -462,6 +462,8 @@ export function createReaderApp(deps: ReaderDeps): Hono<{ Bindings: ReaderEnv }>
         files,
         head: revision.head_path,
         current: path,
+        // The collection's public ID (collections.public_id), never the token or the link's ID.
+        collection: link.public_id,
         // Relative, minimally encoded links keep a 2,000-file shell small.
         fileHref: (item) => linkPrefix + encodeLinkPath(item),
         frameBase,

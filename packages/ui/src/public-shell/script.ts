@@ -1,4 +1,10 @@
-import { PANEL_STORAGE_KEY, PEEK_CLOSE_GRACE, PEEK_OPEN_DELAY, PEEK_SLIDE_OUT } from "../panel.ts";
+import {
+  PANEL_STORAGE_KEY,
+  PEEK_CLOSE_GRACE,
+  PEEK_OPEN_DELAY,
+  PEEK_SLIDE_OUT,
+  TREE_STORAGE_PREFIX,
+} from "../panel.ts";
 import { WIDE_MIN } from "../tokens.ts";
 
 /**
@@ -243,6 +249,82 @@ export const filesMenuScript: string = `(() => {
         if (popover.matches(":popover-open")) popover.hidePopover();
       }
     }, 0);
+  });
+})();`;
+/**
+ * The file tree's folders (D72, D75), a port of the writer's client/tree.ts without the filter.
+ * The server opens only the current file's folders; this reopens the ones the reader opened
+ * earlier in this tab for this collection, kept in sessionStorage under TREE_STORAGE_PREFIX and
+ * the collection's public ID (`#shell[data-collection]`; never the share token), and shows and
+ * names Expand all / Collapse all. A folder is known by its row's text joined to its parents'
+ * ("docs/api/"), which is the writer's `data-dir` for an ordinary tree, so the writer's
+ * `?as=public` preview shares the writer's own choices. Only the reader's own choices are kept (a
+ * press on a folder's row, the button), never the folders opened to show a file. The button's
+ * name is updated once per task, so Expand all over many folders stays linear. It runs before
+ * `panelScript`, so the panel scrolls to the current row with the reopened folders in place.
+ */
+export const treeScript: string = `(() => {
+  const shell = document.getElementById("shell");
+  const panel = document.getElementById("files");
+  const folders = panel ? [...panel.querySelectorAll("details")] : [];
+  if (!shell || !folders.length) return;
+  const button = panel.querySelector("[data-tree-all]");
+  const id = shell.dataset.collection;
+  const key = "${TREE_STORAGE_PREFIX}" + id;
+  const dirs = new Map();
+  for (const folder of folders) {
+    const up = folder.parentElement.closest("details");
+    dirs.set(folder, (up ? dirs.get(up) : "") + folder.firstElementChild.textContent);
+  }
+  const chosen = new Set();
+  try {
+    const saved = id ? JSON.parse(sessionStorage.getItem(key) || "[]") : [];
+    if (Array.isArray(saved)) for (const dir of saved) if (typeof dir === "string") chosen.add(dir);
+  } catch {
+    chosen.clear();
+  }
+  for (const folder of folders) if (chosen.has(dirs.get(folder))) folder.open = true;
+  const save = () => {
+    try {
+      if (id) sessionStorage.setItem(key, JSON.stringify([...chosen]));
+    } catch {
+      return;
+    }
+  };
+  const all = () => folders.every((folder) => folder.open);
+  let queued = false;
+  const label = () => {
+    queued = false;
+    if (button) button.textContent = all() ? "Collapse all" : "Expand all";
+  };
+  label();
+  if (button) button.hidden = false;
+  const pressed = new WeakSet();
+  panel.addEventListener("click", (e) => {
+    const row = e.target instanceof Element ? e.target.closest("summary") : null;
+    if (row) pressed.add(row.parentElement);
+  });
+  panel.addEventListener("toggle", (e) => {
+    const folder = e.target;
+    if (!dirs.has(folder)) return;
+    if (!queued) {
+      queued = true;
+      setTimeout(label);
+    }
+    if (!pressed.delete(folder)) return;
+    if (folder.open) chosen.add(dirs.get(folder));
+    else chosen.delete(dirs.get(folder));
+    save();
+  }, true);
+  if (button) button.addEventListener("click", () => {
+    const open = !all();
+    chosen.clear();
+    for (const folder of folders) {
+      folder.open = open;
+      if (open) chosen.add(dirs.get(folder));
+    }
+    save();
+    label();
   });
 })();`;
 /**
@@ -589,6 +671,7 @@ export const earlyShellScripts: readonly string[] = [
 /** Segments that need the whole page: they run once it's parsed (`DOMContentLoaded`). */
 export const parsedShellScripts: readonly string[] = [
   filesMenuScript,
+  treeScript,
   panelScript,
   aboutScript,
   hashScript,

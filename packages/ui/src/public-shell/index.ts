@@ -44,6 +44,12 @@ export interface PublicShellOptions {
   head: string;
   /** The file being shown. */
   current: string;
+  /**
+   * The collection's public ID, as `#shell[data-collection]`: it names the tab's saved folders
+   * (`sessionStorage["wp:tree:<ID>"]`, D75). Never a share token or link ID: the reader's storage
+   * must not hold anything that grants access.
+   */
+  collection?: string | undefined;
   /** URL of the shell page for a file (the tree's links). */
   fileHref: (path: string) => string;
   /**
@@ -120,5 +126,5 @@ export function renderPublicShell(options: PublicShellOptions): string {
     ? `<script src="${escapeHtml(options.assets.scriptHref)}"></script>`
     : `<script>${publicShellScript}</script>`;
   const version = options.version ? ` data-waypoint-version="${escapeHtml(options.version)}"` : "";
-  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell">${script}${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : `${script}${documentArea(options)}`}${sprite}<div class="pop-scrim" aria-hidden="true"></div></body></html>`;
+  return `<!doctype html><html lang="en"${version}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer"><title>${title}</title>${style}</head>${list ? '<body class="pan">' : "<body>"}<a class="skip" href="#doc">Skip to document</a><header class="pwrap">${letterhead(options, list ? "" : downloadLink(options, "letterhead"))}${list ? list.row : ""}</header>${list ? `<div id="shell" class="shell"${options.collection ? ` data-collection="${escapeHtml(options.collection)}"` : ""}>${script}${list.panel}${documentArea(options)}<div class="peek-edge" aria-hidden="true"></div></div>` : `${script}${documentArea(options)}`}${sprite}<div class="pop-scrim" aria-hidden="true"></div></body></html>`;
 }

@@ -124,8 +124,11 @@ export const menuCss: string = `[popover]{margin:0;inset:auto;padding:0;border:0
  *  - Below WIDE_MIN a closed panel is `display:none` (never off-screen and focusable) and the open
  *    one is panelCss's side sheet, a bottom sheet with a grab handle and Done on phones, over a
  *    tinted scrim.
- * The header ("Files N") shows at every width. Rows: icon, name (`b`, one line with an ellipsis;
- * wrapped without script, which sets the full path as `title`), "download · size" marker.
+ * The header ("Files N") shows at every width, and above the tree the script's Expand all /
+ * Collapse all (D75): the writer's `.ttools` row with a quiet `.btn.ghost.sm` (the writer's
+ * `.txtbtn` stays the writer's: it serves many other pages there). Rows: icon, name (`b`, one
+ * line with an ellipsis; wrapped without script, which sets the full path as `title`),
+ * "download · size" marker.
  */
 export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
 .shell>main{grid-column:-2;min-width:0;min-height:0}
@@ -141,6 +144,8 @@ export const sidebarCss: string = `.shell{flex:1;min-height:0;position:relative}
 .tree hr{border:0;border-top:1px solid var(--rule);margin:6px 4px}
 .tree .more{margin:6px 8px 2px;font-size:12.5px;color:var(--muted)}
 .tree summary{unicode-bidi:isolate}.tree a{unicode-bidi:plaintext}
+.ttools{display:flex;justify-content:flex-end;margin:0 4px 2px}.ttools:has(>[hidden]){display:none}
+.ttools .btn{padding:0 6px;color:var(--muted)}.ttools .btn:hover{color:var(--ink)}
 @media(min-width:${WIDE_MIN}px){.panel{display:flex;position:static;width:auto}
 .panel:popover-open{position:fixed;inset:0 auto 0 0;width:var(--panel-w);box-shadow:var(--sh-2)}}
 @media(min-width:${WIDE_MIN}px) and (scripting:none){.ptog{display:none}}

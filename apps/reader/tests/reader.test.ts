@@ -487,12 +487,16 @@ describe("public reader", () => {
     ).text();
     expect(tree).toContain('<nav id="files" class="panel"');
     expect(tree).toContain('Files <span class="n">9</span>');
+    // D75: the head's page opens no folder; the shell names the collection by its public ID
+    // (the saved folders' key), never by the share token or the link's ID.
     expect(tree).toContain(
-      '<details open><summary dir="auto">' +
+      '<details><summary dir="auto">' +
         iconUse("chevronDown", "sm") +
         iconUse("folder") +
         "docs/</summary>",
     );
+    expect(tree).toContain(`<div id="shell" class="shell" data-collection="${collection}">`);
+    expect(/data-collection="([^"]*)"/.exec(tree)?.[1]).not.toContain(token);
     files = [{ path: "index.md", blob_hash: hash, mime: "text/markdown" }];
     const single = await (
       await app.request(shareShellUrl(base, token, collection), {}, bindings)
