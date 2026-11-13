@@ -1,4 +1,5 @@
 import { newShareToken } from "@waypoint/core";
+import { encodePathSegments, renderPublicShell } from "@waypoint/ui";
 // Worst-case CPU for a full public-reader shell request with 2,000 files. These run in the
 // "timing" Vitest project (turbo's `test:timing`), alone and after every other test, so nothing
 // else competes for the CPU while they measure.
@@ -191,4 +192,33 @@ describe("CPU budget worst cases", () => {
       expect(bytes).toBeLessThan(name === "realistic" ? 350_000 : 1_000_000);
     });
   }
+});
+
+describe("CPU budget of the shell document", () => {
+  // Moved from tests/reader-probe.test.ts, unchanged, so it runs alone like the rest of these:
+  // in the parallel unit run a saturated machine inflated it past its budget by itself.
+  it("renders the shell document for 2,000 files under 5 ms of CPU", () => {
+    // Time the Worker CPU work that scales with file count: the whole shell document.
+    const paths = Array.from({ length: 2000 }, (_, i) => ({ path: `dir${i % 40}/file-${i}.html` }));
+    const prefix = `https://reader.example.test/s/${newShareToken()}/c/${A.pub}/`;
+    const render = () =>
+      renderPublicShell({
+        title: "T",
+        files: paths,
+        head: "index.html",
+        current: "dir7/file-7.html",
+        fileHref: (path) => prefix + encodePathSegments(path),
+        frameBase: "https://reader.example.test/x/shl_x.cap/r/a2a2a2a2a2a2/",
+        updatedAt: 1,
+        snapshotAt: null,
+      });
+    // CPU time of this thread (what the Worker CPU limit counts), not wall time, which other
+    // processes on a busy machine inflate. Warm isolates serve most requests, so measure after a
+    // short warm-up: the mean of 10 renders, in milliseconds.
+    for (let i = 0; i < 5; i++) render();
+    const cpu = process.threadCpuUsage();
+    for (let i = 0; i < 10; i++) render();
+    const used = process.threadCpuUsage(cpu);
+    expect((used.user + used.system) / 1000 / 10).toBeLessThan(5);
+  });
 });
