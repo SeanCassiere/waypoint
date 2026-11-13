@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.8.0](https://github.com/SeanCassiere/waypoint/compare/v0.7.1...v0.8.0) (2026-11-13)
+
+
+### Features
+
+* **reader:** Logbook public shell and shared file tree ([#143](https://github.com/SeanCassiere/waypoint/issues/143)) ([074b2e4](https://github.com/SeanCassiere/waypoint/commit/074b2e48778a08c37ca992c5394646425eb712de))
+* **render:** Logbook palette for rendered documents ([#150](https://github.com/SeanCassiere/waypoint/issues/150)) ([9a5d3d9](https://github.com/SeanCassiere/waypoint/commit/9a5d3d941eab18924926fbe1d73c7dda7f9b4d82))
+* **ui:** Logbook foundation: tokens, self-hosted Recursive and one component system ([#142](https://github.com/SeanCassiere/waypoint/issues/142)) ([03b9b7e](https://github.com/SeanCassiere/waypoint/commit/03b9b7ebfdffbc76d56c2629e337e466d8dffda6))
+* **viewer:** Logbook Changes, gallery and lightbox ([#147](https://github.com/SeanCassiere/waypoint/issues/147)) ([3513740](https://github.com/SeanCassiere/waypoint/commit/351374028e7999908fc471abd1a98d20efdc253a))
+* **viewer:** Logbook collection, History log and revision strip ([#145](https://github.com/SeanCassiere/waypoint/issues/145)) ([76d9f1d](https://github.com/SeanCassiere/waypoint/commit/76d9f1d20771bd6c71bf61e98ac9999f5aba43ef))
+* **viewer:** Logbook Recent, search and Find ([#144](https://github.com/SeanCassiere/waypoint/issues/144)) ([5ee551d](https://github.com/SeanCassiere/waypoint/commit/5ee551d563bc315078da0ad7403256a8268b871b))
+* **viewer:** Logbook Share, dialogs and public links ([#146](https://github.com/SeanCassiere/waypoint/issues/146)) ([47b39f6](https://github.com/SeanCassiere/waypoint/commit/47b39f63832cbbc3dda4521af883ae57eafebbbe))
+* **viewer:** Logbook Status, Trash, Connect an agent and not found ([#148](https://github.com/SeanCassiere/waypoint/issues/148)) ([2ac48e2](https://github.com/SeanCassiere/waypoint/commit/2ac48e2800cbeee14373624d53985be04aeeebd9))
+
+
+### Bug Fixes
+
+* **deps:** update dependencies ([#152](https://github.com/SeanCassiere/waypoint/issues/152)) ([fc7aaf4](https://github.com/SeanCassiere/waypoint/commit/fc7aaf4523b8119343a07f4a7eb629e07be6eba2))
+
 ## [0.7.1](https://github.com/SeanCassiere/waypoint/compare/v0.7.0...v0.7.1) (2026-11-13)
 
 
