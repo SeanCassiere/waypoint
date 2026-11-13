@@ -18,7 +18,7 @@ A Waypoint instance running on the tailnet in *write mode*. It accepts writes fr
 An instance's Cloudflare Worker on its own public domain (one per environment), running in *read mode*. It's optional. It faces the public internet, is read-only forever, and serves only what a [share link](#access) permits.
 
 **Viewer**
-The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home), the **collection shell** (top bar, a Files / History / Public links panel, one status line, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. Every page outside a collection shares one bar with Recent, Public links and Trash tabs. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
+The writer's web UI (the "Folio" design). Server-rendered pages: **Recent** (home), the **collection shell** (top bar, a Files / History / Public links panel, one state notice, a revision strip saying which revision is on screen, who wrote it and when, and an iframe showing the current file), **Changes** (rendered diffs between two revisions), a folder **gallery**, **Public links**, **Trash**, **Status**, and **Connect an agent**. Every page outside a collection shares one bar with Recent, Public links and Trash tabs. It uses native web primitives (popovers, `<dialog>`, invoker commands, `<details>`, CSS anchor positioning, `@starting-style` transitions); script is limited to URL sync, clipboard, fetch-based actions and keyboard shortcuts.
 
 **Public links**
 The viewer's share-link management, named **public links** in the UI: the **Public links** tab in a collection's panel (that collection's links, with Extend, Revoke and Revoke all, and **New public link**, the only place that phrase appears) and the global **Public links** page (`/links`, filtered by Live, Paused in Trash, Expired and Revoked; Live counts only links the reader would serve, and lists waiting links without counting them). The action that makes one is **Share** ("Share…" in menus).
@@ -80,13 +80,13 @@ A specific revision addressed explicitly in a URL. It never changes.
 The revision a new revision was built from. In merge mode, the parent's files are the starting point. A collection's first revision has no parent.
 
 **Fork**
-Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and History draws the branch in its own lane beside the latest line ('Branch off #4 · not in latest').
+Two revisions that share the same parent. This can happen when two writers revise the same revision before seeing each other's work. It isn't an error. "Latest" is still the highest ID, and History says the branch in words on its row ('on #4, not in latest').
 
 **Latest line**
 The latest revision and its ancestors.
 
 **Branch off #N**
-A revision built on #N that isn't on the latest line; History draws it in its own lane.
+A revision built on #N that isn't on the latest line; its History row says "on #N, not in latest".
 
 **Display number (`#N`)**
 The human-friendly position of a revision in its collection (#1, #2, …). It is computed each time it's shown, never stored, and never used in URLs, because it can shift if a fork arrives out of order.
