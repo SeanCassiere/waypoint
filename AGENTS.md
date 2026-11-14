@@ -30,7 +30,7 @@ Before changing anything that affects access, credentials, share links, content 
    - `test`
    - `build-reader` (the reader build, then `upgrade.sh --dry-run` with two reader targets: [scripts/deploy-dry-run.sh](scripts/deploy-dry-run.sh))
    - `build-writer-image`
-   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender (its count, its lock, its refusal of changed settings), a writer env file edit that redeploys the writer, watching a writer that re-renders by itself (no lock, no restart, its post-start delay ended), a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
+   - `install-test` (the real `upgrade.sh`: install, upgrade, rollback hop to the merge base and back, broken-image and interrupt rollback, convergence after a killed run, rerender (its count, its lock, its refusal of changed settings), a writer env file edit that redeploys the writer, watching a writer that re-renders by itself (no lock, no restart, its post-start delay ended), a writer env file without `WAYPOINT_RERENDER` getting a writer that re-renders by itself (the default), a reader deploy killed midway, idempotence behind a sidecar: [scripts/install-test.sh](scripts/install-test.sh))
    - `mcp-smoke`
    - `browser-viewer` (four parallel shards) and `browser-reader`
    - `release-dry-run` (actionlint, the release-please config, oxfmt leaving release-please's `CHANGELOG.md` alone, the dispatch target check, publish mode's checks, the release bundle, and `upgrade.sh`'s release mode against a fake release with stand-in attestations: [scripts/release-dry-run.sh](scripts/release-dry-run.sh))

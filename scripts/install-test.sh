@@ -443,7 +443,9 @@ printf 'TAILSCALE=on\nTAILSCALE_ENV_FILE=ts.env\nCOMPOSE_OVERRIDE=sidecar.yaml\n
 # stays, so it only waits; nothing is stale by now.)
 sed -i '/^WAYPOINT_RERENDER=/d' "$work/config/writer.env"
 if grep -q '^WAYPOINT_RERENDER=' "$work/config/writer.env"; then fail "couldn't drop WAYPOINT_RERENDER from writer.env"; fi
+before="$(container)"
 up current-checkout
+[[ "$(container)" != "$before" ]] || fail "the deploy that moved the writer behind the sidecar and dropped WAYPOINT_RERENDER didn't recreate it"
 expect_build "$new_sha" "$new_version"
 expect_data
 rerender_status="$(writer_rerender)"
