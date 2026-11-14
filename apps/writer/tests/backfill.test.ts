@@ -76,15 +76,21 @@ class TestRenderer implements Renderer {
   }
 }
 
-/** Yields to I/O until `check` holds (no timers: the clock is fake). */
-async function until(check: () => boolean | Promise<boolean>): Promise<void> {
-  for (let tries = 0; tries < 5000; tries++) {
+/**
+ * Yields to I/O until `check` holds (no timers: the clock is fake). Bounded by real time, not by
+ * turns: the database's work runs off the main thread, so on a loaded machine thousands of turns
+ * can pass before a single query answers. The deadline stays under Vitest's 5 s test timeout, so
+ * a condition that's never reached fails here, with this message.
+ */
+async function until(check: () => boolean | Promise<boolean>, timeoutMs = 4000): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  for (;;) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- Polling, one look at a time.
     if (await check()) return;
+    if (performance.now() > deadline) throw new Error(`Condition not reached in ${timeoutMs} ms`);
     // oxlint-disable-next-line eslint/no-await-in-loop -- Lets pending I/O run.
     await new Promise((resolve) => setImmediate(resolve));
   }
-  throw new Error("Condition not reached");
 }
 
 /**
