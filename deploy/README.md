@@ -169,8 +169,10 @@ then fails without changing anything), and a `deploying` marker while a deploy i
 
 - **The same version twice** only repeats the health checks and smoke tests. The writer counts as
   deployed when it's the container the last successful run created, on the target image, with
-  the Compose config that run recorded (`compose config --hash`; an edited env file or instance
-  setting redeploys it) and, with the overlay, in the running sidecar's network namespace; a
+  the Compose config that run recorded (`compose config --hash` together with a digest of the
+  writer env file, since not every Compose release hashes an `env_file`'s contents; an edited env
+  file or instance setting redeploys it, and so does the first run of an `upgrade.sh` that records
+  the digest, once) and, with the overlay, in the running sidecar's network namespace; a
   reader, when the build, its generated config and its secrets are unchanged. `--force` redeploys anyway. A component that runs the target but
   fails its checks is reported, not redeployed: rerun with `--force`.
 - **A partial deploy converges on a rerun.** If the writer was upgraded and a reader rolled back,
@@ -282,8 +284,66 @@ With the cache, RSS grows by about 0.16 KB per query and flattens over time, ins
 
 ## Re-rendering markdown after a renderer upgrade
 
-The subcommand covers the markdown, text and CSV renderers: it dry-runs all three in one stop of
-the writer (one `{renderer} renderer v{N}: …` line each), then runs the batches below for each
+Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
+content. Older documents keep their previous rendition (which is fine to serve) until they're
+re-rendered. After such a deploy, run once:
+
+```bash
+deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
+deploy/upgrade.sh --dry-run rerender     # count only ("N to render")
+```
+
+The subcommand first asks the running writer (`/api/status`) whether it re-renders by itself, and
+takes one of two paths. When it takes the second, it says why: the writer didn't answer, has no
+`rerender` block, or reports another mode (with its state).
+
+### A writer that re-renders by itself
+
+A writer with `WAYPOINT_RERENDER=auto` (its `/api/status` has a `rerender` block with
+`mode: "auto"`, D89) re-renders stale renditions in the background, without stopping
+([background re-rendering](../docs/architecture.md#background-re-rendering)). Then, unless
+`--collection` is given, `rerender` only watches it:
+
+1. it takes **no instance lock** and stops nothing, so agents' writes go on and a deploy can run
+   meanwhile;
+2. it prints one `{renderer} renderer v{N}: S stale, K skipped, L to render` line per renderer,
+   once the writer has counted (a writer counts at start). A dry run stops here;
+3. if the writer is still waiting out its post-start delay (`WAYPOINT_RERENDER_DELAY_MINUTES`), it
+   ends the delay (`POST /api/rerender/start`, sent from inside the writer's container like every
+   other request `upgrade.sh` makes to it, and to the very container whose status said `waiting`:
+   if a deploy has replaced it since, the request fails rather than reaching the new one);
+4. it waits until the writer reports `done` (no source left to re-render apart from skipped ones,
+   and with sync on no standalone re-rendered rendition still queued for upload), logging how many
+   are left as that changes. Renditions attached to queued or failed revisions don't count: they
+   upload with those revisions (see "If **Status** lists failed revisions" below). While the
+   writer is paused (the bucket account paused, uploads failing, sync blocked) it keeps waiting
+   and says why. A writer that stops answering, as when a deploy recreates it, is waited for. The watch remembers the
+   writer container's image ID from when it began: a writer that comes back on that same image,
+   waiting out its delay again (a restart, or a recreate with the same image), is told to start
+   again. One that comes back on another image (a release deployed meanwhile, even one reporting
+   the same version, as an image built without `WAYPOINT_BUILD_SHA` reports no commit), or whose
+   image can't be read, is **not**: a new release waits out its
+   own post-deploy delay, its window to be rolled back before it re-renders everything (D89), and
+   the watch says so and goes on until that writer starts by itself and finishes. One that comes
+   back without automatic re-rendering (`WAYPOINT_RERENDER=off`, or a rollback to a release
+   without it) ends the run with an error, and a rerun takes the path below;
+5. it fails if the counts of sources left and of renditions queued for upload don't move for
+   `RERENDER_UPLOAD_TIMEOUT` seconds (an hour by default), whatever the state, except that the
+   clock is held while a release deployed during the watch waits out its delay: it starts again
+   when that delay ends, so a long delay doesn't fail the watch. The writer goes on by itself
+   regardless; rerun to watch it again (a new watch starts on the running build, so it ends the
+   delay).
+
+`--limit` is accepted and ignored (the writer renders one source at a time, at its own pace),
+with a log line saying so. Sources the writer can't render (too large, or failing and retried
+later) are counted as `skipped` and keep their previous rendition. The background rerender leaves
+out collections in Trash; `--collection <id>` renders one of them, on the path below.
+
+### Stopping the writer and rendering in batches
+
+With a writer that doesn't re-render by itself (an older release, or `WAYPOINT_RERENDER=off`), or
+with `--collection`, the subcommand covers the markdown, text and CSV renderers: it dry-runs all
+three in one stop of the writer (one `{renderer} renderer v{N}: …` line each), then runs the batches below for each
 renderer in turn (markdown, text, csv), pinning that renderer's version and skipping any with
 nothing to render. The release that introduces `text` v1 and `csv` v1 together with markdown v3
 needs exactly one run, and so does the release that moves documents to Logbook's palette
@@ -292,21 +352,14 @@ which keeps the whitespace in tables where it was written) changes no visible ou
 renders at the writer's current version, so a release that carries both v4 and v5 also needs only
 one run.
 
-Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
-content. Older documents keep their previous rendition (which is fine to serve) until they're
-re-rendered. After such a deploy, run once:
-
-```bash
-deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
-deploy/upgrade.sh --dry-run rerender     # count only ("N to render"; the writer still stops for the count)
-```
-
-`rerender` takes the data directory's lock, so the writer must be stopped while a batch runs, and
-agents' writes fail meanwhile. The subcommand:
+`rerender` takes the data directory's lock, so the writer must be stopped while a batch runs (for
+a dry run's count too), and agents' writes fail meanwhile. The subcommand:
 
 1. takes the instance lock, dry runs included (so no deploy recreates the writer meanwhile), and
    refuses to start if a deploy didn't finish or the writer isn't healthy (a restart while it
-   waits counts as unhealthy; one from before doesn't);
+   waits counts as unhealthy; one from before doesn't). If the writer didn't answer before the
+   lock (a deploy was recreating it) and the one that answers now re-renders by itself, it lets go
+   of the lock and watches it as above instead;
 2. refuses, before every stop, if the writer doesn't run with the instance's current settings:
    the batches run in one-off containers built from `instance.env`, the writer env file and the
    current image, while the running writer, created by the last deploy, uploads what they queue.
@@ -411,6 +464,6 @@ too):
 | `WRITER_URL_TIMEOUT` | 90 | seconds `WRITER_HEALTH_URL` gets to answer with the new build |
 | `SMOKE_TIMEOUT_SECONDS` | 120 | seconds each reader's smoke test retries for |
 | `LOCK_WAIT_SECONDS` | 1800 | seconds a run waits for another run on the same instance |
-| `RERENDER_UPLOAD_TIMEOUT` | 3600 | seconds the writer gets to upload one rerender batch |
+| `RERENDER_UPLOAD_TIMEOUT` | 3600 | seconds the writer gets to upload one rerender batch, or, when it re-renders by itself, to make progress |
 | `WRANGLER` | the checkout's, or the bundle's pinned version through `npx` | the Wrangler executable |
 | `GH_BIN` | `gh` | the GitHub CLI that verifies release attestations |

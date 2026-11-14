@@ -15,14 +15,16 @@
 # Options:
 #   --instance FILE   instance file (default: $XDG_CONFIG_HOME/waypoint/instance.env)
 #   --dry-run         change nothing: check everything, show what would be deployed, and run
-#                     the reader steps against a stand-in Wrangler (rerender: count only; the
-#                     count needs the data directory's lock, so the writer still stops briefly;
+#                     the reader steps against a stand-in Wrangler (rerender: count only; with
+#                     a writer that doesn't re-render by itself, or with --collection, the count
+#                     needs the data directory's lock, so the writer still stops briefly;
 #                     another version: its bundle is still downloaded into the state directory,
 #                     under the instance lock; compose: print the command only)
 #   --force           redeploy components that are already at the target
 #   --allow-dirty     current-checkout: deploy uncommitted changes (never idempotent)
-#   --limit N         rerender: renditions per batch (default 500)
-#   --collection ID   rerender: one collection only
+#   --limit N         rerender: renditions per batch (default 500; ignored when the writer
+#                     re-renders by itself)
+#   --collection ID   rerender: one collection only (always stops the writer and renders)
 #
 # Environment (all optional):
 #   WAYPOINT_INSTANCE         the instance file, like --instance (which wins)
@@ -32,7 +34,8 @@
 #   WRITER_URL_TIMEOUT        seconds WRITER_HEALTH_URL gets to answer with the new build (90)
 #   SMOKE_TIMEOUT_SECONDS     seconds each reader's smoke test retries for (default 120)
 #   LOCK_WAIT_SECONDS         seconds to wait for another run on this instance (default 1800)
-#   RERENDER_UPLOAD_TIMEOUT   rerender: seconds the writer gets to upload a batch (default 3600)
+#   RERENDER_UPLOAD_TIMEOUT   rerender: seconds the writer gets to upload a batch, or, when it
+#                             re-renders by itself, to make progress (default 3600)
 #   WRANGLER                  the Wrangler executable (default: the checkout's, or the version
 #                             the release bundle pins, through npx)
 #   GH_BIN                    the GitHub CLI that verifies release attestations (default: gh)
@@ -81,6 +84,7 @@ dry_run=0
 force=0
 allow_dirty=0
 rerender_limit=500
+rerender_limit_set=0
 rerender_collection=""
 command=""
 command_args=()
@@ -91,7 +95,7 @@ while (($#)); do
     --dry-run) dry_run=1; shift ;;
     --force) force=1; shift ;;
     --allow-dirty) allow_dirty=1; shift ;;
-    --limit) [[ "${2:-}" =~ ^[1-9][0-9]{0,6}$ ]] || die "--limit needs a positive number"; rerender_limit="$2"; shift 2 ;;
+    --limit) [[ "${2:-}" =~ ^[1-9][0-9]{0,6}$ ]] || die "--limit needs a positive number"; rerender_limit="$2"; rerender_limit_set=1; shift 2 ;;
     --collection) [[ "${2:-}" =~ ^[A-Za-z0-9_]{1,64}$ ]] || die "--collection needs an ID"; rerender_collection="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option $1 (see --help)" ;;
@@ -863,9 +867,23 @@ check_data_dir() {
   [[ "$owner" == "$writer_uid:$writer_gid" ]] || die "$data_dir must be owned by $writer_uid:$writer_gid (it's $owner): sudo chown $writer_uid:$writer_gid $data_dir"
 }
 
+# The writer's config hash, as recorded in the state: `compose config --hash writer` together
+# with the writer env file's contents. Not every Compose release covers the contents of an
+# `env_file` in its hash (5.1 doesn't; 5.7 does), so without the file's digest an edited env file
+# (a rotated credential, a changed setting) wouldn't redeploy the writer. A state recorded by an
+# older upgrade.sh, with the bare Compose hash, never matches, so the writer is recreated once.
+writer_config_hash() {
+  local hash env
+  hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
+  [[ -n "$hash" ]] || return 1
+  env="$(sha256sum < "$writer_env_file" | cut -d' ' -f1)" || return 1
+  [[ -n "$env" ]] || return 1
+  printf '%s %s' "$hash" "$env" | sha256sum | cut -d' ' -f1
+}
+
 # Whether the running writer is the one a previous run deployed for this target, with the current
-# Compose config. The config hash is compared with what that run recorded, not with the
-# container's com.docker.compose.config-hash label: Compose computes the label after resolving
+# config (writer_config_hash). The config hash is compared with what that run recorded, not with
+# the container's com.docker.compose.config-hash label: Compose computes the label after resolving
 # `network_mode: service:...` to the sidecar's container ID, so with the Tailscale overlay the
 # label never equals `compose config --hash`.
 # Usage: writer_is_current <container> <its image ID> <expected config hash>
@@ -920,8 +938,7 @@ sidecar_instance() {
 
 deploy_writer() {
   local container current_id="" healthy=0 expected_hash armed=0 had_record=0 had_marker=0 sidecar_moved=0 sidecar_before
-  expected_hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
-  [[ -n "$expected_hash" ]] || die "couldn't compute the writer's Compose config hash"
+  expected_hash="$(writer_config_hash)" || die "couldn't compute the writer's Compose config hash"
   container="$(writer_container)"
   if [[ -n "$container" ]]; then
     current_id="$(container_field "$container" '{{.Image}}')"
@@ -1333,15 +1350,29 @@ cmd_validate() {
   log "instance is valid: project $project, ${#reader_targets[@]} reader target(s)"
 }
 
-# Re-renders after a renderer upgrade (deploy/README.md): the markdown, text and CSV renderers,
-# in that order. `rerender` takes the data directory's lock, so each batch runs with the writer
-# stopped (agents' writes fail meanwhile); the writer then uploads what was queued, and the next
-# batch starts once it has. The writer is started again after every batch, and on any failure or
-# interruption. Only the writer container is stopped and started; the Tailscale sidecar, Docker
-# and the host are left alone.
+# Re-renders after a renderer upgrade (deploy/README.md).
+#
+# A writer that re-renders in the background by itself (D89: its /api/status has a `rerender`
+# block with mode `auto`) is only watched, unless --collection asks for one collection: see
+# rerender_wait. Nothing is stopped and the instance lock isn't taken, so a deploy can run
+# meanwhile.
+#
+# Otherwise: the markdown, text and CSV renderers, in that order. `rerender` takes the data
+# directory's lock, so each batch runs with the writer stopped (agents' writes fail meanwhile);
+# the writer then uploads what was queued, and the next batch starts once it has. The writer is
+# started again after every batch, and on any failure or interruption. Only the writer container
+# is stopped and started; the Tailscale sidecar, Docker and the host are left alone.
 cmd_rerender() {
   compose_env
   docker_available || die "Docker is unavailable"
+  local status=""
+  if [[ -z "$rerender_collection" ]]; then
+    if status="$(writer_rerender_status)" && rerender_capable "$status"; then
+      rerender_wait "$status"
+      return 0
+    fi
+    rerender_not_watching "$status"
+  fi
   # Even a dry run stops the writer (the count needs the data directory's lock), so it must not
   # overlap a deploy or another rerender.
   lock_state
@@ -1350,6 +1381,13 @@ cmd_rerender() {
   local -A versions=() todo=()
   [[ -n "$(writer_container)" ]] || die "no writer container"
   wait_writer_healthy || die "the writer isn't healthy"
+  # The writer didn't answer before the lock (a deploy was recreating it, say), and the one that
+  # answers now re-renders by itself: watch it instead, without the lock.
+  if [[ -z "$rerender_collection" ]] && status="$(writer_rerender_status)" && rerender_capable "$status"; then
+    flock -u 9
+    rerender_wait "$status"
+    return 0
+  fi
   args=(--all)
   if [[ -n "$rerender_collection" ]]; then args=(--collection "$rerender_collection"); fi
 
@@ -1398,6 +1436,202 @@ cmd_rerender() {
   log "rerender done. Sources reported as missing or failed keep their previous rendition; see the JSON summaries above."
 }
 
+# The writer's background rerender, from its /api/status, as one JSON line:
+# {"r": <the `rerender` block, or null for a writer without one>, "p": <queue.rerender_pending>,
+# "v": <the writer's version>, "s": <its commit>, "c": <the container that answered>,
+# "i": <that container's image ID, or null>}. Fails if there's no writer container or it doesn't
+# answer. The image is read from the same container as the status, so the two always belong
+# together.
+writer_rerender_status() {
+  local container image
+  container="$(writer_container)"
+  [[ -n "$container" ]] || return 1
+  image="$(container_field "$container" '{{.Image}}')"
+  docker_run exec "$container" node -e '
+    const [c, i] = process.argv.slice(1);
+    fetch("http://127.0.0.1:7410/api/status")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((s) =>
+        console.log(
+          JSON.stringify({
+            r: s.rerender ?? null,
+            p: s.queue?.rerender_pending ?? null,
+            v: s.version ?? null,
+            s: s.sha ?? null,
+            c,
+            i: i || null,
+          }),
+        ),
+      )
+      .catch(() => process.exit(1));
+  ' "$container" "$image" 2>/dev/null
+}
+
+# Splits a writer_rerender_status line into rr_mode, rr_state, rr_left, rr_skipped, rr_rendered,
+# rr_paused, rr_starts (an ISO time), rr_pending, rr_build (the writer's version and commit, as
+# <version>@<commit>, for logs), rr_container (the container that answered) and rr_image (its
+# image ID, which identifies the build); "-" stands for null (or no block at all).
+rerender_parse() {
+  local line
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  line="$(node -e '
+    const { r, p, v: version, s: sha, c, i } = JSON.parse(process.argv[1]);
+    const v = (x) => (x === null || x === undefined ? "-" : String(x).replace(/\s+/g, "_") || "-");
+    const starts = typeof r?.starts_at === "number" ? new Date(r.starts_at).toISOString() : null;
+    const build = `${v(version)}@${v(sha)}`;
+    console.log([r?.mode, r?.state, r?.left, r?.skipped, r?.rendered, r?.paused_reason, starts, p, build, c, i].map(v).join(" "));
+  ' "$1" 2>/dev/null)" || return 1
+  read -r rr_mode rr_state rr_left rr_skipped rr_rendered rr_paused rr_starts rr_pending rr_build rr_container rr_image <<< "$line"
+}
+
+# Whether the writer re-renders by itself: the block exists and its mode is `auto`.
+rerender_capable() { rerender_parse "$1" && [[ "$rr_mode" == auto ]]; }
+
+# Says why the writer is re-rendered with it stopped rather than watched: what its /api/status
+# reported (a writer_rerender_status line, or "" when it didn't answer).
+rerender_not_watching() {
+  if [[ -z "$1" ]]; then
+    log "the writer didn't report its re-rendering status (not running, or not answering); re-rendering with it stopped"
+  elif ! rerender_parse "$1"; then
+    log "couldn't read the writer's re-rendering status; re-rendering with it stopped"
+  elif [[ "$rr_mode" == - ]]; then
+    log "the writer ($rr_build) doesn't re-render by itself (its status has no rerender block); re-rendering with it stopped"
+  else
+    log "the writer ($rr_build) doesn't re-render by itself (rerender mode $rr_mode, state $rr_state; WAYPOINT_RERENDER=auto turns it on); re-rendering with it stopped"
+  fi
+}
+
+# Ends the writer's post-start delay: POST /api/rerender/start, the way every other request here
+# reaches the writer (from inside its container, on its own port). Node's fetch sends neither
+# Origin nor Sec-Fetch-Site, so the request passes the writer's cross-origin guard.
+# Usage: rerender_start_now <container>
+# The container is the one whose status was just read (rr_container), never resolved again: if a
+# deploy replaced it since, the exec fails rather than ending the new container's delay. A
+# container's image never changes, so the build the status reported is the build told to start
+# (a restart in place keeps both).
+rerender_start_now() {
+  [[ -n "$1" && "$1" != - ]] || return 1
+  docker_run exec "$1" node -e '
+    fetch("http://127.0.0.1:7410/api/rerender/start", { method: "POST" })
+      .then((r) => process.exit(r.ok ? 0 : 1))
+      .catch(() => process.exit(1));
+  ' 2>/dev/null
+}
+
+# Watches a writer that re-renders by itself until it's done: no lock, nothing stopped. A dry run
+# returns once the counts are shown. While the writer waits out its post-start delay, it's told to
+# start now. A writer that stops answering (a deploy restarting it) is waited for. After a
+# restart (its delay starts again) it's told to start again only if it still runs the build the
+# watch began on, that is the same image ID (not the reported version and commit: an image built
+# without WAYPOINT_BUILD_SHA reports no commit, so two different builds can report the same
+# ones; an unknown image counts as another build): a release deployed meanwhile waits out its own
+# delay, so that a bad release can be rolled back before it re-renders everything (D89), and the
+# watch goes on until it starts by itself and finishes. Fails if neither `left` nor the renditions
+# queued for upload move for RERENDER_UPLOAD_TIMEOUT seconds, whatever the state (running,
+# paused, or a writer that doesn't answer), except that the clock doesn't run while a newly
+# deployed release waits out its delay: it starts when the delay ends. The writer goes on by
+# itself regardless.
+rerender_wait() {
+  local status="$1" timeout="${RERENDER_UPLOAD_TIMEOUT:-3600}" moved_at=$SECONDS progress="" counted=0
+  local logged="" logged_at=-30 paused="" away=0 line queued watch_build="" watch_image="" seen_image="" held=""
+  log "the writer re-renders in the background by itself (WAYPOINT_RERENDER=auto): watching it; nothing is stopped and the instance lock isn't taken"
+  if (( rerender_limit_set )); then log "--limit is ignored: the writer re-renders one source at a time, at its own pace"; fi
+  while :; do
+    if [[ -n "$status" ]] && rerender_parse "$status"; then
+      if (( away )); then log "the writer answers again"; away=0; fi
+      if [[ -z "$watch_image" ]]; then
+        watch_build="$rr_build"
+        watch_image="$rr_image"
+        seen_image="$rr_image"
+      elif [[ "$rr_image" != "$seen_image" ]]; then
+        log "the writer now runs another image ($rr_build, image $rr_image; the watch began on $watch_build, image $watch_image)"
+        seen_image="$rr_image"
+      fi
+      if [[ "$rr_mode" != auto ]]; then
+        die "the writer no longer re-renders by itself (restarted with WAYPOINT_RERENDER=off, or rolled back to a release without it); rerun upgrade.sh rerender"
+      fi
+      if [[ "$rr_left" != - ]] && (( ! counted )); then
+        counted=1
+        while IFS= read -r line; do log "$line"; done < <(rerender_renderer_lines "$status")
+        case "$rr_state" in
+          waiting) log "the writer would start re-rendering at $rr_starts" ;;
+          paused) log "re-rendering is paused ($rr_paused)" ;;
+          done) log "every rendition is current" ;;
+        esac
+        if (( dry_run )); then return 0; fi
+      fi
+      if (( counted )); then
+        case "$rr_state" in
+          done)
+            log "re-rendering done (this writer process re-rendered $rr_rendered)"
+            if [[ "$rr_skipped" =~ ^[1-9] ]]; then
+              log "$rr_skipped sources couldn't be re-rendered (too large, or failing and retried later) and keep their previous rendition"
+            fi
+            log "collections in Trash aren't re-rendered; upgrade.sh rerender --collection <id> re-renders one"
+            return 0
+            ;;
+          waiting)
+            if [[ "$rr_image" != - && "$rr_image" == "$watch_image" ]]; then
+              if rerender_start_now "$rr_container"; then
+                log "told the writer to start re-rendering now (it would have started at $rr_starts)"
+              else
+                log "couldn't tell the writer to start re-rendering; trying again"
+              fi
+            else
+              # A release deployed during the watch: its post-deploy delay is its window to be
+              # rolled back, so it isn't ended, and waiting it out isn't a lack of progress.
+              # An image that couldn't be read is treated the same way.
+              if [[ "$held" != "$rr_image $rr_starts" ]]; then
+                if [[ "$rr_image" == - || "$watch_image" == - ]]; then
+                  log "couldn't tell which image the writer runs, so it may be a newly deployed release; not ending its post-deploy delay (D89): watching until it starts at $rr_starts"
+                else
+                  log "a newly deployed release waits out its post-deploy delay before re-rendering (D89); not ending it: watching until it starts at $rr_starts"
+                fi
+                held="$rr_image $rr_starts"
+              fi
+              moved_at=$SECONDS
+            fi
+            ;;
+          paused)
+            if [[ "$paused" != "$rr_paused" ]]; then log "re-rendering is paused ($rr_paused) with $rr_left left; waiting"; fi
+            paused="$rr_paused"
+            ;;
+          *) paused="" ;;
+        esac
+      fi
+      if [[ "$rr_left $rr_pending" != "$progress" ]]; then
+        progress="$rr_left $rr_pending"
+        moved_at=$SECONDS
+      fi
+      if (( counted )) && [[ "$rr_left" != - && "$progress" != "$logged" ]] && (( SECONDS - logged_at >= 30 )); then
+        logged="$progress"
+        logged_at=$SECONDS
+        queued=""
+        if [[ "$rr_pending" =~ ^[1-9] ]]; then queued=", $rr_pending queued for upload"; fi
+        log "re-rendering: $rr_left left$queued"
+      fi
+    else
+      if (( ! away )); then log "the writer doesn't answer (a deploy restarting it?); waiting for it"; fi
+      away=1
+    fi
+    if (( SECONDS - moved_at >= timeout )); then
+      die "re-rendering made no progress for $timeout s (state ${rr_state:--}, ${rr_left:--} left; RERENDER_UPLOAD_TIMEOUT); the writer goes on by itself: see its Status page, or rerun upgrade.sh rerender to watch again"
+    fi
+    sleep 5
+    status="$(writer_rerender_status || true)"
+  done
+}
+
+# One line per renderer, in the legacy path's style.
+rerender_renderer_lines() {
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const { r } = JSON.parse(process.argv[1]);
+    for (const x of r.renderers)
+      console.log(`${x.renderer} renderer v${x.version}: ${x.stale} stale, ${x.skipped} skipped, ${x.left} to render`);
+  ' "$1"
+}
+
 rerender_stop() {
   rerender_check_config
   in_progress=rerender
@@ -1413,7 +1647,7 @@ rerender_stop() {
 rerender_check_config() {
   local container hash
   container="$(writer_container)"
-  hash="$(compose config --hash writer | awk '$1 == "writer" {print $2}')"
+  hash="$(writer_config_hash || true)"
   if [[ -z "$container" || -z "$hash" || "$(state_get writer hash)" != "$hash" || "$(state_get writer container)" != "$container" \
     || "$(container_field "$container" '{{.Image}}')" != "$(image_id "$local_repo:$project-current")" ]]; then
     die "the writer doesn't run with the instance's current settings (instance.env, the writer env file or the image changed since the last deploy, or the writer was rolled back): deploy first (upgrade.sh <version>), then re-render"
