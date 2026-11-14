@@ -85,7 +85,9 @@ export interface HttpServices {
   committer?: WriterCommitter | undefined;
   syncLoop?: SyncLoop | undefined;
   /** The background rerender (D89): its /api/status block, the start endpoint, its hooks. */
-  backfill?: Pick<RerenderBackfill, "status" | "startNow" | "collectionChanged"> | undefined;
+  backfill?:
+    | Pick<RerenderBackfill, "status" | "startNow" | "collectionChanged" | "promote">
+    | undefined;
   environment?: "dev" | "prod";
   /** Version and git commit for /healthz and /api/status; defaults to no recorded commit. */
   build?: BuildInfo;
@@ -1254,6 +1256,16 @@ export function createApp(s: HttpServices): Hono {
             ? "markdown"
             : null;
     const rendition = renderer ? await s.reads.rendition(entry.hash, renderer) : undefined;
+    // An older rendition (or none) is served as it is: the writer never renders on request. The
+    // background rerender does this source next (T0); noting it never delays or fails the request.
+    if (renderer)
+      try {
+        s.backfill?.promote(entry.hash, renderer, rendition?.version ?? null);
+      } catch (error) {
+        console.error(
+          `Rerender promote failed for ${entry.hash}: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
+      }
     if (rendition)
       try {
         await ensureBlob(rendition.hash);

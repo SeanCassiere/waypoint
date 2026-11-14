@@ -7,6 +7,7 @@ import { mintRevisionId, newId, type RerenderStatus } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  PROMOTED_MAX,
   PULL_SURVEY_DEBOUNCE_MS,
   QUIET_MS,
   RerenderBackfill,
@@ -1146,5 +1147,173 @@ describe("background rerender over HTTP", () => {
     const plain = createApp({ waypoint, queue, blobs, reads, ingest });
     expect(await json(await plain.request("/api/status"))).not.toHaveProperty("rerender");
     expect((await plain.request("/api/rerender/start", { method: "POST" })).status).toBe(409);
+  });
+});
+
+type Made = { hash: string; collection: string; revision: string };
+/** A collection with one markdown file, `# <name>`, then the next millisecond. */
+async function made(name: string): Promise<Made> {
+  const hash = await put(`# ${name}`);
+  const result = { hash, ...(await collection(name.toUpperCase(), { "a.md": hash })) };
+  await nextMs();
+  return result;
+}
+/** Three collections, `c` newest: the work list is c, b, a. */
+async function threeCollections(): Promise<Record<"a" | "b" | "c", Made>> {
+  const a = await made("a");
+  const b = await made("b");
+  return { a, b, c: await made("c") };
+}
+
+describe("background rerender: opened sources first (T0)", () => {
+  it("renders a source opened in the viewer before older work, after the delay, serving its older rendition meanwhile", async () => {
+    const { a } = await threeCollections();
+    // `a` has a rendition at an older version (2 < 3).
+    const old = await put("<p>old a</p>");
+    await queue.run(
+      "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+      [a.hash, "markdown", 2, old, "text/html", 1],
+    );
+    const app = createApp({
+      waypoint,
+      queue,
+      blobs,
+      reads,
+      ingest,
+      backfill: makeBackfill({ delayMs: 10 * MINUTE }),
+    });
+    await started(backfill!);
+    expect(status()).toMatchObject({ state: "waiting", left: 3 });
+    const response = await app.request(`/api/revisions/${a.revision}/files/a.md`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<p>old a</p>");
+    // Promotion only reorders: the delay still applies.
+    await advance(10 * MINUTE - 1);
+    expect(markdown.calls).toEqual([]);
+    await advance(1);
+    expect(markdown.calls).toEqual(["# a", "# c", "# b"]);
+    expect(status()).toMatchObject({ state: "done", rendered: 3 });
+    // Now current: opening it again serves the new rendition and promotes nothing.
+    expect(await (await app.request(`/api/revisions/${a.revision}/files/a.md`)).text()).toBe(
+      "<p># a</p>",
+    );
+  });
+
+  it("keeps a source opened before the first survey until a survey lists it", async () => {
+    const { a } = await threeCollections();
+    makeBackfill();
+    backfill!.promote(a.hash, "markdown", null);
+    await started(backfill!);
+    expect(markdown.calls).toEqual(["# a", "# c", "# b"]);
+  });
+
+  it("moves a source opened again up, and remembers at most PROMOTED_MAX", async () => {
+    const files: Record<string, string> = {};
+    const hashes: string[] = [];
+    for (let index = 0; index < PROMOTED_MAX + 2; index++) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Distinct blobs, in order.
+      hashes.push(await put(`# s${index}`));
+      files[`s${String(index).padStart(2, "0")}.md`] = hashes[index]!;
+    }
+    await collection("Many", files);
+    makeBackfill({ delayMs: MINUTE });
+    await started(backfill!);
+    const open = (index: number): void => backfill!.promote(hashes[index]!, "markdown", null);
+    open(0);
+    // Opened again and again: remembered once.
+    for (let times = 0; times < 5; times++) open(1);
+    for (let index = 2; index <= PROMOTED_MAX; index++) open(index);
+    // Opened once more: first.
+    open(1);
+    await advance(MINUTE);
+    // s0, opened longest ago, was forgotten when the 33rd was opened; s33 was never opened.
+    expect(markdown.calls.slice(0, PROMOTED_MAX)).toEqual([
+      "# s1",
+      ...Array.from({ length: PROMOTED_MAX - 1 }, (_, offset) => `# s${PROMOTED_MAX - offset}`),
+    ]);
+    expect(markdown.calls.slice(PROMOTED_MAX).toSorted()).toEqual(["# s0", "# s33"]);
+  });
+
+  it("doesn't promote a source in Trash, or one already current", async () => {
+    const [l1, l2, l3, g1, g2] = await Promise.all(
+      ["l1", "l2", "l3", "g1", "g2"].map((name) => put(`# ${name}`)),
+    );
+    const before = await collection("Trashed before", { "a.md": g1! });
+    await nextMs();
+    await collection("L1", { "a.md": l1! });
+    await nextMs();
+    await collection("L2", { "a.md": l2! });
+    await nextMs();
+    await collection("L3", { "a.md": l3! });
+    await nextMs();
+    const after = await collection("Trashed after", { "a.md": g2! });
+    await queue.run("UPDATE pending_collections SET deleted_at=1 WHERE id=?", [before.collection]);
+    makeBackfill({ delayMs: MINUTE });
+    await started(backfill!);
+    expect(status()).toMatchObject({ stale: 4 });
+    await queue.run("UPDATE pending_collections SET deleted_at=1 WHERE id=?", [after.collection]);
+    backfill!.promote(l1!, "markdown", null);
+    // Already at the current version, or a renderer it doesn't have: nothing to do.
+    backfill!.promote(l2!, "markdown", 3);
+    backfill!.promote(l2!, "unknown", null);
+    // Opened last, but in Trash: one never listed, one dropped when its turn comes.
+    backfill!.promote(g1!, "markdown", null);
+    backfill!.promote(g2!, "markdown", null);
+    await advance(MINUTE);
+    expect(markdown.calls).toEqual(["# l1", "# l3", "# l2"]);
+    expect(status()).toMatchObject({ state: "done", stale: 0, rendered: 3 });
+  });
+
+  it("does nothing in off mode", async () => {
+    const { a } = await threeCollections();
+    makeBackfill({ mode: "off" });
+    await started(backfill!);
+    backfill!.promote(a.hash, "markdown", null);
+    await advance(2 * DAY);
+    expect(markdown.calls).toEqual([]);
+    expect(status()).toMatchObject({ state: "off", left: 3 });
+  });
+
+  it("never holds up or fails the request: a render in flight, a promote that throws", async () => {
+    const { a, c } = await threeCollections();
+    const held = deferred();
+    markdown.held.set("# c", held.promise);
+    const app = createApp({ waypoint, queue, blobs, reads, ingest, backfill: makeBackfill() });
+    backfill!.start();
+    await until(() => markdown.calls.includes("# c"));
+    // Served while the backfill is mid-render.
+    const response = await app.request(`/api/revisions/${a.revision}/files/a.md`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("# a");
+    held.resolve();
+    await backfill!.whenIdle();
+    expect(markdown.calls).toEqual(["# c", "# a", "# b"]);
+
+    const failing = createApp({
+      waypoint,
+      queue,
+      blobs,
+      reads,
+      ingest,
+      backfill: {
+        status: () => backfill!.status(0),
+        startNow: () => undefined,
+        collectionChanged: () => undefined,
+        promote: () => {
+          throw new Error("promote failed");
+        },
+      },
+    });
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    try {
+      const served = await failing.request(`/api/revisions/${c.revision}/files/a.md`);
+      expect(served.status).toBe(200);
+      expect(await served.text()).toBe("<p># c</p>");
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toEqual([expect.stringContaining("promote failed")]);
   });
 });
