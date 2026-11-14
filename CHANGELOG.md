@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/SeanCassiere/waypoint/compare/v0.8.0...v0.9.0) (2026-11-14)
+
+
+### Features
+
+* **deploy:** rerender waits for the running writer instead of stopping it ([#156](https://github.com/SeanCassiere/waypoint/issues/156)) ([37410b0](https://github.com/SeanCassiere/waypoint/commit/37410b04a80227b29c41de1c2fd89a85b9542f6e))
+* **viewer:** show re-rendering progress on Status ([#157](https://github.com/SeanCassiere/waypoint/issues/157)) ([18e5195](https://github.com/SeanCassiere/waypoint/commit/18e5195cfecbb7068de91ef3b6d003448cbb9d27))
+* **writer:** background rerender backfill, off by default ([#155](https://github.com/SeanCassiere/waypoint/issues/155)) ([bf38f7e](https://github.com/SeanCassiere/waypoint/commit/bf38f7e5063e72ab424cef5af7bb6eb870e8decd))
+* **writer:** re-render a stale document first when it's opened ([#158](https://github.com/SeanCassiere/waypoint/issues/158)) ([91a9fcc](https://github.com/SeanCassiere/waypoint/commit/91a9fcc476585da9dd7a175d9e6b7221c9a228b8))
+* **writer:** re-render automatically by default ([#159](https://github.com/SeanCassiere/waypoint/issues/159)) ([5aa1c05](https://github.com/SeanCassiere/waypoint/commit/5aa1c05bb731e6d498eaa59c0b09054cec858131))
+
+
+### Code Refactoring
+
+* **writer:** share stale-rendition selection with rerender ([#153](https://github.com/SeanCassiere/waypoint/issues/153)) ([80001f1](https://github.com/SeanCassiere/waypoint/commit/80001f1da499e013a676f74192e88f31375d54c1))
+
 ## [0.8.0](https://github.com/SeanCassiere/waypoint/compare/v0.7.1...v0.8.0) (2026-11-13)
 
 
