@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 
-import type { RerenderStatus } from "@waypoint/core";
+import { mintRevisionId, newId, type RerenderStatus } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -19,7 +19,7 @@ import { BlobStore, type Activity } from "../src/blob-store.ts";
 import { BucketError, MemoryBucket } from "../src/bucket.ts";
 import { WriterCommitter } from "../src/committer.ts";
 import type { Config } from "../src/config.ts";
-import { openDatabases, type Db, type SyncClient } from "../src/db.ts";
+import { inSeries, openDatabases, type Db, type SyncClient } from "../src/db.ts";
 import { createApp } from "../src/http.ts";
 import { IngestService, type Renderer, type Rendition } from "../src/ingest.ts";
 import { migrate, queueMigrations, waypointMigrations } from "../src/migrations.ts";
@@ -667,6 +667,118 @@ describe("background rerender: order, skips and races", () => {
       expect(await queued()).toBe(0);
       expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs")).toBe(0);
       expect(status()).toMatchObject({ state: "done", stale: 0, rendered: 0 });
+    },
+  );
+
+  it.each([5, 120])(
+    "checks one known revision inside the queue transaction, not every pending one (%i others pending), and looks again outside it",
+    async (others) => {
+      // Pending revisions without the source, older than both that have it, sync off: no
+      // renderer for their files, so they only add to what a scan would read.
+      const filler = newId("col");
+      const files = Object.fromEntries(
+        Array.from({ length: 20 }, (_, index) => [
+          `img-${index}.png`,
+          { hash: `sha256:${index.toString(16).padStart(64, "0")}`, mime: "image/png", size: 1 },
+        ]),
+      );
+      await queue.transaction(async (tx) => {
+        await tx.run(
+          "INSERT INTO pending_collections (id,public_id,title,created_at) VALUES (?,?,?,?)",
+          [filler, "filler", "Filler", 1],
+        );
+        await inSeries(
+          Array.from({ length: others }, (_, index) => index),
+          (index) =>
+            tx.run(
+              "INSERT INTO pending_revisions (id,public_id,collection_id,head_path,manifest_json,created_at,state) VALUES (?,?,?,?,?,?,'pending')",
+              [
+                mintRevisionId({ now: Date.now() - 60_000 + index }),
+                `filler-${index}`,
+                filler,
+                "img-0.png",
+                JSON.stringify({ files }),
+                1,
+              ],
+            ),
+        );
+      });
+      const shared = await put("# shared");
+      await nextMs();
+      // Found through the newer one, which goes to Trash while its output is stored.
+      await collection("Older", { "a.md": shared });
+      await nextMs();
+      const newer = await collection("Newer", { "a.md": shared });
+      const storing = deferred();
+      const release = deferred();
+      const store = blobs.put.bind(blobs);
+      blobs.put = async (source, claimedHash, options) => {
+        if (options?.background && claimedHash === undefined) {
+          storing.resolve();
+          await release.promise;
+        }
+        return store(source, claimedHash, options);
+      };
+      // What each queue transaction runs, on either database, and every page looked through.
+      const transactions: string[][] = [];
+      let current: string[] | undefined;
+      const transaction = queue.transaction.bind(queue);
+      queue.transaction = (fn) =>
+        transaction(async (tx) => {
+          current = [];
+          transactions.push(current);
+          try {
+            return await fn(tx);
+          } finally {
+            current = undefined;
+          }
+        });
+      let pages = 0;
+      queue.onStatement = (sql) => {
+        current?.push(sql);
+        if (sql.includes("instr(manifest_json")) pages++;
+      };
+      waypoint.onStatement = (sql) => current?.push(sql);
+      try {
+        makeBackfill({ sync: false });
+        backfill!.start();
+        await storing.promise;
+        await queue.run("UPDATE pending_collections SET deleted_at=1 WHERE id=?", [
+          newer.collection,
+        ]);
+        release.resolve();
+        await backfill!.whenIdle();
+      } finally {
+        queue.onStatement = undefined;
+        waypoint.onStatement = undefined;
+      }
+      expect(markdown.calls).toEqual(["# shared"]);
+      expect(await queued()).toBe(1);
+      expect(status()).toMatchObject({ state: "done", stale: 0, rendered: 1 });
+      // Both transactions, the one that found the Newer revision gone and the one that queued
+      // through the Older revision, ran the same few statements however many are pending.
+      const known =
+        "SELECT p.collection_id FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.id=? AND p.state='pending' AND json_extract(f.value,'$.hash')=? LIMIT 1";
+      expect(
+        transactions.map((statements) => statements.filter((sql) => !sql.startsWith("INSERT"))),
+      ).toEqual([
+        [
+          "SELECT 1 FROM blobs WHERE hash=?",
+          known,
+          "SELECT 1 FROM pending_purges WHERE collection_id=?",
+          "SELECT 1 FROM collection_tombstones WHERE collection_id=?",
+          "SELECT 1 FROM pending_collections WHERE id=? AND deleted_at IS NOT NULL",
+        ],
+        [
+          "SELECT 1 FROM blobs WHERE hash=?",
+          known,
+          "SELECT 1 FROM pending_purges WHERE collection_id=?",
+          "SELECT 1 FROM collection_tombstones WHERE collection_id=?",
+          "SELECT 1 FROM pending_collections WHERE id=? AND deleted_at IS NOT NULL",
+        ],
+      ]);
+      // The look outside them went through the pending revisions in pages, up to Older.
+      expect(pages).toBe(Math.floor(others / 50) + 1);
     },
   );
 

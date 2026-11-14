@@ -48,10 +48,11 @@ import { RERENDER_PENDING_SQL } from "./status-data.ts";
  * Per source, the GC barrier is held only for two short sections, never across a render (a waiting
  * GC would make every new ingest queue behind it): reading the source, then storing the output and
  * queueing its rows. The queue transaction that inserts the rows first checks that the source is
- * still stored or in a pending revision outside a purge; a purge or Drop prunes queued rows in a
- * queue transaction too, and those run one at a time, so neither can leave rows for a source it
- * removed. The committer uploads the output and commits the row later, as for the `rerender`
- * command.
+ * still stored, or still in the pending revision of a live collection it was found in beforehand
+ * (a few indexed lookups, never a scan of every pending revision: ingest waits for the queue
+ * connection); a purge or Drop prunes queued rows in a queue transaction too, and those run one at
+ * a time, so neither can leave rows for a source it removed. The committer uploads the output and
+ * commits the row later, as for the `rerender` command.
  *
  * Each work-list entry keeps its best position per collection: a one-collection survey replaces
  * that collection's, and the entry takes the best of those whose collection is still live. A
@@ -128,7 +129,10 @@ const RATE_WINDOW_MS = 10 * 60_000;
 const RETRY_BASE_MS = 3_600_000;
 const RETRY_CAP_MS = 7 * 86_400_000;
 const ERROR_PAUSE_MS = 60_000;
-const PENDING_COLLECTION_PAGE = 100;
+/** Pending revisions per page when looking for one that has a source (manifests can be large). */
+const PENDING_REVISION_PAGE = 50;
+/** How many times a source whose reference went away is looked for again before it's dropped. */
+const REFERENCE_ATTEMPTS = 3;
 /** The longest single sleep: the loop looks around at least this often. */
 const MAX_SLEEP_MS = 3_600_000;
 
@@ -148,6 +152,13 @@ type Entry = StaleSource & {
   /** The best position in each collection with the source, from the latest survey of each. */
   positions: Map<string, StalePosition>;
 };
+/**
+ * Where a source was found in a live collection: a pending revision, or a committed one
+ * (`revisionId` null), whose source has a `blobs` row.
+ */
+interface Reference {
+  revisionId: string | null;
+}
 const keyOf = (source: Pick<StaleSource, "renderer" | "hash">): string =>
   `${source.renderer}\0${source.hash}`;
 
@@ -691,9 +702,12 @@ export class RerenderBackfill {
     );
   }
 
-  /** Outside Trash and not being purged. */
-  private async collectionLive(collectionId: string): Promise<boolean> {
-    const { waypoint, queue } = this.deps;
+  /** Outside Trash and not being purged. `queue` is the queue database or a transaction's handle. */
+  private async collectionLive(
+    collectionId: string,
+    queue: DbHandle = this.deps.queue,
+  ): Promise<boolean> {
+    const { waypoint } = this.deps;
     return (
       !(await queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [collectionId])) &&
       !(await waypoint.get("SELECT 1 FROM collection_tombstones WHERE collection_id=?", [
@@ -705,11 +719,27 @@ export class RerenderBackfill {
     );
   }
 
+  /** The collection of one pending revision, if it's still pending and has the source. */
+  private async pendingCollectionWith(
+    queue: DbHandle,
+    revisionId: string,
+    hash: string,
+  ): Promise<string | undefined> {
+    const row = await queue.get<{ collection_id: string }>(
+      "SELECT p.collection_id FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.id=? AND p.state='pending' AND json_extract(f.value,'$.hash')=? LIMIT 1",
+      [revisionId, hash],
+    );
+    return row?.collection_id;
+  }
+
   /**
-   * In at least one collection outside Trash and not being purged, through any committed or
-   * pending revision that has it.
+   * Where the source is in at least one collection outside Trash and not being purged: through a
+   * committed revision (`revisionId` null), or the pending revision returned. Null when nowhere.
+   * Pending revisions are looked through in short pages, never in one long statement or inside a
+   * transaction: with sync off every stored source is in one, and the queue connection is
+   * ingest's too.
    */
-  private async inLiveCollection(entry: Entry): Promise<boolean> {
+  private async liveReference(entry: Entry): Promise<Reference | null> {
     const { waypoint, queue } = this.deps;
     const committed = await waypoint.all<{ collection_id: string }>(
       "SELECT DISTINCT r.collection_id FROM revision_files f JOIN revisions r ON r.id=f.revision_id WHERE f.blob_hash=?",
@@ -717,46 +747,44 @@ export class RerenderBackfill {
     );
     for (const row of committed)
       // oxlint-disable-next-line eslint/no-await-in-loop -- Stops at the first live collection.
-      if (await this.collectionLive(row.collection_id)) return true;
-    // The pending revision the survey saw first, the usual answer, before all of them.
-    const known = await queue.get<{ collection_id: string; manifest_json: string }>(
-      "SELECT collection_id,manifest_json FROM pending_revisions WHERE id=? AND state='pending'",
-      [entry.revisionId],
-    );
-    if (
-      known &&
-      known.manifest_json.includes(`"${entry.hash}"`) &&
-      (await this.collectionLive(known.collection_id))
-    )
-      return true;
+      if (await this.collectionLive(row.collection_id)) return { revisionId: null };
+    // The pending revision the survey saw it in, the usual answer, before all of them.
+    const known = await this.pendingCollectionWith(queue, entry.revisionId, entry.hash);
+    if (known !== undefined && (await this.collectionLive(known)))
+      return { revisionId: entry.revisionId };
+    // `instr` passes over manifests without the source cheaply; the rest are confirmed one by one.
     for (let after = "", more = true; more;) {
+      this.checkStopped();
       // oxlint-disable-next-line eslint/no-await-in-loop -- Pages, until a live collection.
-      const page = await queue.all<{ collection_id: string }>(
-        "SELECT DISTINCT p.collection_id FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.state='pending' AND json_extract(f.value,'$.hash')=? AND p.collection_id>? ORDER BY p.collection_id LIMIT ?",
-        [entry.hash, after, PENDING_COLLECTION_PAGE],
+      const page = await queue.all<{ id: string; at: number }>(
+        "SELECT id,instr(manifest_json,?) AS at FROM pending_revisions WHERE state='pending' AND id>? ORDER BY id LIMIT ?",
+        [`"${entry.hash}"`, after, PENDING_REVISION_PAGE],
       );
-      for (const row of page)
+      for (const row of page) {
+        if (!row.at || row.id === entry.revisionId) continue;
         // oxlint-disable-next-line eslint/no-await-in-loop -- Stops at the first live collection.
-        if (await this.collectionLive(row.collection_id)) return true;
-      more = page.length === PENDING_COLLECTION_PAGE;
-      after = page.at(-1)?.collection_id ?? after;
+        const collectionId = await this.pendingCollectionWith(queue, row.id, entry.hash);
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Stops at the first live collection.
+        if (collectionId !== undefined && (await this.collectionLive(collectionId)))
+          return { revisionId: row.id };
+      }
+      more = page.length === PENDING_REVISION_PAGE;
+      after = page.at(-1)?.id ?? after;
     }
-    return false;
+    return null;
   }
 
   /**
-   * Whether the source still needs a rendition: committed (a `blobs` row), or in a pending
-   * revision of a collection not being purged. `queue` is the queue database or, for the check
-   * that decides, the handle of the transaction that queues the rows.
+   * Whether the reference `liveReference` found still holds: the source is committed (a `blobs`
+   * row), or still in that one pending revision, in a live collection. A few indexed lookups and
+   * one manifest, however many revisions are pending: `queue` is, for the check that decides, the
+   * handle of the transaction that queues the rows, which ingest waits for.
    */
-  private async stillStored(queue: DbHandle, hash: string): Promise<boolean> {
+  private async stillReferenced(queue: DbHandle, hash: string, ref: Reference): Promise<boolean> {
     if (await this.deps.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash])) return true;
-    return Boolean(
-      await queue.get(
-        "SELECT 1 FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.state='pending' AND json_extract(f.value,'$.hash')=? AND NOT EXISTS (SELECT 1 FROM pending_purges u WHERE u.collection_id=p.collection_id) LIMIT 1",
-        [hash],
-      ),
-    );
+    if (ref.revisionId === null) return false;
+    const collectionId = await this.pendingCollectionWith(queue, ref.revisionId, hash);
+    return collectionId !== undefined && (await this.collectionLive(collectionId, queue));
   }
 
   /** Races `work` against `stop()`. */
@@ -792,7 +820,8 @@ export class RerenderBackfill {
       await this.clearSkip(entry);
       return;
     }
-    if (!(await this.inLiveCollection(entry))) {
+    let ref = await this.liveReference(entry);
+    if (!ref) {
       this.take(entry);
       this.remove(entry);
       return;
@@ -872,26 +901,40 @@ export class RerenderBackfill {
     }
     // Stopping: the output is dropped, and the next start renders the source again.
     this.checkStopped();
-    // 5. Store and queue inside the barrier, if the source is still stored or queued: looked at
-    // first, so a source gone by now stores nothing, and again in the queue transaction that
-    // queues the rows, so a purge or Drop since can't leave rows behind. An output stored for a
-    // source that went in between stays on disk unreferenced, like an upload nothing used: an
-    // upload of the same bytes may be under way outside the barrier, so it isn't deleted here.
-    const queued = await ingest.gcBarrier.read(() =>
-      ingest.withBlobHold(async (hold) => {
-        hold(entry.hash);
-        if (!(await this.stillStored(queue, entry.hash))) return null;
-        return queueRendition(
-          deps,
-          renderer,
-          entry.hash,
-          rendered.rendition,
-          this.clock.now(),
-          hold,
-          (tx) => this.stillStored(tx, entry.hash),
-        );
-      }),
-    );
+    // 5. Store and queue inside the barrier, if the reference found in step 1 still holds: looked
+    // at first, so a source gone by now stores nothing, and again in the queue transaction that
+    // queues the rows, so a purge or Drop since can't leave rows behind. Both checks look at that
+    // one reference only; when it's gone, the source is looked for again outside the barrier and
+    // the transaction, a few times, and dropped when no live collection has it. An output stored
+    // for a source that went in between stays on disk unreferenced, like an upload nothing used:
+    // an upload of the same bytes may be under way outside the barrier, so it isn't deleted here.
+    let queued: Awaited<ReturnType<typeof queueRendition>> | null = null;
+    for (let attempt = 1; ; attempt++) {
+      const current = ref;
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Retries, one at a time.
+      queued = await ingest.gcBarrier.read(() =>
+        ingest.withBlobHold(async (hold) => {
+          hold(entry.hash);
+          if (!(await this.stillReferenced(queue, entry.hash, current))) return null;
+          return queueRendition(
+            deps,
+            renderer,
+            entry.hash,
+            rendered.rendition,
+            this.clock.now(),
+            hold,
+            (tx) => this.stillReferenced(tx, entry.hash, current),
+          );
+        }),
+      );
+      if (queued !== null && queued.status !== "source_gone") break;
+      if (attempt >= REFERENCE_ATTEMPTS) break;
+      this.checkStopped();
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Retries, one at a time.
+      const found = await this.liveReference(entry);
+      if (!found) break;
+      ref = found;
+    }
     if (queued === null || queued.status === "source_gone") {
       this.remove(entry);
       return;
