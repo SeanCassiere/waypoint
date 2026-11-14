@@ -206,7 +206,7 @@ How a purge is recorded while it runs:
 - Each writer has its own data directory, queue, and local replica. They converge through the cloud DB.
 - A writer's queue is invisible to the other writers. Its revisions appear elsewhere only once they are `synced` and the other writer has pulled.
 - Two writers revising the same parent produce a [fork](glossary.md#content), not a conflict.
-- Phase 1 runs a single writer. Purge is the only operation that isn't multi-writer-safe yet.
+- Phase 1 runs a single writer. Two operations aren't multi-writer-safe yet: purge, and the [background rerender](architecture.md#background-re-rendering) running on more than one writer. Two writers can render the same bytes stored under MIME types that render differently (a `.json` file and the same bytes as plain text), which gives different outputs under one `(source_hash, renderer, renderer_version)` key. If one writer's row is pulled after another writer's revision has taken its rendition snapshot but before that revision commits, the commit fails for good with a rendition collision. With more than one writer, set `WAYPOINT_RERENDER=off` on every writer but one.
 
 ## Environment guard
 

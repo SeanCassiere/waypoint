@@ -299,6 +299,12 @@ that stops the writer and renders in batches. Rolling back to a release from bef
 background rerender is safe: it ignores `WAYPOINT_RERENDER` and the `WAYPOINT_RERENDER_*` keys,
 so the writer env file needn't change, and it keeps what the newer release rendered.
 
+**More than one writer:** set `WAYPOINT_RERENDER=off` in every writer's env file but one. Two
+writers re-rendering at once can store different outputs under one rendition key (the same bytes
+stored under MIME types that render differently), and a revision that commits while the other
+writer's row arrives fails with a rendition collision
+([multiple writers](../docs/write-path-and-sync.md#multiple-writers)).
+
 ```bash
 deploy/upgrade.sh rerender               # watch until done; or --collection <id>
 deploy/upgrade.sh --dry-run rerender     # count only ("N to render")

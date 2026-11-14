@@ -208,7 +208,9 @@ the writer re-renders older documents by itself, starting 45 minutes after the d
 (`WAYPOINT_RERENDER_DELAY_MINUTES`), and **Status** shows its progress; nothing needs to be run.
 `deploy/upgrade.sh rerender` waits for it to finish, if you want to watch, and is the way to
 re-render on a writer with `WAYPOINT_RERENDER=off`
-([re-rendering](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)).
+([re-rendering](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)). If you run
+more than one writer, set `WAYPOINT_RERENDER=off` on all of them but one: concurrent re-renders
+on two writers can collide on a rendition key and fail a revision's commit.
 
 ## Optional: automatic deploys on release
 
