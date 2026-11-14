@@ -16,13 +16,16 @@ describe("writer config", () => {
     expect(config.sync).toBe(false);
     expect(config.host).toBe("127.0.0.1");
   });
-  it("leaves the background rerender off by default, with a 45-minute delay and 30 settled days", () => {
+  it("re-renders in the background by default, with a 45-minute delay and 30 settled days", () => {
     const base = { WAYPOINT_ENV: "dev", WAYPOINT_SYNC: "off" };
     expect(loadConfig(base)).toMatchObject({
-      rerender: "off",
+      rerender: "auto",
       rerenderDelayMinutes: 45,
       rerenderSettledDays: 30,
     });
+    // The default holds in production too; `off` turns it off explicitly.
+    expect(loadConfig({ ...base, WAYPOINT_ENV: "prod" }).rerender).toBe("auto");
+    expect(loadConfig({ ...base, WAYPOINT_RERENDER: "off" }).rerender).toBe("off");
     expect(
       loadConfig({
         ...base,
@@ -31,9 +34,10 @@ describe("writer config", () => {
         WAYPOINT_RERENDER_SETTLED_DAYS: "7",
       }),
     ).toMatchObject({ rerender: "auto", rerenderDelayMinutes: 0, rerenderSettledDays: 7 });
-    expect(() => loadConfig({ ...base, WAYPOINT_RERENDER: "on" })).toThrow(
-      "WAYPOINT_RERENDER must be auto or off",
-    );
+    for (const value of ["on", "OFF", "Auto", ""])
+      expect(() => loadConfig({ ...base, WAYPOINT_RERENDER: value })).toThrow(
+        "WAYPOINT_RERENDER must be auto or off",
+      );
     for (const value of ["-1", "1.5", "", "soon"])
       expect(() => loadConfig({ ...base, WAYPOINT_RERENDER_DELAY_MINUTES: value })).toThrow(
         "WAYPOINT_RERENDER_DELAY_MINUTES must be a non-negative integer",

@@ -206,7 +206,7 @@ How a purge is recorded while it runs:
 - Each writer has its own data directory, queue, and local replica. They converge through the cloud DB.
 - A writer's queue is invisible to the other writers. Its revisions appear elsewhere only once they are `synced` and the other writer has pulled.
 - Two writers revising the same parent produce a [fork](glossary.md#content), not a conflict.
-- Phase 1 runs a single writer. Purge is the only operation that isn't multi-writer-safe yet.
+- Phase 1 runs a single writer. Two operations aren't multi-writer-safe yet: purge, and the [background rerender](architecture.md#background-re-rendering) running on more than one writer. Two writers can render the same bytes stored under MIME types that render differently (a `.json` file and the same bytes as plain text), which gives different outputs under one `(source_hash, renderer, renderer_version)` key. If one writer's row is pulled after another writer's revision has taken its rendition snapshot but before that revision commits, the commit fails for good with a rendition collision. With more than one writer, set `WAYPOINT_RERENDER=off` on every writer but one.
 
 ## Environment guard
 
@@ -224,7 +224,7 @@ On startup and before every push, the writer compares three values: `WAYPOINT_EN
 |---|---|
 | A writer machine | Start a writer on any tailnet machine with an empty data directory. Turso Sync bootstraps `waypoint.db` from the cloud. The local blob store refills lazily from the bucket as files are read. |
 | Committed but unpushed rows (disk lost during a cloud DB outage) | `waypoint-writer restore --merge` replays DR manifests and snapshots from the bucket that are missing from the cloud DB. Share links merge too: a revoked link stays revoked, and the later `expires_at` wins (never expiring, null, on either side counts as latest; D48). |
-| The cloud DB | Create a new Turso Sync DB and run `waypoint-writer restore --from-bucket`. It replays every `collections/*.json` and `manifests/*.json`. A manifest is ignored if its collection snapshot is missing or its parent's manifest is missing (this applies down the chain). Restore is the only time Waypoint lists the bucket. Manifests hold the renditions made at ingest, not ones added later by `rerender`, so run `waypoint-writer rerender --all` after a restore. |
+| The cloud DB | Create a new Turso Sync DB and run `waypoint-writer restore --from-bucket`. It replays every `collections/*.json` and `manifests/*.json`. A manifest is ignored if its collection snapshot is missing or its parent's manifest is missing (this applies down the chain). Restore is the only time Waypoint lists the bucket. Manifests hold the renditions made at ingest, not ones added later by `rerender` or the background rerender. A writer with `WAYPOINT_RERENDER=auto` (the default) re-derives those by itself once it serves again, after its delay (collections in Trash excepted); with `off`, run `waypoint-writer rerender --all` after a restore. |
 | The bucket | Not recoverable. This is the durability floor. If that ever matters, add R2 replication or a second bucket. |
 
 Phase 1 builds restore and **tests** it; it doesn't stay theoretical.

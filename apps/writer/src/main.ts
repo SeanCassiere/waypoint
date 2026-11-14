@@ -149,7 +149,7 @@ try {
       closeRenderers: () => backfillRenderers.close(),
     },
     {
-      mode: config.rerender ?? "off",
+      mode: config.rerender ?? "auto",
       delayMs: (config.rerenderDelayMinutes ?? 45) * 60_000,
       settledMs: (config.rerenderSettledDays ?? 30) * 86_400_000,
       sync: config.sync,

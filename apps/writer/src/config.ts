@@ -28,7 +28,7 @@ export interface Config {
   sync: boolean;
   /**
    * WAYPOINT_RERENDER: `auto` re-renders stale renditions in the background after a renderer
-   * upgrade (backfill.ts); `off` (the default) only counts them.
+   * upgrade (backfill.ts), and is the default; `off` only counts them.
    */
   rerender?: "auto" | "off";
   /** WAYPOINT_RERENDER_DELAY_MINUTES: how long after start the backfill waits (0 allowed). */
@@ -130,7 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
   const queueGiveUpHours = number("WAYPOINT_QUEUE_GIVE_UP_HOURS", 72);
-  const rerender = env.WAYPOINT_RERENDER ?? "off";
+  const rerender = env.WAYPOINT_RERENDER ?? "auto";
   if (rerender !== "auto" && rerender !== "off")
     throw new Error("WAYPOINT_RERENDER must be auto or off");
   const rerenderDelayMinutes = nonNegative("WAYPOINT_RERENDER_DELAY_MINUTES", 45);
