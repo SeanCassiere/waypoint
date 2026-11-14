@@ -311,10 +311,12 @@ A writer with `WAYPOINT_RERENDER=auto` (its `/api/status` has a `rerender` block
 3. if the writer is still waiting out its post-start delay (`WAYPOINT_RERENDER_DELAY_MINUTES`), it
    ends the delay (`POST /api/rerender/start`, sent from inside the writer's container like every
    other request `upgrade.sh` makes to it);
-4. it waits until the writer reports `done` (nothing left, and with sync on every re-rendered
-   rendition uploaded), logging how many are left as that changes. While the writer is paused (the
-   bucket account paused, uploads failing, sync blocked) it keeps waiting and says why. A writer
-   that stops answering, as when a deploy recreates it, is waited for. The watch remembers the
+4. it waits until the writer reports `done` (no source left to re-render apart from skipped ones,
+   and with sync on no standalone re-rendered rendition still queued for upload), logging how many
+   are left as that changes. Renditions attached to queued or failed revisions don't count: they
+   upload with those revisions (see "If **Status** lists failed revisions" below). While the
+   writer is paused (the bucket account paused, uploads failing, sync blocked) it keeps waiting
+   and says why. A writer that stops answering, as when a deploy recreates it, is waited for. The watch remembers the
    writer's version and commit from when it began (`/api/status`): a writer that comes back on that
    same build, waiting out its delay again (a restart), is told to start again. One that comes
    back on another build (a release deployed meanwhile) is **not**: a new release waits out its
