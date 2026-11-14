@@ -21,8 +21,22 @@ async function createChild(parentPath: string, segment: string): Promise<string>
   }
   return child;
 }
+/** Work in flight, and how much has started since the writer did. */
+export interface Activity {
+  active: number;
+  started: number;
+}
+export interface PutOptions {
+  /**
+   * Background work (the rerender backfill's own fetches and outputs): not counted by
+   * `activity()`, which tells the backfill whether anyone else is writing blobs.
+   */
+  background?: boolean;
+}
 export class BlobStore {
   private activeWrites = 0;
+  private foregroundActive = 0;
+  private foregroundStarted = 0;
   private idleWaiters = new Set<() => void>();
   readonly dataDir: string;
   readonly maxBlobBytes: number;
@@ -67,12 +81,30 @@ export class BlobStore {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     });
   }
+  /** Blob writes other than background ones: uploads, multipart bodies, the viewer's fetches. */
+  activity(): Activity {
+    return { active: this.foregroundActive, started: this.foregroundStarted };
+  }
   waitForIdle(): Promise<void> {
     if (this.activeWrites === 0) return Promise.resolve();
     return new Promise<void>((resolve) => this.idleWaiters.add(resolve));
   }
-  async put(source: Readable, claimedHash?: string): Promise<{ hash: string; size: number }> {
-    await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
+  async put(
+    source: Readable,
+    claimedHash?: string,
+    options: PutOptions = {},
+  ): Promise<{ hash: string; size: number }> {
+    const foreground = !options.background;
+    if (foreground) {
+      this.foregroundActive++;
+      this.foregroundStarted++;
+    }
+    try {
+      await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
+    } catch (error) {
+      if (foreground) this.foregroundActive--;
+      throw error;
+    }
     this.activeWrites++;
     const temp = join(this.dataDir, `.blob-${randomUUID()}`);
     const digest = createHash("sha256");
@@ -118,6 +150,7 @@ export class BlobStore {
       return { hash, size };
     } finally {
       await unlink(temp).catch(() => undefined);
+      if (foreground) this.foregroundActive--;
       this.activeWrites--;
       if (this.activeWrites === 0) {
         for (const resolve of this.idleWaiters) resolve();

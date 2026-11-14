@@ -16,6 +16,33 @@ describe("writer config", () => {
     expect(config.sync).toBe(false);
     expect(config.host).toBe("127.0.0.1");
   });
+  it("leaves the background rerender off by default, with a 45-minute delay and 30 settled days", () => {
+    const base = { WAYPOINT_ENV: "dev", WAYPOINT_SYNC: "off" };
+    expect(loadConfig(base)).toMatchObject({
+      rerender: "off",
+      rerenderDelayMinutes: 45,
+      rerenderSettledDays: 30,
+    });
+    expect(
+      loadConfig({
+        ...base,
+        WAYPOINT_RERENDER: "auto",
+        WAYPOINT_RERENDER_DELAY_MINUTES: "0",
+        WAYPOINT_RERENDER_SETTLED_DAYS: "7",
+      }),
+    ).toMatchObject({ rerender: "auto", rerenderDelayMinutes: 0, rerenderSettledDays: 7 });
+    expect(() => loadConfig({ ...base, WAYPOINT_RERENDER: "on" })).toThrow(
+      "WAYPOINT_RERENDER must be auto or off",
+    );
+    for (const value of ["-1", "1.5", "", "soon"])
+      expect(() => loadConfig({ ...base, WAYPOINT_RERENDER_DELAY_MINUTES: value })).toThrow(
+        "WAYPOINT_RERENDER_DELAY_MINUTES must be a non-negative integer",
+      );
+    for (const value of ["0", "-3", "x"])
+      expect(() => loadConfig({ ...base, WAYPOINT_RERENDER_SETTLED_DAYS: value })).toThrow(
+        "WAYPOINT_RERENDER_SETTLED_DAYS must be a positive integer",
+      );
+  });
   it("listens on loopback unless WAYPOINT_HOST names another address", () => {
     const base = { WAYPOINT_ENV: "dev", WAYPOINT_SYNC: "off" };
     expect(loadConfig({ ...base, WAYPOINT_HOST: "0.0.0.0" }).host).toBe("0.0.0.0");

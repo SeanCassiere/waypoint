@@ -26,6 +26,7 @@ import { Hono } from "hono";
 import { Context } from "hono";
 import { z } from "zod";
 
+import type { RerenderBackfill } from "./backfill.ts";
 import { BlobStore } from "./blob-store.ts";
 import type { Bucket } from "./bucket.ts";
 import { BucketError } from "./bucket.ts";
@@ -64,7 +65,7 @@ import {
   type LinkFilter,
   type ShareRow,
 } from "./shares.ts";
-import { getStatus } from "./status-data.ts";
+import { getStatus, RERENDER_PENDING_SQL } from "./status-data.ts";
 import type { SyncLoop } from "./sync-loop.ts";
 import { viewerApp } from "./viewer/index.tsx";
 import { FOLD_LOAD_LIMIT, foldFragment, unitCount } from "./viewer/pages/changes/index.tsx";
@@ -83,6 +84,8 @@ export interface HttpServices {
   bucket?: Bucket | undefined;
   committer?: WriterCommitter | undefined;
   syncLoop?: SyncLoop | undefined;
+  /** The background rerender (D89): its /api/status block, the start endpoint, its hooks. */
+  backfill?: Pick<RerenderBackfill, "status" | "startNow" | "collectionChanged"> | undefined;
   environment?: "dev" | "prod";
   /** Version and git commit for /healthz and /api/status; defaults to no recorded commit. */
   build?: BuildInfo;
@@ -762,6 +765,8 @@ export function createApp(s: HttpServices): Hono {
           if (!result.changes) throw new WaypointError("conflict", "Collection is not deleted");
         }
         s.ingest.committer.wake();
+        // Back from Trash: its stale renditions are re-rendered first.
+        s.backfill?.collectionChanged(id, { front: true });
         return s.reads.getCollection(id);
       }),
     );
@@ -1331,6 +1336,16 @@ export function createApp(s: HttpServices): Hono {
     );
   });
   app.get("/api/status", async (c) => c.json(await getStatus(s)));
+  // Ends the background rerender's post-start delay (`upgrade.sh rerender` calls it while the
+  // state is `waiting`). Same-origin only, like every write (the guard above).
+  app.post("/api/rerender/start", async (c) => {
+    if (!s.backfill) throw new WaypointError("conflict", "This writer has no background rerender");
+    if (s.backfill.status(0).mode !== "auto")
+      throw new WaypointError("conflict", "Automatic re-rendering is off (WAYPOINT_RERENDER=off)");
+    const standalone = (await s.queue.get<{ n: number }>(RERENDER_PENDING_SQL))?.n ?? 0;
+    s.backfill.startNow();
+    return c.json(s.backfill.status(standalone));
+  });
   app.get("/api/facets", async (c) => c.json(await s.reads.facets()));
   app.get("/api/watchers", (c) => c.json({ watchers: [...watchers.values()] }));
   app.post("/api/queue/:revision_id/retry", async (c) => {

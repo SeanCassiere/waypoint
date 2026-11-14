@@ -2,7 +2,7 @@
 
 Each writer keeps two databases:
 - **`waypoint.db`**: the Turso Sync replica, pushed to and pulled from the cloud DB. The schema below is for this database unless stated otherwise.
-- **`queue.db`**: local only, never synced. Described in [write-path-and-sync.md](write-path-and-sync.md#queue).
+- **`queue.db`**: local only, never synced. Described in [write-path-and-sync.md](write-path-and-sync.md#queue), including `rerender_skips`, the background rerender's record of sources it couldn't render (D89); it has no `waypoint.db` table.
 
 Conventions:
 - Timestamps are `INTEGER` Unix milliseconds.

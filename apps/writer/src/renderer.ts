@@ -2,7 +2,8 @@ import { csvRenderer, markdownRenderer, textRenderer, type HtmlRenderer } from "
 
 import { rendererSet, type Renderer, type RendererSet } from "./ingest.ts";
 
-function adapt(renderer: HtmlRenderer): Renderer {
+/** A @waypoint/render renderer as the writer's `Renderer`. */
+export function adaptRenderer(renderer: HtmlRenderer): Renderer {
   return {
     rendererName: renderer.name,
     rendererVersion: renderer.version,
@@ -11,10 +12,10 @@ function adapt(renderer: HtmlRenderer): Renderer {
 }
 
 /** The markdown renderer alone (markdown files only), for existing callers and tests. */
-export const writerRenderer: Renderer = adapt(markdownRenderer);
+export const writerRenderer: Renderer = adaptRenderer(markdownRenderer);
 /** Every renderer this writer has: markdown, text and CSV, each picked by the file's MIME type. */
 export const writerRenderers: RendererSet = rendererSet([
   writerRenderer,
-  adapt(textRenderer),
-  adapt(csvRenderer),
+  adaptRenderer(textRenderer),
+  adaptRenderer(csvRenderer),
 ]);

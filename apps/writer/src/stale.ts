@@ -13,8 +13,9 @@ import { inSeries, type Db } from "./db.ts";
  * a newer release before a rollback) is not stale: readers serve the newest version anyway.
  *
  * Each stale source gets a priority, best first:
- * - Tier 1: in a revision pinned by an open share link, or the latest revision of a collection
- *   with an open Latest link.
+ * - Tier 1: in a revision pinned by an open share link, or, for a collection with an open Latest
+ *   link, in the revision that link serves: the newest committed one (a queued revision isn't
+ *   served until it commits, so it stays tier 2).
  * - Tier 2: in the latest revision of a collection.
  * - Tier 3: in an older revision.
  * Within a tier, sources of collections that aren't settled come before settled ones, then newer
@@ -27,7 +28,8 @@ import { inSeries, type Db } from "./db.ts";
  *
  * The databases aren't attached and each is one serialized connection, so this reads in short
  * keyset pages on primary keys or existing indexes, with fixed-arity statements only (every
- * distinct SQL string costs a cached statement, see db.ts): no variable-length `IN (…)`.
+ * distinct SQL string costs a cached statement, see db.ts): no variable-length `IN (…)`. A survey
+ * stops between pages once its `signal` is aborted (the writer shutting down).
  */
 
 export type StaleTier = 1 | 2 | 3;
@@ -48,6 +50,17 @@ export interface StaleSurveyOptions {
   now: number;
   /** How long since its latest revision before a collection without open links is settled. */
   settledMs?: number;
+  /** Also return each source's best position in each collection (`StaleSource.positions`). */
+  positions?: boolean;
+  /** Checked between pages: once aborted, the survey rejects with the signal's reason. */
+  signal?: AbortSignal;
+}
+
+/** Where a source sits in the priority order (`compareStale`). */
+export interface StalePosition {
+  tier: StaleTier;
+  settled: boolean;
+  revisionId: string;
 }
 
 export interface StaleSource {
@@ -66,6 +79,8 @@ export interface StaleSource {
   /** The newest revision at the source's best position, and its collection. */
   revisionId: string;
   collectionId: string;
+  /** With `positions`: the source's best position in each collection that has it. */
+  positions?: Map<string, StalePosition>;
 }
 
 export interface StaleSurvey {
@@ -147,6 +162,8 @@ interface CollectionState {
   trashed: boolean;
   /** Newest committed or pending (not failed) revision ID. */
   latest?: string;
+  /** Newest committed revision ID: what a Latest link serves. */
+  latestCommitted?: string;
   /** An open share link of any kind. */
   linked: boolean;
   /** An open Latest link. */
@@ -175,6 +192,8 @@ export async function surveyStale(
   options: StaleSurveyOptions,
 ): Promise<StaleSurvey> {
   const scoped = options.collectionId;
+  const checkAborted = (): void => options.signal?.throwIfAborted();
+  checkAborted();
   const current = new Map(
     options.renderers.map((renderer) => [renderer.rendererName, renderer.rendererVersion]),
   );
@@ -222,14 +241,17 @@ export async function surveyStale(
   // Revisions in scope, oldest first, and each collection's latest.
   const committed: [id: string, collectionId: string][] = [];
   const revisionCollection = new Map<string, string>();
-  const noteRevision = (id: string, collectionId: string): boolean => {
+  const noteRevision = (id: string, collectionId: string, isCommitted: boolean): boolean => {
     const state = inScope(collectionId);
     if (!state) return false;
     revisionCollection.set(id, collectionId);
     if (state.latest === undefined || id > state.latest) state.latest = id;
+    if (isCommitted && (state.latestCommitted === undefined || id > state.latestCommitted))
+      state.latestCommitted = id;
     return true;
   };
   for (let after = "", more = true; more;) {
+    checkAborted();
     const page =
       scoped === undefined
         ? await waypoint.all<{ id: string; collection_id: string }>(
@@ -241,7 +263,8 @@ export async function surveyStale(
             [scoped, after, REVISION_PAGE],
           );
     for (const row of page)
-      if (noteRevision(row.id, row.collection_id)) committed.push([row.id, row.collection_id]);
+      if (noteRevision(row.id, row.collection_id, true))
+        committed.push([row.id, row.collection_id]);
     more = page.length === REVISION_PAGE;
     after = page.at(-1)?.id ?? after;
   }
@@ -262,8 +285,9 @@ export async function surveyStale(
         );
   };
   for (let after = "", more = true; more;) {
+    checkAborted();
     const page = await pendingPage(after, REVISION_PAGE, false);
-    for (const row of page) noteRevision(row.id, row.collection_id);
+    for (const row of page) noteRevision(row.id, row.collection_id, false);
     more = page.length === REVISION_PAGE;
     after = page.at(-1)?.id ?? after;
   }
@@ -303,9 +327,13 @@ export async function surveyStale(
     const state = collections.get(collectionId);
     if (!state) return;
     const latest = revisionId === state.latest;
-    const tier: StaleTier =
-      pinned.has(revisionId) || (latest && state.followsLatest) ? 1 : latest ? 2 : 3;
-    const position = { tier, settled: tier !== 1 && settledAt(state, cutoff), revisionId };
+    const served = state.followsLatest && revisionId === state.latestCommitted;
+    const tier: StaleTier = pinned.has(revisionId) || served ? 1 : latest ? 2 : 3;
+    const position: StalePosition = {
+      tier,
+      settled: tier !== 1 && settledAt(state, cutoff),
+      revisionId,
+    };
     const key = `${renderer}\0${file.hash}`;
     const known = candidates.get(key);
     if (!known) {
@@ -317,15 +345,21 @@ export async function surveyStale(
         size: file.size,
         ...position,
         collectionId,
+        ...(options.positions ? { positions: new Map([[collectionId, position]]) } : {}),
       });
       return;
     }
     if (file.mime < known.mime) known.mime = file.mime;
     if (file.size > known.size) known.size = file.size;
     if (compareStale(position, known) < 0) Object.assign(known, position, { collectionId });
+    if (known.positions) {
+      const there = known.positions.get(collectionId);
+      if (!there || compareStale(position, there) < 0) known.positions.set(collectionId, position);
+    }
   };
   await inSeries(committed, async ([revisionId, collectionId]) => {
     for (let after = "", more = true; more;) {
+      checkAborted();
       const page = await waypoint.all<{
         path: string;
         blob_hash: string;
@@ -342,6 +376,7 @@ export async function surveyStale(
     }
   });
   for (let after = "", more = true; more;) {
+    checkAborted();
     const page = await pendingPage(after, MANIFEST_PAGE, true);
     for (const row of page)
       if (inScope(row.collection_id))
@@ -362,6 +397,7 @@ export async function surveyStale(
   }
   const stale: StaleSource[] = [];
   await inSeries(byHash, async ([hash, list]) => {
+    checkAborted();
     const versions = await newestRenditionVersions(waypoint, queue, hash);
     for (const candidate of list) {
       const version = versions.get(candidate.renderer) ?? null;

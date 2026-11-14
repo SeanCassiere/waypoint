@@ -216,6 +216,8 @@ export interface SyncClient {
   verified?: boolean;
   beforePush?: () => Promise<void>;
   afterPull?: () => Promise<void>;
+  /** Called after a pull that changed the local database (the background rerender resurveys). */
+  onPullChanged?: () => void;
   blockedReason?: string;
 }
 export class LocalSyncClient implements SyncClient {
@@ -332,6 +334,7 @@ export async function openDatabases(
           if (changed) await waypoint.resetStatements();
           await this.afterPull?.();
           this.lastPullAt = Date.now();
+          if (changed) this.onPullChanged?.();
           return changed;
         })
         .finally(() => {

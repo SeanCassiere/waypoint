@@ -22,6 +22,9 @@ Values are plain environment variables (the writer, the MCP server) or Worker bi
 | `WAYPOINT_MAX_BLOB_MB` | no | `50` | Largest single file, in MB. |
 | `WAYPOINT_MAX_FILES` | no | `2000` | Most files in one revision. |
 | `WAYPOINT_MAX_REVISION_MB` | no | `500` | Largest total revision size, in MB. |
+| `WAYPOINT_RERENDER` | no | `off` | `auto` or `off`. `auto`: after a renderer upgrade, the writer re-renders stale renditions in the background ([architecture](architecture.md#background-re-rendering), D89). `off` only counts them, for `/api/status`. |
+| `WAYPOINT_RERENDER_DELAY_MINUTES` | no | `45` | How long after the writer starts the background rerender waits before rendering, in minutes; `0` starts at once. `POST /api/rerender/start` ends the wait early. |
+| `WAYPOINT_RERENDER_SETTLED_DAYS` | no | `30` | A collection whose latest revision is older than this many days, with no open share link, is settled: its stale renditions come after the others in their tier. It only lowers priority. |
 | `WAYPOINT_BUILD_SHA` | no | unset | The git commit of the build, reported as `sha` on `/healthz` and `/api/status`. The writer image sets it from the `WAYPOINT_BUILD_SHA` build arg; anything but 7 to 40 hex digits reads as unset. |
 
 ### Cloud (sync on)

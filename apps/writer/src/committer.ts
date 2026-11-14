@@ -99,7 +99,14 @@ export class WriterCommitter implements Committer {
   private abortController = new AbortController();
   accountError: string | null = null;
   lastUploadAt: number | null = null;
-  private renditionsRetryAt: number | null = null;
+  private renditionsRetryUntil: number | null = null;
+  /**
+   * While standalone rendition commits are failing: when the committer tries them again (the
+   * background rerender pauses until then). Null when they aren't failing.
+   */
+  get renditionsRetryAt(): number | null {
+    return this.renditionsRetryUntil;
+  }
   /** Where the next pass resumes in pending_renditions; null starts from the beginning. */
   private renditionCursor: Pick<Rendition, "source_hash" | "renderer" | "renderer_version"> | null =
     null;
@@ -244,9 +251,9 @@ export class WriterCommitter implements Committer {
         console.error(`Committer scheduling failed: ${reason(error)}`);
       }
       const nextAt =
-        next?.at != null && this.renditionsRetryAt !== null
-          ? Math.min(next.at, this.renditionsRetryAt)
-          : (next?.at ?? this.renditionsRetryAt);
+        next?.at != null && this.renditionsRetryUntil !== null
+          ? Math.min(next.at, this.renditionsRetryUntil)
+          : (next?.at ?? this.renditionsRetryUntil);
       if (!this.stopping && (this.accountError || passFailed || nextAt != null)) {
         const wait = this.accountError
           ? 300_000
@@ -769,8 +776,8 @@ export class WriterCommitter implements Committer {
    * only in a pending revision are left for that revision's commit.
    */
   private async commitRenditions(): Promise<void> {
-    if (this.renditionsRetryAt !== null && this.renditionsRetryAt > this.now()) return;
-    this.renditionsRetryAt = null;
+    if (this.renditionsRetryUntil !== null && this.renditionsRetryUntil > this.now()) return;
+    this.renditionsRetryUntil = null;
     let pendingSources: Set<string> | undefined;
     // A rerender backlog can hold thousands of rows. Each pass takes the next batch after a
     // cursor and asks for another pass, so new revisions are committed between batches.
@@ -883,7 +890,7 @@ export class WriterCommitter implements Committer {
         }
         if (this.stopping) return;
         console.error(`Rendition commit failed: ${reason(error)}`);
-        this.renditionsRetryAt = this.now() + this.delay();
+        this.renditionsRetryUntil = this.now() + this.delay();
         return;
       }
     }

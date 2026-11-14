@@ -298,6 +298,26 @@ describe("stale-rendition selection", () => {
     expect((await survey({ collectionId: other.collection })).stale).toEqual([]);
   });
 
+  it("gives tier 1 under a Latest link to the committed revision the reader serves, not a queued one", async () => {
+    const [served, queuedHash] = await Promise.all(
+      ["served", "queued"].map((name) => put(`# ${name}`)),
+    );
+    const followed = await collection("Followed", { "a.md": served! });
+    await commitAll();
+    await link(followed.collection, null);
+    // Not committed yet: the reader keeps serving the first revision until it is.
+    const queuedId = await revise(followed.collection, { "a.md": queuedHash! });
+    expect(await queue.get("SELECT 1 FROM pending_revisions WHERE id=?", [queuedId])).toBeTruthy();
+
+    const stale = byHash((await survey()).stale);
+    expect(stale.get(served!)).toMatchObject({ tier: 1, revisionId: followed.revision });
+    expect(stale.get(queuedHash!)).toMatchObject({ tier: 2, revisionId: queuedId });
+    await commitAll();
+    const committed = byHash((await survey()).stale);
+    expect(committed.get(queuedHash!)).toMatchObject({ tier: 1, revisionId: queuedId });
+    expect(committed.get(served!)).toMatchObject({ tier: 3 });
+  });
+
   it("surveys each renderer's types, and renders a hash once per renderer as its smallest type", async () => {
     const same = await put('{"same":"bytes"}\n');
     const doc = await put("# Doc");

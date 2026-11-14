@@ -1,5 +1,7 @@
 import { serve } from "@hono/node-server";
+import { createRenderers, CSV_LIMITS, TEXT_LIMITS } from "@waypoint/render";
 
+import { RerenderBackfill } from "./backfill.ts";
 import { BlobStore } from "./blob-store.ts";
 import { openBucket } from "./bucket.ts";
 import { WriterCommitter } from "./committer.ts";
@@ -10,7 +12,7 @@ import { createApp } from "./http.ts";
 import { IngestService, type Renderer } from "./ingest.ts";
 import { migrate, waypointMigrations, queueMigrations, guardEnvironment } from "./migrations.ts";
 import { ReadModel } from "./read-model.ts";
-import { writerRenderers } from "./renderer.ts";
+import { adaptRenderer, writerRenderers } from "./renderer.ts";
 import {
   formatRerenderSummary,
   parseRerenderArgs,
@@ -111,6 +113,8 @@ try {
   const bucket = config.sync ? openBucket(config) : undefined;
   const syncLoop = new SyncLoop(queue, syncClient, Date.now, waypoint);
   await syncLoop.load();
+  // Constructed after the committer (it wakes it); the committer reports commits to it.
+  let onCommitted: ((collectionId: string) => void) | undefined;
   const committer = bucket
     ? new WriterCommitter(
         waypoint,
@@ -123,9 +127,37 @@ try {
         Math.random,
         config.queueGiveUpHours,
         undefined,
-        (collectionId) => reads.notifyRevision(collectionId),
+        (collectionId) => {
+          reads.notifyRevision(collectionId);
+          onCommitted?.(collectionId);
+        },
       )
     : undefined;
+  // Its own render worker (one), started on first use and closed whenever the work runs out. A
+  // worker failure is no rendition (retried later), never a fallback over a good older rendition.
+  const backfillRenderers = createRenderers({ slots: 1, workerFailure: "decline" });
+  const backfill = new RerenderBackfill(
+    {
+      waypoint,
+      queue,
+      blobs,
+      bucket,
+      ingest,
+      committer,
+      ...(config.sync ? { syncLoop } : {}),
+      renderers: backfillRenderers.all.map(adaptRenderer),
+      closeRenderers: () => backfillRenderers.close(),
+    },
+    {
+      mode: config.rerender ?? "off",
+      delayMs: (config.rerenderDelayMinutes ?? 45) * 60_000,
+      settledMs: (config.rerenderSettledDays ?? 30) * 86_400_000,
+      sync: config.sync,
+      maxSourceBytes: { text: TEXT_LIMITS.maxBytes, csv: CSV_LIMITS.maxBytes },
+    },
+  );
+  onCommitted = (collectionId) => backfill.collectionChanged(collectionId);
+  syncClient.onPullChanged = () => backfill.pullChanged();
   if (committer) {
     ingest.committer = committer;
     syncLoop.start();
@@ -153,6 +185,7 @@ try {
       ingest,
       bucket,
       committer,
+      backfill,
       // With sync off nothing reaches a cloud: no push times, so links stay "activating" or
       // "revoking" (not yet pushed) instead of pretending the local no-op push published them.
       ...(config.sync ? { syncLoop } : {}),
@@ -169,18 +202,22 @@ try {
     port: config.port,
   });
   console.log(`Waypoint writer listening on ${config.host ?? "127.0.0.1"}:${config.port}`);
+  // The delay runs from here; the survey starts now, in `off` mode too.
+  backfill.start();
   let shuttingDown = false;
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
     shutdownController.abort();
+    backfill.stop();
     committer?.stop();
     syncLoop.stop();
     const timeout = setTimeout(() => process.exit(1), 10_000);
     if ("closeIdleConnections" in server) server.closeIdleConnections();
     server.close(() => {
-      void blobs
-        .waitForIdle()
+      void backfill
+        .drain()
+        .then(() => blobs.waitForIdle())
         .then(() => committer?.drain())
         .then(() => syncLoop.drain())
         .then(() => blobs.sweepTemps())

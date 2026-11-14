@@ -121,6 +121,9 @@ The current markdown renderer version (`RENDERER_VERSION = 5`): the Folio readin
 **Rerender**
 `waypoint-writer rerender`: the operator subcommand that gives existing files a rendition at a renderer's current version (`--renderer`, default markdown) after a version bump. Run with the writer stopped; see [deploy/README.md](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade).
 
+**Background rerender (backfill)**
+The running writer doing what `rerender` does, by itself, slowly and in priority order, when `WAYPOINT_RERENDER=auto` (D89, [architecture](architecture.md#background-re-rendering)). A *stale* rendition is one whose source's newest rendition, committed or queued, is below its renderer's current version. A *settled* collection is one whose latest revision is older than `WAYPOINT_RERENDER_SETTLED_DAYS` and that has no open share link; it's derived, never stored, and only lowers priority. A *skip* is a source it couldn't render at the current version, recorded in `rerender_skips`.
+
 **DR manifest**
 A JSON copy of one revision (its row, files, and renditions) written to the bucket at `manifests/<revision id>.json`. Together with collection snapshots, these let the cloud DB be rebuilt from the bucket alone.
 

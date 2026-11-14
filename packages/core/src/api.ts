@@ -224,6 +224,43 @@ export interface StatusResponse {
   sha?: string | null | undefined;
   /** Persistent conditions an operator should know about, such as local-only mode. */
   warnings?: StatusWarning[] | undefined;
+  /** The background rerender of stale renditions (D89); older writers omit it. */
+  rerender?: RerenderStatus | undefined;
+}
+/**
+ * The background rerender (D89). Counts are stale sources (a file blob and its renderer) in
+ * collections outside Trash; null until the writer's first survey.
+ */
+export interface RerenderStatus {
+  /** WAYPOINT_RERENDER: `auto` re-renders, `off` only counts. */
+  mode: "auto" | "off";
+  /**
+   * `waiting`: the post-start delay hasn't ended (`starts_at`); `paused`: see `paused_reason`;
+   * `done`: nothing left and no re-rendered rendition still queued for upload.
+   */
+  state: "off" | "waiting" | "running" | "paused" | "done";
+  starts_at: number | null;
+  paused_reason: "account_paused" | "bucket_error" | "sync_blocked" | null;
+  surveyed_at: number | null;
+  /** Stale sources, including skipped ones. */
+  stale: number | null;
+  /** Stale sources that couldn't be rendered (too large, or failing and waiting to retry). */
+  skipped: number | null;
+  /** `stale` minus `skipped`. */
+  left: number | null;
+  /** Renditions this writer process has re-rendered and queued. */
+  rendered: number;
+  rate_per_minute: number | null;
+  eta_ms: number | null;
+  renderers: RerenderRendererStatus[];
+}
+export interface RerenderRendererStatus {
+  renderer: string;
+  /** The renderer's current version. */
+  version: number;
+  stale: number;
+  skipped: number;
+  left: number;
 }
 export interface StatusWarning {
   /** `local_only`: WAYPOINT_SYNC=off, so nothing is durable beyond the writer's data directory. */
