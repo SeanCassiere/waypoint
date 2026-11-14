@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/SeanCassiere/waypoint/compare/v0.9.0...v0.9.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **writer:** a rendition collision no longer fails a revision ([#161](https://github.com/SeanCassiere/waypoint/issues/161)) ([5783744](https://github.com/SeanCassiere/waypoint/commit/5783744fc34401f382b98dd35c3bbd377316dae7))
+
 ## [0.9.0](https://github.com/SeanCassiere/waypoint/compare/v0.8.0...v0.9.0) (2026-11-14)
 
 
