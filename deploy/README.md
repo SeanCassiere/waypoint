@@ -169,8 +169,10 @@ then fails without changing anything), and a `deploying` marker while a deploy i
 
 - **The same version twice** only repeats the health checks and smoke tests. The writer counts as
   deployed when it's the container the last successful run created, on the target image, with
-  the Compose config that run recorded (`compose config --hash`; an edited env file or instance
-  setting redeploys it) and, with the overlay, in the running sidecar's network namespace; a
+  the Compose config that run recorded (`compose config --hash` together with a digest of the
+  writer env file, since not every Compose release hashes an `env_file`'s contents; an edited env
+  file or instance setting redeploys it, and so does the first run of an `upgrade.sh` that records
+  the digest, once) and, with the overlay, in the running sidecar's network namespace; a
   reader, when the build, its generated config and its secrets are unchanged. `--force` redeploys anyway. A component that runs the target but
   fails its checks is reported, not redeployed: rerun with `--force`.
 - **A partial deploy converges on a rerun.** If the writer was upgraded and a reader rolled back,
@@ -292,7 +294,8 @@ deploy/upgrade.sh --dry-run rerender     # count only ("N to render")
 ```
 
 The subcommand first asks the running writer (`/api/status`) whether it re-renders by itself, and
-takes one of two paths.
+takes one of two paths. When it takes the second, it says why: the writer didn't answer, has no
+`rerender` block, or reports another mode (with its state).
 
 ### A writer that re-renders by itself
 
@@ -311,13 +314,20 @@ A writer with `WAYPOINT_RERENDER=auto` (its `/api/status` has a `rerender` block
 4. it waits until the writer reports `done` (nothing left, and with sync on every re-rendered
    rendition uploaded), logging how many are left as that changes. While the writer is paused (the
    bucket account paused, uploads failing, sync blocked) it keeps waiting and says why. A writer
-   that stops answering, as when a deploy recreates it, is waited for; one that comes back waiting
-   out its delay again is told to start again; one that comes back without automatic re-rendering
-   (`WAYPOINT_RERENDER=off`, or a rollback to a release without it) ends the run with an error, and
-   a rerun takes the path below;
+   that stops answering, as when a deploy recreates it, is waited for. The watch remembers the
+   writer's version and commit from when it began (`/api/status`): a writer that comes back on that
+   same build, waiting out its delay again (a restart), is told to start again. One that comes
+   back on another build (a release deployed meanwhile) is **not**: a new release waits out its
+   own post-deploy delay, its window to be rolled back before it re-renders everything (D89), and
+   the watch says so and goes on until that writer starts by itself and finishes. One that comes
+   back without automatic re-rendering (`WAYPOINT_RERENDER=off`, or a rollback to a release
+   without it) ends the run with an error, and a rerun takes the path below;
 5. it fails if the counts of sources left and of renditions queued for upload don't move for
-   `RERENDER_UPLOAD_TIMEOUT` seconds (an hour by default), whatever the state. The writer goes on
-   by itself regardless; rerun to watch it again.
+   `RERENDER_UPLOAD_TIMEOUT` seconds (an hour by default), whatever the state, except that the
+   clock is held while a release deployed during the watch waits out its delay: it starts again
+   when that delay ends, so a long delay doesn't fail the watch. The writer goes on by itself
+   regardless; rerun to watch it again (a new watch starts on the running build, so it ends the
+   delay).
 
 `--limit` is accepted and ignored (the writer renders one source at a time, at its own pace),
 with a log line saying so. Sources the writer can't render (too large, or failing and retried
