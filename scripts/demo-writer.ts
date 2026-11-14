@@ -7,6 +7,8 @@
 // (`pnpm demo:reader`).
 // Set WAYPOINT_DEMO_READER_FIXTURE=1 to add the reader lane's "Field kit: reader fixture" link.
 // Set WAYPOINT_DEMO_RENDITIONS_FIXTURE=1 to add RX-08's "Field kit: renditions fixture" link.
+// Status's Re-rendering section shows a fixed background rerender (no loop runs): running by
+// default, or WAYPOINT_DEMO_RERENDER=off|waiting|paused|done.
 // It never touches Turso, R2, or ~/.config/waypoint.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -32,7 +34,13 @@ import { ReadModel } from "../apps/writer/src/read-model.ts";
 import { writerRenderers } from "../apps/writer/src/renderer.ts";
 import { SyncLoop } from "../apps/writer/src/sync-loop.ts";
 // @waypoint/core from source: the repository root doesn't depend on the workspace packages.
-import { newId, parseId, parseShareTokenKey, publicIdFor } from "../packages/core/src/index.ts";
+import {
+  newId,
+  parseId,
+  parseShareTokenKey,
+  publicIdFor,
+  type RerenderStatus,
+} from "../packages/core/src/index.ts";
 
 const port = Number(process.argv[2] ?? 7421);
 const dir = process.argv[3] ?? (await mkdtemp(join(tmpdir(), "waypoint-demo-")));
@@ -83,6 +91,46 @@ const shareTokenKey = process.env.WAYPOINT_SHARE_TOKEN_KEY
   : new Uint8Array(randomBytes(32));
 syncLoop.start();
 committer.wake();
+// A fixed rerender block for Status (the demo runs no backfill loop): 312 documents left, four
+// text files skipped, at the renderers' real versions.
+const demoRerenderStates = ["off", "waiting", "running", "paused", "done"] as const;
+const demoRerenderState =
+  demoRerenderStates.find((state) => state === process.env.WAYPOINT_DEMO_RERENDER) ?? "running";
+const demoRerenderLeft: Record<string, [left: number, skipped: number]> = {
+  markdown: [300, 0],
+  text: [12, 4],
+};
+function demoRerender(): RerenderStatus {
+  const done = demoRerenderState === "done";
+  const renderers = writerRenderers.all.map((renderer) => {
+    const [left, skipped] = demoRerenderLeft[renderer.rendererName] ?? [0, 0];
+    const shown = done ? 0 : left;
+    return {
+      renderer: renderer.rendererName,
+      version: renderer.rendererVersion,
+      stale: shown + skipped,
+      skipped,
+      left: shown,
+    };
+  });
+  const sum = (field: "stale" | "skipped" | "left") =>
+    renderers.reduce((total, row) => total + row[field], 0);
+  const running = demoRerenderState === "running";
+  return {
+    mode: demoRerenderState === "off" ? "off" : "auto",
+    state: demoRerenderState,
+    starts_at: demoRerenderState === "waiting" ? Date.now() + 32 * 60_000 : null,
+    paused_reason: demoRerenderState === "paused" ? "bucket_error" : null,
+    surveyed_at: Date.now() - 2 * 60_000,
+    stale: sum("stale"),
+    skipped: sum("skipped"),
+    left: sum("left"),
+    rendered: running ? 120 : 0,
+    rate_per_minute: running ? 38 : null,
+    eta_ms: running ? Math.round((sum("left") / 38) * 60_000) : null,
+    renderers,
+  };
+}
 const app = createApp({
   waypoint,
   queue,
@@ -91,6 +139,11 @@ const app = createApp({
   ingest,
   committer,
   syncLoop,
+  backfill: {
+    status: demoRerender,
+    startNow: () => undefined,
+    collectionChanged: () => undefined,
+  },
   environment: "dev",
   port,
   publicBaseUrl: process.env.WAYPOINT_PUBLIC_BASE_URL || "https://reader-dev.example.test",

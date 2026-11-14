@@ -2,7 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { newId, mintRevisionId, publicIdFor, WAYPOINT_VERSION } from "@waypoint/core";
+import {
+  newId,
+  mintRevisionId,
+  publicIdFor,
+  WAYPOINT_VERSION,
+  type RerenderStatus,
+} from "@waypoint/core";
 import { icon } from "@waypoint/ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -320,6 +326,32 @@ const pausedLinks = z.array(
     expires_at: z.number().nullable(),
   }),
 );
+/** /status with a stubbed background rerender: its Re-rendering section, markup and text. */
+async function rerenderSection(rerender: RerenderStatus): Promise<{ html: string; text: string }> {
+  const page = await (
+    await createApp({
+      ...services,
+      backfill: {
+        status: () => rerender,
+        startNow: () => undefined,
+        collectionChanged: () => undefined,
+      },
+    }).request("/status")
+  ).text();
+  // Between Background queue errors and Writer.
+  const html = page.slice(
+    page.indexOf('<h2 class="sec">Re-rendering</h2>'),
+    page.indexOf('<h2 class="sec">Writer</h2>'),
+  );
+  expect(page.indexOf("Background queue errors")).toBeLessThan(
+    page.indexOf('<h2 class="sec">Re-rendering</h2>'),
+  );
+  expect(html).toContain(`data-rerender="${rerender.state}"`);
+  return { html, text: textOf(html) };
+}
+const rendererRows = (html: string) =>
+  [...html.matchAll(/data-renderer="([^"]+)"/g)].map((match) => match[1]);
+
 describe("viewer routes", () => {
   it("shows a More link with the next search cursor", async () => {
     const search = vi
@@ -482,6 +514,159 @@ describe("viewer routes", () => {
     expect(page).toContain("Bucket account paused: Bucket access denied");
     expect(page).toContain("snapshot unavailable");
     expect(page).toContain("1970-01-01T00:02:03.456Z");
+  });
+  describe("Re-rendering section", () => {
+    const counted = {
+      surveyed_at: 1,
+      stale: 316,
+      skipped: 4,
+      left: 312,
+      rendered: 0,
+      rate_per_minute: null,
+      eta_ms: null,
+      renderers: [
+        { renderer: "markdown", version: 6, stale: 300, skipped: 0, left: 300 },
+        { renderer: "text", version: 2, stale: 16, skipped: 4, left: 12 },
+        { renderer: "csv", version: 2, stale: 0, skipped: 0, left: 0 },
+      ],
+    };
+    const uncounted = {
+      surveyed_at: null,
+      stale: null,
+      skipped: null,
+      left: null,
+      rendered: 0,
+      rate_per_minute: null,
+      eta_ms: null,
+      renderers: [],
+    };
+    const none = {
+      ...counted,
+      stale: 0,
+      skipped: 0,
+      left: 0,
+      renderers: counted.renderers.map((row) => ({ ...row, stale: 0, skipped: 0, left: 0 })),
+    };
+    const base = { mode: "auto", starts_at: null, paused_reason: null } as const;
+    const skips =
+      "4 files couldn't be re-rendered (too large, or failing and waiting to try again) and are shown as before.";
+
+    it("is absent without a background rerender", async () => {
+      expect(await (await app.request("/status")).text()).not.toContain("Re-rendering");
+    });
+    it("running: what's left per renderer and the estimate", async () => {
+      const { html, text } = await rerenderSection({
+        ...base,
+        ...counted,
+        state: "running",
+        rate_per_minute: 38,
+        eta_ms: 492_000,
+      });
+      expect(text).toContain("Re-rendering documents: 312 left (markdown v6, text v2).");
+      expect(text).toContain("about 8 min left");
+      expect(rendererRows(html)).toEqual(["markdown", "text"]);
+      expect(text).toContain("text v212 to re-render4 skipped");
+      expect(text).toContain(skips);
+    });
+    it("running: no estimate yet, hours, nothing left but uploads, and before the first survey", async () => {
+      const early = await rerenderSection({ ...base, ...counted, skipped: 0, state: "running" });
+      expect(early.text).toContain("Re-rendering documents: 312 left (markdown v6, text v2).");
+      expect(early.text).not.toContain("min left");
+      expect(early.html).not.toContain('class="aside"');
+      expect(early.html).not.toContain("data-rerender-skips");
+      expect(
+        (await rerenderSection({ ...base, ...counted, state: "running", eta_ms: 3 * 3_600_000 }))
+          .text,
+      ).toContain("about 3 hours left");
+      const uploading = await rerenderSection({ ...base, ...none, state: "running", eta_ms: null });
+      expect(uploading.text).toContain("Re-rendered documents are uploading: 0 renditions queued.");
+      expect(rendererRows(uploading.html)).toEqual([]);
+      const starting = await rerenderSection({ ...base, ...uncounted, state: "running" });
+      expect(starting.text).toContain(
+        "Re-rendering is starting: counting documents with an older rendition.",
+      );
+    });
+    it("waiting: when it starts and how many", async () => {
+      const at = Date.now() + 45 * 60_000;
+      const waiting = await rerenderSection({
+        ...base,
+        ...counted,
+        state: "waiting",
+        starts_at: at,
+      });
+      expect(waiting.text).toContain(
+        `Re-rendering starts ${formatTime(at, "at", Date.now(), true)}. 312 documents to re-render.`,
+      );
+      expect(waiting.html).toContain(`datetime="${new Date(at).toISOString()}"`);
+      expect(rendererRows(waiting.html)).toEqual(["markdown", "text"]);
+      expect(
+        (await rerenderSection({ ...base, ...uncounted, state: "waiting", starts_at: at })).text,
+      ).toContain("Documents to re-render haven't been counted yet.");
+      expect(
+        (await rerenderSection({ ...base, ...none, state: "waiting", starts_at: at })).text,
+      ).toContain("No documents to re-render.");
+      expect((await rerenderSection({ ...base, ...uncounted, state: "waiting" })).text).toContain(
+        "Re-rendering hasn't started yet.",
+      );
+    });
+    it("paused: the reason in plain words", async () => {
+      const reasons = [
+        ["account_paused", "Re-rendering is paused: the bucket account is paused. 312 left."],
+        ["bucket_error", "Re-rendering is paused: requests to the bucket are failing. 312 left."],
+        ["sync_blocked", "Re-rendering is paused: sync is blocked. 312 left."],
+      ] as const;
+      for (const [reason, words] of reasons) {
+        const { text } = await rerenderSection({
+          ...base,
+          ...counted,
+          state: "paused",
+          paused_reason: reason,
+        });
+        expect(text).toContain(words);
+        expect(text).toContain(skips);
+      }
+    });
+    it("done: up to date, with or without skips", async () => {
+      const clean = await rerenderSection({ ...base, ...none, state: "done" });
+      expect(clean.text).toContain("Up to date.");
+      expect(clean.html).not.toContain("data-rerender-skips");
+      expect(rendererRows(clean.html)).toEqual([]);
+      const skipped = await rerenderSection({
+        ...base,
+        ...none,
+        state: "done",
+        stale: 4,
+        skipped: 4,
+        renderers: [{ renderer: "text", version: 2, stale: 4, skipped: 4, left: 0 }],
+      });
+      expect(skipped.text).toContain("Up to date.");
+      expect(skipped.text).toContain(skips);
+      const one = await rerenderSection({ ...base, ...none, state: "done", stale: 1, skipped: 1 });
+      expect(one.text).toContain(
+        "1 file couldn't be re-rendered (too large, or failing and waiting to try again) and is shown as before.",
+      );
+    });
+    it("off: how many are stale, none, and before the first survey", async () => {
+      const off = { mode: "off", starts_at: null, paused_reason: null, state: "off" } as const;
+      const counts = await rerenderSection({ ...off, ...counted });
+      expect(counts.text).toContain(
+        "Automatic re-rendering is off. 316 documents have an older rendition.",
+      );
+      expect(counts.text).toContain("WAYPOINT_RERENDER=auto");
+      expect((await rerenderSection({ ...off, ...counted, stale: 1 })).text).toContain(
+        "1 document has an older rendition.",
+      );
+      const zero = await rerenderSection({ ...off, ...none });
+      expect(zero.text).toContain(
+        "Automatic re-rendering is off. Every document has a current rendition.",
+      );
+      expect(zero.text).not.toContain("WAYPOINT_RERENDER=auto");
+      const early = await rerenderSection({ ...off, ...uncounted });
+      expect(early.text).toContain(
+        "Automatic re-rendering is off. Documents with an older rendition haven't been counted yet.",
+      );
+      expect(early.html).not.toContain("data-rerender-skips");
+    });
   });
   it("resolves old collections and lists old deleted collections beyond 200", async () => {
     await Promise.all(

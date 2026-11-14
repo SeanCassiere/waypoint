@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { MCP_LAUNCHER_API } from "@waypoint/core";
+import { MCP_LAUNCHER_API, type RerenderStatus } from "@waypoint/core";
 import type { FragmentLinks } from "@waypoint/render";
 import { icon } from "@waypoint/ui";
 import type { Context } from "hono";
@@ -375,6 +375,119 @@ export function InProgressSection(props: {
   );
 }
 
+const PAUSED_WORDS: Record<NonNullable<RerenderStatus["paused_reason"]>, string> = {
+  account_paused: "the bucket account is paused",
+  bucket_error: "requests to the bucket are failing",
+  sync_blocked: "sync is blocked",
+};
+/** "about 8 min left", "about 3 hours left", "about 2 days left". */
+function etaText(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 90) return `about ${minutes} min left`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `about ${hours} hours left`;
+  return `about ${Math.round(hours / 24)} days left`;
+}
+const documents = (count: number) => plural(count, "document");
+
+/**
+ * Status's Re-rendering section (D89): the background rerender's state from the `/api/status`
+ * block. Counts are null until the writer's first survey; `left` leaves out skipped sources.
+ * Progress shows on reload (no live refresh).
+ */
+function RerenderSection(props: { rerender: RerenderStatus; uploading: number; now: number }) {
+  const { rerender, now } = props;
+  const { left, stale, skipped } = rerender;
+  const working = rerender.renderers.filter((row) => row.left > 0);
+  const versions = working.map((row) => `${row.renderer} v${row.version}`).join(", ");
+  let headline: Child;
+  let aside: Child = null;
+  let note: Child = null;
+  switch (rerender.state) {
+    case "off":
+      headline =
+        stale === null
+          ? "Automatic re-rendering is off. Documents with an older rendition haven't been counted yet."
+          : stale === 0
+            ? "Automatic re-rendering is off. Every document has a current rendition."
+            : `Automatic re-rendering is off. ${documents(stale)} ${stale === 1 ? "has" : "have"} an older rendition.`;
+      if (stale)
+        note = (
+          <>
+            Set <span class="mono">WAYPOINT_RERENDER=auto</span> to re-render them in the
+            background, or run <span class="mono">upgrade.sh rerender</span>.
+          </>
+        );
+      break;
+    case "waiting":
+      headline = (
+        <>
+          {rerender.starts_at === null ? (
+            "Re-rendering hasn't started yet."
+          ) : (
+            <>
+              Re-rendering starts <Time at={rerender.starts_at} fmt="at" now={now} />.
+            </>
+          )}{" "}
+          {left === null
+            ? "Documents to re-render haven't been counted yet."
+            : left === 0
+              ? "No documents to re-render."
+              : `${documents(left)} to re-render.`}
+        </>
+      );
+      break;
+    case "running":
+      headline =
+        left === null
+          ? "Re-rendering is starting: counting documents with an older rendition."
+          : left === 0
+            ? `Re-rendered documents are uploading: ${plural(props.uploading, "rendition")} queued.`
+            : `Re-rendering documents: ${left} left${versions ? ` (${versions})` : ""}.`;
+      if (rerender.eta_ms !== null && left) aside = etaText(rerender.eta_ms);
+      break;
+    case "paused":
+      headline = `Re-rendering is paused: ${PAUSED_WORDS[rerender.paused_reason ?? "bucket_error"]}.${
+        left === null ? "" : ` ${left} left.`
+      }`;
+      break;
+    case "done":
+      headline = "Up to date.";
+      break;
+  }
+  return (
+    <>
+      <h2 class="sec">Re-rendering</h2>
+      <div class="rows" data-rerender={rerender.state}>
+        <div class="r">
+          <span class="t">{headline}</span>
+          {aside ? <span class="aside">{aside}</span> : null}
+        </div>
+        {rerender.state === "done"
+          ? null
+          : working.map((row) => (
+              <div class="r" data-renderer={row.renderer}>
+                <span class="t">
+                  {row.renderer} v{row.version}
+                </span>
+                <span class="s">
+                  <span>{row.left} to re-render</span>
+                  {row.skipped ? <span>{row.skipped} skipped</span> : null}
+                </span>
+              </div>
+            ))}
+      </div>
+      {skipped ? (
+        <p class="legend" data-rerender-skips>
+          {plural(skipped, "file")} couldn't be re-rendered (too large, or failing and waiting to
+          try again) and {skipped === 1 ? "is" : "are"} shown as before.
+        </p>
+      ) : null}
+      {note ? <p class="legend">{note}</p> : null}
+    </>
+  );
+}
+
 export async function statusPage(
   s: HttpServices,
   c: Context,
@@ -703,6 +816,13 @@ export async function statusPage(
             <p class="legend" data-more="queue-errors">
               and {queueErrors.length - STATUS_LIST} more… <a href="/api/status">All as JSON</a>
             </p>
+          ) : null}
+          {status.rerender ? (
+            <RerenderSection
+              rerender={status.rerender}
+              uploading={status.queue.rerender_pending ?? 0}
+              now={now}
+            />
           ) : null}
           <h2 class="sec">Writer</h2>
           <div class="rows">
