@@ -8,8 +8,6 @@
 # fetch that answers from a scratch directory. Run by tests/rerender-watch.test.ts.
 #
 # Usage: bash scripts/rerender-watch-test.sh
-#
-# shellcheck disable=SC2034,SC2329 # the stubs and settings are used by the functions copied from deploy/upgrade.sh, which shellcheck can't follow
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,12 +60,17 @@ scenario() {
   if ! (
     # shellcheck source=/dev/null
     . "$functions"
+    # shellcheck disable=SC2034 # read by the copied rerender functions
     dry_run=0
+    # shellcheck disable=SC2034 # read by the copied rerender functions
     rerender_limit_set=0
     log() { printf '  %s\n' "$*" >> "$FAKE/log"; }
     die() { log "die: $*"; exit 1; }
+    # shellcheck disable=SC2329 # a stub called by the copied functions
     writer_container() { cat "$FAKE/current" 2>/dev/null || true; }
+    # shellcheck disable=SC2329 # a stub called by the copied functions
     container_field() { cat "$FAKE/c/$1/image" 2>/dev/null || true; }
+    # shellcheck disable=SC2329 # a stub called by the copied functions
     docker_run() {
       [[ "$1 $3 $4" == "exec node -e" ]] || { echo "unexpected docker_run $*" >&2; return 2; }
       local id="$2" script="$5" reads
@@ -81,6 +84,7 @@ scenario() {
       fi
     }
     ticks=0
+    # shellcheck disable=SC2329 # a stub called by the copied functions
     sleep() {
       ticks=$((ticks + 1))
       if declare -F on_tick >/dev/null; then on_tick "$ticks"; fi
@@ -127,11 +131,13 @@ replace() { rm -rf "${FAKE:?}/c/$1"; container "${@:2}"; echo "$2" > "$FAKE/curr
 replaced_between_read_and_post() {
   container a1 sha256:aaa waiting '"0.8.0"' '"1111111111111111111111111111111111111111"'
   echo a1 > "$FAKE/current"
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   after_status() {
     if [[ "$1 $2" == "a1 1" ]]; then
       replace a1 b1 sha256:bbb waiting '"0.9.0"' '"2222222222222222222222222222222222222222"'
     fi
   }
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   on_tick() { if (( $1 == 3 )); then container b1 sha256:bbb "done" '"0.9.0"' '"2222222222222222222222222222222222222222"'; fi; }
 }
 scenario "a writer replaced between the status read and the POST keeps its delay" replaced_between_read_and_post ""
@@ -141,6 +147,7 @@ scenario "a writer replaced between the status read and the POST keeps its delay
 same_version_no_sha() {
   container a2 sha256:aaa waiting '"0.8.0"' null
   echo a2 > "$FAKE/current"
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   on_tick() {
     case "$1" in
       1) replace a2 b2 sha256:bbb waiting '"0.8.0"' null ;;
@@ -154,6 +161,7 @@ scenario "another image with the same version and no commit keeps its delay" sam
 no_build_metadata() {
   container a3 sha256:aaa waiting null null
   echo a3 > "$FAKE/current"
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   on_tick() {
     case "$1" in
       1) replace a3 b3 sha256:bbb waiting null null ;;
@@ -168,6 +176,7 @@ scenario "another image with no version and no commit keeps its delay" no_build_
 same_image_restarted() {
   container a4 sha256:aaa waiting '"0.8.0"' null
   echo a4 > "$FAKE/current"
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   on_tick() {
     case "$1" in
       2) replace a4 c4 sha256:aaa waiting '"0.8.0"' null ;;
@@ -182,6 +191,7 @@ scenario "the same image is told to start after a restart and a recreate" same_i
 unknown_image() {
   container a5 "" waiting '"0.8.0"' '"1111111111111111111111111111111111111111"'
   echo a5 > "$FAKE/current"
+  # shellcheck disable=SC2329 # a hook called by scenario's stubs
   on_tick() { if (( $1 == 2 )); then container a5 "" "done" '"0.8.0"' '"1111111111111111111111111111111111111111"'; fi; }
 }
 scenario "a writer whose image can't be read keeps its delay" unknown_image ""
