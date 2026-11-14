@@ -286,10 +286,21 @@ With the cache, RSS grows by about 0.16 KB per query and flattens over time, ins
 
 Markdown is rendered at ingest, so a release that bumps `RENDERER_VERSION` only affects new
 content. Older documents keep their previous rendition (which is fine to serve) until they're
-re-rendered. After such a deploy, run once:
+re-rendered. The writer does that by itself: `WAYPOINT_RERENDER` defaults to `auto`, so once a
+deploy's post-start delay (`WAYPOINT_RERENDER_DELAY_MINUTES`, 45 by default) has passed, the
+running writer re-renders stale renditions in the background, without stopping and with no step
+to run (D89). **Status** (`/status`) shows its progress. Nothing needs to be done after such a
+deploy.
+
+`upgrade.sh rerender` is optional with such a writer. It only watches it (and ends the delay
+early), or forces one collection with `--collection`, or, on a writer with
+`WAYPOINT_RERENDER=off` (or an older release, which doesn't read the key), runs the legacy loop
+that stops the writer and renders in batches. Rolling back to a release from before the
+background rerender is safe: it ignores `WAYPOINT_RERENDER` and the `WAYPOINT_RERENDER_*` keys,
+so the writer env file needn't change, and it keeps what the newer release rendered.
 
 ```bash
-deploy/upgrade.sh rerender               # or --limit 200, or --collection <id>
+deploy/upgrade.sh rerender               # watch until done; or --collection <id>
 deploy/upgrade.sh --dry-run rerender     # count only ("N to render")
 ```
 
@@ -299,8 +310,8 @@ takes one of two paths. When it takes the second, it says why: the writer didn't
 
 ### A writer that re-renders by itself
 
-A writer with `WAYPOINT_RERENDER=auto` (its `/api/status` has a `rerender` block with
-`mode: "auto"`, D89) re-renders stale renditions in the background, without stopping
+A writer with `WAYPOINT_RERENDER=auto`, the default (its `/api/status` has a `rerender` block with
+`mode: "auto"`, D89), re-renders stale renditions in the background, without stopping
 ([background re-rendering](../docs/architecture.md#background-re-rendering)). Then, unless
 `--collection` is given, `rerender` only watches it:
 

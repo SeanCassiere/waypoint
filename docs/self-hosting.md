@@ -203,8 +203,12 @@ already has its deploy bundle: a release the release workflow is still publishin
 publish) is skipped, and the log says so. Rerunning it is safe: it finishes a
 partial upgrade and only re-checks what's already current. Older releases run on data a newer one
 migrated, because schema changes are additive only; see
-[the rollback window](../deploy/README.md#rolling-back). After a release that bumps the markdown
-renderer, run `deploy/upgrade.sh rerender` once.
+[the rollback window](../deploy/README.md#rolling-back). After a release that bumps a renderer,
+the writer re-renders older documents by itself, starting 45 minutes after the deploy
+(`WAYPOINT_RERENDER_DELAY_MINUTES`), and **Status** shows its progress; nothing needs to be run.
+`deploy/upgrade.sh rerender` waits for it to finish, if you want to watch, and is the way to
+re-render on a writer with `WAYPOINT_RERENDER=off`
+([re-rendering](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)).
 
 ## Optional: automatic deploys on release
 

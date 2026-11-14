@@ -76,7 +76,8 @@ git -C "$repo" worktree remove --force "$work/old"
 step "instance"
 mkdir -m 700 "$work/config"
 # The rerender steps test upgrade.sh's stop-and-render path first, so the writer's background
-# rerender starts off; a later step turns it on.
+# rerender starts off (the default is auto); a later step turns it on, and the sidecar step
+# drops the setting to check the default.
 printf 'WAYPOINT_ENV=dev\nWAYPOINT_SYNC=off\nWAYPOINT_RERENDER=off\n' > "$work/config/writer.env"
 chmod 600 "$work/config/writer.env"
 if [[ "$(id -u)" == 1000 ]]; then
@@ -437,9 +438,16 @@ services:
 EOF
 chmod 644 "$work/config/sidecar.yaml"
 printf 'TAILSCALE=on\nTAILSCALE_ENV_FILE=ts.env\nCOMPOSE_OVERRIDE=sidecar.yaml\n' >> "$work/config/instance.env"
+# This deploy recreates the writer anyway, so it also checks the default: a writer env file that
+# doesn't set WAYPOINT_RERENDER gets a writer that re-renders by itself. (The delay set above
+# stays, so it only waits; nothing is stale by now.)
+sed -i '/^WAYPOINT_RERENDER=/d' "$work/config/writer.env"
+if grep -q '^WAYPOINT_RERENDER=' "$work/config/writer.env"; then fail "couldn't drop WAYPOINT_RERENDER from writer.env"; fi
 up current-checkout
 expect_build "$new_sha" "$new_version"
 expect_data
+rerender_status="$(writer_rerender)"
+node -e 'process.exit(JSON.parse(process.argv[1])?.mode === "auto" ? 0 : 1)' "$rerender_status" || fail "a writer without WAYPOINT_RERENDER doesn't re-render by itself: $rerender_status"
 [[ "$(docker_ inspect --format '{{.HostConfig.NetworkMode}}' "$(container)")" == container:* ]] || fail "the writer isn't in the sidecar's namespace"
 before="$(container)"
 up current-checkout
