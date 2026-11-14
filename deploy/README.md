@@ -300,9 +300,9 @@ background rerender is safe: it ignores `WAYPOINT_RERENDER` and the `WAYPOINT_RE
 so the writer env file needn't change, and it keeps what the newer release rendered.
 
 **More than one writer:** set `WAYPOINT_RERENDER=off` in every writer's env file but one. Two
-writers re-rendering at once can store different outputs under one rendition key (the same bytes
-stored under MIME types that render differently), and a revision that commits while the other
-writer's row arrives fails with a rendition collision
+writers re-rendering at once duplicate the work, and can store different outputs under one
+rendition key (the same bytes stored under MIME types that render differently): one writer's row
+stands, so a file may show another MIME type's view, and nothing fails
 ([multiple writers](../docs/write-path-and-sync.md#multiple-writers)).
 
 ```bash

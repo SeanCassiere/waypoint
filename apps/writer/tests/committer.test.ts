@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 
 import { newId, mintRevisionId, publicIdFor, parseId } from "@waypoint/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { BlobStore } from "../src/blob-store.ts";
 import { BucketError, MemoryBucket } from "../src/bucket.ts";
@@ -753,5 +754,153 @@ describe("committer", () => {
     ).toBeUndefined();
     expect(await waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash])).toBeUndefined();
     expect(await bucket.head(blobKey(hash))).toBe(false);
+  });
+});
+
+/** D90 tests: a rendition key of the `text` renderer. */
+type RenditionKey = { source_hash: string; renderer: string; renderer_version: number };
+const textKey = (source: string): RenditionKey => ({
+  source_hash: source,
+  renderer: "text",
+  renderer_version: 1,
+});
+/** Another writer's committed rendition of `source`, as a pull would bring it in. */
+async function standing(source: string, body: string): Promise<string> {
+  const output = await blobs.put(Readable.from([body]));
+  await bucket.put(blobKey(output.hash), new TextEncoder().encode(body));
+  await waypoint.run("INSERT OR IGNORE INTO blobs (hash,size,uploaded_at) VALUES (?,?,?)", [
+    output.hash,
+    output.size,
+    clock,
+  ]);
+  await waypoint.run("DELETE FROM renditions WHERE source_hash=?", [source]);
+  await waypoint.run(
+    "INSERT INTO renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+    [source, "text", 1, output.hash, "text/html", clock],
+  );
+  return output.hash;
+}
+async function queueLocalRendition(): Promise<string> {
+  const output = await blobs.put(Readable.from(["<pre>hello</pre>"]));
+  await queue.run("INSERT INTO pending_blobs (hash,size) VALUES (?,?)", [output.hash, output.size]);
+  await queue.run(
+    "INSERT INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
+    [hash, "text", 1, output.hash, "text/html", clock],
+  );
+  return output.hash;
+}
+async function withHook(hook: (attempt: number) => Promise<void>): Promise<void> {
+  worker.stop();
+  await worker.drain();
+  let attempts = 0;
+  worker = new WriterCommitter(
+    waypoint,
+    queue,
+    blobs,
+    bucket,
+    worker.sync,
+    worker.lock,
+    () => clock,
+    () => 0,
+    72,
+    async (step) => {
+      if (step === "commit_after_dr_objects") await hook(++attempts);
+    },
+  );
+}
+function drManifest(): { renditions: { output_hash: string }[] } {
+  return z
+    .object({ renditions: z.array(z.object({ output_hash: z.string() })) })
+    .parse(JSON.parse(Buffer.from(bucket.objects.get(manifestKey(revisionId))!).toString()));
+}
+describe("rendition collisions (D90)", () => {
+  it("commits the revision with another writer's row standing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const local = await queueLocalRendition();
+    let other = "";
+    // Another writer's row for the same key, with a different output, arrives by pull between
+    // the committer's snapshot and its transaction.
+    await withHook(async (attempt) => {
+      if (attempt === 1) other = await standing(hash, "<pre>{}</pre>");
+    });
+    await processed();
+    warn.mockRestore();
+    expect(await waypoint.get("SELECT id FROM revisions WHERE id=?", [revisionId])).toBeTruthy();
+    expect(
+      await queue.get("SELECT id FROM pending_revisions WHERE id=?", [revisionId]),
+    ).toBeUndefined();
+    expect(await waypoint.all("SELECT * FROM renditions WHERE source_hash=?", [hash])).toEqual([
+      {
+        ...textKey(hash),
+        output_hash: other,
+        output_mime: "text/html",
+        created_at: clock,
+      },
+    ]);
+    expect(drManifest().renditions.map((r) => r.output_hash)).toEqual([other]);
+    expect(await queue.all("SELECT * FROM pending_renditions")).toEqual([]);
+    expect(await queue.all("SELECT * FROM pending_blobs")).toEqual([]);
+    expect(await blobs.has(local)).toBe(false);
+    // No bucket delete is queued, not even for the losing output: under last push wins another
+    // writer's push could still make it the standing row, so its object stays (an orphan at worst).
+    expect(await queue.all("SELECT key FROM pending_r2_deletes")).toEqual([]);
+    expect(await bucket.head(blobKey(hash))).toBe(true);
+    expect(await bucket.head(blobKey(other))).toBe(true);
+    expect(await bucket.head(manifestKey(revisionId))).toBe(true);
+    expect(await bucket.head(collectionKey(collectionId))).toBe(true);
+    expect(await bucket.head(blobKey(local))).toBe(true);
+  });
+  it("keeps the standing row when the immediate retry collides again", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await queueLocalRendition();
+    let latest = "";
+    await withHook(async (attempt) => {
+      if (attempt === 1) await standing(hash, "<pre>{}</pre>");
+      if (attempt === 2) latest = await standing(hash, "<pre>[]</pre>");
+    });
+    await processed();
+    warn.mockRestore();
+    expect(await waypoint.get("SELECT id FROM revisions WHERE id=?", [revisionId])).toBeTruthy();
+    expect(
+      await queue.get("SELECT id FROM pending_revisions WHERE id=?", [revisionId]),
+    ).toBeUndefined();
+    expect(
+      await waypoint.all("SELECT output_hash FROM renditions WHERE source_hash=?", [hash]),
+    ).toEqual([{ output_hash: latest }]);
+    expect(await queue.all("SELECT * FROM pending_renditions")).toEqual([]);
+    expect(await queue.all("SELECT * FROM pending_blobs")).toEqual([]);
+    expect(await bucket.head(blobKey(hash))).toBe(true);
+    expect(await bucket.head(blobKey(latest))).toBe(true);
+  });
+  it("does not fail a child revision behind a collision", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await queueLocalRendition();
+    const child = mintRevisionId({ now: clock + 1, parentId: revisionId });
+    await queue.run(
+      "INSERT INTO pending_revisions (id,public_id,collection_id,parent_revision_id,head_path,message,metadata,manifest_json,created_at,state,attempts) VALUES (?,?,?,?,?,?,?,?,?,'pending',0)",
+      [
+        child,
+        await publicIdFor(parseId(child, "rev")),
+        collectionId,
+        revisionId,
+        "a.txt",
+        null,
+        "{}",
+        JSON.stringify({
+          headPath: "a.txt",
+          files: { "a.txt": { hash, mime: "application/json", size: 5 } },
+        }),
+        clock + 1,
+      ],
+    );
+    await withHook(async (attempt) => {
+      if (attempt === 1) await standing(hash, "<pre>{}</pre>");
+    });
+    worker.wake();
+    expect(await worker.waitForCommit(child, 2000)).not.toBe("failed");
+    await worker.drain();
+    warn.mockRestore();
+    expect(await waypoint.get("SELECT id FROM revisions WHERE id=?", [child])).toBeTruthy();
+    expect(await queue.all("SELECT state FROM pending_revisions WHERE state='failed'")).toEqual([]);
   });
 });
