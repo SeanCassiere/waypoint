@@ -19,6 +19,7 @@ The writer has no auth (the tailnet is trusted). A website open in a browser on 
 - JSON endpoints require `Content-Type: application/json`.
 - Every mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) is rejected with `403` if it comes from a browser on another origin. The check is `Sec-Fetch-Site` of `cross-site` or `same-site`, or an `Origin` header that isn't the writer's own origin.
 - Requests without these headers (MCP, curl) are allowed.
+- `POST /api/rerender/start` is a mutating request like the others: same-origin browsers, curl and `upgrade.sh` only.
 
 `create_collection`'s `metadata` is stored on both the collection and its first revision. `add_revision`'s `metadata` is stored on the new revision only.
 
@@ -33,6 +34,12 @@ Read responses use the types exported by `@waypoint/core` (`api.ts`). They conta
 - `GET /api/collections` returns `{ collections: CollectionSummary[] }`; `GET /api/collections/:id` returns `CollectionDetail`; `GET /api/collections/:id/revisions` returns `{ revisions: RevisionSummary[] }`; `GET /api/revisions/:id` returns `RevisionDetail`.
 - `POST /api/resolve` returns `{ collection_id, revision_id?, path? }`.
 - `GET /api/status` returns `queue` counts (`rerender_pending` counts queued renditions no queued revision references, the `rerender` backlog), `oldest_pending_age_ms`, `failed_items` (`id`, `created_at`, `last_error`), `last_upload_at`, `last_push_at`, `last_pull_at`, `last_error`, `sync_verified`, the writer's `version` and `sha` (the build's git commit, or `null`), and `warnings`, a list of `{ code, message }` (`local_only` while `WAYPOINT_SYNC=off`: nothing is durable beyond the writer's data directory, and public links can't be served). Timestamps are Unix milliseconds or `null`.
+- `GET /api/status` also has a `rerender` block (`RerenderStatus` in `@waypoint/core`; writers before it omit it), the [background rerender](architecture.md#background-re-rendering):
+  - `mode`: `auto` or `off` (`WAYPOINT_RERENDER`). A writer whose block exists with `mode: "auto"` re-renders by itself.
+  - `state`: `off`; `waiting` until `starts_at`; `running`; `paused`, with `paused_reason` `account_paused`, `bucket_error` or `sync_blocked`; `done` when `left` is 0 and (sync on) no standalone rendition is still queued.
+  - `surveyed_at`, and the counts of stale sources in collections outside Trash: `stale` (including `skipped`), `skipped` (too large, or failing and waiting to retry) and `left` (`stale - skipped`), all `null` until the first survey, and `renderers`, one `{ renderer, version, stale, skipped, left }` per renderer (empty until then).
+  - `rendered` (renditions queued since the writer started), `rate_per_minute` and `eta_ms` (while `running`, from the last 10 minutes, else `null`).
+- `POST /api/rerender/start` ends the background rerender's post-start delay and returns the `rerender` block; nothing changes if it isn't `waiting`. `409 conflict` when `WAYPOINT_RERENDER` is `off`.
 - `GET /healthz` returns `{ ok: true, version, sha }`. Health checks need only `ok`.
 - `PATCH /api/collections/:id`, `DELETE /api/collections/:id`, and `POST /api/collections/:id/undelete` return `CollectionDetail`.
 - `POST /api/collections/:id/purge` returns `{ purged: true }` for a pending collection or `{ queued: true }` for a committed one, with status 202.
@@ -270,6 +277,7 @@ curl -F 'meta={"title":"Auth refactor plan","head_path":"plan.html"}' \
 | `GET /api/watchers` | `{ watchers: [{ collection_id, after, since, client }] }`: agents long-polling `wait_for_revision` right now (in memory, cleared on restart). `client` comes from the `X-Waypoint-Client: <agent>/<host>` header the MCP server bundle sends. |
 | `GET /api/facets` | `{ projects, tags, hosts: [{ value, count, last_written_at }] }` from collection and revision metadata; cached for 30 s. |
 | `GET /api/status` | Same data as the `waypoint_status` tool, plus `cloud_last_ok_at` (last successful push or pull) and `cloud_error` (the sync loop's error while its latest attempt is failing). The viewer shows **Offline** when the latest attempt failed and the last success is more than 2 minutes old. |
+| `POST /api/rerender/start` | End the background rerender's post-start delay; returns the `rerender` status block (`409` in `off` mode) |
 | `POST /api/queue/:revision_id/retry` | Re-queue a failed revision and its failed descendants |
 | `GET /api/queue/:revision_id/descendants` | `{ ids, display_numbers }`: the revisions a drop would remove (the revision itself first), so a confirmation can name them |
 | `DELETE /api/queue/:revision_id` | Drop a pending or failed revision and its descendants, and queue deletion of their DR manifests |

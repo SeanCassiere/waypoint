@@ -9,8 +9,23 @@ import { Worker } from "node:worker_threads";
 import { readingTokensCss } from "@waypoint/ui";
 import { describe, expect, it, vi } from "vitest";
 
-import { markdownRenderer, renderMarkdown, RENDERER_NAME, RENDERER_VERSION } from "../src/index.ts";
+import {
+  createRenderers,
+  csvRenderer,
+  markdownRenderer,
+  renderMarkdown,
+  RENDERER_NAME,
+  RENDERER_VERSION,
+  textRenderer,
+  type HtmlRenderer,
+} from "../src/index.ts";
 import { FRAME_REPORTER, processor, TOC_MIN_H2 } from "../src/render.ts";
+import {
+  CSV_GOLDEN_HASH,
+  csvGoldenInputs,
+  TEXT_GOLDEN_HASH,
+  textGoldenInputs,
+} from "./golden-text.ts";
 import { GOLDEN_HASH, goldenInputs } from "./golden.ts";
 
 function h2s(count: number): string {
@@ -485,6 +500,22 @@ describe("markdown rendition", () => {
     ).toBe(GOLDEN_HASH);
   });
 
+  it("renders the golden inputs identically through a pool of its own (createRenderers)", async () => {
+    // Here, not in a test file of its own: tests in one file run one at a time, so these
+    // CPU-heavy pool checks never run beside the 200 KB timing test.
+    const own = createRenderers({ slots: 1, workerFailure: "decline" });
+    try {
+      for (const [source] of goldenInputs()) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- One worker: in order.
+        const pooled = await own.markdown.render(new TextEncoder().encode(source), "text/markdown");
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Compared one by one.
+        expect(new TextDecoder().decode(pooled?.bytes)).toBe(await renderMarkdown(source));
+      }
+    } finally {
+      await own.close();
+    }
+  });
+
   it("produces byte-identical golden output in a fresh process", async () => {
     // The source run by Node itself, like the worker pool does in tests; the built package and
     // the writer's bundle get the same check in tests/built-renderer.test.ts (repository root).
@@ -521,5 +552,81 @@ process.stdout.write(hash.digest("hex"));`;
       await renderMarkdown(source);
       expect(performance.now() - start).toBeLessThan(10_000);
     },
+    // Above the 10 s budget it checks: vitest's default 5 s would fail it first on a loaded
+    // machine (every package's tests run at once in `pnpm check`).
+    20_000,
   );
+});
+
+// Renderers with a worker pool of their own (createRenderers), in this file for the same reason.
+const encode = (source: string): Uint8Array => new TextEncoder().encode(source);
+const decode = (bytes: Uint8Array | undefined): string | undefined =>
+  bytes === undefined ? undefined : new TextDecoder().decode(bytes);
+
+/** The golden hash of a view renderer's inputs, rendered one at a time in order. */
+async function viewHash(renderer: HtmlRenderer, inputs: Array<[string, string]>): Promise<string> {
+  const hash = createHash("sha256");
+  for (const [source, mime] of inputs) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- One input at a time, in order, like the golden tests.
+    const result = await renderer.render(encode(source), mime);
+    hash.update(decode(result?.bytes) ?? "null");
+  }
+  return hash.digest("hex");
+}
+
+describe("renderers with their own worker pool", () => {
+  it("render what the shared renderers do: the text and CSV golden hashes don't move", async () => {
+    const own = createRenderers({ slots: 1 });
+    try {
+      expect(own.all.map((renderer) => [renderer.name, renderer.version])).toEqual(
+        [markdownRenderer, textRenderer, csvRenderer].map((renderer) => [
+          renderer.name,
+          renderer.version,
+        ]),
+      );
+      // Markdown's golden inputs through a pool of their own: the markdown rendition tests.
+      expect(await viewHash(own.text, textGoldenInputs())).toBe(TEXT_GOLDEN_HASH);
+      expect(await viewHash(own.csv, csvGoldenInputs())).toBe(CSV_GOLDEN_HASH);
+    } finally {
+      await own.close();
+    }
+  });
+
+  it("closes its own workers without touching the shared pool, and starts again on the next job", async () => {
+    const own = createRenderers({ slots: 1 });
+    try {
+      const source = "# Title\n\nBody text.\n";
+      const expected = await renderMarkdown(source);
+      const inFlight = own.markdown.render(encode(source), "text/markdown");
+      const shared = markdownRenderer.render(encode(source), "text/markdown");
+      await own.close();
+      // A job cut off by close() gets markdown's "could not be rendered" fallback, as on a crash.
+      expect(decode((await inFlight)?.bytes)).toContain("could not be rendered");
+      expect(decode((await shared)?.bytes)).toBe(expected);
+      const again = await own.markdown.render(encode(source), "text/markdown");
+      expect(decode(again?.bytes)).toBe(expected);
+    } finally {
+      await own.close();
+    }
+  });
+
+  it("can decline instead of falling back when its worker fails", async () => {
+    const own = createRenderers({ slots: 1, workerFailure: "decline" });
+    try {
+      const source = encode("# Title\n");
+      const inFlight = own.markdown.render(source, "text/markdown");
+      await own.close();
+      expect(await inFlight).toBeNull();
+      // A render that works is unchanged.
+      expect(decode((await own.markdown.render(source, "text/markdown"))?.bytes)).toBe(
+        await renderMarkdown("# Title\n"),
+      );
+    } finally {
+      await own.close();
+    }
+  });
+
+  it("refuses a pool without workers", () => {
+    expect(() => createRenderers({ slots: 0 })).toThrow("slots must be a positive integer");
+  });
 });

@@ -27,8 +27,9 @@ export const LOCAL_ONLY_WARNING: StatusWarning = {
  * Standalone queued renditions: `pending_renditions` rows whose source no queued revision (pending
  * or failed) references, i.e. the `rerender` backlog. The committer commits or drops each of
  * these on its own, so this reaches 0; rows attached to a failed revision wait for that revision.
+ * The background rerender keeps it under one committer pass (backfill.ts).
  */
-const RERENDER_PENDING_SQL =
+export const RERENDER_PENDING_SQL =
   "SELECT COUNT(*) AS n FROM pending_renditions r WHERE NOT EXISTS (SELECT 1 FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE json_extract(f.value,'$.hash')=r.source_hash)";
 
 async function count(db: HttpServices["queue"], sql: string): Promise<number> {
@@ -86,6 +87,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     )[0]?.last_error;
   const syncEnabled = !(s.ingest.sync instanceof LocalSyncClient);
   const build = s.build ?? buildInfo(undefined);
+  const rerenderPending = await count(s.queue, RERENDER_PENDING_SQL);
   return {
     environment: s.environment ?? "dev",
     version: build.version,
@@ -97,7 +99,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
       failed_revisions: failed.length,
       pending_blobs: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_blobs"),
       pending_renditions: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_renditions"),
-      rerender_pending: await count(s.queue, RERENDER_PENDING_SQL),
+      rerender_pending: rerenderPending,
       pending_snapshots: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_snapshots"),
       pending_r2_deletes: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_r2_deletes"),
       pending_purges: await count(s.queue, "SELECT COUNT(*) AS n FROM pending_purges"),
@@ -135,6 +137,7 @@ export async function getStatus(s: HttpServices): Promise<ViewerStatus> {
     account_error: s.committer?.accountError ?? null,
     cloud_last_ok_at: cloudLastOkAt(s),
     cloud_error: s.syncLoop?.lastAttemptFailed ? s.syncLoop.lastError : null,
+    ...(s.backfill ? { rerender: s.backfill.status(rerenderPending) } : {}),
   };
 }
 

@@ -22,6 +22,8 @@ export interface RenderSourceDeps {
   queue: Db;
   blobs: BlobStore;
   bucket?: Bucket | undefined;
+  /** The background backfill's blob writes, which don't count as blob activity (BlobStore). */
+  background?: boolean;
 }
 
 export type FetchOutcome =
@@ -40,7 +42,9 @@ export async function ensureLocalSource(
   const stored = await deps.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash]);
   if (!deps.bucket || !stored) return { status: "missing" };
   try {
-    await deps.blobs.put(await deps.bucket.get(blobKey(hash)), hash);
+    await deps.blobs.put(await deps.bucket.get(blobKey(hash)), hash, {
+      background: Boolean(deps.background),
+    });
     return { status: "present" };
   } catch (error) {
     return { status: "fetch_failed", error };
@@ -57,19 +61,27 @@ export type RenderOutcome =
   | { status: "declined" }
   | { status: "timeout" };
 
+/** Starts a timer and returns its cancel function. */
+export type SetTimer = (fn: () => void, ms: number) => () => void;
+const realTimer: SetTimer = (fn, ms) => {
+  const timer = setTimeout(fn, ms);
+  return () => clearTimeout(timer);
+};
+
 export async function renderWithTimeout(
   renderer: Renderer,
   source: Uint8Array,
   mime: string,
   timeoutMs: number,
+  setTimer: SetTimer = realTimer,
 ): Promise<RenderOutcome> {
   const timedOut = Symbol("timeout");
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel: (() => void) | undefined;
   try {
     const result = await Promise.race([
       renderer.render(source, mime),
       new Promise<typeof timedOut>((resolve) => {
-        timer = setTimeout(() => resolve(timedOut), timeoutMs);
+        cancel = setTimer(() => resolve(timedOut), timeoutMs);
       }),
     ]);
     if (result === timedOut) return { status: "timeout" };
@@ -77,7 +89,7 @@ export async function renderWithTimeout(
   } catch {
     return { status: "declined" };
   } finally {
-    if (timer) clearTimeout(timer);
+    cancel?.();
   }
 }
 
@@ -86,16 +98,23 @@ export type QueueOutcome =
   /** The output is over the blob limit: no rendition, as at ingest. */
   | { status: "output_too_large" };
 
-/** Stores the output and queues its rows in one queue transaction. */
+/**
+ * Stores the output and queues its rows in one queue transaction. `onStored` sees the output's
+ * hash once it's stored and before its rows are queued (the backfill holds it from GC there).
+ */
 export async function queueRendition(
-  deps: Pick<RenderSourceDeps, "waypoint" | "queue" | "blobs">,
+  deps: Pick<RenderSourceDeps, "waypoint" | "queue" | "blobs" | "background">,
   renderer: Pick<Renderer, "rendererName" | "rendererVersion">,
   hash: string,
   rendition: Rendition,
   now: number,
+  onStored?: (outputHash: string) => void,
 ): Promise<QueueOutcome> {
   if (rendition.bytes.byteLength > deps.blobs.maxBlobBytes) return { status: "output_too_large" };
-  const output = await deps.blobs.put(Readable.from([Buffer.from(rendition.bytes)]));
+  const output = await deps.blobs.put(Readable.from([Buffer.from(rendition.bytes)]), undefined, {
+    background: Boolean(deps.background),
+  });
+  onStored?.(output.hash);
   const stored = await deps.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [output.hash]);
   await deps.queue.transaction(async (tx) => {
     if (!stored)

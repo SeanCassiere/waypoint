@@ -22,7 +22,7 @@ import {
   DEFAULT_LIMITS,
 } from "@waypoint/core";
 
-import type { BlobStore } from "./blob-store.ts";
+import type { Activity, BlobStore } from "./blob-store.ts";
 import { inSeries, type Db, type SyncClient } from "./db.ts";
 import { GcBarrier } from "./gc-barrier.ts";
 import { ReadModel } from "./read-model.ts";
@@ -82,6 +82,8 @@ export class IngestService {
   private locks = new Map<string, Promise<unknown>>();
   private ingesting = new Map<string, number>();
   private inUseHashes = new Map<string, number>();
+  private ingestsActive = 0;
+  private ingestsStarted = 0;
   readonly waypoint: Db;
   readonly queue: Db;
   readonly blobs: BlobStore;
@@ -154,6 +156,23 @@ export class IngestService {
   isBlobInUse(hash: string): boolean {
     return (this.inUseHashes.get(hash) ?? 0) > 0;
   }
+  /** Ingests in flight, and how many have started since the writer did (the backfill's idle gate). */
+  activity(): Activity {
+    return { active: this.ingestsActive, started: this.ingestsStarted };
+  }
+  /**
+   * Runs `fn` with a `hold` function: every hash it holds counts as in use (`isBlobInUse`), so
+   * blob GC and bucket deletes leave it alone, until `fn` settles. The background rerender holds
+   * the blobs it decides about inside a GC barrier section.
+   */
+  async withBlobHold<T>(fn: (hold: (hash: string) => void) => Promise<T>): Promise<T> {
+    const held = new Set<string>();
+    try {
+      return await fn((hash) => this.holdHash(hash, held));
+    } finally {
+      this.releaseHashes(held);
+    }
+  }
   private holdHash(hash: string, held: Set<string>): void {
     if (held.has(hash)) return;
     held.add(hash);
@@ -168,9 +187,12 @@ export class IngestService {
   }
   private async duringIngest<T>(id: string, fn: () => Promise<T>): Promise<T> {
     this.ingesting.set(id, (this.ingesting.get(id) ?? 0) + 1);
+    this.ingestsActive++;
+    this.ingestsStarted++;
     try {
       return await this.locked(id, () => this.gcBarrier.read(fn));
     } finally {
+      this.ingestsActive--;
       const count = (this.ingesting.get(id) ?? 1) - 1;
       if (count) this.ingesting.set(id, count);
       else this.ingesting.delete(id);

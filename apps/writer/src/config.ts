@@ -26,6 +26,15 @@ export interface Config {
   maxFiles?: number;
   maxRevisionBytes?: number;
   sync: boolean;
+  /**
+   * WAYPOINT_RERENDER: `auto` re-renders stale renditions in the background after a renderer
+   * upgrade (backfill.ts); `off` (the default) only counts them.
+   */
+  rerender?: "auto" | "off";
+  /** WAYPOINT_RERENDER_DELAY_MINUTES: how long after start the backfill waits (0 allowed). */
+  rerenderDelayMinutes?: number;
+  /** WAYPOINT_RERENDER_SETTLED_DAYS: a collection's latest revision older than this is settled. */
+  rerenderSettledDays?: number;
   mcpTarballPath?: string;
   mcpLauncherPath?: string;
   mcpServerPath?: string;
@@ -87,6 +96,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       throw new Error(`${key} must be a positive integer`);
     return value;
   };
+  const nonNegative = (key: string, fallback: number): number => {
+    const raw = env[key];
+    const value = raw === undefined ? fallback : Number(raw);
+    if (raw?.trim() === "" || !Number.isSafeInteger(value) || value < 0)
+      throw new Error(`${key} must be a non-negative integer`);
+    return value;
+  };
   const rawDir = env.WAYPOINT_DATA_DIR ?? `~/.local/share/waypoint/${environment}`;
   const dataDir = resolve(
     rawDir === "~"
@@ -114,6 +130,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
   const queueGiveUpHours = number("WAYPOINT_QUEUE_GIVE_UP_HOURS", 72);
+  const rerender = env.WAYPOINT_RERENDER ?? "off";
+  if (rerender !== "auto" && rerender !== "off")
+    throw new Error("WAYPOINT_RERENDER must be auto or off");
+  const rerenderDelayMinutes = nonNegative("WAYPOINT_RERENDER_DELAY_MINUTES", 45);
+  const rerenderSettledDays = number("WAYPOINT_RERENDER_SETTLED_DAYS", 30);
   const maxBlobBytes = number("WAYPOINT_MAX_BLOB_MB", 50) * 1024 * 1024;
   const maxFiles = number("WAYPOINT_MAX_FILES", 2000);
   const maxRevisionBytes = number("WAYPOINT_MAX_REVISION_MB", 500) * 1024 * 1024;
@@ -136,6 +157,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxFiles,
     maxRevisionBytes,
     sync,
+    rerender,
+    rerenderDelayMinutes,
+    rerenderSettledDays,
     build: buildInfo(env.WAYPOINT_BUILD_SHA),
     mcpTarballPath: env.WAYPOINT_MCP_TARBALL
       ? resolve(env.WAYPOINT_MCP_TARBALL)

@@ -92,6 +92,14 @@ ALTER TABLE pending_purges ADD COLUMN title TEXT;
 ALTER TABLE pending_purges ADD COLUMN public_id TEXT;
 `,
   },
+  {
+    // D89: sources the background rerender couldn't render at a renderer version, and when to
+    // try again (retry_at NULL: not until the next version). Older releases never read it.
+    id: "0006_rerender_skips",
+    sql: `
+CREATE TABLE IF NOT EXISTS rerender_skips (source_hash TEXT NOT NULL, renderer TEXT NOT NULL, renderer_version INTEGER NOT NULL, reason TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 1, at INTEGER NOT NULL, retry_at INTEGER, PRIMARY KEY (source_hash, renderer, renderer_version));
+`,
+  },
 ];
 export async function migrate(
   db: Db,

@@ -166,6 +166,42 @@ describe("FD4 migrations", () => {
       collections: [expect.objectContaining({ id: result.collection_id, title: "Rollback" })],
     });
   });
+  it("adds rerender_skips to queue.db only, keyed by source, renderer and version", async () => {
+    await migrateAll(previousWaypoint, previousQueue);
+    await queue.run(PURGE_INSERT, [newId("col"), 1000]);
+    await migrateAll();
+    expect(await applied(queue)).toContain("0006_rerender_skips");
+    const columns = await queue.all<Column>("PRAGMA table_info(rerender_skips)");
+    expect(columns.map((c) => [c.name, c.type, c.notnull, c.pk])).toEqual([
+      ["source_hash", "TEXT", 1, 1],
+      ["renderer", "TEXT", 1, 2],
+      ["renderer_version", "INTEGER", 1, 3],
+      ["reason", "TEXT", 1, 0],
+      ["attempts", "INTEGER", 1, 0],
+      ["at", "INTEGER", 1, 0],
+      ["retry_at", "INTEGER", 0, 0],
+    ]);
+    // Additive only: the earlier rows survive, and nothing is added to waypoint.db.
+    expect(await queue.all("SELECT step FROM pending_purges")).toEqual([{ step: 0 }]);
+    expect(
+      await waypoint.get("SELECT name FROM sqlite_master WHERE name='rerender_skips'"),
+    ).toBeUndefined();
+    const hash = `sha256:${"a".repeat(64)}`;
+    await queue.run(
+      "INSERT INTO rerender_skips (source_hash,renderer,renderer_version,reason,at) VALUES (?,?,?,?,?)",
+      [hash, "markdown", 6, "declined", 1],
+    );
+    expect(await queue.get("SELECT attempts,retry_at FROM rerender_skips")).toEqual({
+      attempts: 1,
+      retry_at: null,
+    });
+    await expect(
+      queue.run(
+        "INSERT INTO rerender_skips (source_hash,renderer,renderer_version,reason,at) VALUES (?,?,?,?,?)",
+        [hash, "markdown", 6, "timeout", 2],
+      ),
+    ).rejects.toThrow(/UNIQUE|PRIMARY KEY/i);
+  });
   it("leaves the reader's collection_syncing lookup failing without 0004", async () => {
     const lookup = "SELECT since,until FROM collection_syncing WHERE collection_id=?";
     await migrate(waypoint, previousWaypoint);

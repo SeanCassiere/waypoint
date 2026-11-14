@@ -13,8 +13,9 @@ import { inSeries, type Db } from "./db.ts";
  * a newer release before a rollback) is not stale: readers serve the newest version anyway.
  *
  * Each stale source gets a priority, best first:
- * - Tier 1: in a revision pinned by an open share link, or the latest revision of a collection
- *   with an open Latest link.
+ * - Tier 1: in a revision pinned by an open share link, or, for a collection with an open Latest
+ *   link, in the revision that link serves: the newest committed one (a queued revision isn't
+ *   served until it commits, so it stays tier 2).
  * - Tier 2: in the latest revision of a collection.
  * - Tier 3: in an older revision.
  * Within a tier, sources of collections that aren't settled come before settled ones, then newer
@@ -147,6 +148,8 @@ interface CollectionState {
   trashed: boolean;
   /** Newest committed or pending (not failed) revision ID. */
   latest?: string;
+  /** Newest committed revision ID: what a Latest link serves. */
+  latestCommitted?: string;
   /** An open share link of any kind. */
   linked: boolean;
   /** An open Latest link. */
@@ -222,11 +225,13 @@ export async function surveyStale(
   // Revisions in scope, oldest first, and each collection's latest.
   const committed: [id: string, collectionId: string][] = [];
   const revisionCollection = new Map<string, string>();
-  const noteRevision = (id: string, collectionId: string): boolean => {
+  const noteRevision = (id: string, collectionId: string, isCommitted: boolean): boolean => {
     const state = inScope(collectionId);
     if (!state) return false;
     revisionCollection.set(id, collectionId);
     if (state.latest === undefined || id > state.latest) state.latest = id;
+    if (isCommitted && (state.latestCommitted === undefined || id > state.latestCommitted))
+      state.latestCommitted = id;
     return true;
   };
   for (let after = "", more = true; more;) {
@@ -241,7 +246,8 @@ export async function surveyStale(
             [scoped, after, REVISION_PAGE],
           );
     for (const row of page)
-      if (noteRevision(row.id, row.collection_id)) committed.push([row.id, row.collection_id]);
+      if (noteRevision(row.id, row.collection_id, true))
+        committed.push([row.id, row.collection_id]);
     more = page.length === REVISION_PAGE;
     after = page.at(-1)?.id ?? after;
   }
@@ -263,7 +269,7 @@ export async function surveyStale(
   };
   for (let after = "", more = true; more;) {
     const page = await pendingPage(after, REVISION_PAGE, false);
-    for (const row of page) noteRevision(row.id, row.collection_id);
+    for (const row of page) noteRevision(row.id, row.collection_id, false);
     more = page.length === REVISION_PAGE;
     after = page.at(-1)?.id ?? after;
   }
@@ -303,8 +309,8 @@ export async function surveyStale(
     const state = collections.get(collectionId);
     if (!state) return;
     const latest = revisionId === state.latest;
-    const tier: StaleTier =
-      pinned.has(revisionId) || (latest && state.followsLatest) ? 1 : latest ? 2 : 3;
+    const served = state.followsLatest && revisionId === state.latestCommitted;
+    const tier: StaleTier = pinned.has(revisionId) || served ? 1 : latest ? 2 : 3;
     const position = { tier, settled: tier !== 1 && settledAt(state, cutoff), revisionId };
     const key = `${renderer}\0${file.hash}`;
     const known = candidates.get(key);
