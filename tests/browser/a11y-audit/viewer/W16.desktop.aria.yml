@@ -12,4 +12,5 @@
     - heading "In progress 0" [level=2]
   - heading "Agents watching 0" [level=2]
   - heading "Background queue errors 0" [level=2]
+  - heading "Re-rendering" [level=2]
   - heading "Writer" [level=2]
