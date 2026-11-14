@@ -85,7 +85,8 @@ The writer trusts any client on the tailnet, but defends against *websites* atta
 - Requests without browser headers (MCP, curl) pass.
 - `POST /api/rerender/start` only ends the background rerender's wait early, which would otherwise end by itself; it passes through the same check.
 - Viewer HTML pages send `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, so another site can't frame them and trick a click on Revoke or Share. `/raw` (framed by the viewer itself) and the JSON API don't.
-- GETs have no side effects but can be triggered cross-site (`<img src=…>`), so costly ones are bounded: diffs and Changes-page Markdown run under time budgets in a worker thread (D47).
+- GETs have no side effects, with the one bounded exception below, but can be triggered cross-site (`<img src=…>`; the cross-origin check covers only mutating requests), so costly ones are bounded: diffs and Changes-page Markdown run under time budgets in a worker thread (D47).
+- One GET has a bounded side effect (D89). With `WAYPOINT_RERENDER=auto`, a document GET that serves a stale rendition moves its source to the front of the background rerender's in-memory list of opened sources (at most 32; the oldest falls off). It starts no render, survey or wake, adds no work, and bypasses none of the backfill's gates (mode, delay, Trash, purge, skips), so the most a cross-site page can do is reorder work that was already queued.
 
 ## Code that runs on agent machines
 

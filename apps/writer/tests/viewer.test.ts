@@ -335,6 +335,7 @@ async function rerenderSection(rerender: RerenderStatus): Promise<{ html: string
         status: () => rerender,
         startNow: () => undefined,
         collectionChanged: () => undefined,
+        promote: () => undefined,
       },
     }).request("/status")
   ).text();

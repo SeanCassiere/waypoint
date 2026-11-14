@@ -143,6 +143,7 @@ const app = createApp({
     status: demoRerender,
     startNow: () => undefined,
     collectionChanged: () => undefined,
+    promote: () => undefined,
   },
   environment: "dev",
   port,
