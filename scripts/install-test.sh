@@ -2,7 +2,8 @@
 # The adopter install test: drives the real deploy/upgrade.sh against a throwaway instance (local
 # writer, sync off, no readers) and checks install, upgrade, rollback, idempotence, failure
 # rollback, interruption, convergence after a killed run (including one killed in the external
-# health gate), rerender (its count, its lock, and its refusal of changed settings), a reader
+# health gate), rerender (its count, its lock, its refusal of changed settings, and watching a
+# writer that re-renders by itself without the lock or a restart), a reader
 # deploy killed midway (against a stand-in Wrangler), and idempotence with the writer in a
 # sidecar's network namespace (the Tailscale overlay's layout) and an interruption right after
 # the sidecar is recreated, with the same data directory throughout.
@@ -73,7 +74,9 @@ git -C "$repo" worktree remove --force "$work/old"
 
 step "instance"
 mkdir -m 700 "$work/config"
-printf 'WAYPOINT_ENV=dev\nWAYPOINT_SYNC=off\n' > "$work/config/writer.env"
+# The rerender steps test upgrade.sh's stop-and-render path first, so the writer's background
+# rerender starts off; a later step turns it on.
+printf 'WAYPOINT_ENV=dev\nWAYPOINT_SYNC=off\nWAYPOINT_RERENDER=off\n' > "$work/config/writer.env"
 chmod 600 "$work/config/writer.env"
 if [[ "$(id -u)" == 1000 ]]; then
   mkdir -m 700 "$work/data"
@@ -300,6 +303,49 @@ up rerender > "$work/rerender.log" 2>&1 || { cat "$work/rerender.log" >&2; fail 
 grep -q '"sources":1,"current":0,"queued":1' "$work/rerender.log" || { cat "$work/rerender.log" >&2; fail "rerender didn't render the markdown"; }
 up --dry-run rerender 2> "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "rerender dry run failed"; }
 grep -q '1 sources, 1 current, 0 to render' "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "the rendition wasn't committed"; }
+expect_build "$new_sha" "$new_version"
+expect_data
+
+step "rerender watches a writer that re-renders by itself, without the lock or a restart"
+# The rendition gone again, as above; then the writer re-renders in the background, after a
+# delay this test doesn't wait out: upgrade.sh rerender ends it (POST /api/rerender/start).
+up compose stop writer >/dev/null 2>&1
+# shellcheck disable=SC2016 # JavaScript, not shell
+up compose run --rm --no-deps -T writer node --input-type=module -e '
+  import { connect } from "@tursodatabase/database";
+  const db = await connect("/data/queue.db");
+  const { changes } = await db.prepare("DELETE FROM pending_renditions").run();
+  await db.close();
+  if (changes !== 1) { console.error(`deleted ${changes} renditions, expected 1`); process.exit(1); }
+' || fail "couldn't drop the rendition"
+up compose start writer >/dev/null 2>&1
+sed -i 's/^WAYPOINT_RERENDER=off$/WAYPOINT_RERENDER=auto\nWAYPOINT_RERENDER_DELAY_MINUTES=600/' "$work/config/writer.env"
+up current-checkout
+expect_build "$new_sha" "$new_version"
+( exec 8> "$state/lock"; flock 8; exec sleep 300 ) &
+holder=$!
+for _ in $(seq 20); do flock -n "$state/lock" true || break; sleep 0.5; done
+started="$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")"
+LOCK_WAIT_SECONDS=2 up --dry-run rerender 2> "$work/wait-dry.log" || { cat "$work/wait-dry.log" >&2; fail "the dry run of a watching rerender failed"; }
+grep -q 'markdown renderer v[0-9]*: 1 stale, 0 skipped, 1 to render' "$work/wait-dry.log" || { cat "$work/wait-dry.log" >&2; fail "the watching dry run miscounted"; }
+grep -q 'would start re-rendering at' "$work/wait-dry.log" || { cat "$work/wait-dry.log" >&2; fail "the writer wasn't waiting out its delay"; }
+LOCK_WAIT_SECONDS=2 RERENDER_UPLOAD_TIMEOUT=120 up rerender --limit 5 2> "$work/wait.log" || { cat "$work/wait.log" >&2; fail "a watching rerender failed (it mustn't need the instance lock)"; }
+grep -q -- '--limit is ignored' "$work/wait.log" || { cat "$work/wait.log" >&2; fail "rerender didn't say --limit is ignored"; }
+grep -q 'told the writer to start re-rendering now' "$work/wait.log" || { cat "$work/wait.log" >&2; fail "rerender didn't end the writer's delay"; }
+grep -q 're-rendering done' "$work/wait.log" || { cat "$work/wait.log" >&2; fail "rerender didn't wait for the writer to finish"; }
+[[ "$(docker_ inspect --format '{{.State.StartedAt}}' "$(container)")" == "$started" ]] || fail "a watching rerender restarted the writer"
+kill -KILL "$holder"
+wait "$holder" 2>/dev/null || true
+holder=""
+rerender_status="$(echo 'const r = await fetch("http://127.0.0.1:7410/api/status"); process.stdout.write(JSON.stringify((await r.json()).rerender));' | writer_js)"
+node -e '
+  const r = JSON.parse(process.argv[1]);
+  const md = r?.renderers?.find((x) => x.renderer === "markdown");
+  if (r?.mode !== "auto" || r.state !== "done" || md?.left !== 0) process.exit(1);
+' "$rerender_status" || fail "the writer's rerender isn't done: $rerender_status"
+# The stop-and-render path (--collection keeps it) finds the rendition the writer queued.
+up --dry-run --collection "$collection" rerender 2> "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "rerender dry run failed"; }
+grep -q '1 sources, 1 current, 0 to render' "$work/rerender-dry.log" || { cat "$work/rerender-dry.log" >&2; fail "the writer didn't queue the rendition"; }
 expect_build "$new_sha" "$new_version"
 expect_data
 
