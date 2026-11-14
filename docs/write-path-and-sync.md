@@ -104,17 +104,19 @@ The committer processes pending revisions in ID order (oldest first). For each o
 4. **Write to the bucket.**
    - The DR manifest `manifests/<revision id>.json`: the revision row, its files, and its renditions.
    - If the collection is still pending, its snapshot `collections/<collection id>.json`.
-   **Re-verification under the lock.** After steps 3–4, the committer takes the collection lock and re-checks four things: the revision is still pending, its parent is committed, its collection exists, and no purge is queued for it. If anything changed, it aborts this attempt. The `blobs` rows inserted are exactly the hashes uploaded in this attempt, and after the transaction every referenced hash must have a `blobs` row.
+   **Re-verification under the lock.** After steps 3–4, the committer takes the collection lock and re-checks four things: the revision is still pending, its parent is committed, its collection exists, and no purge is queued for it. If anything changed, it aborts this attempt. The `blobs` rows inserted are exactly the hashes uploaded in this attempt (on a retry after a rendition collision, also those the abandoned attempt uploaded) that the commit references, and after the transaction every referenced hash must have a `blobs` row.
 5. **Insert rows** into `waypoint.db` in one transaction, using `INSERT OR IGNORE`:
    - if the collection is pending, the `collections` row, plus a tombstone if `deleted_at` is set
    - `blobs`
    - `renditions`
    - `revisions`
    - `revision_files`
+
+   A rendition key already in `waypoint.db` with a different output (another writer rendered the same bytes under a MIME type that renders differently, and its row arrived by pull after this attempt's snapshot) keeps its row: the committer drops its own queued rendition for that key, with its output's queue rows and local file if nothing else needs them (its bucket object is left: under last push wins, another writer's push may yet make it the standing row), and retries the commit at once, so the DR manifest is rewritten to name the committed rendition. If the retry collides again, it commits the revision without its rendition for that key. A rendition collision never fails a revision (D90).
 6. **Clean up the queue** in one `queue.db` transaction:
    - delete the `pending_revisions` row
    - delete the `pending_collections` row, if this was the collection's commit
-   - delete the `pending_blobs` and `pending_renditions` rows that now have rows in `waypoint.db`
+   - delete the `pending_blobs` and `pending_renditions` rows that now have rows in `waypoint.db` (a queued rendition whose key was committed with another output is dropped as above)
    - insert an `unpushed` row
 
    If the process dies between steps 5 and 6, the next pass finds the revision already in `waypoint.db` and only performs step 6.
@@ -206,7 +208,8 @@ How a purge is recorded while it runs:
 - Each writer has its own data directory, queue, and local replica. They converge through the cloud DB.
 - A writer's queue is invisible to the other writers. Its revisions appear elsewhere only once they are `synced` and the other writer has pulled.
 - Two writers revising the same parent produce a [fork](glossary.md#content), not a conflict.
-- Phase 1 runs a single writer. Two operations aren't multi-writer-safe yet: purge, and the [background rerender](architecture.md#background-re-rendering) running on more than one writer. Two writers can render the same bytes stored under MIME types that render differently (a `.json` file and the same bytes as plain text), which gives different outputs under one `(source_hash, renderer, renderer_version)` key. If one writer's row is pulled after another writer's revision has taken its rendition snapshot but before that revision commits, the commit fails for good with a rendition collision. With more than one writer, set `WAYPOINT_RERENDER=off` on every writer but one.
+- Phase 1 runs a single writer. Purge isn't multi-writer-safe yet.
+- Two writers can render the same bytes stored under MIME types that render differently (a `.json` file and the same bytes as plain text), which gives different outputs under one `(source_hash, renderer, renderer_version)` key, at ingest or in a re-render. The row already in `waypoint.db` stands (if both commit before either pulls, the last push wins, as above): a revision whose rendition loses commits without it, as a standalone rendition does (D90). The effect is cosmetic: one of those files is shown in the other MIME type's view, and the losing output's object stays in the bucket, unreferenced. Running the [background rerender](architecture.md#background-re-rendering) on every writer only duplicates work, so with more than one writer, set `WAYPOINT_RERENDER=off` on every writer but one.
 
 ## Environment guard
 

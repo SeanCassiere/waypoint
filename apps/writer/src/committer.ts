@@ -70,6 +70,20 @@ const reason = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown failure";
 class CommitValidationError extends Error {}
 class AbortedAttempt extends Error {}
+/**
+ * D90: another writer committed a different output for a rendition key this attempt was about to
+ * insert (the same bytes under MIME types that render differently). Its row stands; the attempt
+ * is abandoned and retried at once, so the DR manifest names the rendition actually committed.
+ */
+class RenditionCollision extends AbortedAttempt {
+  readonly lost: readonly Rendition[];
+  constructor(lost: readonly Rendition[]) {
+    super("Another writer committed a different rendition");
+    this.lost = lost;
+  }
+}
+const renditionKey = (r: Pick<Rendition, "source_hash" | "renderer" | "renderer_version">) =>
+  [r.source_hash, r.renderer, r.renderer_version] as const;
 export class SimulatedCrash extends Error {}
 export type CommitterStep =
   | "commit_after_blob_upload"
@@ -371,7 +385,12 @@ export class WriterCommitter implements Committer {
       await this.cascade(child.id);
     }
   }
-  private async attempt(row: Revision): Promise<void> {
+  /**
+   * Commits one queued revision. `retry` is set on the immediate retry after a rendition
+   * collision (D90): it carries the blobs the abandoned attempt uploaded, and a second collision
+   * then keeps the standing rows instead of retrying again.
+   */
+  private async attempt(row: Revision, retry?: { uploaded: Map<string, number> }): Promise<void> {
     const uploaded = new Map<string, number>();
     let manifestWritten = false;
     let snapshotWritten = false;
@@ -440,6 +459,10 @@ export class WriterCommitter implements Committer {
           throw error;
         }
         if (size !== pending.size) throw new CommitValidationError(`Blob size changed: ${hash}`);
+        if (retry?.uploaded.get(hash) === size) {
+          uploaded.set(hash, size);
+          continue;
+        }
         await this.bucket.putIfAbsent(
           blobKey(hash),
           () => createReadStream(this.blobs.path(hash)),
@@ -595,16 +618,33 @@ export class WriterCommitter implements Committer {
           );
           if (!col || col.public_id !== (pendingCollection?.public_id ?? col.public_id))
             throw new CommitValidationError("Collection INSERT OR IGNORE collision");
+          // D90: a key another writer committed with a different output keeps its row. The first
+          // time, abandon and retry with a new snapshot; on the retry, commit without ours.
+          const lost: Rendition[] = [];
+          for (const rendition of renditions) {
+            const standing = await tx.get<{ output_hash: string }>(
+              "SELECT output_hash FROM renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
+              renditionKey(rendition),
+            );
+            if (standing && standing.output_hash !== rendition.output_hash) lost.push(rendition);
+          }
+          if (lost.length > 0 && !retry) throw new RenditionCollision(lost);
+          const kept = renditions.filter((rendition) => !lost.includes(rendition));
+          const referenced = new Set([
+            ...Object.values(manifest.files).map((entry) => entry.hash),
+            ...kept.map((item) => item.output_hash),
+          ]);
           for (const [hash, size] of uploaded)
-            await tx.run("INSERT OR IGNORE INTO blobs (hash,size,uploaded_at) VALUES (?,?,?)", [
-              hash,
-              size,
-              this.now(),
-            ]);
-          for (const hash of hashes)
+            if (referenced.has(hash))
+              await tx.run("INSERT OR IGNORE INTO blobs (hash,size,uploaded_at) VALUES (?,?,?)", [
+                hash,
+                size,
+                this.now(),
+              ]);
+          for (const hash of referenced)
             if (!(await tx.get("SELECT hash FROM blobs WHERE hash=?", [hash])))
               throw new CommitValidationError(`Referenced blob has no row: ${hash}`);
-          for (const rendition of renditions) {
+          for (const rendition of kept) {
             await tx.run(
               "INSERT OR IGNORE INTO renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
               [
@@ -667,6 +707,19 @@ export class WriterCommitter implements Committer {
     } catch (error) {
       this.commitQueued = undefined;
       if (error instanceof SimulatedCrash) throw error;
+      if (error instanceof RenditionCollision) {
+        for (const rendition of error.lost)
+          console.warn(
+            `Another writer committed a different rendition of ${rendition.source_hash} (${rendition.renderer} v${rendition.renderer_version}); its row stands`,
+          );
+        await this.dropLosingRenditions(error.lost);
+        // The new snapshot takes the standing rows. Nothing is queued for deletion here: the
+        // retry rewrites the DR manifest and reuses what this attempt uploaded.
+        if (!this.stopping) {
+          await this.attempt(row, { uploaded });
+          return;
+        }
+      }
       if (
         error instanceof AbortedAttempt ||
         (error instanceof CommitValidationError && error.message === "collection_purged")
@@ -734,23 +787,31 @@ export class WriterCommitter implements Committer {
       ...Object.values(manifest.files).map((file) => file.hash),
       ...committedRenditions.map((item) => item.output_hash),
     ]);
-    await this.queue.transaction(async (tx) => {
+    const unused = await this.queue.transaction(async (tx) => {
       await tx.run("DELETE FROM pending_revisions WHERE id=?", [row.id]);
       await tx.run("DELETE FROM pending_collections WHERE id=?", [row.collection_id]);
       for (const hash of hashes)
         if (await this.waypoint.get("SELECT hash FROM blobs WHERE hash=?", [hash]))
           await tx.run("DELETE FROM pending_blobs WHERE hash=?", [hash]);
-      for (const rendition of committedRenditions)
-        if (
-          await this.waypoint.get(
-            "SELECT 1 FROM renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-            [rendition.source_hash, rendition.renderer, rendition.renderer_version],
-          )
-        )
-          await tx.run(
-            "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
-            [rendition.source_hash, rendition.renderer, rendition.renderer_version],
-          );
+      const losers: Rendition[] = [];
+      for (const rendition of committedRenditions) {
+        const standing = await this.waypoint.get<{ output_hash: string }>(
+          "SELECT output_hash FROM renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
+          renditionKey(rendition),
+        );
+        if (!standing) continue;
+        // D90: a queued output that lost its key to another writer's row.
+        losers.push(
+          ...(await tx.all<Rendition>(
+            "SELECT * FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=? AND output_hash<>?",
+            [...renditionKey(rendition), standing.output_hash],
+          )),
+        );
+        await tx.run(
+          "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=?",
+          renditionKey(rendition),
+        );
+      }
       await tx.run("INSERT OR IGNORE INTO unpushed (revision_id,committed_at) VALUES (?,?)", [
         row.id,
         this.now(),
@@ -759,7 +820,9 @@ export class WriterCommitter implements Committer {
       await tx.run("DELETE FROM pending_r2_deletes WHERE key=?", [
         collectionKey(row.collection_id),
       ]);
+      return this.dropLosers(tx, losers);
     });
+    await this.removeUnused(unused);
     this.notify();
     this.onCommitted?.(row.collection_id);
     this.sync.triggerPush();
@@ -768,6 +831,56 @@ export class WriterCommitter implements Committer {
       [row.id],
     );
     this.rerun = true;
+  }
+  private async dropLosingRenditions(lost: readonly Rendition[]): Promise<void> {
+    await this.removeUnused(await this.queue.transaction((tx) => this.dropLosers(tx, lost)));
+  }
+  /**
+   * D90: drops queued renditions whose key another writer committed with a different output, and
+   * each output's `pending_blobs` row unless something else queued still needs it. Returns the
+   * outputs with no `blobs` row, for `removeUnused` to delete locally. Their bucket objects are
+   * left: under last push wins, another writer's push can still make one the standing row, and
+   * this replica alone can't tell (an orphaned object is harmless).
+   */
+  private async dropLosers(tx: DbHandle, lost: readonly Rendition[]): Promise<string[]> {
+    const unused: string[] = [];
+    if (lost.length === 0) return unused;
+    for (const rendition of lost)
+      await tx.run(
+        "DELETE FROM pending_renditions WHERE source_hash=? AND renderer=? AND renderer_version=? AND output_hash=?",
+        [...renditionKey(rendition), rendition.output_hash],
+      );
+    const sources = new Set<string>();
+    for (const item of await tx.all<{ manifest_json: string }>(
+      "SELECT manifest_json FROM pending_revisions",
+    ))
+      for (const file of Object.values(parseManifest(item.manifest_json).files))
+        sources.add(file.hash);
+    for (const hash of new Set(lost.map((rendition) => rendition.output_hash))) {
+      if (
+        sources.has(hash) ||
+        (await tx.get("SELECT 1 FROM pending_renditions WHERE output_hash=?", [hash]))
+      )
+        continue;
+      await tx.run("DELETE FROM pending_blobs WHERE hash=?", [hash]);
+      if (!(await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash]))) unused.push(hash);
+    }
+    return unused;
+  }
+  /** Deletes the local files of blobs nothing stores or queues any more, as a purge does. */
+  private async removeUnused(hashes: readonly string[]): Promise<void> {
+    if (hashes.length === 0) return;
+    const remove = async () => {
+      for (const hash of hashes)
+        if (
+          !this.lock.isBlobInUse?.(hash) &&
+          !(await this.queue.get("SELECT 1 FROM pending_blobs WHERE hash=?", [hash])) &&
+          !(await this.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash]))
+        )
+          await this.blobs.delete(hash);
+    };
+    if (this.lock.withGcExclusive) await this.lock.withGcExclusive(remove);
+    else await remove();
   }
   /**
    * Renditions queued without a revision (`waypoint-writer rerender`) whose source blob is

@@ -210,7 +210,8 @@ the writer re-renders older documents by itself, starting 45 minutes after the d
 re-render on a writer with `WAYPOINT_RERENDER=off`
 ([re-rendering](../deploy/README.md#re-rendering-markdown-after-a-renderer-upgrade)). If you run
 more than one writer, set `WAYPOINT_RERENDER=off` on all of them but one: concurrent re-renders
-on two writers can collide on a rendition key and fail a revision's commit.
+on two writers duplicate the work (a rendition key they both render keeps one writer's row,
+which fails nothing).
 
 ## Optional: automatic deploys on release
 

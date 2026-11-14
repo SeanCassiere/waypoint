@@ -7,7 +7,8 @@ import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { mintRevisionId, newId, parseId, publicIdFor } from "@waypoint/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { BlobStore } from "../src/blob-store.ts";
 import { MemoryBucket } from "../src/bucket.ts";
@@ -22,7 +23,7 @@ import {
 import type { Config } from "../src/config.ts";
 import { openDatabases, type Db } from "../src/db.ts";
 import { createApp } from "../src/http.ts";
-import { IngestService } from "../src/ingest.ts";
+import { IngestService, type RendererSet } from "../src/ingest.ts";
 import {
   guardEnvironment,
   migrate,
@@ -30,6 +31,7 @@ import {
   waypointMigrations,
 } from "../src/migrations.ts";
 import { ReadModel } from "../src/read-model.ts";
+import { writerRenderers } from "../src/renderer.ts";
 import { SyncLoop } from "../src/sync-loop.ts";
 
 async function port(): Promise<number> {
@@ -74,14 +76,30 @@ type Harness = {
   app: ReturnType<typeof createApp>;
   close(): Promise<void>;
 };
-async function open(cfg: Config, bucket: MemoryBucket, crash?: CommitterStep): Promise<Harness> {
+async function open(
+  cfg: Config,
+  bucket: MemoryBucket,
+  crash?: CommitterStep,
+  options: {
+    renderers?: RendererSet;
+    onStep?: (step: CommitterStep) => Promise<void>;
+  } = {},
+): Promise<Harness> {
   const db = await openDatabases(cfg);
   await guardEnvironment(db.waypoint, db.syncClient, "dev");
   await migrate(db.waypoint, waypointMigrations);
   await migrate(db.queue, queueMigrations);
   const blobs = new BlobStore(cfg.dataDir, cfg.maxBlobBytes);
   const reads = new ReadModel(db.waypoint, db.queue, cfg.baseUrl);
-  const ingest = new IngestService(db.waypoint, db.queue, blobs, reads, db.syncClient);
+  const ingest = new IngestService(
+    db.waypoint,
+    db.queue,
+    blobs,
+    reads,
+    db.syncClient,
+    undefined,
+    options.renderers,
+  );
   const sync = new SyncLoop(db.queue, db.syncClient, Date.now, db.waypoint);
   let worker: WriterCommitter;
   worker = new WriterCommitter(
@@ -101,7 +119,7 @@ async function open(cfg: Config, bucket: MemoryBucket, crash?: CommitterStep): P
             throw new SimulatedCrash(step);
           }
         }
-      : undefined,
+      : options.onStep,
   );
   ingest.committer = worker;
   const app = createApp({
@@ -388,6 +406,111 @@ describe("committer crash recovery with a fresh process state", () => {
           await restarted.close();
         }
       } finally {
+        child.kill("SIGTERM");
+        await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    60000,
+  );
+});
+
+describe("two writers on one database", () => {
+  it.skipIf(!process.env.TURSODB_BIN)(
+    "commits a revision whose rendition key the other writer committed mid-commit (D90)",
+    async () => {
+      const bin = process.env.TURSODB_BIN;
+      if (!bin) throw new Error("TURSODB_BIN required");
+      const dir = await mkdtemp(join(tmpdir(), "waypoint-two-writers-"));
+      const p = await port();
+      const child = await server(bin, join(dir, "cloud.db"), p);
+      const bucket = new MemoryBucket();
+      const bytes = '{"a":[1,2]}';
+      let a: Harness | undefined;
+      let b: Harness | undefined;
+      let pulled = false;
+      let queued: string | undefined;
+      try {
+        a = await open(config(join(dir, "a"), p), bucket, undefined, {
+          renderers: writerRenderers,
+        });
+        const first = a;
+        // B pulls A's rows after its snapshot, just before its commit transaction.
+        b = await open(config(join(dir, "b"), p), bucket, undefined, {
+          renderers: writerRenderers,
+          async onStep(step) {
+            if (step !== "commit_after_dr_objects" || pulled) return;
+            pulled = true;
+            queued = (
+              await second.queue.get<{ output_hash: string }>(
+                "SELECT output_hash FROM pending_renditions",
+              )
+            )?.output_hash;
+            await first.sync.push();
+            await second.sync.pull();
+          },
+        });
+        const second = b;
+        const post = async (h: Harness, path: string, mime: string) => {
+          const { hash } = await h.blobs.put(Readable.from([bytes]));
+          const created = await h.app.request("/api/collections", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: path, files: [{ path, hash, mime }] }),
+          });
+          return {
+            hash,
+            ...z
+              .object({ collection_id: z.string(), revision_id: z.string() })
+              .parse(await created.json()),
+          };
+        };
+        const json = await post(a, "data.json", "application/json");
+        await a.worker.drain();
+        const standing = await a.waypoint.get<{ output_hash: string }>(
+          "SELECT output_hash FROM renditions WHERE source_hash=?",
+          [json.hash],
+        );
+        expect(standing).toBeTruthy();
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const plain = await post(b, "data.txt", "text/plain");
+        expect(await b.worker.waitForCommit(plain.revision_id, 10_000)).toBe("committed");
+        await b.worker.drain();
+        warn.mockRestore();
+        expect(pulled).toBe(true);
+        // The same bytes as text/plain render differently: B queued its own output for the key.
+        expect(queued).toBeTruthy();
+        expect(queued).not.toBe(standing!.output_hash);
+        expect(await b.blobs.has(queued!)).toBe(false);
+        expect(
+          await b.queue.get("SELECT state FROM pending_revisions WHERE id=?", [plain.revision_id]),
+        ).toBeUndefined();
+        expect(
+          await b.waypoint.all("SELECT output_hash FROM renditions WHERE source_hash=?", [
+            json.hash,
+          ]),
+        ).toEqual([{ output_hash: standing!.output_hash }]);
+        expect(await b.queue.all("SELECT * FROM pending_renditions")).toEqual([]);
+        expect(await b.queue.all("SELECT * FROM pending_blobs")).toEqual([]);
+        const manifest = z
+          .object({ renditions: z.array(z.object({ output_hash: z.string() })) })
+          .parse(
+            JSON.parse(Buffer.from(bucket.objects.get(manifestKey(plain.revision_id))!).toString()),
+          );
+        expect(manifest.renditions.map((r) => r.output_hash)).toEqual([standing!.output_hash]);
+        expect(bucket.objects.has(blobKey(json.hash))).toBe(true);
+        expect(bucket.objects.has(blobKey(standing!.output_hash))).toBe(true);
+        // B's losing output stays in the bucket: B alone can't know it won't become the standing row.
+        expect(await b.queue.all("SELECT key FROM pending_r2_deletes")).toEqual([]);
+        expect(bucket.objects.has(blobKey(queued!))).toBe(true);
+        await b.sync.push();
+        await a.sync.pull();
+        expect(
+          await a.waypoint.get("SELECT id FROM revisions WHERE id=?", [plain.revision_id]),
+        ).toBeTruthy();
+      } finally {
+        await b?.close();
+        await a?.close();
         child.kill("SIGTERM");
         await new Promise<void>((resolve) => child.once("exit", () => resolve()));
         await rm(dir, { recursive: true, force: true });
