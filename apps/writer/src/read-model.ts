@@ -1198,11 +1198,14 @@ export class ReadModel {
         .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
   }
-  /** The newest rendition of `hash` by one renderer (queued or committed). */
+  /**
+   * The newest rendition of `hash` by one renderer (queued or committed), with its renderer
+   * version (the viewer promotes a stale one in the background rerender).
+   */
   async rendition(
     hash: string,
     renderer: string = "markdown",
-  ): Promise<{ hash: string; mime: string } | undefined> {
+  ): Promise<{ hash: string; mime: string; version: number } | undefined> {
     const pending = await this.queue.all<{
       output_hash: string;
       output_mime: string;
@@ -1222,7 +1225,9 @@ export class ReadModel {
     const newest = [...pending, ...committed].toSorted(
       (a, b) => b.renderer_version - a.renderer_version,
     )[0];
-    return newest ? { hash: newest.output_hash, mime: newest.output_mime } : undefined;
+    return newest
+      ? { hash: newest.output_hash, mime: newest.output_mime, version: newest.renderer_version }
+      : undefined;
   }
   async file(id: string, path: string): Promise<{ hash: string; mime: string; size: number }> {
     const revision = await this.revision(id);

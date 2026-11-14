@@ -61,6 +61,13 @@ import { RERENDER_PENDING_SQL } from "./status-data.ts";
  * A source that can't be rendered is recorded in `rerender_skips` at the current version:
  * `too_large` and `output_too_large` until the next version; `declined`, `timeout` and `missing`
  * tried again after 1 h, then 4 h and so on (x4), at most 7 days apart.
+ *
+ * A stale source someone opens through the writer goes first (`promote()`, "T0"): the request
+ * serves the older rendition as it is and only notes the source, in a small bounded set, most
+ * recently opened first. Picking the next source looks there before the work list; everything
+ * else stays as it is (the delay, the gates, the skips, and the re-check that drops a source no
+ * live collection has). A noted source no survey has listed yet waits there for one; nothing
+ * starts a survey for it.
  */
 
 export type RerenderMode = "auto" | "off";
@@ -135,6 +142,8 @@ const PENDING_REVISION_PAGE = 50;
 const REFERENCE_ATTEMPTS = 3;
 /** The longest single sleep: the loop looks around at least this often. */
 const MAX_SLEEP_MS = 3_600_000;
+/** How many opened sources (`promote()`) are remembered; the one opened longest ago goes first. */
+export const PROMOTED_MAX = 32;
 
 /** When a failing source is tried again: 1 h after the first failure, x4 after each, capped. */
 export function skipRetryAt(reason: SkipReason, attempts: number, at: number): number | null {
@@ -190,6 +199,8 @@ export class RerenderBackfill {
   private cursor = 0;
   private skips = new Map<string, Skip>();
   private skipsLoaded = false;
+  /** Keys of sources opened while stale (`promote()`), most recently opened last. */
+  private promoted = new Set<string>();
 
   private surveyedAt: number | null = null;
   private fullSurveyDue = true;
@@ -253,6 +264,24 @@ export class RerenderBackfill {
     const known = this.scoped.get(collectionId);
     this.scoped.set(collectionId, { front: Boolean(options.front) || Boolean(known?.front) });
     this.wake();
+  }
+
+  /**
+   * The writer served a file whose newest rendition (`version`, null for none) is below its
+   * renderer's current version: render that source before the rest (T0). Synchronous bookkeeping
+   * on the request path: no database, no survey, no wake (whatever the loop is waiting for, the
+   * delay or a gate, still applies). A no-op in `off` mode. Opening a source again only moves it
+   * up; at most `PROMOTED_MAX` are remembered.
+   */
+  promote(hash: string, renderer: string, version: number | null): void {
+    if (this.mode !== "auto" || this.stopping) return;
+    const current = this.renderers.get(renderer);
+    if (!current || !isStale(version, current.rendererVersion)) return;
+    const key = keyOf({ renderer, hash });
+    this.promoted.delete(key);
+    this.promoted.add(key);
+    if (this.promoted.size > PROMOTED_MAX)
+      this.promoted.delete(this.promoted.values().next().value!);
   }
 
   /** A pull changed the local database: survey everything again, 10 minutes from the first. */
@@ -499,8 +528,16 @@ export class RerenderBackfill {
     return this.next(now) !== undefined;
   }
 
-  /** The next source to render, without taking it; a finished round picks up due retries. */
+  /**
+   * The next source to render, without taking it: the most recently opened one (`promote()`) that
+   * is in the work list and not waiting on a skip, else the work list's; a finished round picks up
+   * due retries.
+   */
   private next(now: number): Entry | undefined {
+    for (const key of [...this.promoted].toReversed()) {
+      const entry = this.pending.get(key);
+      if (entry && this.live(entry, now)) return entry;
+    }
     for (;;) {
       while (this.cursor < this.order.length) {
         const entry = this.order[this.cursor]!;
@@ -514,11 +551,17 @@ export class RerenderBackfill {
     }
   }
 
+  /**
+   * Marks the source as started. An opened one keeps its place in the work list, where it no
+   * longer counts once it's rendered, skipped or dropped (a new entry or none under its key).
+   */
   private take(entry: Entry): void {
+    this.promoted.delete(keyOf(entry));
     if (this.order[this.cursor] === entry) this.cursor++;
   }
 
   private remove(entry: Entry): void {
+    this.promoted.delete(keyOf(entry));
     if (this.pending.get(keyOf(entry)) === entry) this.pending.delete(keyOf(entry));
   }
 
