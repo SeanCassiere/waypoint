@@ -310,16 +310,19 @@ A writer with `WAYPOINT_RERENDER=auto` (its `/api/status` has a `rerender` block
    once the writer has counted (a writer counts at start). A dry run stops here;
 3. if the writer is still waiting out its post-start delay (`WAYPOINT_RERENDER_DELAY_MINUTES`), it
    ends the delay (`POST /api/rerender/start`, sent from inside the writer's container like every
-   other request `upgrade.sh` makes to it);
+   other request `upgrade.sh` makes to it, and to the very container whose status said `waiting`:
+   if a deploy has replaced it since, the request fails rather than reaching the new one);
 4. it waits until the writer reports `done` (no source left to re-render apart from skipped ones,
    and with sync on no standalone re-rendered rendition still queued for upload), logging how many
    are left as that changes. Renditions attached to queued or failed revisions don't count: they
    upload with those revisions (see "If **Status** lists failed revisions" below). While the
    writer is paused (the bucket account paused, uploads failing, sync blocked) it keeps waiting
    and says why. A writer that stops answering, as when a deploy recreates it, is waited for. The watch remembers the
-   writer's version and commit from when it began (`/api/status`): a writer that comes back on that
-   same build, waiting out its delay again (a restart), is told to start again. One that comes
-   back on another build (a release deployed meanwhile) is **not**: a new release waits out its
+   writer container's image ID from when it began: a writer that comes back on that same image,
+   waiting out its delay again (a restart, or a recreate with the same image), is told to start
+   again. One that comes back on another image (a release deployed meanwhile, even one reporting
+   the same version, as an image built without `WAYPOINT_BUILD_SHA` reports no commit), or whose
+   image can't be read, is **not**: a new release waits out its
    own post-deploy delay, its window to be rolled back before it re-renders everything (D89), and
    the watch says so and goes on until that writer starts by itself and finishes. One that comes
    back without automatic re-rendering (`WAYPOINT_RERENDER=off`, or a rollback to a release

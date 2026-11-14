@@ -1438,13 +1438,17 @@ cmd_rerender() {
 
 # The writer's background rerender, from its /api/status, as one JSON line:
 # {"r": <the `rerender` block, or null for a writer without one>, "p": <queue.rerender_pending>,
-# "v": <the writer's version>, "s": <its commit>}. Fails if there's no writer container or it
-# doesn't answer.
+# "v": <the writer's version>, "s": <its commit>, "c": <the container that answered>,
+# "i": <that container's image ID, or null>}. Fails if there's no writer container or it doesn't
+# answer. The image is read from the same container as the status, so the two always belong
+# together.
 writer_rerender_status() {
-  local container
+  local container image
   container="$(writer_container)"
   [[ -n "$container" ]] || return 1
+  image="$(container_field "$container" '{{.Image}}')"
   docker_run exec "$container" node -e '
+    const [c, i] = process.argv.slice(1);
     fetch("http://127.0.0.1:7410/api/status")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((s) =>
@@ -1454,27 +1458,30 @@ writer_rerender_status() {
             p: s.queue?.rerender_pending ?? null,
             v: s.version ?? null,
             s: s.sha ?? null,
+            c,
+            i: i || null,
           }),
         ),
       )
       .catch(() => process.exit(1));
-  ' 2>/dev/null
+  ' "$container" "$image" 2>/dev/null
 }
 
 # Splits a writer_rerender_status line into rr_mode, rr_state, rr_left, rr_skipped, rr_rendered,
-# rr_paused, rr_starts (an ISO time), rr_pending and rr_build (the writer's version and commit, as
-# <version>@<commit>); "-" stands for null (or no block at all).
+# rr_paused, rr_starts (an ISO time), rr_pending, rr_build (the writer's version and commit, as
+# <version>@<commit>, for logs), rr_container (the container that answered) and rr_image (its
+# image ID, which identifies the build); "-" stands for null (or no block at all).
 rerender_parse() {
   local line
   # shellcheck disable=SC2016 # JavaScript, not shell
   line="$(node -e '
-    const { r, p, v: version, s: sha } = JSON.parse(process.argv[1]);
+    const { r, p, v: version, s: sha, c, i } = JSON.parse(process.argv[1]);
     const v = (x) => (x === null || x === undefined ? "-" : String(x).replace(/\s+/g, "_") || "-");
     const starts = typeof r?.starts_at === "number" ? new Date(r.starts_at).toISOString() : null;
     const build = `${v(version)}@${v(sha)}`;
-    console.log([r?.mode, r?.state, r?.left, r?.skipped, r?.rendered, r?.paused_reason, starts, p, build].map(v).join(" "));
+    console.log([r?.mode, r?.state, r?.left, r?.skipped, r?.rendered, r?.paused_reason, starts, p, build, c, i].map(v).join(" "));
   ' "$1" 2>/dev/null)" || return 1
-  read -r rr_mode rr_state rr_left rr_skipped rr_rendered rr_paused rr_starts rr_pending rr_build <<< "$line"
+  read -r rr_mode rr_state rr_left rr_skipped rr_rendered rr_paused rr_starts rr_pending rr_build rr_container rr_image <<< "$line"
 }
 
 # Whether the writer re-renders by itself: the block exists and its mode is `auto`.
@@ -1497,11 +1504,14 @@ rerender_not_watching() {
 # Ends the writer's post-start delay: POST /api/rerender/start, the way every other request here
 # reaches the writer (from inside its container, on its own port). Node's fetch sends neither
 # Origin nor Sec-Fetch-Site, so the request passes the writer's cross-origin guard.
+# Usage: rerender_start_now <container>
+# The container is the one whose status was just read (rr_container), never resolved again: if a
+# deploy replaced it since, the exec fails rather than ending the new container's delay. A
+# container's image never changes, so the build the status reported is the build told to start
+# (a restart in place keeps both).
 rerender_start_now() {
-  local container
-  container="$(writer_container)"
-  [[ -n "$container" ]] || return 1
-  docker_run exec "$container" node -e '
+  [[ -n "$1" && "$1" != - ]] || return 1
+  docker_run exec "$1" node -e '
     fetch("http://127.0.0.1:7410/api/rerender/start", { method: "POST" })
       .then((r) => process.exit(r.ok ? 0 : 1))
       .catch(() => process.exit(1));
@@ -1511,28 +1521,31 @@ rerender_start_now() {
 # Watches a writer that re-renders by itself until it's done: no lock, nothing stopped. A dry run
 # returns once the counts are shown. While the writer waits out its post-start delay, it's told to
 # start now. A writer that stops answering (a deploy restarting it) is waited for. After a
-# restart (its delay starts again) it's told to start again only if it still runs the build
-# (version and commit) the watch began on: a release deployed meanwhile waits out its own delay,
-# so that a bad release can be rolled back before it re-renders everything (D89), and the watch
-# goes on until it starts by itself and finishes. Fails if neither `left` nor the renditions
+# restart (its delay starts again) it's told to start again only if it still runs the build the
+# watch began on, that is the same image ID (not the reported version and commit: an image built
+# without WAYPOINT_BUILD_SHA reports no commit, so two different builds can report the same
+# ones; an unknown image counts as another build): a release deployed meanwhile waits out its own
+# delay, so that a bad release can be rolled back before it re-renders everything (D89), and the
+# watch goes on until it starts by itself and finishes. Fails if neither `left` nor the renditions
 # queued for upload move for RERENDER_UPLOAD_TIMEOUT seconds, whatever the state (running,
 # paused, or a writer that doesn't answer), except that the clock doesn't run while a newly
 # deployed release waits out its delay: it starts when the delay ends. The writer goes on by
 # itself regardless.
 rerender_wait() {
   local status="$1" timeout="${RERENDER_UPLOAD_TIMEOUT:-3600}" moved_at=$SECONDS progress="" counted=0
-  local logged="" logged_at=-30 paused="" away=0 line queued watch_build="" seen_build="" held=""
+  local logged="" logged_at=-30 paused="" away=0 line queued watch_build="" watch_image="" seen_image="" held=""
   log "the writer re-renders in the background by itself (WAYPOINT_RERENDER=auto): watching it; nothing is stopped and the instance lock isn't taken"
   if (( rerender_limit_set )); then log "--limit is ignored: the writer re-renders one source at a time, at its own pace"; fi
   while :; do
     if [[ -n "$status" ]] && rerender_parse "$status"; then
       if (( away )); then log "the writer answers again"; away=0; fi
-      if [[ -z "$watch_build" ]]; then
+      if [[ -z "$watch_image" ]]; then
         watch_build="$rr_build"
-        seen_build="$rr_build"
-      elif [[ "$rr_build" != "$seen_build" ]]; then
-        log "the writer now runs $rr_build (the watch began on $watch_build)"
-        seen_build="$rr_build"
+        watch_image="$rr_image"
+        seen_image="$rr_image"
+      elif [[ "$rr_image" != "$seen_image" ]]; then
+        log "the writer now runs another image ($rr_build, image $rr_image; the watch began on $watch_build, image $watch_image)"
+        seen_image="$rr_image"
       fi
       if [[ "$rr_mode" != auto ]]; then
         die "the writer no longer re-renders by itself (restarted with WAYPOINT_RERENDER=off, or rolled back to a release without it); rerun upgrade.sh rerender"
@@ -1558,8 +1571,8 @@ rerender_wait() {
             return 0
             ;;
           waiting)
-            if [[ "$rr_build" == "$watch_build" ]]; then
-              if rerender_start_now; then
+            if [[ "$rr_image" != - && "$rr_image" == "$watch_image" ]]; then
+              if rerender_start_now "$rr_container"; then
                 log "told the writer to start re-rendering now (it would have started at $rr_starts)"
               else
                 log "couldn't tell the writer to start re-rendering; trying again"
@@ -1567,9 +1580,14 @@ rerender_wait() {
             else
               # A release deployed during the watch: its post-deploy delay is its window to be
               # rolled back, so it isn't ended, and waiting it out isn't a lack of progress.
-              if [[ "$held" != "$rr_build $rr_starts" ]]; then
-                log "a newly deployed release waits out its post-deploy delay before re-rendering (D89); not ending it: watching until it starts at $rr_starts"
-                held="$rr_build $rr_starts"
+              # An image that couldn't be read is treated the same way.
+              if [[ "$held" != "$rr_image $rr_starts" ]]; then
+                if [[ "$rr_image" == - || "$watch_image" == - ]]; then
+                  log "couldn't tell which image the writer runs, so it may be a newly deployed release; not ending its post-deploy delay (D89): watching until it starts at $rr_starts"
+                else
+                  log "a newly deployed release waits out its post-deploy delay before re-rendering (D89); not ending it: watching until it starts at $rr_starts"
+                fi
+                held="$rr_image $rr_starts"
               fi
               moved_at=$SECONDS
             fi
