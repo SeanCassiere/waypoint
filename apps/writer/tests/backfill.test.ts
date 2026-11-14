@@ -87,6 +87,15 @@ async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   throw new Error("Condition not reached");
 }
 
+/**
+ * Waits for the next millisecond: revision IDs of separate collections made in the same one sort
+ * in no particular order.
+ */
+async function nextMs(): Promise<void> {
+  const now = Date.now();
+  await until(() => Date.now() > now);
+}
+
 let dir: string;
 let waypoint: Db;
 let queue: Db;
@@ -609,6 +618,68 @@ describe("background rerender: order, skips and races", () => {
     expect(status(0)).toMatchObject({ state: "done", stale: 0, rendered: 1 });
   });
 
+  it.each(["purge", "drop"] as const)(
+    "queues nothing for a source a %s removed while its output was being stored",
+    async (removal) => {
+      const doomed = await put("# doomed");
+      const gone = await collection("Gone", { "a.md": doomed });
+      const app = createApp({ waypoint, queue, blobs, reads, ingest });
+      // Hold the output's store: after the backfill has looked at its source, before its rows.
+      const storing = deferred();
+      const release = deferred();
+      const store = blobs.put.bind(blobs);
+      blobs.put = async (source, claimedHash, options) => {
+        if (options?.background && claimedHash === undefined) {
+          storing.resolve();
+          await release.promise;
+        }
+        return store(source, claimedHash, options);
+      };
+      makeBackfill({ sync: false });
+      backfill!.start();
+      await storing.promise;
+      // The removal prunes queued rows now, then waits for the backfill's barrier section.
+      const removed = app.request(
+        removal === "purge"
+          ? `/api/collections/${gone.collection}/purge`
+          : `/api/queue/${gone.revision}`,
+        removal === "purge"
+          ? {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ confirm: gone.collection }),
+            }
+          : { method: "DELETE" },
+      );
+      await until(
+        async () => (await count(queue, "SELECT COUNT(*) AS n FROM pending_revisions")) === 0,
+      );
+      release.resolve();
+      expect((await removed).status).toBe(removal === "purge" ? 202 : 200);
+      await backfill!.whenIdle();
+      expect(markdown.calls).toEqual(["# doomed"]);
+      expect(await queued()).toBe(0);
+      expect(await count(queue, "SELECT COUNT(*) AS n FROM pending_blobs")).toBe(0);
+      expect(status()).toMatchObject({ state: "done", stale: 0, rendered: 0 });
+    },
+  );
+
+  it("renders a source shared with another live collection when the one it was found through goes to Trash", async () => {
+    const shared = await put("# shared");
+    await collection("Older", { "a.md": shared });
+    await nextMs();
+    // The newer revision is the source's best position.
+    const newer = await collection("Newer", { "a.md": shared });
+    makeBackfill({ delayMs: MINUTE });
+    await started(backfill!);
+    expect(status()).toMatchObject({ stale: 1 });
+    await queue.run("UPDATE pending_collections SET deleted_at=1 WHERE id=?", [newer.collection]);
+    await advance(MINUTE);
+    expect(markdown.calls).toEqual(["# shared"]);
+    expect(await queued()).toBe(1);
+    expect(status()).toMatchObject({ state: "done", stale: 0, rendered: 1 });
+  });
+
   it("drops a source whose collection went to Trash or a purge before its turn", async () => {
     const [trashed, live] = await Promise.all([put("# trashed"), put("# live")]);
     const gone = await collection("Gone", { "a.md": trashed });
@@ -628,6 +699,7 @@ describe("background rerender: recompute, sync off, stop", () => {
     const [a, b, c] = await Promise.all([put("# a"), put("# b"), put("# c")]);
     const restored = await collection("Restored", { "a.md": a });
     await collection("B", { "a.md": b });
+    await nextMs();
     await collection("C", { "a.md": c });
     const app = createApp({
       waypoint,
@@ -688,6 +760,74 @@ describe("background rerender: recompute, sync off, stop", () => {
     await advance(QUIET_MS);
     expect(markdown.calls.at(-1)).toBe("# daily");
     expect(logs).toHaveLength(3);
+  });
+
+  it("refreshes the priorities a collection survey finds: a commit moves the Latest link's tier", async () => {
+    const served = await put("# served");
+    const docs = await collection("Docs", { "a.md": served });
+    await commitAll();
+    await link(docs.collection, null);
+    // Queued, not committed: the Latest link still serves the first revision.
+    await revise(docs.collection, { "a.md": await put("# next") });
+    makeBackfill(
+      { sync: true, delayMs: HOUR },
+      { committer, bucket, syncLoop: { blocked: false } },
+    );
+    await started(backfill!);
+    expect(status()).toMatchObject({ stale: 2 });
+    // The second revision commits: the link serves it now, and the first is an older revision.
+    await commitAll();
+    backfill!.collectionChanged(docs.collection);
+    await backfill!.whenIdle();
+    await advance(HOUR);
+    await until(() => markdown.calls.length === 2);
+    expect(markdown.calls).toEqual(["# next", "# served"]);
+  });
+
+  it("keeps a source's best position from another collection when a collection survey lowers it", async () => {
+    const shared = await put("# shared");
+    const pinned = await collection("Pinned", { "a.md": shared });
+    const other = await collection("Other", { "a.md": shared });
+    await commitAll();
+    await link(pinned.collection, pinned.revision);
+    // Tier 2 in both, newer: comes before `shared` unless the pinned link keeps it in tier 1.
+    await revise(other.collection, { "a.md": await put("# other next") });
+    makeBackfill(
+      { sync: true, delayMs: HOUR },
+      { committer, bucket, syncLoop: { blocked: false } },
+    );
+    await started(backfill!);
+    await commitAll();
+    // In `Other`, `shared` is now an older revision (tier 3); in `Pinned` it's still tier 1.
+    backfill!.collectionChanged(other.collection);
+    await backfill!.whenIdle();
+    await advance(HOUR);
+    await until(() => markdown.calls.length === 2);
+    expect(markdown.calls).toEqual(["# shared", "# other next"]);
+  });
+
+  it("abandons a full survey between pages when stopped, so shutdown doesn't wait for it", async () => {
+    for (let index = 0; index < 10; index++)
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Distinct collections, in order.
+      await collection(`Docs ${index}`, { "a.md": await put(`# doc ${index}`) });
+    await commitAll();
+    let filePages = 0;
+    waypoint.onStatement = (sql) => {
+      if (!sql.startsWith("SELECT path, blob_hash, mime, size FROM revision_files")) return;
+      filePages++;
+      backfill!.stop();
+    };
+    try {
+      makeBackfill({ sync: true }, { committer, bucket, syncLoop: { blocked: false } });
+      backfill!.start();
+      await backfill!.drain();
+    } finally {
+      waypoint.onStatement = undefined;
+    }
+    expect(filePages).toBe(1);
+    expect(logs).toEqual([]);
+    expect(status()).toMatchObject({ surveyed_at: null, stale: null });
+    expect(markdown.calls).toEqual([]);
   });
 
   it("with sync off, renders sources of pending revisions without a backlog limit", async () => {
@@ -757,7 +897,9 @@ describe("background rerender over HTTP", () => {
     const [a, b, c] = await Promise.all([put("# a"), put("# b"), put("# c")]);
     // Newest first: c, b, a.
     await collection("A", { "a.md": a });
+    await nextMs();
     await collection("B", { "a.md": b });
+    await nextMs();
     await collection("C", { "a.md": c });
     const committerStub = stubCommitter();
     const app = createApp({

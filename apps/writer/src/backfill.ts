@@ -3,7 +3,7 @@ import type { RerenderRendererStatus, RerenderStatus } from "@waypoint/core";
 import type { BlobStore } from "./blob-store.ts";
 import { BucketError, type Bucket } from "./bucket.ts";
 import { RENDITIONS_PER_PASS } from "./committer.ts";
-import { inSeries, type Db } from "./db.ts";
+import { inSeries, type Db, type DbHandle } from "./db.ts";
 import type { IngestService, Renderer } from "./ingest.ts";
 import {
   ensureLocalSource,
@@ -18,7 +18,10 @@ import {
   isStale,
   newestRenditionVersions,
   surveyStale,
+  type StalePosition,
   type StaleSource,
+  type StaleSurvey,
+  type StaleSurveyOptions,
 } from "./stale.ts";
 import { RERENDER_PENDING_SQL } from "./status-data.ts";
 
@@ -44,8 +47,15 @@ import { RERENDER_PENDING_SQL } from "./status-data.ts";
  *
  * Per source, the GC barrier is held only for two short sections, never across a render (a waiting
  * GC would make every new ingest queue behind it): reading the source, then storing the output and
- * queueing its rows, after checking the source is still stored or in a pending revision. The
- * committer uploads the output and commits the row later, as for the `rerender` command.
+ * queueing its rows. The queue transaction that inserts the rows first checks that the source is
+ * still stored or in a pending revision outside a purge; a purge or Drop prunes queued rows in a
+ * queue transaction too, and those run one at a time, so neither can leave rows for a source it
+ * removed. The committer uploads the output and commits the row later, as for the `rerender`
+ * command.
+ *
+ * Each work-list entry keeps its best position per collection: a one-collection survey replaces
+ * that collection's, and the entry takes the best of those whose collection is still live. A
+ * survey stops between pages when the loop is stopped, so shutdown never waits for a full one.
  *
  * A source that can't be rendered is recorded in `rerender_skips` at the current version:
  * `too_large` and `output_too_large` until the next version; `declined`, `timeout` and `missing`
@@ -118,6 +128,7 @@ const RATE_WINDOW_MS = 10 * 60_000;
 const RETRY_BASE_MS = 3_600_000;
 const RETRY_CAP_MS = 7 * 86_400_000;
 const ERROR_PAUSE_MS = 60_000;
+const PENDING_COLLECTION_PAGE = 100;
 /** The longest single sleep: the loop looks around at least this often. */
 const MAX_SLEEP_MS = 3_600_000;
 
@@ -132,7 +143,11 @@ interface Skip {
   attempts: number;
   retryAt: number | null;
 }
-type Entry = StaleSource & { skip?: Skip };
+type Entry = StaleSource & {
+  skip?: Skip;
+  /** The best position in each collection with the source, from the latest survey of each. */
+  positions: Map<string, StalePosition>;
+};
 const keyOf = (source: Pick<StaleSource, "renderer" | "hash">): string =>
   `${source.renderer}\0${source.hash}`;
 
@@ -155,6 +170,8 @@ export class RerenderBackfill {
   private sleeping = false;
   private idleWaiters: (() => void)[] = [];
   private stopWaiters: (() => void)[] = [];
+  /** Aborts the survey in flight (`stop()`). */
+  private surveyAbort: AbortController | undefined;
 
   /** Stale sources by key; `order` is the work list, best first from `cursor`. */
   private pending = new Map<string, Entry>();
@@ -201,6 +218,7 @@ export class RerenderBackfill {
   stop(): void {
     if (this.stopping) return;
     this.stopping = true;
+    this.surveyAbort?.abort();
     for (const resolve of this.stopWaiters.splice(0)) resolve();
     this.wake();
     void this.closeRenderers();
@@ -520,17 +538,44 @@ export class RerenderBackfill {
 
   private entryFor(source: StaleSource): Entry {
     const skip = this.skips.get(keyOf(source));
-    return skip ? { ...source, skip } : { ...source };
+    const positions = new Map(
+      source.positions ?? [
+        [
+          source.collectionId,
+          { tier: source.tier, settled: source.settled, revisionId: source.revisionId },
+        ],
+      ],
+    );
+    return skip ? { ...source, positions, skip } : { ...source, positions };
+  }
+
+  /** A survey with per-collection positions, abandoned between pages by `stop()`. */
+  private async survey(
+    options: Pick<StaleSurveyOptions, "collectionId" | "now">,
+  ): Promise<StaleSurvey> {
+    this.checkStopped();
+    const abort = new AbortController();
+    this.surveyAbort = abort;
+    try {
+      return await surveyStale(this.deps.waypoint, this.deps.queue, {
+        ...options,
+        renderers: this.deps.renderers,
+        settledMs: this.options.settledMs,
+        positions: true,
+        signal: abort.signal,
+      });
+    } catch (error) {
+      if (this.stopping) throw new Stopped();
+      throw error;
+    } finally {
+      if (this.surveyAbort === abort) this.surveyAbort = undefined;
+    }
   }
 
   private async fullSurvey(): Promise<void> {
     const started = this.clock.now();
     const wallStarted = performance.now();
-    const survey = await surveyStale(this.deps.waypoint, this.deps.queue, {
-      renderers: this.deps.renderers,
-      now: started,
-      settledMs: this.options.settledMs,
-    });
+    const survey = await this.survey({ now: started });
     this.checkStopped();
     this.fullSurveyDue = false;
     this.pullSurveyAt = null;
@@ -552,43 +597,69 @@ export class RerenderBackfill {
   }
 
   private async collectionSurvey(collectionId: string, front: boolean): Promise<void> {
-    const survey = await surveyStale(this.deps.waypoint, this.deps.queue, {
-      renderers: this.deps.renderers,
-      collectionId,
-      now: this.clock.now(),
-      settledMs: this.options.settledMs,
-    });
+    const survey = await this.survey({ collectionId, now: this.clock.now() });
     this.checkStopped();
+    const added: Entry[] = [];
+    const changed = new Set<Entry>();
     const toFront: Entry[] = [];
+    const seen = new Set<string>();
     for (const source of survey.stale) {
       const key = keyOf(source);
+      seen.add(key);
       let entry = this.pending.get(key);
       if (!entry) {
         entry = this.entryFor(source);
         this.pending.set(key, entry);
-        if (!front) this.insertSorted(entry);
+        if (!front) added.push(entry);
+      } else {
+        // This collection's position is new; the others stand until their collection's next survey.
+        entry.positions.set(
+          collectionId,
+          source.positions?.get(collectionId) ?? {
+            tier: source.tier,
+            settled: source.settled,
+            revisionId: source.revisionId,
+          },
+        );
+        changed.add(entry);
       }
       if (front) toFront.push(entry);
     }
-    // Restored from Trash: its sources first, in their own priority order.
-    // (No spread into splice: a large collection would exceed the argument limit.)
-    if (toFront.length)
-      this.order = [
-        ...this.order.slice(0, this.cursor),
-        ...toFront,
-        ...this.order.slice(this.cursor),
-      ];
-  }
-
-  private insertSorted(entry: Entry): void {
-    let low = this.cursor;
-    let high = this.order.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (compareStale(this.order[middle]!, entry) <= 0) low = middle + 1;
-      else high = middle;
+    // Sources this collection no longer has stale: its old position no longer counts.
+    for (const entry of this.pending.values())
+      if (!seen.has(keyOf(entry)) && entry.positions.delete(collectionId)) changed.add(entry);
+    // Each changed entry takes its best position among collections still live.
+    const live = new Map<string, boolean>([[collectionId, true]]);
+    await inSeries(changed, async (entry) => {
+      await inSeries([...entry.positions.keys()], async (id) => {
+        if (!live.has(id)) live.set(id, await this.collectionLive(id));
+        if (!live.get(id)) entry.positions.delete(id);
+      });
+      let best: [string, StalePosition] | undefined;
+      for (const [id, position] of entry.positions)
+        if (!best || compareStale(position, best[1]) < 0) best = [id, position];
+      // None left: process() re-checks the source and drops it if it's no longer wanted.
+      if (best) Object.assign(entry, best[1], { collectionId: best[0] });
+    });
+    this.checkStopped();
+    // Re-position: restored from Trash, its sources first in their own priority order; anything
+    // else that's new or moved goes where its (new) position puts it.
+    const first = new Set(toFront);
+    const moving = new Set<Entry>([...toFront, ...added, ...changed]);
+    const rest = this.order.slice(this.cursor).filter((entry) => !moving.has(entry));
+    const sorted = [...added, ...[...changed].filter((entry) => !first.has(entry))].toSorted(
+      compareStale,
+    );
+    const merged: Entry[] = [];
+    let index = 0;
+    for (const entry of rest) {
+      while (index < sorted.length && compareStale(sorted[index]!, entry) < 0)
+        merged.push(sorted[index++]!);
+      merged.push(entry);
     }
-    this.order.splice(low, 0, entry);
+    while (index < sorted.length) merged.push(sorted[index++]!);
+    // (No spread into splice: a large collection would exceed the argument limit.)
+    this.order = [...this.order.slice(0, this.cursor), ...toFront, ...merged];
   }
 
   private async closeRenderers(): Promise<void> {
@@ -620,43 +691,72 @@ export class RerenderBackfill {
     );
   }
 
-  /** In at least one collection outside Trash and not being purged, committed or queued. */
-  private async inLiveCollection(entry: Entry): Promise<boolean> {
+  /** Outside Trash and not being purged. */
+  private async collectionLive(collectionId: string): Promise<boolean> {
     const { waypoint, queue } = this.deps;
-    const live = async (collectionId: string): Promise<boolean> =>
+    return (
       !(await queue.get("SELECT 1 FROM pending_purges WHERE collection_id=?", [collectionId])) &&
       !(await waypoint.get("SELECT 1 FROM collection_tombstones WHERE collection_id=?", [
         collectionId,
       ])) &&
       !(await queue.get("SELECT 1 FROM pending_collections WHERE id=? AND deleted_at IS NOT NULL", [
         collectionId,
-      ]));
+      ]))
+    );
+  }
+
+  /**
+   * In at least one collection outside Trash and not being purged, through any committed or
+   * pending revision that has it.
+   */
+  private async inLiveCollection(entry: Entry): Promise<boolean> {
+    const { waypoint, queue } = this.deps;
     const committed = await waypoint.all<{ collection_id: string }>(
       "SELECT DISTINCT r.collection_id FROM revision_files f JOIN revisions r ON r.id=f.revision_id WHERE f.blob_hash=?",
       [entry.hash],
     );
     for (const row of committed)
       // oxlint-disable-next-line eslint/no-await-in-loop -- Stops at the first live collection.
-      if (await live(row.collection_id)) return true;
-    const pendingIn = await this.pendingCollection(entry);
-    return pendingIn !== null && (await live(pendingIn));
-  }
-
-  /**
-   * A pending revision with the source: the one the survey saw first (with sync off, every
-   * source is only in pending revisions), else any. Null when none has it.
-   */
-  private async pendingCollection(entry: Entry): Promise<string | null> {
-    const known = await this.deps.queue.get<{ collection_id: string; manifest_json: string }>(
+      if (await this.collectionLive(row.collection_id)) return true;
+    // The pending revision the survey saw first, the usual answer, before all of them.
+    const known = await queue.get<{ collection_id: string; manifest_json: string }>(
       "SELECT collection_id,manifest_json FROM pending_revisions WHERE id=? AND state='pending'",
       [entry.revisionId],
     );
-    if (known && known.manifest_json.includes(`"${entry.hash}"`)) return known.collection_id;
-    const any = await this.deps.queue.get<{ collection_id: string }>(
-      "SELECT p.collection_id FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.state='pending' AND json_extract(f.value,'$.hash')=? LIMIT 1",
-      [entry.hash],
+    if (
+      known &&
+      known.manifest_json.includes(`"${entry.hash}"`) &&
+      (await this.collectionLive(known.collection_id))
+    )
+      return true;
+    for (let after = "", more = true; more;) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Pages, until a live collection.
+      const page = await queue.all<{ collection_id: string }>(
+        "SELECT DISTINCT p.collection_id FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.state='pending' AND json_extract(f.value,'$.hash')=? AND p.collection_id>? ORDER BY p.collection_id LIMIT ?",
+        [entry.hash, after, PENDING_COLLECTION_PAGE],
+      );
+      for (const row of page)
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Stops at the first live collection.
+        if (await this.collectionLive(row.collection_id)) return true;
+      more = page.length === PENDING_COLLECTION_PAGE;
+      after = page.at(-1)?.collection_id ?? after;
+    }
+    return false;
+  }
+
+  /**
+   * Whether the source still needs a rendition: committed (a `blobs` row), or in a pending
+   * revision of a collection not being purged. `queue` is the queue database or, for the check
+   * that decides, the handle of the transaction that queues the rows.
+   */
+  private async stillStored(queue: DbHandle, hash: string): Promise<boolean> {
+    if (await this.deps.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [hash])) return true;
+    return Boolean(
+      await queue.get(
+        "SELECT 1 FROM pending_revisions p, json_each(p.manifest_json,'$.files') f WHERE p.state='pending' AND json_extract(f.value,'$.hash')=? AND NOT EXISTS (SELECT 1 FROM pending_purges u WHERE u.collection_id=p.collection_id) LIMIT 1",
+        [hash],
+      ),
     );
-    return any?.collection_id ?? null;
   }
 
   /** Races `work` against `stop()`. */
@@ -772,12 +872,15 @@ export class RerenderBackfill {
     }
     // Stopping: the output is dropped, and the next start renders the source again.
     this.checkStopped();
-    // 5. Store and queue inside the barrier, if the source is still stored or queued.
+    // 5. Store and queue inside the barrier, if the source is still stored or queued: looked at
+    // first, so a source gone by now stores nothing, and again in the queue transaction that
+    // queues the rows, so a purge or Drop since can't leave rows behind. An output stored for a
+    // source that went in between stays on disk unreferenced, like an upload nothing used: an
+    // upload of the same bytes may be under way outside the barrier, so it isn't deleted here.
     const queued = await ingest.gcBarrier.read(() =>
       ingest.withBlobHold(async (hold) => {
         hold(entry.hash);
-        const stored = await waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [entry.hash]);
-        if (!stored && (await this.pendingCollection(entry)) === null) return null;
+        if (!(await this.stillStored(queue, entry.hash))) return null;
         return queueRendition(
           deps,
           renderer,
@@ -785,10 +888,11 @@ export class RerenderBackfill {
           rendered.rendition,
           this.clock.now(),
           hold,
+          (tx) => this.stillStored(tx, entry.hash),
         );
       }),
     );
-    if (queued === null) {
+    if (queued === null || queued.status === "source_gone") {
       this.remove(entry);
       return;
     }

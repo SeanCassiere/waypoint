@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import type { BlobStore } from "./blob-store.ts";
 import type { Bucket } from "./bucket.ts";
 import { blobKey } from "./committer.ts";
-import type { Db } from "./db.ts";
+import type { Db, DbHandle } from "./db.ts";
 import type { Renderer, Rendition } from "./ingest.ts";
 
 /**
@@ -98,9 +98,18 @@ export type QueueOutcome =
   /** The output is over the blob limit: no rendition, as at ingest. */
   | { status: "output_too_large" };
 
+/** `queueRendition`'s `stillWanted` said no: the output is stored but nothing was queued. */
+export interface SourceGone {
+  status: "source_gone";
+  outputHash: string;
+}
+
 /**
  * Stores the output and queues its rows in one queue transaction. `onStored` sees the output's
  * hash once it's stored and before its rows are queued (the backfill holds it from GC there).
+ * `stillWanted`, when given, runs first inside that transaction (on its handle): when it returns
+ * false nothing is queued. Queue transactions run one at a time on the queue connection, so a
+ * purge or Drop that prunes queued rows can't interleave with the check and the insert.
  */
 export async function queueRendition(
   deps: Pick<RenderSourceDeps, "waypoint" | "queue" | "blobs" | "background">,
@@ -109,14 +118,33 @@ export async function queueRendition(
   rendition: Rendition,
   now: number,
   onStored?: (outputHash: string) => void,
-): Promise<QueueOutcome> {
+): Promise<QueueOutcome>;
+export async function queueRendition(
+  deps: Pick<RenderSourceDeps, "waypoint" | "queue" | "blobs" | "background">,
+  renderer: Pick<Renderer, "rendererName" | "rendererVersion">,
+  hash: string,
+  rendition: Rendition,
+  now: number,
+  onStored: ((outputHash: string) => void) | undefined,
+  stillWanted: (tx: DbHandle) => Promise<boolean>,
+): Promise<QueueOutcome | SourceGone>;
+export async function queueRendition(
+  deps: Pick<RenderSourceDeps, "waypoint" | "queue" | "blobs" | "background">,
+  renderer: Pick<Renderer, "rendererName" | "rendererVersion">,
+  hash: string,
+  rendition: Rendition,
+  now: number,
+  onStored?: (outputHash: string) => void,
+  stillWanted?: (tx: DbHandle) => Promise<boolean>,
+): Promise<QueueOutcome | SourceGone> {
   if (rendition.bytes.byteLength > deps.blobs.maxBlobBytes) return { status: "output_too_large" };
   const output = await deps.blobs.put(Readable.from([Buffer.from(rendition.bytes)]), undefined, {
     background: Boolean(deps.background),
   });
   onStored?.(output.hash);
   const stored = await deps.waypoint.get("SELECT 1 FROM blobs WHERE hash=?", [output.hash]);
-  await deps.queue.transaction(async (tx) => {
+  const queued = await deps.queue.transaction(async (tx) => {
+    if (stillWanted && !(await stillWanted(tx))) return false;
     if (!stored)
       await tx.run("INSERT OR IGNORE INTO pending_blobs (hash,size) VALUES (?,?)", [
         output.hash,
@@ -126,8 +154,11 @@ export async function queueRendition(
       "INSERT OR IGNORE INTO pending_renditions (source_hash,renderer,renderer_version,output_hash,output_mime,created_at) VALUES (?,?,?,?,?,?)",
       [hash, renderer.rendererName, renderer.rendererVersion, output.hash, rendition.mime, now],
     );
+    return true;
   });
-  return { status: "queued", outputHash: output.hash };
+  return queued
+    ? { status: "queued", outputHash: output.hash }
+    : { status: "source_gone", outputHash: output.hash };
 }
 
 export type RenderSourceResult =
