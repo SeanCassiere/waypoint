@@ -161,12 +161,14 @@ expect_data
 step "a writer that crashed and restarted once still counts as healthy"
 before="$(container)"
 # Kill the server process (tini is PID 1), as an OOM kill would; Docker restarts the container.
+# When the container stops before this helper exits, the helper is killed with it and the exec
+# exits 137: the kill still happened, so only that status is let through.
 # shellcheck disable=SC2016 # JavaScript, not shell
 docker_ exec "$before" node -e '
   const fs = require("node:fs");
   for (const p of fs.readdirSync("/proc").filter((d) => /^[0-9]+$/.test(d) && d !== String(process.pid)))
     try { if (fs.readFileSync(`/proc/${p}/cmdline`, "utf8").startsWith("node\0dist/main.js\0")) process.kill(Number(p), "SIGKILL"); } catch {}
-'
+' || [[ $? == 137 ]] || fail "couldn't kill the writer's server process"
 for _ in $(seq 90); do
   [[ "$(docker_ inspect --format '{{.RestartCount}} {{.State.Health.Status}}' "$before")" == "1 healthy" ]] && break
   sleep 1
