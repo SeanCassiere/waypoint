@@ -57,6 +57,10 @@ describe("panelCss and treeCss", () => {
     expect(panelCss).toContain("top:calc(var(--panel-top,0px) + 32px)");
   });
 
+  it("keeps the panel body's scrollbar gutter, so Expand all doesn't shift its rows", () => {
+    expect(panelCss).toMatch(/\.pbody\{[^}]*overflow:auto;[^}]*scrollbar-gutter:stable[;}]/);
+  });
+
   it("leaves the shell's height to the page", () => {
     expect(panelCss).not.toMatch(/(?<![-\w])height:(?!78dvh)/);
   });
