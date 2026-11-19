@@ -18,6 +18,10 @@ const PEEK_EASE = `opacity ${PEEK_SLIDE_OUT}ms ease-out,transform ${PEEK_SLIDE_O
  * Logbook: the panel is a leaf of surface beside the paper, ruled from the document; a peeking
  * or sheet panel floats, so it takes the floating radius (`--rd-3`).
  *
+ * `.pbody` keeps its scrollbar's gutter while nothing overflows, so where the browser shows a
+ * classic scrollbar, a tab that starts or stops scrolling (Expand all, Collapse all) doesn't move
+ * its rows and the tools row's button sideways.
+ *
  * `--panel-top` is where the panel and the peek strip start (0 in sharedTokensCss; the writer sets
  * it to its bar's height on `.shell`). The shell's height belongs to its page, and so does the print height.
  */
@@ -30,7 +34,7 @@ export const panelCss: string = `.shell{display:grid;grid-template-columns:var(-
 .shell.closed .panel{position:fixed;left:0;top:calc(var(--panel-top,0px) + 32px);bottom:24px;width:var(--panel-w);z-index:32;border:1px solid var(--rule-2);border-left:0;border-radius:0 var(--rd-3) var(--rd-3) 0;box-shadow:var(--sh-2)}
 .shell.closed.peek .panel{visibility:visible}}
 .panel{border-right:1px solid var(--rule);background:var(--surface);display:flex;flex-direction:column;min-height:0;overflow:hidden}
-.pbody{flex:1;overflow:auto;padding:10px 8px 16px}
+.pbody{flex:1;overflow:auto;scrollbar-gutter:stable;padding:10px 8px 16px}
 .panel-scrim{display:none}
 @media(max-width:${NARROW_MAX}px){.shell,.shell.closed{grid-template-columns:minmax(0,1fr)}
 .shell.closed .panel{visibility:visible}
