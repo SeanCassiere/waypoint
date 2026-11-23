@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/SeanCassiere/waypoint/compare/v0.9.1...v0.9.2) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** bump the production-dependencies group with 5 updates ([#169](https://github.com/SeanCassiere/waypoint/issues/169)) ([6847711](https://github.com/SeanCassiere/waypoint/commit/6847711c3448dbfa9060e64d15e15676646961c7))
+
 ## [0.9.1](https://github.com/SeanCassiere/waypoint/compare/v0.9.0...v0.9.1) (2026-11-19)
 
 
