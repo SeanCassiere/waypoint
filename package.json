@@ -27,7 +27,7 @@
     "typecheck:root": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@hono/node-server": "^2.1.8",
+    "@hono/node-server": "^2.1.11",
     "@types/node": "^26.6.6",
     "oxfmt": "^0.78.0",
     "oxlint": "^1.93.0",

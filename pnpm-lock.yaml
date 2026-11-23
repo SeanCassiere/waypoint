@@ -19,8 +19,8 @@ importers:
   .:
     devDependencies:
       '@hono/node-server':
-        specifier: ^2.1.8
-        version: 2.1.8(hono@4.13.18)
+        specifier: ^2.1.11
+        version: 2.1.11(hono@4.13.19)
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -67,8 +67,8 @@ importers:
         specifier: ^1.0.20
         version: 1.0.20
       hono:
-        specifier: ^4.13.18
-        version: 4.13.18
+        specifier: ^4.13.19
+        version: 4.13.19
     devDependencies:
       wrangler:
         specifier: 4.161.0
@@ -77,11 +77,11 @@ importers:
   apps/writer:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: ^3.1168.0
-        version: 3.1168.0
+        specifier: ^3.1173.0
+        version: 3.1173.0
       '@hono/node-server':
-        specifier: ^2.1.8
-        version: 2.1.8(hono@4.13.18)
+        specifier: ^2.1.11
+        version: 2.1.11(hono@4.13.19)
       '@shikijs/core':
         specifier: 4.6.0
         version: 4.6.0
@@ -98,11 +98,11 @@ importers:
         specifier: ^4.14.2
         version: 4.14.2
       '@tursodatabase/database':
-        specifier: 0.8.3
-        version: 0.8.3
+        specifier: 0.8.4
+        version: 0.8.4
       '@tursodatabase/sync':
-        specifier: 0.8.3
-        version: 0.8.3
+        specifier: 0.8.4
+        version: 0.8.4
       busboy:
         specifier: ^1.6.0
         version: 1.6.0
@@ -110,8 +110,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       hono:
-        specifier: ^4.13.18
-        version: 4.13.18
+        specifier: ^4.13.19
+        version: 4.13.19
       rehype-raw:
         specifier: 7.0.0
         version: 7.0.0
@@ -258,8 +258,8 @@ importers:
   tests:
     devDependencies:
       '@hono/node-server':
-        specifier: ^2.1.8
-        version: 2.1.8(hono@4.13.18)
+        specifier: ^2.1.11
+        version: 2.1.11(hono@4.13.19)
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(supports-color@10.2.2)(zod@4.6.7)
@@ -294,8 +294,8 @@ packages:
     resolution: {integrity: sha512-OHlfkNzDFjYnwNPABhwAkDTUi0HPjfsKUHJDR0bSMORpCXNzRpInPCNCIT08xKDhjaPlcLJ+2Av+Sk7hHnuC8A==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-s3@3.1168.0':
-    resolution: {integrity: sha512-7NcVxqy7Vc6I8A3KOZFORGh+zfMCd4S5aje55tBNBfshddz+F1NZwxLXblt44TC6nw0Hgx5os3AM2d/P0McELQ==}
+  '@aws-sdk/client-s3@3.1173.0':
+    resolution: {integrity: sha512-eFlCOczCvpv1CN37d0BzUxoHmw2ARrMtqQ4JC0pkh5kx/SU9oUKlNtWkqrNg+QRNob0MAi3+SbQQnP5FCcKpHg==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.981.0':
@@ -334,8 +334,8 @@ packages:
     resolution: {integrity: sha512-duLeE3xlf0viHeH+1RM4z5duR3b32BCZTWVMu+MbxFPjQBxy7hmIGEqt5hekuFPRuXoyhMovjNl+PNNsb5oiGQ==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/middleware-sdk-s3@3.972.89':
-    resolution: {integrity: sha512-Lem2/ZT1eOicVATBukPRPm2S4JAmrTEkP3/dnJE9iTeyqIKqsJF2j04f5L0o+rrZIrwR13swiQMdzcE5jXRzNA==}
+  '@aws-sdk/middleware-sdk-s3@3.972.90':
+    resolution: {integrity: sha512-UtdPoeKTfUyk4WI6iGirvuN+2MkVMNiWyYwHlwbdOBIonD66+Jm8qR4zdlJJDLqTIDmtvULTH0ZUyEyf/BGTsA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/nested-clients@3.998.3':
@@ -577,8 +577,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@hono/node-server@2.1.8':
-    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
+  '@hono/node-server@2.1.11':
+    resolution: {integrity: sha512-KzKz9vl4vvr1vgLHamj+g5uonbrj5NwAdO3yzOS6cd2HjALVeOgTgeZOyAzNxejbkfOOPIcvuf/Tg8l1pEFLog==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4 || ^5.0.0-0
@@ -1358,33 +1358,33 @@ packages:
     cpu: [arm64]
     os: [win32]
 
-  '@tursodatabase/database-common@0.8.3':
-    resolution: {integrity: sha512-T8sMfSnRjgGzKMDVkSg0lh1Jh6dDtTWzjYFK0ZJHtKzr+zs69a7Igo4Z+sxfh+rk9gEqn2njLgRYfpMEghMVMw==}
+  '@tursodatabase/database-common@0.8.4':
+    resolution: {integrity: sha512-7GguqHmnZjnEzflnstsyT9boWOEi3huyeFusBS/xHnQ6OV1kYyA6ONamL9Xqsz9qQlNO9WaMmtxMiYvMiLoqeA==}
 
-  '@tursodatabase/database-darwin-arm64@0.8.3':
-    resolution: {integrity: sha512-ZqXF8BUqED5mmSIRM5V13xiowc3CAekfpB26Opb4kbix5/9Q6AKgoxyZ1TkgMgjpih1FXAxD5UKdJ6b8D3IElw==}
+  '@tursodatabase/database-darwin-arm64@0.8.4':
+    resolution: {integrity: sha512-9gD8DH/pH/ZXcwoDC95K9aPPAWIdGJk+RLTIiXLNLsi8MLJey0xQemqUKqEYuhm8VNy4+g67z9vmVb5YZCHHwA==}
     cpu: [arm64]
     os: [darwin]
 
-  '@tursodatabase/database-linux-arm64-gnu@0.8.3':
-    resolution: {integrity: sha512-4m9EqKDhL0gwqg6r4KHqX1+2PjMx0xS8CQ61hpoGmWPaCYygePo6O0Zv7EADcf8JJwSBhe7MHyt76gcaEuZDTA==}
+  '@tursodatabase/database-linux-arm64-gnu@0.8.4':
+    resolution: {integrity: sha512-iUMQUzwbRDCfG3A9XJWC/MuGOQwhn6bZ+2koQ5LjQJltHqLeXsDn09/3pDaFczDmfSfjQW6Ab2QpQ5q4aG0MCQ==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@tursodatabase/database-linux-x64-gnu@0.8.3':
-    resolution: {integrity: sha512-CrwYN45/zCSS+qPOqdOw7wI+MKE6ZHWehxwqJJwatW8CAI/tcEWxz3t+gc1v+p8jgGuNGqTJL3QUu2AnQYVC0Q==}
+  '@tursodatabase/database-linux-x64-gnu@0.8.4':
+    resolution: {integrity: sha512-gGaS21vusrbJ3Aw6ZcgPrmE7LgHPjJibh2n3JHgmLTmNVq0enfbtNqmlm5X20Dw3OvTHR5WPd6blGvk9gpvorw==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@tursodatabase/database-win32-x64-msvc@0.8.3':
-    resolution: {integrity: sha512-N19zq+nM9RSeYn4t0FOkfHPMkeWpgHLI2IM3L6dT8KH+bhvdAAAzp2E+cKjl8NQm6RaBSP8f5yqZqV3tp3ET0A==}
+  '@tursodatabase/database-win32-x64-msvc@0.8.4':
+    resolution: {integrity: sha512-85lyfmrtrberCfILhTTIME4VzjCNkLWZFMm9bYZKp1w7S2bwJ/Vl4UwXuhl7+vRVIJix1i7bn4wjBJ8k6sl82A==}
     cpu: [x64]
     os: [win32]
 
-  '@tursodatabase/database@0.8.3':
-    resolution: {integrity: sha512-pYkADI524URbtreTz+JX7lKtNnfIZU5Pm0n8d6ENnLka3/l1sIexdDmPDWQea4M7CMURv7FxL44oJFYoMQLmOQ==}
+  '@tursodatabase/database@0.8.4':
+    resolution: {integrity: sha512-jPkAsBhJg0pT4t/t/GARCQ2J+8/+I0znOpyM3BmwLIBR+u1dPYSBNetJdoQW+6sVULQsuYpEkjEU9SGQBwyz5g==}
 
   '@tursodatabase/serverless@0.2.4':
     resolution: {integrity: sha512-kqf3FINvTGx8N1iH/4e1Dkbr/om5q9qitshzvljtQXwZFQIsVP/mDE76mGg9U2dg/ElOZKFKtT1VXDgd39Dr1w==}
@@ -1392,33 +1392,33 @@ packages:
   '@tursodatabase/serverless@1.4.1':
     resolution: {integrity: sha512-kcbGx0zb0Js4WnIrIF4AlsK3gzryRdTyUQev/9UbxtcH/iyk7u0Rk+l7dWdPC/5Ymu1WlbSyn4oUb02eNbn6Mw==}
 
-  '@tursodatabase/sync-common@0.8.3':
-    resolution: {integrity: sha512-y8a3f3+AzenDD1uY6+iGNf3hpj8CtdJ/sfXCJXSW+bOJyFgqV68WsRzZZqy6fU3ua7wJ+yRRqNJJr31kfQ8wsw==}
+  '@tursodatabase/sync-common@0.8.4':
+    resolution: {integrity: sha512-7w4E2aCbVxaBvyvc36PepqHupO02QDPRyI2mKttjz0mz/9Mk3mMj3UcXmaWnsIrxxIrtjrGw6NwuCGh1nt2GdA==}
 
-  '@tursodatabase/sync-darwin-arm64@0.8.3':
-    resolution: {integrity: sha512-G6ZOmF5+K7CYVA4Wn+jlQ22H6tqI5GdRu1DWt1J0q3u3H6ORiEJlyfguKTTI6iaJFh8miLm5Gjp3qy8hKFIN7g==}
+  '@tursodatabase/sync-darwin-arm64@0.8.4':
+    resolution: {integrity: sha512-zynIkHLvnlS7VfvfuMkHKk72NXAFEANK2O1bNFMtkigzI9MDS+EEiqXrGr9RZvB3YQSOVh7Cs7V6gpWP+5EMig==}
     cpu: [arm64]
     os: [darwin]
 
-  '@tursodatabase/sync-linux-arm64-gnu@0.8.3':
-    resolution: {integrity: sha512-B/8c8ZqJCi9oe5yoghYRVkg8DYEHlIKn1t7Kh02hAWYRqc3FqNR7YxSG+kOV+evfk1QSAO0XVXGnoe6/dO3XEg==}
+  '@tursodatabase/sync-linux-arm64-gnu@0.8.4':
+    resolution: {integrity: sha512-OZ2qUvu8LTxad1gLF/iZlu4tFdgh+7GVU5Swa3G5q7q1MyKwDj2eUrlavcyCdpMFOQhWEwdDVFGQwl/MOOkslQ==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@tursodatabase/sync-linux-x64-gnu@0.8.3':
-    resolution: {integrity: sha512-WMqSQRuGwNKVjSF4Ktik9Om+D6hpVPSMhzu+/+WfASVCCHKXkYjr9hP4DRx4bmFXHl/VWhOffw+hFLJ4t1DneA==}
+  '@tursodatabase/sync-linux-x64-gnu@0.8.4':
+    resolution: {integrity: sha512-J9nSB++TRoGfSISSa+wyzdP7c67XyhXH+BJfhwXJBQYXLBBa0aV3ej45vlGWqj2ibXM/anBhtEO7rXELy/2MDQ==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@tursodatabase/sync-win32-x64-msvc@0.8.3':
-    resolution: {integrity: sha512-2AJ5uLke0OY1shxtCp7UZebCgNR51aW33J1HvjUwmszd6Z7e1FApwNX9RK1Hj6yEJBlz9j8NdUtGCgGS4s3JNQ==}
+  '@tursodatabase/sync-win32-x64-msvc@0.8.4':
+    resolution: {integrity: sha512-FSCeABIISKA8usL8JoKi8JvgjP7rVc6Brb9ab29aUKC+ukilFqh90R/HiolRLXDZ5Woi/Yz2ecnXSquL1YkJqQ==}
     cpu: [x64]
     os: [win32]
 
-  '@tursodatabase/sync@0.8.3':
-    resolution: {integrity: sha512-NB7lgKHNBDmeotjdv9jsfZ7OtAdHztHy6/ut5NBxsAKhoA4d8IJsRA8+X/TpDKyZ4xfQPDPaIPPWnSQEm4wChg==}
+  '@tursodatabase/sync@0.8.4':
+    resolution: {integrity: sha512-DffQhICZx4difoRrcnhDubuZ7hZIEoSj+F7YV2EfyTm34j0orD2p8MXgLlENp4Zzg9wuJDGiu6wo4WzdgLIb9A==}
 
   '@tybys/wasm-util@0.10.4':
     resolution: {integrity: sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==}
@@ -1950,8 +1950,8 @@ packages:
   hastscript@9.0.3:
     resolution: {integrity: sha512-1ALZXSmCGmW3h8AMz4R4+QKSKFi7sNgXLVwmwB8FYVtl1CwQ3WDkSAEY/d5tp1g/vbQgq2s1WlHgfO3jbw1TsA==}
 
-  hono@4.13.18:
-    resolution: {integrity: sha512-H9q/E1XizaWstJxUW881dmLxEj+t/TrGGnyxINkm4+sK0qUwsMtFdo2BWI9Vs3cIS19MU6b6iCijoUoEf4f3DA==}
+  hono@4.13.19:
+    resolution: {integrity: sha512-KmXvQAXwcAHV+muzbIwoJ23niEB5nMoDVr9WcRkU8mvjUECm/1+7v4Jgp7P7a+H6MLFrh+vXrGonGrGS+RQfkA==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.2:
@@ -2833,12 +2833,12 @@ snapshots:
       '@smithy/types': 4.20.0
       tslib: 2.9.1
 
-  '@aws-sdk/client-s3@3.1168.0':
+  '@aws-sdk/client-s3@3.1173.0':
     dependencies:
       '@aws-sdk/checksums': 3.1002.5
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/credential-provider-node': 3.972.97
-      '@aws-sdk/middleware-sdk-s3': 3.972.89
+      '@aws-sdk/middleware-sdk-s3': 3.972.90
       '@aws-sdk/signature-v4-multi-region': 3.996.52
       '@aws-sdk/types': 3.975.1
       '@smithy/core': 3.40.0
@@ -2942,7 +2942,7 @@ snapshots:
       '@smithy/types': 4.20.0
       tslib: 2.9.1
 
-  '@aws-sdk/middleware-sdk-s3@3.972.89':
+  '@aws-sdk/middleware-sdk-s3@3.972.90':
     dependencies:
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/signature-v4-multi-region': 3.996.52
@@ -3116,9 +3116,9 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@hono/node-server@2.1.8(hono@4.13.18)':
+  '@hono/node-server@2.1.11(hono@4.13.19)':
     dependencies:
-      hono: 4.13.18
+      hono: 4.13.19
 
   '@img/colour@1.1.0': {}
 
@@ -3242,7 +3242,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 2.1.8(hono@4.13.18)
+      '@hono/node-server': 2.1.11(hono@4.13.19)
       ajv: 8.20.0
       ajv-formats: 3.0.1
       content-type: 1.0.5
@@ -3252,7 +3252,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.3.0(supports-color@10.2.2)
       express-rate-limit: 8.7.4(express@5.3.0(supports-color@10.2.2))(supports-color@10.2.2)
-      hono: 4.13.18
+      hono: 4.13.19
       jose: 6.2.17
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -3611,59 +3611,59 @@ snapshots:
   '@turbo/windows-arm64@2.11.11':
     optional: true
 
-  '@tursodatabase/database-common@0.8.3': {}
+  '@tursodatabase/database-common@0.8.4': {}
 
-  '@tursodatabase/database-darwin-arm64@0.8.3':
+  '@tursodatabase/database-darwin-arm64@0.8.4':
     optional: true
 
-  '@tursodatabase/database-linux-arm64-gnu@0.8.3':
+  '@tursodatabase/database-linux-arm64-gnu@0.8.4':
     optional: true
 
-  '@tursodatabase/database-linux-x64-gnu@0.8.3':
+  '@tursodatabase/database-linux-x64-gnu@0.8.4':
     optional: true
 
-  '@tursodatabase/database-win32-x64-msvc@0.8.3':
+  '@tursodatabase/database-win32-x64-msvc@0.8.4':
     optional: true
 
-  '@tursodatabase/database@0.8.3':
+  '@tursodatabase/database@0.8.4':
     dependencies:
-      '@tursodatabase/database-common': 0.8.3
+      '@tursodatabase/database-common': 0.8.4
     optionalDependencies:
-      '@tursodatabase/database-darwin-arm64': 0.8.3
-      '@tursodatabase/database-linux-arm64-gnu': 0.8.3
-      '@tursodatabase/database-linux-x64-gnu': 0.8.3
-      '@tursodatabase/database-win32-x64-msvc': 0.8.3
+      '@tursodatabase/database-darwin-arm64': 0.8.4
+      '@tursodatabase/database-linux-arm64-gnu': 0.8.4
+      '@tursodatabase/database-linux-x64-gnu': 0.8.4
+      '@tursodatabase/database-win32-x64-msvc': 0.8.4
 
   '@tursodatabase/serverless@0.2.4': {}
 
   '@tursodatabase/serverless@1.4.1': {}
 
-  '@tursodatabase/sync-common@0.8.3':
+  '@tursodatabase/sync-common@0.8.4':
     dependencies:
-      '@tursodatabase/database-common': 0.8.3
+      '@tursodatabase/database-common': 0.8.4
       '@tursodatabase/serverless': 0.2.4
 
-  '@tursodatabase/sync-darwin-arm64@0.8.3':
+  '@tursodatabase/sync-darwin-arm64@0.8.4':
     optional: true
 
-  '@tursodatabase/sync-linux-arm64-gnu@0.8.3':
+  '@tursodatabase/sync-linux-arm64-gnu@0.8.4':
     optional: true
 
-  '@tursodatabase/sync-linux-x64-gnu@0.8.3':
+  '@tursodatabase/sync-linux-x64-gnu@0.8.4':
     optional: true
 
-  '@tursodatabase/sync-win32-x64-msvc@0.8.3':
+  '@tursodatabase/sync-win32-x64-msvc@0.8.4':
     optional: true
 
-  '@tursodatabase/sync@0.8.3':
+  '@tursodatabase/sync@0.8.4':
     dependencies:
-      '@tursodatabase/database-common': 0.8.3
-      '@tursodatabase/sync-common': 0.8.3
+      '@tursodatabase/database-common': 0.8.4
+      '@tursodatabase/sync-common': 0.8.4
     optionalDependencies:
-      '@tursodatabase/sync-darwin-arm64': 0.8.3
-      '@tursodatabase/sync-linux-arm64-gnu': 0.8.3
-      '@tursodatabase/sync-linux-x64-gnu': 0.8.3
-      '@tursodatabase/sync-win32-x64-msvc': 0.8.3
+      '@tursodatabase/sync-darwin-arm64': 0.8.4
+      '@tursodatabase/sync-linux-arm64-gnu': 0.8.4
+      '@tursodatabase/sync-linux-x64-gnu': 0.8.4
+      '@tursodatabase/sync-win32-x64-msvc': 0.8.4
 
   '@tybys/wasm-util@0.10.4':
     dependencies:
@@ -4172,7 +4172,7 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  hono@4.13.18: {}
+  hono@4.13.19: {}
 
   hookable@6.1.2: {}
 
