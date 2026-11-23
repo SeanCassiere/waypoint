@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { createReaderApp, type ReaderEnv } from "../src/app.ts";
 
 // Workers' Free-plan limit is 10 ms per request. Locally we hold a 5 ms margin; shared CI
-// runners are slower and noisier, so CI allows 8 ms, which still leaves headroom under 10 ms.
+// runners are slower and noisier, so CI allows more (below), still under 10 ms.
 // The budget is split by shape (RX-03):
 // - The pathological shapes (long paths, deep folders, many folders) get pre-built rows, so they
 //   measure the shell render alone, which is what changes when the file list changes. They keep
@@ -17,9 +17,11 @@ import { createReaderApp, type ReaderEnv } from "../src/app.ts";
 //   measured request, as the Worker's database client does. "realistic" still keeps 5 ms locally;
 //   "repository" adds the decoding of its longer paths on top of rendering, so its local limit
 //   is 7 ms.
-// CI allows 8 ms for every shape, still under Workers' 10 ms.
+// CI allows 8 ms for most shapes and 9 ms for "repository", still under Workers' 10 ms. CI
+// runners measure about 1.45 times local CPU, so the repository shape's 5.5 ms locally is
+// about 8 ms there, and an 8 ms budget failed it on a slow runner.
 const CPU_BUDGET_MS = process.env.CI ? 8 : 5;
-const CPU_BUDGET_DECODING_MS = process.env.CI ? 8 : 7;
+const CPU_BUDGET_DECODING_MS = process.env.CI ? 9 : 7;
 
 const env: ReaderEnv = {
   TURSO_DATABASE_URL: "x",
